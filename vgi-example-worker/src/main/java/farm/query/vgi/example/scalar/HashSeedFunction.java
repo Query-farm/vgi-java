@@ -1,0 +1,48 @@
+// Copyright 2025-2026 Query.Farm LLC
+// SPDX-License-Identifier: Apache-2.0
+
+package farm.query.vgi.example.scalar;
+
+import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.protocol.BindResponse;
+import farm.query.vgi.scalar.ScalarBindParams;
+import farm.query.vgi.scalar.ScalarFunction;
+import farm.query.vgi.scalar.ScalarProcessParams;
+import farm.query.vgi.types.ScalarHelpers;
+import farm.query.vgi.types.Schemas;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
+
+import java.util.List;
+
+/**
+ * {@code hash_seed(seed: int64 [const]) -> int64}: generates {@code seed + row_index}
+ * for each row of the input batch. Demonstrates a function with const-only args
+ * that emits values driven by row count rather than input columns.
+ */
+public final class HashSeedFunction implements ScalarFunction {
+
+    private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.INT64);
+
+    @Override public String name() { return "hash_seed"; }
+
+    @Override public FunctionMetadata metadata() {
+        return FunctionMetadata.describe("Generate deterministic integers from a constant seed");
+    }
+
+    @Override public List<ArgSpec> argumentSpecs() {
+        return List.of(new ArgSpec("seed", 0, Schemas.INT64, /*isConst=*/true));
+    }
+
+    @Override public BindResponse onBind(ScalarBindParams params) {
+        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
+    }
+
+    @Override
+    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
+        long seed = ((Number) params.arguments().positionalAt(0)).longValue();
+        return ScalarHelpers.mapInt64Raw(Schemas.singleResult(Schemas.INT64), input, alloc,
+                row -> seed + row);
+    }
+}

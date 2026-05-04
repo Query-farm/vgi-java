@@ -1,0 +1,83 @@
+// Copyright 2025-2026 Query.Farm LLC
+// SPDX-License-Identifier: Apache-2.0
+
+package farm.query.vgi.pushdown;
+
+import farm.query.vgirpc.wire.Allocators;
+import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+
+import java.util.List;
+
+/**
+ * Helper for table-function fixtures that opt into filter pushdown
+ * ({@code FunctionMetadata.filterPushdown=true}, {@code autoApplyFilters=true}).
+ *
+ * <p>Decoded once per init via {@link #from} and reused across emits — each
+ * {@link #apply} evaluates the pre-parsed filter AST against the batch and
+ * returns a compacted batch (closing the original on row drop).</p>
+ */
+public final class FilterApplier {
+
+    private final byte[] filterBytes;
+    private final List<byte[]> joinKeysIpc;
+    private transient PushdownFilters cached;
+
+    public static FilterApplier from(byte[] filterBytes, List<byte[]> joinKeysIpc) {
+        return new FilterApplier(filterBytes, joinKeysIpc);
+    }
+
+    /** No-arg ctor for {@link farm.query.vgirpc.PortableStreamState} round-trip. */
+    public FilterApplier() {
+        this.filterBytes = null;
+        this.joinKeysIpc = List.of();
+    }
+
+    private FilterApplier(byte[] filterBytes, List<byte[]> joinKeysIpc) {
+        this.filterBytes = filterBytes;
+        this.joinKeysIpc = joinKeysIpc == null ? List.of() : joinKeysIpc;
+    }
+
+    public byte[] filterBytes() { return filterBytes; }
+    public List<byte[]> joinKeysIpc() { return joinKeysIpc; }
+
+    private PushdownFilters filters() {
+        if (cached == null) {
+            cached = filterBytes == null
+                    ? PushdownFilters.empty()
+                    : PushdownFiltersDecoder.decode(filterBytes, joinKeysIpc);
+        }
+        return cached;
+    }
+
+    public PushdownFilters pushdownFilters() { return filters(); }
+
+    /**
+     * Compact {@code src} to only rows that pass the parsed filters. Returns
+     * {@code src} unchanged when no filters were pushed; closes {@code src}
+     * and returns a new root when rows are dropped.
+     */
+    public VectorSchemaRoot apply(VectorSchemaRoot src) {
+        PushdownFilters pf = filters();
+        if (pf.filters().isEmpty()) return src;
+        boolean[] mask = pf.evaluate(src);
+        int kept = 0;
+        for (boolean b : mask) if (b) kept++;
+        if (kept == src.getRowCount()) return src;
+        VectorSchemaRoot dst = VectorSchemaRoot.create(src.getSchema(), Allocators.root());
+        dst.allocateNew();
+        int dstIdx = 0;
+        for (int i = 0; i < mask.length; i++) {
+            if (!mask[i]) continue;
+            for (int c = 0; c < dst.getFieldVectors().size(); c++) {
+                FieldVector dv = dst.getVector(c);
+                FieldVector svv = src.getVector(c);
+                dv.copyFromSafe(i, dstIdx, svv);
+            }
+            dstIdx++;
+        }
+        dst.setRowCount(kept);
+        src.close();
+        return dst;
+    }
+}

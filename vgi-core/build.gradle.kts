@@ -1,0 +1,15 @@
+plugins {
+    `java-library`
+}
+
+dependencies {
+    api("farm.query.vgirpc:vgirpc:0.1.0-SNAPSHOT")
+    implementation("org.slf4j:slf4j-api:2.0.16")
+    // Cross-process aggregate state store. DuckDB spawns multiple worker
+    // subprocesses for parallel aggregation; SQLite's file locking gives us
+    // a shared backing store with the same semantics as vgi-go.
+    implementation("org.xerial:sqlite-jdbc:3.46.1.3")
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
