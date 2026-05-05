@@ -400,15 +400,32 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public ItemsResponse catalog_schemas(byte[] attach_id, byte[] transaction_id) {
-        SchemaInfo info = new SchemaInfo(null, Map.of(), attach_id, worker.defaultSchema());
-        return new ItemsResponse(List.of(RecordCodec.serializeToBytes(info)));
+        List<byte[]> items = new ArrayList<>();
+        for (SchemaDesc s : workerSchemas()) {
+            items.add(RecordCodec.serializeToBytes(
+                    new SchemaInfo(s.comment, Map.of(), attach_id, s.name)));
+        }
+        return new ItemsResponse(items);
     }
 
     @Override
     public ItemsResponse catalog_schema_get(byte[] attach_id, String name, byte[] transaction_id) {
-        if (!worker.defaultSchema().equals(name)) return ItemsResponse.empty();
-        SchemaInfo info = new SchemaInfo(null, Map.of(), attach_id, name);
-        return new ItemsResponse(List.of(RecordCodec.serializeToBytes(info)));
+        for (SchemaDesc s : workerSchemas()) {
+            if (s.name.equals(name)) {
+                return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
+                        new SchemaInfo(s.comment, Map.of(), attach_id, name))));
+            }
+        }
+        return ItemsResponse.empty();
+    }
+
+    /** Schema descriptors registered with the worker (default + auxiliary). */
+    private record SchemaDesc(String name, String comment) {}
+
+    private List<SchemaDesc> workerSchemas() {
+        return List.of(
+                new SchemaDesc(worker.defaultSchema(), "Example functions for testing VGI"),
+                new SchemaDesc("data", "Example tables backed by functions"));
     }
 
     @Override

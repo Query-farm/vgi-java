@@ -61,7 +61,7 @@ public final class Main {
                 .catalogName("example")
                 .catalogComment("Example VGI catalog for testing")
                 .catalogTags(Map.of(
-                        "source", "vgi-example-worker-java",
+                        "source", "vgi-fixture-worker",
                         "version", "1"))
                 .settings(
                         new SettingSpec("vgi_verbose_mode", "Enable verbose output",
