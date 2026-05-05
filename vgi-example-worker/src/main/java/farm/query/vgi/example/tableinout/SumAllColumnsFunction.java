@@ -48,7 +48,10 @@ public class SumAllColumnsFunction implements TableInOutFunction {
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.table("data", 0));
+        return List.of(
+                ArgSpec.table("data", 0),
+                new ArgSpec("logging", -1, Schemas.BOOL, "", true, true, "false",
+                        List.of(), false, false));
     }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {
@@ -75,7 +78,9 @@ public class SumAllColumnsFunction implements TableInOutFunction {
             if (f.getType() instanceof ArrowType.Int) intSums.put(f.getName(), 0L);
             else if (f.getType() instanceof ArrowType.FloatingPoint) floatSums.put(f.getName(), 0.0);
         }
-        return new SumState(intSums, floatSums, SchemaUtil.serializeSchema(params.outputSchema()));
+        Object loggingObj = params.arguments().named().get("logging");
+        boolean logging = loggingObj instanceof Boolean b && b;
+        return new SumState(intSums, floatSums, SchemaUtil.serializeSchema(params.outputSchema()), logging);
     }
 
     @Override public boolean hasFinalize() { return true; }
@@ -103,15 +108,23 @@ public class SumAllColumnsFunction implements TableInOutFunction {
         public Map<String, Long> intSums;
         public Map<String, Double> floatSums;
         public byte[] outputSchemaIpc;
+        public boolean logging;
+        public long batchCount;
 
         private transient Schema cachedSchema;
 
         public SumState() {}
 
         public SumState(Map<String, Long> intSums, Map<String, Double> floatSums, byte[] outputSchemaIpc) {
+            this(intSums, floatSums, outputSchemaIpc, false);
+        }
+
+        public SumState(Map<String, Long> intSums, Map<String, Double> floatSums, byte[] outputSchemaIpc,
+                          boolean logging) {
             this.intSums = intSums;
             this.floatSums = floatSums;
             this.outputSchemaIpc = outputSchemaIpc;
+            this.logging = logging;
         }
 
         public Schema schema() {
@@ -124,6 +137,13 @@ public class SumAllColumnsFunction implements TableInOutFunction {
             Schema schema = schema();
             VectorSchemaRoot src = input.root();
             int rows = src.getRowCount();
+            if (logging) {
+                batchCount++;
+                out.clientLog(new farm.query.vgirpc.log.Message(
+                        farm.query.vgirpc.log.Level.INFO,
+                        "Processing batch with " + rows + " rows",
+                        null));
+            }
             for (Field f : schema.getFields()) {
                 FieldVector col = src.getVector(f.getName());
                 if (col == null) continue;

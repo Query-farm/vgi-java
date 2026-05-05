@@ -27,6 +27,7 @@ import farm.query.vgi.example.scalar.WhoAmIFunction;
 import farm.query.vgi.example.table.DoubleSequenceFunction;
 import farm.query.vgi.example.table.FilterEchoFunction;
 import farm.query.vgi.example.table.GeneratorExceptionFunction;
+import farm.query.vgi.example.table.LoggingGeneratorFunction;
 import farm.query.vgi.example.table.NestedSequenceFunction;
 import farm.query.vgi.example.table.ProjectedDataFunction;
 import farm.query.vgi.example.table.SampleEchoFunction;
@@ -101,6 +102,7 @@ public final class Main {
                 .registerTable(new FilterEchoFunction())
                 .registerTable(new ProjectedDataFunction())
                 .registerTable(new NestedSequenceFunction())
+                .registerTable(new LoggingGeneratorFunction())
                 .registerTable(new SlowCancellableFunction())
                 .registerTable(new SampleEchoFunction())
                 .registerAggregate(new SumFunction())
