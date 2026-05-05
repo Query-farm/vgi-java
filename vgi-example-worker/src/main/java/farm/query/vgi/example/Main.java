@@ -9,6 +9,7 @@ import farm.query.vgi.example.scalar.AddValuesFunction;
 import farm.query.vgi.example.scalar.BinaryPacketFunction;
 import farm.query.vgi.example.scalar.ConditionalMessageFunction;
 import farm.query.vgi.example.scalar.DoubleFunction;
+import farm.query.vgi.example.scalar.FormatNumberFunctions;
 import farm.query.vgi.example.scalar.GeoCentroidFixedFunction;
 import farm.query.vgi.example.scalar.GeoCentroidListFunction;
 import farm.query.vgi.example.scalar.GeoCentroidStructFunction;
@@ -89,6 +90,9 @@ public final class Main {
                 .registerScalar(new GeoCentroidFixedFunction())
                 .registerScalar(new BinaryPacketFunction())
                 .registerScalar(new MultiplyFunction())
+                .registerScalar(new FormatNumberFunctions.Default())
+                .registerScalar(new FormatNumberFunctions.WithPrecision())
+                .registerScalar(new FormatNumberFunctions.Full())
                 .registerTable(new SequenceFunction())
                 .registerTable(new DoubleSequenceFunction())
                 .registerTable(new NamedParamsEchoFunction())

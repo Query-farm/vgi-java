@@ -55,10 +55,10 @@ import java.util.UUID;
 public final class VgiServiceImpl implements VgiService {
 
     private final Worker worker;
-    private final Map<String, ScalarFunction> scalars = new HashMap<>();
-    private final Map<String, TableFunction> tables = new HashMap<>();
-    private final Map<String, TableInOutFunction> tableInOuts = new HashMap<>();
-    private final Map<String, AggregateFunction<?>> aggregates = new HashMap<>();
+    private final Map<String, List<ScalarFunction>> scalars = new HashMap<>();
+    private final Map<String, List<TableFunction>> tables = new HashMap<>();
+    private final Map<String, List<TableInOutFunction>> tableInOuts = new HashMap<>();
+    private final Map<String, List<AggregateFunction<?>>> aggregates = new HashMap<>();
     private final AggregateRunner aggregateRunner;
     /**
      * Bind cache keyed by an opaque token returned to DuckDB as
@@ -110,13 +110,34 @@ public final class VgiServiceImpl implements VgiService {
     public VgiServiceImpl(Worker worker, List<ScalarFunction> scalars, List<TableFunction> tables,
                            List<TableInOutFunction> tableInOuts, List<AggregateFunction<?>> aggregates) {
         this.worker = worker;
-        for (ScalarFunction f : scalars) this.scalars.put(f.name(), f);
-        for (TableFunction f : tables) this.tables.put(f.name(), f);
-        for (TableInOutFunction f : tableInOuts) this.tableInOuts.put(f.name(), f);
-        for (AggregateFunction<?> f : aggregates) this.aggregates.put(f.name(), f);
-        this.aggregateRunner = new AggregateRunner(this.aggregates);
+        for (ScalarFunction f : scalars) this.scalars.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
+        for (TableFunction f : tables) this.tables.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
+        for (TableInOutFunction f : tableInOuts) this.tableInOuts.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
+        for (AggregateFunction<?> f : aggregates) this.aggregates.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
+        // Aggregate runner expects flat name → fn (no overloads in scope yet).
+        Map<String, AggregateFunction<?>> aggFlat = new HashMap<>();
+        for (var e : this.aggregates.entrySet()) aggFlat.put(e.getKey(), e.getValue().get(0));
+        this.aggregateRunner = new AggregateRunner(aggFlat);
         ServiceLocator.setCurrent(new ServiceLocator(
                 this.scalars, this.tables, this.tableInOuts, this.aggregates));
+    }
+
+    /** Pick the variant whose argument-spec count matches the arg count seen at bind. */
+    private static <T> T pickVariant(List<T> variants, int argCount) {
+        if (variants == null || variants.isEmpty()) return null;
+        if (variants.size() == 1) return variants.get(0);
+        for (T v : variants) {
+            int n = countArgs(v);
+            if (n == argCount) return v;
+        }
+        return variants.get(0);
+    }
+
+    private static int countArgs(Object fn) {
+        if (fn instanceof ScalarFunction f) return f.argumentSpecs().size();
+        if (fn instanceof TableFunction f) return f.argumentSpecs().size();
+        if (fn instanceof TableInOutFunction f) return f.argumentSpecs().size();
+        return -1;
     }
 
     // -----------------------------------------------------------------------
@@ -136,8 +157,12 @@ public final class VgiServiceImpl implements VgiService {
         rng.nextBytes(token);
         String key = bytesKey(token);
 
+        // argCount = const args (in `arguments` field) + column args (in input_schema fields).
+        int constArgCount = args.positional().size();
+        int columnArgCount = inputSchema == null ? 0 : inputSchema.getFields().size();
+        int argCount = constArgCount + columnArgCount;
         if (scalars.containsKey(name)) {
-            ScalarFunction fn = scalars.get(name);
+            ScalarFunction fn = pickVariant(scalars.get(name), argCount);
             BindResponse upstream = fn.onBind(new ScalarBindParams(name, args, inputSchema, settings));
             Schema outputSchema = upstream.output_schema() == null
                     ? null
@@ -148,7 +173,7 @@ public final class VgiServiceImpl implements VgiService {
                     upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
         }
         if (tables.containsKey(name)) {
-            TableFunction fn = tables.get(name);
+            TableFunction fn = pickVariant(tables.get(name), argCount);
             BindResponse upstream = fn.onBind(new TableBindParams(name, args, inputSchema, settings));
             Schema outputSchema = upstream.output_schema() == null
                     ? null
@@ -159,7 +184,7 @@ public final class VgiServiceImpl implements VgiService {
                     upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
         }
         if (tableInOuts.containsKey(name)) {
-            TableInOutFunction fn = tableInOuts.get(name);
+            TableInOutFunction fn = pickVariant(tableInOuts.get(name), argCount);
             BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings));
             Schema outputSchema = upstream.output_schema() == null
                     ? null
@@ -201,7 +226,7 @@ public final class VgiServiceImpl implements VgiService {
         if (bound instanceof BoundScalar bs) {
             Schema inputSchema = bs.inputSchema() != null ? bs.inputSchema() : new Schema(List.of());
             ScalarStreamState state = new ScalarStreamState(
-                    bs.fn().name(), request.output_schema(),
+                    bs.fn().name(), bs.fn().argumentSpecs().size(), request.output_schema(),
                     bs.argumentsIpc(), bs.settingsIpc());
             return RpcStream.exchange(inputSchema, realOutputSchema, state, header);
         }
@@ -401,25 +426,33 @@ public final class VgiServiceImpl implements VgiService {
                 || type.equalsIgnoreCase("AGGREGATE_FUNCTION");
         List<byte[]> items = new ArrayList<>();
         if (wantScalar) {
-            for (ScalarFunction fn : scalars.values()) {
-                items.add(FunctionInfoSerializer.serialize(toScalarFunctionInfo(fn, name)));
+            for (List<ScalarFunction> variants : scalars.values()) {
+                for (ScalarFunction fn : variants) {
+                    items.add(FunctionInfoSerializer.serialize(toScalarFunctionInfo(fn, name)));
+                }
             }
         }
         if (wantTable) {
-            for (TableFunction fn : tables.values()) {
-                items.add(FunctionInfoSerializer.serialize(toTableFunctionInfo(fn, name)));
+            for (List<TableFunction> variants : tables.values()) {
+                for (TableFunction fn : variants) {
+                    items.add(FunctionInfoSerializer.serialize(toTableFunctionInfo(fn, name)));
+                }
             }
             // Table-in-out functions also register as function_type='table'
             // (DuckDB doesn't distinguish them at the catalog level — both
             // come back as TableFunction nodes; the bind/init flow tells them
             // apart by argument shape).
-            for (TableInOutFunction fn : tableInOuts.values()) {
-                items.add(FunctionInfoSerializer.serialize(toTableInOutFunctionInfo(fn, name)));
+            for (List<TableInOutFunction> variants : tableInOuts.values()) {
+                for (TableInOutFunction fn : variants) {
+                    items.add(FunctionInfoSerializer.serialize(toTableInOutFunctionInfo(fn, name)));
+                }
             }
         }
         if (wantAggregate) {
-            for (AggregateFunction<?> fn : aggregates.values()) {
-                items.add(FunctionInfoSerializer.serialize(toAggregateFunctionInfo(fn, name)));
+            for (List<AggregateFunction<?>> variants : aggregates.values()) {
+                for (AggregateFunction<?> fn : variants) {
+                    items.add(FunctionInfoSerializer.serialize(toAggregateFunctionInfo(fn, name)));
+                }
             }
         }
         return new ItemsResponse(items);
