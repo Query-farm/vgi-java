@@ -248,7 +248,11 @@ public final class VgiServiceImpl implements VgiService {
                     projIds,
                     request.join_keys() == null ? List.of() : request.join_keys(),
                     request.tablesample_percentage(),
-                    request.tablesample_seed());
+                    request.tablesample_seed(),
+                    request.order_by_column_name(),
+                    request.order_by_direction(),
+                    request.order_by_null_order(),
+                    request.order_by_limit());
             TableProducerState state = bt.fn().createProducer(params);
             return RpcStream.producer(fnOutputSchema, state, header);
         }

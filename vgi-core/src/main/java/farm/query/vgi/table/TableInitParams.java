@@ -21,13 +21,17 @@ public record TableInitParams(
         List<Integer> projectionIds,
         List<byte[]> joinKeys,
         Double tablesamplePercentage,
-        Long tablesampleSeed) {
+        Long tablesampleSeed,
+        String orderByColumnName,
+        String orderByDirection,
+        String orderByNullOrder,
+        Long orderByLimit) {
 
     /** Convenience ctor for callers that don't supply pushdown info. */
     public TableInitParams(String functionName, Arguments arguments, Schema outputSchema,
                             Map<String, Object> settings, BufferAllocator allocator) {
         this(functionName, arguments, outputSchema, settings, allocator,
-                null, List.of(), List.of(), null, null);
+                null, List.of(), List.of(), null, null, null, null, null, null);
     }
 
     /** Convenience ctor without tablesample hints. */
@@ -36,6 +40,6 @@ public record TableInitParams(
                             byte[] pushdownFilters, List<Integer> projectionIds,
                             List<byte[]> joinKeys) {
         this(functionName, arguments, outputSchema, settings, allocator,
-                pushdownFilters, projectionIds, joinKeys, null, null);
+                pushdownFilters, projectionIds, joinKeys, null, null, null, null, null, null);
     }
 }

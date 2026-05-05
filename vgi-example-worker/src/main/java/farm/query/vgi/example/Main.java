@@ -29,6 +29,7 @@ import farm.query.vgi.example.table.FilterEchoFunction;
 import farm.query.vgi.example.table.GeneratorExceptionFunction;
 import farm.query.vgi.example.table.LoggingGeneratorFunction;
 import farm.query.vgi.example.table.NestedSequenceFunction;
+import farm.query.vgi.example.table.OrderEchoFunction;
 import farm.query.vgi.example.table.ProjectedDataFunction;
 import farm.query.vgi.example.table.SampleEchoFunction;
 import farm.query.vgi.example.table.SlowCancellableFunction;
@@ -103,6 +104,7 @@ public final class Main {
                 .registerTable(new ProjectedDataFunction())
                 .registerTable(new NestedSequenceFunction())
                 .registerTable(new LoggingGeneratorFunction())
+                .registerTable(new OrderEchoFunction())
                 .registerTable(new SlowCancellableFunction())
                 .registerTable(new SampleEchoFunction())
                 .registerAggregate(new SumFunction())
