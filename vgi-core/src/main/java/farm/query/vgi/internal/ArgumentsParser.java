@@ -87,7 +87,8 @@ public final class ArgumentsParser {
         for (int i = 0; i < positionalByIdx.size(); i++) {
             positional.add(positionalByIdx.getOrDefault(i, null));
         }
-        return new Arguments(List.copyOf(positional), Map.copyOf(named));
+        return new Arguments(java.util.Collections.unmodifiableList(positional),
+                java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(named)));
     }
 
     private static Arguments extractFlat(VectorSchemaRoot root) {
@@ -98,7 +99,8 @@ public final class ArgumentsParser {
             named.put(v.getName(), value);
             positional.add(value);
         }
-        return new Arguments(List.copyOf(positional), Map.copyOf(named));
+        return new Arguments(java.util.Collections.unmodifiableList(positional),
+                java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(named)));
     }
 
     /** Read the scalar (row 0) value out of a vector. Returns null for null/empty. */

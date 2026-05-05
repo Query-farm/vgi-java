@@ -46,10 +46,37 @@ public final class SequenceFunction implements TableFunction {
     }
 
     @Override public BindResponse onBind(TableBindParams params) {
+        validate(params.arguments().named());
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
     }
 
+    private static void validate(java.util.Map<String, Object> named) {
+        // Required positional must be non-NULL.
+        if (named.containsKey("positional_0") && named.get("positional_0") == null) {
+            throw new IllegalArgumentException("count cannot be NULL");
+        }
+        if (named.get("count") == null && named.containsKey("count")) {
+            throw new IllegalArgumentException("count cannot be NULL");
+        }
+        // Optional named args: NULL is a hard error (different from "absent").
+        if (named.containsKey("batch_size") && named.get("batch_size") == null) {
+            throw new IllegalArgumentException("batch_size cannot be NULL");
+        }
+        if (named.containsKey("increment") && named.get("increment") == null) {
+            throw new IllegalArgumentException("increment cannot be NULL");
+        }
+        Object bs = named.get("batch_size");
+        if (bs instanceof Number n && n.longValue() < 1L) {
+            throw new IllegalArgumentException("batch_size must be >= 1, got " + n);
+        }
+        Object inc = named.get("increment");
+        if (inc instanceof Number n && n.longValue() < 1L) {
+            throw new IllegalArgumentException("increment must be >= 1, got " + n);
+        }
+    }
+
     @Override public TableProducerState createProducer(TableInitParams params) {
+        validate(params.arguments().named());
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
         Object bsObj = params.arguments().named().get("batch_size");
         long batchSize = bsObj == null ? 1000L : ((Number) bsObj).longValue();
