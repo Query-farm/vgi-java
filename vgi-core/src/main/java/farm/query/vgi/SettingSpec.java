@@ -4,6 +4,9 @@
 package farm.query.vgi;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+
+import java.util.List;
 
 /**
  * Declares a custom DuckDB setting backed by this worker. Mirrors vgi-go
@@ -16,9 +19,18 @@ public record SettingSpec(
         String name,
         String description,
         ArrowType type,
+        List<Field> children,
         Object defaultValue) {
 
     public SettingSpec(String name, String description, ArrowType type) {
-        this(name, description, type, null);
+        this(name, description, type, List.of(), null);
+    }
+
+    public SettingSpec(String name, String description, ArrowType type, Object defaultValue) {
+        this(name, description, type, List.of(), defaultValue);
+    }
+
+    public SettingSpec(String name, String description, ArrowType type, List<Field> children) {
+        this(name, description, type, children, null);
     }
 }

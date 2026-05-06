@@ -54,6 +54,7 @@ import farm.query.vgi.example.aggregate.SumAllFunction;
 import farm.query.vgi.example.aggregate.SumFunction;
 import farm.query.vgi.example.aggregate.WeightedSumFunction;
 import farm.query.vgi.example.tableinout.EchoFunction;
+import farm.query.vgi.example.tableinout.BufferInputFunction;
 import farm.query.vgi.example.tableinout.DistributedSumFunction;
 import farm.query.vgi.example.tableinout.ExceptionFinalizeFunction;
 import farm.query.vgi.example.tableinout.ExceptionProcessFunction;
@@ -82,7 +83,16 @@ public final class Main {
                         new SettingSpec("multiplier", "Value multiplier",
                                 Schemas.INT64, 1L),
                         new SettingSpec("threshold", "Filter threshold",
-                                Schemas.INT64, 0L))
+                                Schemas.INT64, 0L),
+                        new SettingSpec("config", "Sequence configuration struct",
+                                new org.apache.arrow.vector.types.pojo.ArrowType.Struct(),
+                                java.util.List.of(
+                                        new org.apache.arrow.vector.types.pojo.Field("start",
+                                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
+                                        new org.apache.arrow.vector.types.pojo.Field("step",
+                                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
+                                        new org.apache.arrow.vector.types.pojo.Field("label",
+                                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null), null))))
                 .registerScalar(new AddValuesFunction())
                 .registerScalar(new ConditionalMessageFunction())
                 .registerScalar(new DoubleFunction())
@@ -155,7 +165,8 @@ public final class Main {
                 .registerTableInOut(new ExceptionFinalizeFunction())
                 .registerTableInOut(new ExceptionProcessFunction())
                 .registerTableInOut(new SumAllColumnsFunction())
-                .registerTableInOut(new DistributedSumFunction());
+                .registerTableInOut(new DistributedSumFunction())
+                .registerTableInOut(new BufferInputFunction());
 
         boolean http = false;
         String host = "127.0.0.1";

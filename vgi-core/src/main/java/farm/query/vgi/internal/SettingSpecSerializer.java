@@ -53,7 +53,8 @@ public final class SettingSpecSerializer {
                 new Field("default_value", new FieldType(true, BINARY, null), null)));
 
         Schema typeSchema = new Schema(List.of(
-                new Field("value", new FieldType(true, spec.type(), null), null)));
+                new Field("value", new FieldType(true, spec.type(), null),
+                        spec.children() == null ? List.of() : spec.children())));
         byte[] typeBytes = SchemaUtil.serializeSchema(typeSchema);
         byte[] defaultBytes = spec.defaultValue() == null
                 ? null
