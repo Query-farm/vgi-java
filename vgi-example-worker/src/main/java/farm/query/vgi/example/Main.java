@@ -7,6 +7,8 @@ import farm.query.vgi.SettingSpec;
 import farm.query.vgi.Worker;
 import farm.query.vgi.example.scalar.AddValuesFunction;
 import farm.query.vgi.example.scalar.BinaryPacketFunction;
+import farm.query.vgi.example.scalar.AnyMixedFunctions;
+import farm.query.vgi.example.scalar.ConcatValuesFunctions;
 import farm.query.vgi.example.scalar.ConditionalMessageFunction;
 import farm.query.vgi.example.scalar.DoubleFunction;
 import farm.query.vgi.example.scalar.FormatNumberFunctions;
@@ -20,14 +22,19 @@ import farm.query.vgi.example.scalar.HashSeedFunction;
 import farm.query.vgi.example.scalar.MultiplyBySettingFunction;
 import farm.query.vgi.example.scalar.MultiplyFunction;
 import farm.query.vgi.example.scalar.NullHandlingFunction;
+import farm.query.vgi.example.scalar.PairTypeFunctions;
 import farm.query.vgi.example.scalar.RandomIntFunction;
 import farm.query.vgi.example.scalar.SumValuesFunction;
+import farm.query.vgi.example.scalar.TypeInfoFunctions;
 import farm.query.vgi.example.scalar.UpperCaseFunction;
 import farm.query.vgi.example.scalar.WhoAmIFunction;
 import farm.query.vgi.example.table.DoubleSequenceFunction;
 import farm.query.vgi.example.table.FilterEchoFunction;
 import farm.query.vgi.example.table.GeneratorExceptionFunction;
 import farm.query.vgi.example.table.LoggingGeneratorFunction;
+import farm.query.vgi.example.table.MakePairsFunctions;
+import farm.query.vgi.example.table.MakeSeriesFunctions;
+import farm.query.vgi.example.table.RepeatValueFunctions;
 import farm.query.vgi.example.table.NestedSequenceFunction;
 import farm.query.vgi.example.table.OrderEchoFunction;
 import farm.query.vgi.example.table.ProjectedDataFunction;
@@ -95,6 +102,20 @@ public final class Main {
                 .registerScalar(new FormatNumberFunctions.Default())
                 .registerScalar(new FormatNumberFunctions.WithPrecision())
                 .registerScalar(new FormatNumberFunctions.Full())
+                .registerScalar(new ConcatValuesFunctions.IntVariant())
+                .registerScalar(new ConcatValuesFunctions.StrVariant())
+                .registerScalar(new TypeInfoFunctions.Int32())
+                .registerScalar(new TypeInfoFunctions.Int64())
+                .registerScalar(new TypeInfoFunctions.UInt32())
+                .registerScalar(new TypeInfoFunctions.UInt64())
+                .registerScalar(new TypeInfoFunctions.Varchar())
+                .registerScalar(new PairTypeFunctions.IntInt())
+                .registerScalar(new PairTypeFunctions.StrStr())
+                .registerScalar(new PairTypeFunctions.IntStr())
+                .registerScalar(new AnyMixedFunctions.IntVariant())
+                .registerScalar(new AnyMixedFunctions.StrVariant())
+                .registerScalar(new AnyMixedFunctions.SmartFormatInt())
+                .registerScalar(new AnyMixedFunctions.SmartFormatStr())
                 .registerTable(new SequenceFunction())
                 .registerTable(new DoubleSequenceFunction())
                 .registerTable(new NamedParamsEchoFunction())
@@ -107,6 +128,16 @@ public final class Main {
                 .registerTable(new OrderEchoFunction())
                 .registerTable(new SlowCancellableFunction())
                 .registerTable(new SampleEchoFunction())
+                .registerTable(new MakeSeriesFunctions.Count())
+                .registerTable(new MakeSeriesFunctions.Range())
+                .registerTable(new MakeSeriesFunctions.Step())
+                .registerTable(new MakeSeriesFunctions.Csv())
+                .registerTable(new MakeSeriesFunctions.FloatStep())
+                .registerTable(new RepeatValueFunctions.IntVariant())
+                .registerTable(new RepeatValueFunctions.StrVariant())
+                .registerTable(new MakePairsFunctions.IntVariant())
+                .registerTable(new MakePairsFunctions.StrVariant())
+                .registerTable(new MakePairsFunctions.MixedVariant())
                 .registerAggregate(new SumFunction())
                 .registerAggregate(new CountFunction())
                 .registerAggregate(new AvgFunction())

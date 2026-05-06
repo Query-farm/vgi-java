@@ -31,6 +31,7 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
 
     private String functionName;
     private int argCount;
+    private int variantIndex;
     private byte[] outputSchemaIpc;
     private byte[] argumentsIpc;
     private byte[] settingsIpc;
@@ -44,8 +45,14 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
 
     public ScalarStreamState(String functionName, int argCount, byte[] outputSchemaIpc,
                               byte[] argumentsIpc, byte[] settingsIpc) {
+        this(functionName, argCount, 0, outputSchemaIpc, argumentsIpc, settingsIpc);
+    }
+
+    public ScalarStreamState(String functionName, int argCount, int variantIndex,
+                              byte[] outputSchemaIpc, byte[] argumentsIpc, byte[] settingsIpc) {
         this.functionName = functionName;
         this.argCount = argCount;
+        this.variantIndex = variantIndex;
         this.outputSchemaIpc = outputSchemaIpc;
         this.argumentsIpc = argumentsIpc;
         this.settingsIpc = settingsIpc;
@@ -53,7 +60,7 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
 
     @Override
     public void exchange(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-        ScalarFunction fn = ServiceLocator.current().scalar(functionName, argCount);
+        ScalarFunction fn = ServiceLocator.current().scalarAt(functionName, variantIndex);
         if (cachedOutputSchema == null) cachedOutputSchema = SchemaUtil.deserializeSchema(outputSchemaIpc);
         if (cachedArguments == null) cachedArguments = ArgumentsParser.parse(argumentsIpc);
         if (cachedSettings == null) cachedSettings = SettingsParser.parse(settingsIpc);
@@ -69,6 +76,7 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
              DataOutputStream dos = new DataOutputStream(baos)) {
             dos.writeUTF(functionName);
             dos.writeInt(argCount);
+            dos.writeInt(variantIndex);
             writeBytes(dos, outputSchemaIpc);
             writeBytes(dos, argumentsIpc);
             writeBytes(dos, settingsIpc);
@@ -83,6 +91,7 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
         try (DataInputStream dis = new DataInputStream(new ByteArrayInputStream(data))) {
             this.functionName = dis.readUTF();
             this.argCount = dis.readInt();
+            this.variantIndex = dis.readInt();
             this.outputSchemaIpc = readBytes(dis);
             this.argumentsIpc = readBytes(dis);
             this.settingsIpc = readBytes(dis);

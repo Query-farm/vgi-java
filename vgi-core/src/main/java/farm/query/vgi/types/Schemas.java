@@ -19,6 +19,8 @@ public final class Schemas {
 
     public static final ArrowType INT64 = new ArrowType.Int(64, true);
     public static final ArrowType INT32 = new ArrowType.Int(32, true);
+    public static final ArrowType UINT32 = new ArrowType.Int(32, false);
+    public static final ArrowType UINT64 = new ArrowType.Int(64, false);
     public static final ArrowType FLOAT64 = new ArrowType.FloatingPoint(
             org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE);
     public static final ArrowType UTF8 = new ArrowType.Utf8();

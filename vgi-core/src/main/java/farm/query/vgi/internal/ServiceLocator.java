@@ -68,6 +68,34 @@ public final class ServiceLocator {
         return pick(aggregates.get(name), argCount, "aggregate", name);
     }
 
+    /**
+     * Variant lookup by stable index. Used by stream states that captured the
+     * picked variant at bind time and need to re-resolve to the same one
+     * across exchange ticks even when overload pickers cannot disambiguate by
+     * arity alone.
+     */
+    public ScalarFunction scalarAt(String name, int idx) { return atIdx(scalars.get(name), idx, "scalar", name); }
+    public TableFunction tableAt(String name, int idx) { return atIdx(tables.get(name), idx, "table", name); }
+    public TableInOutFunction tableInOutAt(String name, int idx) { return atIdx(tableInOuts.get(name), idx, "table-in-out", name); }
+
+    public int scalarIndexOf(String name, ScalarFunction fn) { return idxOf(scalars.get(name), fn); }
+    public int tableIndexOf(String name, TableFunction fn) { return idxOf(tables.get(name), fn); }
+    public int tableInOutIndexOf(String name, TableInOutFunction fn) { return idxOf(tableInOuts.get(name), fn); }
+
+    private static <T> T atIdx(List<T> variants, int idx, String kind, String name) {
+        if (variants == null || variants.isEmpty()) {
+            throw new IllegalArgumentException("Unknown " + kind + " function: " + name);
+        }
+        if (idx < 0 || idx >= variants.size()) return variants.get(0);
+        return variants.get(idx);
+    }
+
+    private static <T> int idxOf(List<T> variants, T fn) {
+        if (variants == null) return 0;
+        for (int i = 0; i < variants.size(); i++) if (variants.get(i) == fn) return i;
+        return 0;
+    }
+
     /** Convenience for callers that don't track arity (single-variant fns). */
     public ScalarFunction scalar(String name) { return pick(scalars.get(name), -1, "scalar", name); }
     public TableFunction table(String name) { return pick(tables.get(name), -1, "table", name); }
