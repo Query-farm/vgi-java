@@ -626,6 +626,22 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     @Override
+    public farm.query.vgi.protocol.TableScanFunctionGetResponse catalog_table_scan_function_get(
+            byte[] attach_id, String schema_name, String name,
+            String at_unit, String at_value, byte[] transaction_id) {
+        for (Worker.CatalogTable t : worker.catalogTables()) {
+            if (t.schema().equals(schema_name) && t.name().equals(name) && t.scanFunctionName() != null) {
+                byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
+                        t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
+                        t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed());
+                return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
+                        t.scanFunctionName(), argsBytes, List.of());
+            }
+        }
+        throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
+    }
+
+    @Override
     public ItemsResponse catalog_table_get(
             byte[] attach_id, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_id) {
@@ -639,7 +655,7 @@ public final class VgiServiceImpl implements VgiService {
 
     private farm.query.vgi.protocol.TableInfo toTableInfo(Worker.CatalogTable t) {
         byte[] scanFn = null;
-        if (t.scanFunctionName() != null) {
+        if (t.scanFunctionName() != null && t.inlineScanFunction()) {
             scanFn = ScanFunctionResultEncoder.encode(
                     t.scanFunctionName(),
                     t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),

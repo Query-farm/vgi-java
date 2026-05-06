@@ -74,6 +74,11 @@ public final class ScanFunctionResultEncoder {
         }
     }
 
+    /** Public entry point used by {@code catalog_table_scan_function_get}. */
+    public static byte[] encodeArguments(List<Object> positional, Map<String, Object> named) {
+        return encodeArguments(positional, named, Allocators.root());
+    }
+
     private static byte[] encodeArguments(List<Object> positional, Map<String, Object> named,
                                             BufferAllocator alloc) {
         List<Field> fields = new ArrayList<>();

@@ -227,7 +227,7 @@ public final class Main {
                         "make_series",
                         java.util.List.of((Object) 100L),
                         java.util.Map.of(),
-                        100L, 100L, true))
+                        100L, 100L, true, /*inlineScanFunction=*/false))
                 .registerCatalogTable(new Worker.CatalogTable(
                         "data", "large_sequence",
                         farm.query.vgi.internal.SchemaUtil.serializeSchema(
@@ -240,7 +240,7 @@ public final class Main {
                         "sequence",
                         java.util.List.of((Object) 1_000_001L),
                         java.util.Map.of(),
-                        1_000_001L, 1_000_001L, true))
+                        1_000_001L, 1_000_001L, true, /*inlineScanFunction=*/true))
                 .registerCatalogTable(Worker.CatalogTable.functionBacked(
                                 "data", "cardinality_inlined_table",
                                 farm.query.vgi.internal.SchemaUtil.serializeSchema(

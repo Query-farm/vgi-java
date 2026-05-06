@@ -98,19 +98,28 @@ public final class Worker {
             Map<String, Object> scanFunctionNamed,
             Long cardinalityEstimate,
             Long cardinalityMax,
-            boolean inlineCardinality) {
+            boolean inlineCardinality,
+            boolean inlineScanFunction) {
 
         public static CatalogTable functionBacked(
                 String schema, String name, byte[] columns, String comment,
                 String scanFunction) {
             return new CatalogTable(schema, name, columns, comment, Map.of(),
-                    scanFunction, List.of(), Map.of(), null, null, false);
+                    scanFunction, List.of(), Map.of(), null, null, false, true);
         }
 
         public CatalogTable withCardinality(long estimate, long max) {
             return new CatalogTable(schema, name, columns, comment, tags,
                     scanFunctionName, scanFunctionPositional, scanFunctionNamed,
-                    estimate, max, true);
+                    estimate, max, true, inlineScanFunction);
+        }
+
+        /** Same backing function but skip the {@code TableInfo.scan_function}
+         * inline so the C++ extension fires {@code catalog_table_scan_function_get}. */
+        public CatalogTable withRpcScanFunction() {
+            return new CatalogTable(schema, name, columns, comment, tags,
+                    scanFunctionName, scanFunctionPositional, scanFunctionNamed,
+                    cardinalityEstimate, cardinalityMax, inlineCardinality, false);
         }
     }
 
