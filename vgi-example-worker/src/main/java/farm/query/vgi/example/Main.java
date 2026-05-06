@@ -8,6 +8,7 @@ import farm.query.vgi.Worker;
 import farm.query.vgi.example.scalar.AddValuesFunction;
 import farm.query.vgi.example.scalar.BinaryPacketFunction;
 import farm.query.vgi.example.scalar.AnyMixedFunctions;
+import farm.query.vgi.example.scalar.BernoulliFunction;
 import farm.query.vgi.example.scalar.ConcatValuesFunctions;
 import farm.query.vgi.example.scalar.ConditionalMessageFunction;
 import farm.query.vgi.example.scalar.DoubleFunction;
@@ -23,6 +24,7 @@ import farm.query.vgi.example.scalar.MultiplyBySettingFunction;
 import farm.query.vgi.example.scalar.MultiplyFunction;
 import farm.query.vgi.example.scalar.NullHandlingFunction;
 import farm.query.vgi.example.scalar.PairTypeFunctions;
+import farm.query.vgi.example.scalar.RandomBytesFunction;
 import farm.query.vgi.example.scalar.RandomIntFunction;
 import farm.query.vgi.example.scalar.SumValuesFunction;
 import farm.query.vgi.example.scalar.TypeInfoFunctions;
@@ -116,6 +118,8 @@ public final class Main {
                 .registerScalar(new AnyMixedFunctions.StrVariant())
                 .registerScalar(new AnyMixedFunctions.SmartFormatInt())
                 .registerScalar(new AnyMixedFunctions.SmartFormatStr())
+                .registerScalar(new BernoulliFunction())
+                .registerScalar(new RandomBytesFunction())
                 .registerTable(new SequenceFunction())
                 .registerTable(new DoubleSequenceFunction())
                 .registerTable(new NamedParamsEchoFunction())

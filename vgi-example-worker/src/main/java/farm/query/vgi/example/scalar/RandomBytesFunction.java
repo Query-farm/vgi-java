@@ -1,0 +1,63 @@
+// Copyright 2025-2026 Query.Farm LLC
+// SPDX-License-Identifier: Apache-2.0
+
+package farm.query.vgi.example.scalar;
+
+import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.protocol.BindResponse;
+import farm.query.vgi.scalar.ScalarBindParams;
+import farm.query.vgi.scalar.ScalarFunction;
+import farm.query.vgi.scalar.ScalarProcessParams;
+import farm.query.vgi.types.Schemas;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.VarBinaryVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+
+import java.util.List;
+import java.util.Random;
+
+/** {@code random_bytes(seed BIGINT [const], byte_length BIGINT [const]) -> BLOB} — deterministic. */
+public final class RandomBytesFunction implements ScalarFunction {
+
+    private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.BINARY);
+
+    @Override public String name() { return "random_bytes"; }
+    @Override public FunctionMetadata metadata() {
+        return FunctionMetadata.describe("Generate pseudo-random binary blobs from seed and length");
+    }
+    @Override public List<ArgSpec> argumentSpecs() {
+        return List.of(
+                new ArgSpec("seed", 0, Schemas.INT64, /*isConst=*/true),
+                new ArgSpec("byte_length", 1, Schemas.INT64, /*isConst=*/true));
+    }
+    @Override public BindResponse onBind(ScalarBindParams p) {
+        Object lenObj = p.arguments().named().get("byte_length");
+        if (lenObj == null) lenObj = p.arguments().named().get("named_byte_length");
+        if (lenObj == null && p.arguments().positional().size() > 1) {
+            lenObj = p.arguments().positional().get(1);
+        }
+        if (lenObj instanceof Number n && n.longValue() < 0) {
+            throw new IllegalArgumentException("byte_length must be >= 0");
+        }
+        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
+    }
+    @Override
+    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
+        long seed = ((Number) params.arguments().positionalAt(0)).longValue();
+        long byteLen = ((Number) params.arguments().positionalAt(1)).longValue();
+        if (byteLen < 0) throw new IllegalArgumentException("byte_length must be >= 0");
+        Random rng = new Random(seed);
+        int rows = input.getRowCount();
+        VectorSchemaRoot out = VectorSchemaRoot.create(params.outputSchema(), alloc);
+        out.allocateNew();
+        VarBinaryVector v = (VarBinaryVector) out.getVector("result");
+        for (int i = 0; i < rows; i++) {
+            byte[] buf = new byte[(int) byteLen];
+            rng.nextBytes(buf);
+            v.setSafe(i, buf);
+        }
+        out.setRowCount(rows);
+        return out;
+    }
+}

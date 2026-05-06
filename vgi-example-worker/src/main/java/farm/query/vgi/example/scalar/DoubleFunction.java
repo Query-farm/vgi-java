@@ -51,6 +51,23 @@ public final class DoubleFunction implements ScalarFunction {
                 || params.inputSchema().getFields().isEmpty())
                 ? Schemas.INT64
                 : params.inputSchema().getFields().get(0).getType();
+        // Reject non-multipliable types up-front. The error message must
+        // contain the predicate name so the test can pin the failure to the
+        // bind layer rather than a downstream Arrow kernel exception.
+        if (in instanceof ArrowType.Date
+                || in instanceof ArrowType.Time
+                || in instanceof ArrowType.Timestamp
+                || in instanceof ArrowType.Interval
+                || in instanceof ArrowType.Duration
+                || in instanceof ArrowType.Bool
+                || in instanceof ArrowType.Utf8
+                || in instanceof ArrowType.LargeUtf8
+                || in instanceof ArrowType.Binary
+                || in instanceof ArrowType.LargeBinary) {
+            throw new IllegalArgumentException(
+                    "double: _is_multipliable_type rejects " + in
+                            + " — only numeric types (int/float/decimal) are supported");
+        }
         return BindResponse.forSchema(Schemas.singleResultIpc(TypeRules.promoteForAddition(in)));
     }
 
