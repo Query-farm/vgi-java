@@ -215,6 +215,32 @@ public final class Main {
                                                         Schemas.INT64, null), null)))),
                         "Function-backed table over the no-arg ten_thousand function",
                         "ten_thousand"))
+                .registerCatalogTable(new Worker.CatalogTable(
+                        "data", "numbers",
+                        farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                                new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
+                                        new org.apache.arrow.vector.types.pojo.Field("value",
+                                                new org.apache.arrow.vector.types.pojo.FieldType(true,
+                                                        Schemas.INT64, null), null)))),
+                        "First 100 integers (demonstrates explicit columns)",
+                        java.util.Map.of(),
+                        "make_series",
+                        java.util.List.of((Object) 100L),
+                        java.util.Map.of(),
+                        100L, 100L, true))
+                .registerCatalogTable(new Worker.CatalogTable(
+                        "data", "large_sequence",
+                        farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                                new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
+                                        new org.apache.arrow.vector.types.pojo.Field("n",
+                                                new org.apache.arrow.vector.types.pojo.FieldType(true,
+                                                        Schemas.INT64, null), null)))),
+                        "A large sequence of integers from 0 to 1,000,000",
+                        java.util.Map.of(),
+                        "sequence",
+                        java.util.List.of((Object) 1_000_001L),
+                        java.util.Map.of(),
+                        1_000_001L, 1_000_001L, true))
                 .registerCatalogTable(Worker.CatalogTable.functionBacked(
                                 "data", "cardinality_inlined_table",
                                 farm.query.vgi.internal.SchemaUtil.serializeSchema(
