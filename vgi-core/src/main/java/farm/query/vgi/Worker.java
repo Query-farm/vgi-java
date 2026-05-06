@@ -80,6 +80,49 @@ public final class Worker {
 
     public List<Macro> macros() { return macros; }
 
+    /**
+     * A catalog table. {@code columns} is the table's Arrow schema serialized
+     * as IPC bytes. {@code scanFunctionName} (with {@code scanFunctionArgs})
+     * inlines the scan function so the C++ extension can skip
+     * {@code catalog_table_scan_function_get}; if {@code null}, the worker
+     * must implement that RPC manually.
+     */
+    public record CatalogTable(
+            String schema,
+            String name,
+            byte[] columns,
+            String comment,
+            Map<String, String> tags,
+            String scanFunctionName,
+            List<Object> scanFunctionPositional,
+            Map<String, Object> scanFunctionNamed,
+            Long cardinalityEstimate,
+            Long cardinalityMax,
+            boolean inlineCardinality) {
+
+        public static CatalogTable functionBacked(
+                String schema, String name, byte[] columns, String comment,
+                String scanFunction) {
+            return new CatalogTable(schema, name, columns, comment, Map.of(),
+                    scanFunction, List.of(), Map.of(), null, null, false);
+        }
+
+        public CatalogTable withCardinality(long estimate, long max) {
+            return new CatalogTable(schema, name, columns, comment, tags,
+                    scanFunctionName, scanFunctionPositional, scanFunctionNamed,
+                    estimate, max, true);
+        }
+    }
+
+    private final List<CatalogTable> catalogTables = new ArrayList<>();
+
+    public Worker registerCatalogTable(CatalogTable t) {
+        catalogTables.add(t);
+        return this;
+    }
+
+    public List<CatalogTable> catalogTables() { return catalogTables; }
+
     private Worker() {}
 
     public static Worker builder() { return new Worker(); }

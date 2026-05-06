@@ -61,8 +61,9 @@ public interface VgiService {
     // Table-function statistics & cardinality (packed; default = unsupported)
     // -----------------------------------------------------------------------
 
-    default long table_function_cardinality(CardinalityRequest request) {
-        throw new UnsupportedOperationException("table_function_cardinality");
+    default farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(
+            CardinalityRequest request) {
+        return new farm.query.vgi.protocol.CardinalityResponse(null, null);
     }
 
     default byte[] table_function_statistics(CardinalityRequest request) {

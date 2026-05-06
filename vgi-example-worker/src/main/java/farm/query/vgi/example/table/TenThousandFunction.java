@@ -41,6 +41,7 @@ public final class TenThousandFunction implements TableFunction {
     @Override public TableProducerState createProducer(TableInitParams params) {
         return new State(new BatchState(10_000, 1000));
     }
+    @Override public long cardinality(TableBindParams params) { return 10_000L; }
 
     public static final class State extends TableProducerState {
         public BatchState batch;

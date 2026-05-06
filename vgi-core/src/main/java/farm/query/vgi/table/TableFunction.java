@@ -33,4 +33,11 @@ public interface TableFunction {
 
     /** Build a fresh per-call producer. The framework owns the returned object. */
     TableProducerState createProducer(TableInitParams params);
+
+    /**
+     * Cardinality estimate for the result of this function call. The returned
+     * value is forwarded to DuckDB's optimiser via the
+     * {@code table_function_cardinality} RPC. {@code -1} means "unknown".
+     */
+    default long cardinality(TableBindParams params) { return -1L; }
 }

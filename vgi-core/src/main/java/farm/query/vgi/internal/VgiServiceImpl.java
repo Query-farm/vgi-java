@@ -440,9 +440,35 @@ public final class VgiServiceImpl implements VgiService {
     // -----------------------------------------------------------------------
 
     @Override
-    public long table_function_cardinality(CardinalityRequest request) {
-        // Phase 4 stub: -1 advertises "unknown cardinality" — DuckDB plans
-        // accordingly. Real cardinality estimation arrives in Phase 5a.
+    public farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(CardinalityRequest request) {
+        long result = computeCardinality(request);
+        return new farm.query.vgi.protocol.CardinalityResponse(
+                result < 0 ? null : result,
+                result < 0 ? null : result);
+    }
+
+    private long computeCardinality(CardinalityRequest request) {
+        if (request.bind_opaque_data() != null) {
+            BoundEntry e = pendingBinds.get(bytesKey(request.bind_opaque_data()));
+            if (e instanceof BoundTable bt) {
+                return bt.fn().cardinality(new TableBindParams(
+                        bt.fn().name(), bt.args(), bt.inputSchema(), bt.settings()));
+            }
+        }
+        if (request.bind_call() != null && request.bind_call().length > 0) {
+            BindRequest embedded = RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class);
+            if (tables.containsKey(embedded.function_name())) {
+                Schema inputSchema = SchemaUtil.deserializeSchema(embedded.input_schema());
+                Arguments args = ArgumentsParser.parse(embedded.arguments());
+                Map<String, Object> settings = SettingsParser.parse(embedded.settings());
+                int constN = args.positional().size();
+                int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
+                TableFunction fn = pickVariant(tables.get(embedded.function_name()),
+                        constN + colN, args, inputSchema);
+                return fn.cardinality(new TableBindParams(embedded.function_name(),
+                        args, inputSchema, settings));
+            }
+        }
         return -1L;
     }
 
@@ -572,7 +598,10 @@ public final class VgiServiceImpl implements VgiService {
         } else {
             m.put("functions", 0L);
         }
-        m.put("tables", 0L);
+        long tableCount = worker.catalogTables().stream()
+                .filter(t -> t.schema().equals(s.name))
+                .count();
+        m.put("tables", tableCount);
         long viewCount = worker.views().stream()
                 .filter(v -> v.schema().equals(s.name))
                 .count();
@@ -583,6 +612,64 @@ public final class VgiServiceImpl implements VgiService {
         m.put("macros", macroCount);
         m.put("indexes", 0L);
         return m;
+    }
+
+    @Override
+    public ItemsResponse catalog_schema_contents_tables(
+            byte[] attach_id, String name, byte[] transaction_id) {
+        List<byte[]> items = new ArrayList<>();
+        for (Worker.CatalogTable t : worker.catalogTables()) {
+            if (!t.schema().equals(name)) continue;
+            items.add(TableInfoSerializer.serialize(toTableInfo(t)));
+        }
+        return new ItemsResponse(items);
+    }
+
+    @Override
+    public ItemsResponse catalog_table_get(
+            byte[] attach_id, String schema_name, String name,
+            String at_unit, String at_value, byte[] transaction_id) {
+        for (Worker.CatalogTable t : worker.catalogTables()) {
+            if (t.schema().equals(schema_name) && t.name().equals(name)) {
+                return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(t))));
+            }
+        }
+        return ItemsResponse.empty();
+    }
+
+    private farm.query.vgi.protocol.TableInfo toTableInfo(Worker.CatalogTable t) {
+        byte[] scanFn = null;
+        if (t.scanFunctionName() != null) {
+            scanFn = ScanFunctionResultEncoder.encode(
+                    t.scanFunctionName(),
+                    t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
+                    t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
+                    List.of());
+        }
+        return new farm.query.vgi.protocol.TableInfo(
+                t.comment() == null || t.comment().isEmpty() ? null : t.comment(),
+                t.tags() == null ? Map.of() : t.tags(),
+                t.name(),
+                t.schema(),
+                t.columns() == null ? new byte[0] : t.columns(),
+                List.of(),     // not_null_constraints
+                List.of(),     // unique_constraints
+                List.of(),     // check_constraints
+                List.of(),     // primary_key_constraints
+                List.of(),     // foreign_key_constraints
+                false,
+                false,
+                false,
+                false,
+                false,
+                scanFn,
+                null,
+                null,
+                null,
+                t.inlineCardinality() ? t.cardinalityEstimate() : null,
+                t.inlineCardinality() ? t.cardinalityMax() : null,
+                null,
+                null);
     }
 
     @Override

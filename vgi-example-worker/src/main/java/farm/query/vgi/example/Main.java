@@ -206,6 +206,25 @@ public final class Main {
                         "data", "small_numbers",
                         "SELECT * FROM example.main.make_series(10)",
                         "Numbers less than 10"))
+                .registerCatalogTable(Worker.CatalogTable.functionBacked(
+                        "data", "ten_thousand_table",
+                        farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                                new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
+                                        new org.apache.arrow.vector.types.pojo.Field("n",
+                                                new org.apache.arrow.vector.types.pojo.FieldType(true,
+                                                        Schemas.INT64, null), null)))),
+                        "Function-backed table over the no-arg ten_thousand function",
+                        "ten_thousand"))
+                .registerCatalogTable(Worker.CatalogTable.functionBacked(
+                                "data", "cardinality_inlined_table",
+                                farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                                        new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
+                                                new org.apache.arrow.vector.types.pojo.Field("n",
+                                                        new org.apache.arrow.vector.types.pojo.FieldType(true,
+                                                                Schemas.INT64, null), null)))),
+                                "Function-backed table with inlined cardinality (10000 rows)",
+                                "ten_thousand")
+                        .withCardinality(10000L, 10000L))
                 .registerMacro(new Worker.Macro(
                         "main", "vgi_multiply", Worker.MacroType.SCALAR,
                         java.util.List.of("x", "y"), "x * y", "Multiply two values"))
