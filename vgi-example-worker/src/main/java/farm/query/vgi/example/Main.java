@@ -42,8 +42,10 @@ import farm.query.vgi.example.table.OrderEchoFunction;
 import farm.query.vgi.example.table.ProjectedDataFunction;
 import farm.query.vgi.example.table.SampleEchoFunction;
 import farm.query.vgi.example.table.SlowCancellableFunction;
+import farm.query.vgi.example.table.StructSettingsFunction;
 import farm.query.vgi.example.table.NamedParamsEchoFunction;
 import farm.query.vgi.example.table.SequenceFunction;
+import farm.query.vgi.example.table.SettingsAwareFunction;
 import farm.query.vgi.example.table.TenThousandFunction;
 import farm.query.vgi.example.aggregate.AvgFunction;
 import farm.query.vgi.example.aggregate.CountFunction;
@@ -154,6 +156,8 @@ public final class Main {
                 .registerTable(new MakePairsFunctions.IntVariant())
                 .registerTable(new MakePairsFunctions.StrVariant())
                 .registerTable(new MakePairsFunctions.MixedVariant())
+                .registerTable(new StructSettingsFunction())
+                .registerTable(new SettingsAwareFunction())
                 .registerAggregate(new SumFunction())
                 .registerAggregate(new CountFunction())
                 .registerAggregate(new AvgFunction())
