@@ -35,7 +35,8 @@ public final class SequenceFunction implements TableFunction {
     @Override public String name() { return "sequence"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Generates a sequence of integers from 0 to count-1");
+        return FunctionMetadata.describe("Generates a sequence of integers from 0 to count-1")
+                .withPushdown(/*projection=*/false, /*filter=*/true, /*autoApply=*/false);
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
