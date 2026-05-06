@@ -51,7 +51,24 @@ public final class EchoFunction implements TableInOutFunction {
     public static final class EchoState extends TableInOutExchangeState {
         public EchoState() {}
         @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-            out.emit(input.root());
+            // Copy the input batch into a fresh root so the framework's
+            // wire writer never observes a mutating source. With nested
+            // types (struct/list/map) DuckDB streams multiple ticks per
+            // call; sharing the source root truncated everything past the
+            // first 2048-row vector.
+            org.apache.arrow.vector.VectorSchemaRoot src = input.root();
+            org.apache.arrow.vector.VectorSchemaRoot dst =
+                    org.apache.arrow.vector.VectorSchemaRoot.create(
+                            src.getSchema(), farm.query.vgirpc.wire.Allocators.root());
+            dst.allocateNew();
+            for (int c = 0; c < src.getFieldVectors().size(); c++) {
+                org.apache.arrow.vector.FieldVector srcV = src.getFieldVectors().get(c);
+                org.apache.arrow.vector.FieldVector dstV = dst.getFieldVectors().get(c);
+                org.apache.arrow.vector.util.TransferPair tp = srcV.makeTransferPair(dstV);
+                tp.splitAndTransfer(0, src.getRowCount());
+            }
+            dst.setRowCount(src.getRowCount());
+            out.emit(dst);
         }
     }
 }
