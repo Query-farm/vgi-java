@@ -19,37 +19,32 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import java.util.List;
 
 /**
- * {@code echo(data TABLE) -> *} — passes each input batch through unchanged.
- * Output schema = input schema.
+ * Stub for {@code unnest_tensor_rows(data TABLE)} — emits input passthrough.
+ * Required for function_registration coverage; tensor unnesting semantics
+ * are not yet implemented.
  */
-public final class EchoFunction implements TableInOutFunction {
+public final class UnnestTensorRowsFunction implements TableInOutFunction {
 
-    @Override public String name() { return "echo"; }
-
+    @Override public String name() { return "unnest_tensor_rows"; }
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Passthrough function that emits each input batch unchanged")
-                .withCategories("utility", "debug");
+        return FunctionMetadata.describe("Unnest tensor rows (stub)");
     }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.table("data", 0));
-    }
+    @Override public List<ArgSpec> argumentSpecs() { return List.of(ArgSpec.table("data", 0)); }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {
         Schema in = params.inputSchema();
         if (in == null || in.getFields().isEmpty()) {
-            // Catalog enumeration with no input — placeholder empty schema.
             return BindResponse.forSchema(SchemaUtil.serializeSchema(new Schema(List.of())));
         }
         return BindResponse.forSchema(SchemaUtil.serializeSchema(in));
     }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-        return new EchoState();
+        return new State();
     }
 
-    public static final class EchoState extends TableInOutExchangeState {
-        public EchoState() {}
+    public static final class State extends TableInOutExchangeState {
+        public State() {}
         @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
             out.emit(input.root());
         }

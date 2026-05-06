@@ -31,7 +31,7 @@ public final class MultiplyBySettingFunction implements ScalarFunction {
     @Override public String name() { return "multiply_by_setting"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Multiplies the input by the 'multiplier' setting");
+        return FunctionMetadata.describe("Multiply the input value by a setting value");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {

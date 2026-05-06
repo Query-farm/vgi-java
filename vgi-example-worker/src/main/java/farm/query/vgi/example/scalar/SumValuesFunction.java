@@ -29,7 +29,7 @@ public final class SumValuesFunction implements ScalarFunction {
     @Override public String name() { return "sum_values"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Sum multiple numeric values (varargs)");
+        return FunctionMetadata.describe("Sum multiple numeric values");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
@@ -40,8 +40,7 @@ public final class SumValuesFunction implements ScalarFunction {
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         if (params.inputSchema() == null) {
-            // Catalog enumeration — emit a placeholder schema.
-            return BindResponse.forSchema(Schemas.singleResultIpc(Schemas.INT64));
+            return BindResponse.forSchema(Schemas.singleResultAnyIpc());
         }
         if (params.inputSchema().getFields().isEmpty()) {
             throw new IllegalArgumentException("sum_values requires at least 1 value");

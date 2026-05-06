@@ -44,7 +44,8 @@ public class SumAllColumnsFunction implements TableInOutFunction {
     @Override public String name() { return "sum_all_columns"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Computes column-wise sums across all batches");
+        return FunctionMetadata.describe("Computes column-wise sums across all batches")
+                .withCategories("aggregation", "numeric");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {

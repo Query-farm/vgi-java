@@ -39,7 +39,7 @@ public final class DoubleFunction implements ScalarFunction {
     @Override public String name() { return "double"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Doubles a numeric value");
+        return FunctionMetadata.describe("Doubles numeric values");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
@@ -47,10 +47,10 @@ public final class DoubleFunction implements ScalarFunction {
     }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
-        ArrowType in = (params.inputSchema() == null
-                || params.inputSchema().getFields().isEmpty())
-                ? Schemas.INT64
-                : params.inputSchema().getFields().get(0).getType();
+        if (params.inputSchema() == null || params.inputSchema().getFields().isEmpty()) {
+            return BindResponse.forSchema(Schemas.singleResultAnyIpc());
+        }
+        ArrowType in = params.inputSchema().getFields().get(0).getType();
         // Reject non-multipliable types up-front. The error message must
         // contain the predicate name so the test can pin the failure to the
         // bind layer rather than a downstream Arrow kernel exception.

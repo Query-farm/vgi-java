@@ -45,7 +45,11 @@ public final class AddValuesFunction implements ScalarFunction {
     }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
-        // Catalog enumeration calls onBind without an input_schema; default to int64.
+        // Catalog enumeration calls onBind without an input_schema — emit
+        // ArrowType.Null which DuckDB renders as "ANY" in duckdb_functions().
+        if (params.inputSchema() == null || params.inputSchema().getFields().isEmpty()) {
+            return BindResponse.forSchema(Schemas.singleResultAnyIpc());
+        }
         ArrowType a = inputType(params, 0);
         ArrowType b = inputType(params, 1);
         ArrowType out = TypeRules.commonTypeForAddition(a, b);

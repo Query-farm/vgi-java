@@ -37,4 +37,17 @@ public final class Schemas {
     public static byte[] singleResultIpc(ArrowType t) {
         return SchemaUtil.serializeSchema(singleResult(t));
     }
+
+    /**
+     * Single-column "ANY"-typed result schema. The field carries the
+     * {@code vgi_type=any} metadata that DuckDB's catalog-enumeration path
+     * recognises and reports as {@code ANY} in {@code duckdb_functions()}.
+     */
+    public static byte[] singleResultAnyIpc() {
+        return SchemaUtil.serializeSchema(new Schema(List.of(
+                new Field("result",
+                        new FieldType(true, new org.apache.arrow.vector.types.pojo.ArrowType.Null(),
+                                null, java.util.Map.of("vgi_type", "any")),
+                        null))));
+    }
 }

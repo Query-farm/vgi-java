@@ -36,6 +36,9 @@ public final class GenericSumFunction implements AggregateFunction<GenericSumFun
     }
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
+            new Field("result", new FieldType(true, new org.apache.arrow.vector.types.pojo.ArrowType.Null(),
+                    null, java.util.Map.of("vgi_type", "any")), null)));
+    private static final Schema FALLBACK_SCHEMA = new Schema(List.of(
             new Field("result", new FieldType(true, Schemas.FLOAT64, null), null)));
 
     @Override public String name() { return "vgi_generic_sum"; }
@@ -55,7 +58,7 @@ public final class GenericSumFunction implements AggregateFunction<GenericSumFun
 
     @Override
     public Schema bindOutputSchema(Schema inputSchema) {
-        if (inputSchema == null || inputSchema.getFields().isEmpty()) return OUTPUT_SCHEMA;
+        if (inputSchema == null || inputSchema.getFields().isEmpty()) return FALLBACK_SCHEMA;
         ArrowType inType = inputSchema.getFields().get(0).getType();
         return new Schema(java.util.List.of(
                 new Field("result", new FieldType(true, inType, null), null)));

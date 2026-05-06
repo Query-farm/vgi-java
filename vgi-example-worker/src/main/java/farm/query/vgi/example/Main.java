@@ -25,9 +25,11 @@ import farm.query.vgi.example.scalar.MultiplyFunction;
 import farm.query.vgi.example.scalar.NullHandlingFunction;
 import farm.query.vgi.example.scalar.PairTypeFunctions;
 import farm.query.vgi.example.scalar.RandomBytesFunction;
+import farm.query.vgi.example.scalar.ReturnSecretValueFunction;
 import farm.query.vgi.example.scalar.RandomIntFunction;
 import farm.query.vgi.example.scalar.SumValuesFunction;
 import farm.query.vgi.example.scalar.TypeInfoFunctions;
+import farm.query.vgi.example.scalar.UnnestTensorFunction;
 import farm.query.vgi.example.scalar.UpperCaseFunction;
 import farm.query.vgi.example.scalar.WhoAmIFunction;
 import farm.query.vgi.example.table.DoubleSequenceFunction;
@@ -52,6 +54,7 @@ import farm.query.vgi.example.aggregate.CountFunction;
 import farm.query.vgi.example.aggregate.GenericSumFunction;
 import farm.query.vgi.example.aggregate.ListAggFunction;
 import farm.query.vgi.example.aggregate.PercentileFunction;
+import farm.query.vgi.example.aggregate.StubAggregates;
 import farm.query.vgi.example.aggregate.SumAllFunction;
 import farm.query.vgi.example.aggregate.SumFunction;
 import farm.query.vgi.example.aggregate.WeightedSumFunction;
@@ -59,6 +62,7 @@ import farm.query.vgi.example.tableinout.EchoFunction;
 import farm.query.vgi.example.tableinout.BufferInputFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
 import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
+import farm.query.vgi.example.tableinout.UnnestTensorRowsFunction;
 import farm.query.vgi.example.tableinout.DistributedSumFunction;
 import farm.query.vgi.example.tableinout.ExceptionFinalizeFunction;
 import farm.query.vgi.example.tableinout.ExceptionProcessFunction;
@@ -141,6 +145,8 @@ public final class Main {
                 .registerScalar(new AnyMixedFunctions.SmartFormatStr())
                 .registerScalar(new BernoulliFunction())
                 .registerScalar(new RandomBytesFunction())
+                .registerScalar(new ReturnSecretValueFunction())
+                .registerScalar(new UnnestTensorFunction())
                 .registerTable(new SequenceFunction())
                 .registerTable(new DoubleSequenceFunction())
                 .registerTable(new NamedParamsEchoFunction())
@@ -173,6 +179,12 @@ public final class Main {
                 .registerAggregate(new SumAllFunction())
                 .registerAggregate(new GenericSumFunction())
                 .registerAggregate(new PercentileFunction())
+                .registerAggregate(new StubAggregates.StreamingSum())
+                .registerAggregate(new StubAggregates.NestTensor())
+                .registerAggregate(new StubAggregates.WindowSum())
+                .registerAggregate(new StubAggregates.WindowSumBatch())
+                .registerAggregate(new StubAggregates.WindowMedian())
+                .registerAggregate(new StubAggregates.WindowListagg())
                 .registerTableInOut(new EchoFunction())
                 .registerTableInOut(new RepeatInputsFunction())
                 .registerTableInOut(new ExceptionFinalizeFunction())
@@ -182,6 +194,7 @@ public final class Main {
                 .registerTableInOut(new BufferInputFunction())
                 .registerTableInOut(new FilterBySettingFunction())
                 .registerTableInOut(new SlowCancellableInoutFunction())
+                .registerTableInOut(new UnnestTensorRowsFunction())
                 .registerView(new Worker.View(
                         "main", "first_ten",
                         "SELECT * FROM sequence(10)", "First 10 integers"))

@@ -24,7 +24,14 @@ public final class ExceptionProcessFunction extends SumAllColumnsFunction {
     @Override public String name() { return "exception_process"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Test function that raises exception on second batch during process");
+        return FunctionMetadata.describe("Test function that raises exception during process");
+    }
+
+    @Override public java.util.List<farm.query.vgi.function.ArgSpec> argumentSpecs() {
+        return java.util.List.of(
+                farm.query.vgi.function.ArgSpec.table("data", 0),
+                new farm.query.vgi.function.ArgSpec("logging", 1, farm.query.vgi.types.Schemas.BOOL,
+                        /*isConst=*/true));
     }
 
     @Override

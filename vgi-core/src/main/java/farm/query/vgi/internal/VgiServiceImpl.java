@@ -745,7 +745,7 @@ public final class VgiServiceImpl implements VgiService {
                 nullHandlingWire(md.nullHandling()),
                 md.description(),
                 List.of(),
-                List.of(),
+                md.categories() == null ? List.of() : md.categories(),
                 md.projectionPushdown(),
                 md.filterPushdown() ? Boolean.TRUE : null,
                 md.samplingPushdown() ? Boolean.TRUE : null,

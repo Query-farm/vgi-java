@@ -25,7 +25,7 @@ public final class RandomIntFunction implements ScalarFunction {
 
     private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.INT64);
     private static final FunctionMetadata META = new FunctionMetadata(
-            "Generate random integers", Stability.VOLATILE, NullHandling.DEFAULT, false, false, false, false);
+            "Generate random integers (demonstrates VOLATILE stability)", Stability.VOLATILE, NullHandling.DEFAULT, false, false, false, false);
 
     @Override public String name() { return "random_int"; }
     @Override public FunctionMetadata metadata() { return META; }

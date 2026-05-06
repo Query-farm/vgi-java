@@ -29,11 +29,13 @@ public final class ExceptionFinalizeFunction implements TableInOutFunction {
     @Override public String name() { return "exception_finalize"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Test function that raises exception during finalize phase");
+        return FunctionMetadata.describe("Test function that raises exception during finalize");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.table("data", 0));
+        return List.of(
+                ArgSpec.table("data", 0),
+                new ArgSpec("logging", 1, farm.query.vgi.types.Schemas.BOOL, /*isConst=*/true));
     }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {

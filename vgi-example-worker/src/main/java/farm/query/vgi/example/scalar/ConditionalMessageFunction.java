@@ -34,7 +34,7 @@ public final class ConditionalMessageFunction implements ScalarFunction {
     @Override public String name() { return "conditional_message"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Returns message repeated repeat_count times when condition is true");
+        return FunctionMetadata.describe("Returns repeated message when condition is true");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
