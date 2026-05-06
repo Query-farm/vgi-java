@@ -45,7 +45,10 @@ public final class AggregateRunner {
         AggregateFunction<?> fn = registry.get(functionName);
         if (fn == null) throw new IllegalArgumentException("Unknown aggregate: " + functionName);
         Schema inputSchema = inputSchemaIpc == null ? null : SchemaUtil.deserializeSchema(inputSchemaIpc);
-        byte[] outputSchemaIpc = SchemaUtil.serializeSchema(fn.bindOutputSchema(inputSchema));
+        farm.query.vgi.function.Arguments bindArgs = (argumentsIpc == null || argumentsIpc.length == 0)
+                ? farm.query.vgi.function.Arguments.empty()
+                : ArgumentsParser.parse(argumentsIpc);
+        byte[] outputSchemaIpc = SchemaUtil.serializeSchema(fn.bindOutputSchema(inputSchema, bindArgs));
         byte[] executionId = newExecutionId();
         if (argumentsIpc != null && argumentsIpc.length > 0) {
             store.saveArgs(executionId, functionName, argumentsIpc);

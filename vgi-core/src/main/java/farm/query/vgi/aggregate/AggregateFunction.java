@@ -40,6 +40,16 @@ public interface AggregateFunction<S> {
         return outputSchema();
     }
 
+    /**
+     * Variant that also receives the bind-time {@link
+     * farm.query.vgi.function.Arguments}; lets aggregates validate const
+     * params (e.g. percentile {@code p} in {@code [0, 1]}) and reject NULL /
+     * NaN / Inf inputs with structured errors. Default delegates.
+     */
+    default Schema bindOutputSchema(Schema inputSchema, farm.query.vgi.function.Arguments args) {
+        return bindOutputSchema(inputSchema);
+    }
+
     /** Build a fresh per-group state. */
     S newState();
 

@@ -49,6 +49,44 @@ public final class PercentileFunction implements AggregateFunction<PercentileFun
     @Override public State newState() { return new State(); }
 
     @Override
+    public Schema bindOutputSchema(Schema inputSchema, farm.query.vgi.function.Arguments args) {
+        // Reject NULL/NaN/±Inf percentile up-front with a clear error.
+        Object p = null;
+        for (Object v : args.positional()) {
+            if (v != null) { p = v; break; }
+        }
+        if (args.positional().size() > 0 && args.positional().contains(null)) {
+            for (Object v : args.positional()) {
+                if (v == null) {
+                    throw new IllegalArgumentException("percentile must not be NULL");
+                }
+            }
+        }
+        if (p instanceof Double d) {
+            if (d.isNaN() || d.isInfinite()) {
+                throw new IllegalArgumentException("percentile must be a finite number");
+            }
+            if (d < 0.0 || d > 1.0) {
+                throw new IllegalArgumentException("percentile must be in [0, 1], got " + d);
+            }
+        } else if (p instanceof Number n) {
+            double d = n.doubleValue();
+            if (Double.isNaN(d) || Double.isInfinite(d)) {
+                throw new IllegalArgumentException("percentile must be a finite number");
+            }
+            if (d < 0.0 || d > 1.0) {
+                throw new IllegalArgumentException("percentile must be in [0, 1], got " + d);
+            }
+        } else if (p instanceof java.math.BigDecimal bd) {
+            double d = bd.doubleValue();
+            if (d < 0.0 || d > 1.0) {
+                throw new IllegalArgumentException("percentile must be in [0, 1], got " + d);
+            }
+        }
+        return OUTPUT_SCHEMA;
+    }
+
+    @Override
     public void update(Map<Long, State> states, long[] groupIds, VectorSchemaRoot input) {
         update(states, groupIds, input, farm.query.vgi.function.Arguments.empty());
     }
