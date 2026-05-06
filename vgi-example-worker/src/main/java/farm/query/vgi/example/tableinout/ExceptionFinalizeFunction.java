@@ -35,7 +35,9 @@ public final class ExceptionFinalizeFunction implements TableInOutFunction {
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 ArgSpec.table("data", 0),
-                new ArgSpec("logging", 1, farm.query.vgi.types.Schemas.BOOL, /*isConst=*/true));
+                new ArgSpec("logging", -1, farm.query.vgi.types.Schemas.BOOL, "",
+                        /*isConst=*/true, /*hasDefault=*/true, "false",
+                        List.of(), false, false));
     }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {

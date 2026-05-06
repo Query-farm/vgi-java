@@ -30,8 +30,9 @@ public final class ExceptionProcessFunction extends SumAllColumnsFunction {
     @Override public java.util.List<farm.query.vgi.function.ArgSpec> argumentSpecs() {
         return java.util.List.of(
                 farm.query.vgi.function.ArgSpec.table("data", 0),
-                new farm.query.vgi.function.ArgSpec("logging", 1, farm.query.vgi.types.Schemas.BOOL,
-                        /*isConst=*/true));
+                new farm.query.vgi.function.ArgSpec("logging", -1, farm.query.vgi.types.Schemas.BOOL,
+                        "", /*isConst=*/true, /*hasDefault=*/true, "false",
+                        java.util.List.of(), false, false));
     }
 
     @Override
