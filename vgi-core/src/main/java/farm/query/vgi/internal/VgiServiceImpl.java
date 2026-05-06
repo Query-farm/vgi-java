@@ -199,25 +199,45 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public RpcStream<? extends StreamState> init(InitRequest request, CallContext ctx) {
-        BoundEntry bound;
+        BoundEntry bound = null;
+        // Newer C++ extensions (post-commit 09be719) skip the bind RPC at the
+        // init phase to save a round-trip; bind_call carries the inlined
+        // BindRequest that we run inline. Older clients pre-call bind() and
+        // we look up the cached entry by opaque_data.
         if (request.bind_opaque_data() != null) {
             String key = bytesKey(request.bind_opaque_data());
-            // Don't remove — the FINALIZE-phase init re-uses the same token
-            // from the INPUT-phase bind. Memory is bounded by query lifetime;
-            // a per-attach GC sweep on detach is the proper fix.
             bound = pendingBinds.get(key);
+        }
+        if (bound == null && request.bind_call() != null && request.bind_call().length > 0) {
+            BindRequest embedded = RecordCodec.deserializeFromBytes(
+                    request.bind_call(), BindRequest.class);
+            bind(embedded, ctx);
+            // bind() registered a new pendingBinds entry under a fresh token;
+            // grab the most-recent (single-flight is the common case here).
+            // Concurrent inits may race — fall back to opaque-data echo when
+            // available; otherwise pick the only entry.
+            if (request.bind_opaque_data() != null) {
+                bound = pendingBinds.get(bytesKey(request.bind_opaque_data()));
+            }
             if (bound == null) {
-                throw new IllegalStateException("init called with unknown bind_opaque_data token");
+                // Match by function_name to disambiguate.
+                for (var e : pendingBinds.values()) {
+                    if (e instanceof BoundScalar bs && bs.fn().name().equals(embedded.function_name())) {
+                        bound = e; break;
+                    }
+                    if (e instanceof BoundTable bt && bt.fn().name().equals(embedded.function_name())) {
+                        bound = e; break;
+                    }
+                    if (e instanceof BoundTableInOut bio && bio.fn().name().equals(embedded.function_name())) {
+                        bound = e; break;
+                    }
+                }
             }
-        } else {
-            // Fallback: legacy clients that don't echo opaque_data. Pick the
-            // single pending bind if there is exactly one.
-            if (pendingBinds.size() != 1) {
-                throw new IllegalStateException("init missing bind_opaque_data and pendingBinds size = "
-                        + pendingBinds.size());
-            }
-            String onlyKey = pendingBinds.keySet().iterator().next();
-            bound = pendingBinds.get(onlyKey);
+        }
+        if (bound == null) {
+            throw new IllegalStateException("init: no bind context — bind_opaque_data=" +
+                    (request.bind_opaque_data() == null ? "null" : "present") +
+                    " bind_call_len=" + (request.bind_call() == null ? -1 : request.bind_call().length));
         }
         Schema realOutputSchema = SchemaUtil.deserializeSchema(request.output_schema());
         byte[] execId = request.execution_id() != null ? request.execution_id() : newExecutionId();
@@ -407,7 +427,7 @@ public final class VgiServiceImpl implements VgiService {
         List<byte[]> items = new ArrayList<>();
         for (SchemaDesc s : workerSchemas()) {
             items.add(RecordCodec.serializeToBytes(
-                    new SchemaInfo(s.comment, Map.of(), attach_id, s.name)));
+                    new SchemaInfo(s.comment, Map.of(), attach_id, s.name, schemaCounts(s))));
         }
         return new ItemsResponse(items);
     }
@@ -417,7 +437,7 @@ public final class VgiServiceImpl implements VgiService {
         for (SchemaDesc s : workerSchemas()) {
             if (s.name.equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                        new SchemaInfo(s.comment, Map.of(), attach_id, name))));
+                        new SchemaInfo(s.comment, Map.of(), attach_id, name, schemaCounts(s)))));
             }
         }
         return ItemsResponse.empty();
@@ -430,6 +450,31 @@ public final class VgiServiceImpl implements VgiService {
         return List.of(
                 new SchemaDesc(worker.defaultSchema(), "Example functions for testing VGI"),
                 new SchemaDesc("data", "Example tables backed by functions"));
+    }
+
+    /**
+     * Per-schema object counts. {@code 0} for a kind tells the C++ extension
+     * to skip the corresponding {@code catalog_schema_contents_*} RPC entirely.
+     * We have no tables/views/macros/indexes yet — declaring 0 lets the
+     * extension short-circuit those scans.
+     */
+    private Map<String, Long> schemaCounts(SchemaDesc s) {
+        Map<String, Long> m = new java.util.LinkedHashMap<>();
+        if (s.name.equals(worker.defaultSchema())) {
+            long fnCount = 0;
+            for (var v : scalars.values()) fnCount += v.size();
+            for (var v : tables.values()) fnCount += v.size();
+            for (var v : tableInOuts.values()) fnCount += v.size();
+            for (var v : aggregates.values()) fnCount += v.size();
+            m.put("functions", fnCount);
+        } else {
+            m.put("functions", 0L);
+        }
+        m.put("tables", 0L);
+        m.put("views", 0L);
+        m.put("macros", 0L);
+        m.put("indexes", 0L);
+        return m;
     }
 
     @Override
