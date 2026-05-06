@@ -34,6 +34,51 @@ public final class Worker {
     private final List<TableInOutFunction> tableInOuts = new ArrayList<>();
     private final List<AggregateFunction<?>> aggregates = new ArrayList<>();
     private final List<SettingSpec> settings = new ArrayList<>();
+    private final List<View> views = new ArrayList<>();
+
+    /**
+     * A SQL view exposed in the catalog. {@code schema} is the schema name
+     * (matches one of {@link #defaultSchema()} or any registered schema);
+     * {@code definition} is a SQL query string evaluated by DuckDB.
+     */
+    public record View(String schema, String name, String definition,
+                        String comment, Map<String, String> tags) {
+        public View(String schema, String name, String definition, String comment) {
+            this(schema, name, definition, comment, Map.of());
+        }
+    }
+
+    public enum MacroType { SCALAR, TABLE }
+
+    /**
+     * A SQL macro exposed in the catalog. {@code parameterDefaults} is an
+     * optional ordered map of parameter-name → SQL expression (used when the
+     * macro has named-with-default parameters).
+     */
+    public record Macro(String schema, String name, MacroType macroType,
+                         List<String> parameters,
+                         @SuppressWarnings("rawtypes") Map<String, String> parameterDefaults,
+                         String definition, String comment, Map<String, String> tags) {
+        public Macro(String schema, String name, MacroType macroType,
+                      List<String> parameters, String definition, String comment) {
+            this(schema, name, macroType, parameters, Map.of(), definition, comment, Map.of());
+        }
+
+        public Macro(String schema, String name, MacroType macroType,
+                      List<String> parameters, Map<String, String> parameterDefaults,
+                      String definition, String comment) {
+            this(schema, name, macroType, parameters, parameterDefaults, definition, comment, Map.of());
+        }
+    }
+
+    private final List<Macro> macros = new ArrayList<>();
+
+    public Worker registerMacro(Macro m) {
+        macros.add(m);
+        return this;
+    }
+
+    public List<Macro> macros() { return macros; }
 
     private Worker() {}
 
@@ -68,6 +113,13 @@ public final class Worker {
         for (SettingSpec s : specs) settings.add(s);
         return this;
     }
+
+    public Worker registerView(View v) {
+        views.add(v);
+        return this;
+    }
+
+    public List<View> views() { return views; }
 
     public String catalogName() { return catalogName; }
     public String catalogComment() { return catalogComment; }

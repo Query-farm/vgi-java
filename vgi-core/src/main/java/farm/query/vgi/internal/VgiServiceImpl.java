@@ -573,10 +573,76 @@ public final class VgiServiceImpl implements VgiService {
             m.put("functions", 0L);
         }
         m.put("tables", 0L);
-        m.put("views", 0L);
-        m.put("macros", 0L);
+        long viewCount = worker.views().stream()
+                .filter(v -> v.schema().equals(s.name))
+                .count();
+        m.put("views", viewCount);
+        long macroCount = worker.macros().stream()
+                .filter(macro -> macro.schema().equals(s.name))
+                .count();
+        m.put("macros", macroCount);
         m.put("indexes", 0L);
         return m;
+    }
+
+    @Override
+    public ItemsResponse catalog_schema_contents_views(
+            byte[] attach_id, String name, byte[] transaction_id) {
+        List<byte[]> items = new ArrayList<>();
+        for (Worker.View v : worker.views()) {
+            if (!v.schema().equals(name)) continue;
+            items.add(RecordCodec.serializeToBytes(new farm.query.vgi.protocol.ViewInfo(
+                    v.comment(), v.tags(), v.name(), v.schema(), v.definition())));
+        }
+        return new ItemsResponse(items);
+    }
+
+    @Override
+    public ItemsResponse catalog_view_get(byte[] attach_id, String schema_name, String name, byte[] transaction_id) {
+        for (Worker.View v : worker.views()) {
+            if (v.schema().equals(schema_name) && v.name().equals(name)) {
+                return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
+                        new farm.query.vgi.protocol.ViewInfo(v.comment(), v.tags(),
+                                v.name(), v.schema(), v.definition()))));
+            }
+        }
+        return ItemsResponse.empty();
+    }
+
+    @Override
+    public ItemsResponse catalog_schema_contents_macros(
+            byte[] attach_id, String name, String type, byte[] transaction_id) {
+        boolean wantScalar = type == null || type.equalsIgnoreCase("scalar")
+                || type.equalsIgnoreCase("scalar_macro");
+        boolean wantTable = type == null || type.equalsIgnoreCase("table")
+                || type.equalsIgnoreCase("table_macro");
+        List<byte[]> items = new ArrayList<>();
+        for (Worker.Macro m : worker.macros()) {
+            if (!m.schema().equals(name)) continue;
+            boolean isScalar = m.macroType() == Worker.MacroType.SCALAR;
+            if (isScalar && !wantScalar) continue;
+            if (!isScalar && !wantTable) continue;
+            items.add(MacroInfoSerializer.serialize(toMacroInfo(m)));
+        }
+        return new ItemsResponse(items);
+    }
+
+    @Override
+    public ItemsResponse catalog_macro_get(byte[] attach_id, String schema_name, String name, byte[] transaction_id) {
+        for (Worker.Macro m : worker.macros()) {
+            if (m.schema().equals(schema_name) && m.name().equals(name)) {
+                return new ItemsResponse(List.of(MacroInfoSerializer.serialize(toMacroInfo(m))));
+            }
+        }
+        return ItemsResponse.empty();
+    }
+
+    private static farm.query.vgi.protocol.MacroInfo toMacroInfo(Worker.Macro m) {
+        String macroType = m.macroType() == Worker.MacroType.SCALAR ? "scalar" : "table";
+        byte[] defaults = MacroDefaultsEncoder.encode(m.parameterDefaults());
+        return new farm.query.vgi.protocol.MacroInfo(
+                m.comment(), m.tags(), m.name(), m.schema(), macroType,
+                m.parameters(), defaults, m.definition());
     }
 
     @Override

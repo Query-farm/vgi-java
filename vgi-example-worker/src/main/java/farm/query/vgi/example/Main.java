@@ -72,6 +72,13 @@ public final class Main {
 
     private Main() {}
 
+    private static java.util.Map<String, String> clampDefaults() {
+        java.util.LinkedHashMap<String, String> m = new java.util.LinkedHashMap<>();
+        m.put("lo", "0");
+        m.put("hi", "100");
+        return m;
+    }
+
     public static void main(String[] args) {
         Worker w = Worker.builder()
                 .catalogName("example")
@@ -174,7 +181,32 @@ public final class Main {
                 .registerTableInOut(new DistributedSumFunction())
                 .registerTableInOut(new BufferInputFunction())
                 .registerTableInOut(new FilterBySettingFunction())
-                .registerTableInOut(new SlowCancellableInoutFunction());
+                .registerTableInOut(new SlowCancellableInoutFunction())
+                .registerView(new Worker.View(
+                        "main", "first_ten",
+                        "SELECT * FROM sequence(10)", "First 10 integers"))
+                .registerView(new Worker.View(
+                        "main", "even_numbers",
+                        "SELECT * FROM sequence(100) WHERE n % 2 = 0",
+                        "Even numbers from 0 to 98"))
+                .registerView(new Worker.View(
+                        "data", "small_numbers",
+                        "SELECT * FROM example.main.make_series(10)",
+                        "Numbers less than 10"))
+                .registerMacro(new Worker.Macro(
+                        "main", "vgi_multiply", Worker.MacroType.SCALAR,
+                        java.util.List.of("x", "y"), "x * y", "Multiply two values"))
+                .registerMacro(new Worker.Macro(
+                        "main", "vgi_clamp", Worker.MacroType.SCALAR,
+                        java.util.List.of("val", "lo", "hi"),
+                        clampDefaults(),
+                        "GREATEST(lo, LEAST(hi, val))",
+                        "Clamp a value between lo and hi (defaults: 0..100)"))
+                .registerMacro(new Worker.Macro(
+                        "main", "vgi_range_table", Worker.MacroType.TABLE,
+                        java.util.List.of("n"),
+                        "SELECT * FROM range(n)",
+                        "Table macro returning range of values"));
 
         boolean http = false;
         String host = "127.0.0.1";
