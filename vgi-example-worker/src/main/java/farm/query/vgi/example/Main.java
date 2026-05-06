@@ -55,6 +55,8 @@ import farm.query.vgi.example.aggregate.SumFunction;
 import farm.query.vgi.example.aggregate.WeightedSumFunction;
 import farm.query.vgi.example.tableinout.EchoFunction;
 import farm.query.vgi.example.tableinout.BufferInputFunction;
+import farm.query.vgi.example.tableinout.FilterBySettingFunction;
+import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
 import farm.query.vgi.example.tableinout.DistributedSumFunction;
 import farm.query.vgi.example.tableinout.ExceptionFinalizeFunction;
 import farm.query.vgi.example.tableinout.ExceptionProcessFunction;
@@ -166,7 +168,9 @@ public final class Main {
                 .registerTableInOut(new ExceptionProcessFunction())
                 .registerTableInOut(new SumAllColumnsFunction())
                 .registerTableInOut(new DistributedSumFunction())
-                .registerTableInOut(new BufferInputFunction());
+                .registerTableInOut(new BufferInputFunction())
+                .registerTableInOut(new FilterBySettingFunction())
+                .registerTableInOut(new SlowCancellableInoutFunction());
 
         boolean http = false;
         String host = "127.0.0.1";
