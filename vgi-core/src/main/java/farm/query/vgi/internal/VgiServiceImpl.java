@@ -330,7 +330,7 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public AggregateBindResponse aggregate_bind(AggregateBindRequest request) {
-        return aggregateRunner.bind(request.function_name(), request.input_schema());
+        return aggregateRunner.bind(request.function_name(), request.input_schema(), request.arguments());
     }
 
     @Override

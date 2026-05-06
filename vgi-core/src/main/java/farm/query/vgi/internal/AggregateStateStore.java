@@ -99,12 +99,46 @@ public final class AggregateStateStore {
                                 "  group_id INTEGER NOT NULL," +
                                 "  state BLOB NOT NULL," +
                                 "  PRIMARY KEY(execution_id, function_name, group_id))");
+                        st.execute("CREATE TABLE IF NOT EXISTS agg_args (" +
+                                "  execution_id BLOB NOT NULL," +
+                                "  function_name TEXT NOT NULL," +
+                                "  args BLOB NOT NULL," +
+                                "  PRIMARY KEY(execution_id, function_name))");
                     }
                     initialised = true;
                 }
             }
         }
         return c;
+    }
+
+    /** Save bind-time arguments for an execution_id. */
+    public void saveArgs(byte[] executionId, String functionName, byte[] argsIpc) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "INSERT OR REPLACE INTO agg_args(execution_id, function_name, args) VALUES(?,?,?)")) {
+            ps.setBytes(1, executionId);
+            ps.setString(2, functionName);
+            ps.setBytes(3, argsIpc);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("AggregateStateStore.saveArgs", e);
+        }
+    }
+
+    /** Load bind-time arguments for an execution_id. Returns null if absent. */
+    public byte[] loadArgs(byte[] executionId, String functionName) {
+        try (Connection c = conn();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT args FROM agg_args WHERE execution_id=? AND function_name=?")) {
+            ps.setBytes(1, executionId);
+            ps.setString(2, functionName);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getBytes(1) : null;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("AggregateStateStore.loadArgs", e);
+        }
     }
 
     /** Load state bytes for the given group_ids. Missing keys are absent from the map. */

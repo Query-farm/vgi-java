@@ -41,12 +41,15 @@ public final class AggregateRunner {
 
     public boolean knows(String functionName) { return registry.containsKey(functionName); }
 
-    public AggregateBindResponse bind(String functionName, byte[] inputSchemaIpc) {
+    public AggregateBindResponse bind(String functionName, byte[] inputSchemaIpc, byte[] argumentsIpc) {
         AggregateFunction<?> fn = registry.get(functionName);
         if (fn == null) throw new IllegalArgumentException("Unknown aggregate: " + functionName);
         Schema inputSchema = inputSchemaIpc == null ? null : SchemaUtil.deserializeSchema(inputSchemaIpc);
         byte[] outputSchemaIpc = SchemaUtil.serializeSchema(fn.bindOutputSchema(inputSchema));
         byte[] executionId = newExecutionId();
+        if (argumentsIpc != null && argumentsIpc.length > 0) {
+            store.saveArgs(executionId, functionName, argumentsIpc);
+        }
         return new AggregateBindResponse(outputSchemaIpc, executionId);
     }
 
@@ -89,7 +92,11 @@ public final class AggregateRunner {
             for (Map.Entry<Long, byte[]> e : raw.entrySet()) {
                 states.put(e.getKey(), fn.deserializeState(e.getValue()));
             }
-            fn.update((Map) states, gids, args);
+            byte[] argsIpc = store.loadArgs(executionId, functionName);
+            farm.query.vgi.function.Arguments bindArgs = argsIpc == null
+                    ? farm.query.vgi.function.Arguments.empty()
+                    : ArgumentsParser.parse(argsIpc);
+            fn.update((Map) states, gids, args, bindArgs);
 
             Map<Long, byte[]> dirty = new LinkedHashMap<>(states.size());
             for (Map.Entry<Long, Object> e : states.entrySet()) {
@@ -175,6 +182,10 @@ public final class AggregateRunner {
 
         long[] gids = readGroupIds(groupIdsBatch);
         BufferAllocator alloc = Allocators.root();
+        byte[] argsIpc = store.loadArgs(executionId, functionName);
+        farm.query.vgi.function.Arguments bindArgs = argsIpc == null
+                ? farm.query.vgi.function.Arguments.empty()
+                : ArgumentsParser.parse(argsIpc);
         try (VectorSchemaRoot output = VectorSchemaRoot.create(outputSchema, alloc)) {
             output.allocateNew();
             Map<Long, byte[]> raw = store.loadStates(executionId, functionName, gids);
@@ -184,7 +195,7 @@ public final class AggregateRunner {
                     fn.finalizeEmpty(output, i);
                 } else {
                     Object state = fn.deserializeState(bytes);
-                    fn.finalize(output, i, state);
+                    fn.finalize(output, i, state, bindArgs);
                 }
             }
             output.setRowCount(gids.length);

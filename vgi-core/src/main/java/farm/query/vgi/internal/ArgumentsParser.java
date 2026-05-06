@@ -132,6 +132,8 @@ public final class ArgumentsParser {
         }
         if (v instanceof VarBinaryVector vb) return vb.get(row);
         if (v instanceof LargeVarBinaryVector vb) return vb.get(row);
+        if (v instanceof org.apache.arrow.vector.DecimalVector d) return d.getObject(row);
+        if (v instanceof org.apache.arrow.vector.Decimal256Vector d) return d.getObject(row);
         if (v instanceof StructVector sv) {
             Map<String, Object> out = new LinkedHashMap<>();
             for (Field f : sv.getField().getChildren()) {

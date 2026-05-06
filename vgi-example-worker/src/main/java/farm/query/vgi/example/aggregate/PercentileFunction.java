@@ -50,19 +50,34 @@ public final class PercentileFunction implements AggregateFunction<PercentileFun
 
     @Override
     public void update(Map<Long, State> states, long[] groupIds, VectorSchemaRoot input) {
-        // Input columns: value at idx 0; the const `p` is delivered via
-        // Arguments, but the aggregate framework doesn't currently thread it
-        // through update/finalize. Stash any per-row p value seen in the input
-        // batch (DuckDB sends const params as a column with one-row default).
+        update(states, groupIds, input, farm.query.vgi.function.Arguments.empty());
+    }
+
+    @Override
+    public void update(Map<Long, State> states, long[] groupIds, VectorSchemaRoot input,
+                          farm.query.vgi.function.Arguments args) {
         FieldVector value = input.getFieldVectors().get(0);
-        FieldVector pCol = input.getFieldVectors().size() > 1 ? input.getFieldVectors().get(1) : null;
         int rows = input.getRowCount();
+        double pct = pctFromArgs(args);
         for (int i = 0; i < rows; i++) {
             State s = states.computeIfAbsent(groupIds[i], k -> new State());
-            if (pCol != null && !pCol.isNull(i)) s.pct = ScalarHelpers.toDouble(pCol, i);
+            s.pct = pct;
             if (value.isNull(i)) continue;
             s.values.add(ScalarHelpers.toDouble(value, i));
         }
+    }
+
+    private static double pctFromArgs(farm.query.vgi.function.Arguments args) {
+        Object p = args.named().get("p");
+        if (p == null) p = args.named().get("named_p");
+        if (p == null) {
+            for (Object v : args.positional()) {
+                if (v instanceof Number || v instanceof java.math.BigDecimal) { p = v; break; }
+            }
+        }
+        if (p instanceof Number n) return n.doubleValue();
+        if (p instanceof java.math.BigDecimal bd) return bd.doubleValue();
+        return 0.5;
     }
 
     @Override
@@ -73,11 +88,19 @@ public final class PercentileFunction implements AggregateFunction<PercentileFun
 
     @Override
     public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
+        finalize(output, rowIndex, state, farm.query.vgi.function.Arguments.empty());
+    }
+
+    @Override
+    public void finalize(VectorSchemaRoot output, int rowIndex, State state,
+                            farm.query.vgi.function.Arguments args) {
         Float8Vector v = (Float8Vector) output.getVector("result");
         if (state.values.isEmpty()) { v.setNull(rowIndex); return; }
         ArrayList<Double> sorted = new ArrayList<>(state.values);
         Collections.sort(sorted);
-        int idx = (int) (state.pct * sorted.size());
+        double pct = pctFromArgs(args);
+        if (pct == 0.5 && state.pct != 0.5) pct = state.pct;
+        int idx = (int) (pct * sorted.size());
         if (idx < 0) idx = 0;
         if (idx >= sorted.size()) idx = sorted.size() - 1;
         v.setSafe(rowIndex, sorted.get(idx));

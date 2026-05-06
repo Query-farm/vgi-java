@@ -51,6 +51,22 @@ public interface AggregateFunction<S> {
     void update(java.util.Map<Long, S> states, long[] groupIds, VectorSchemaRoot input);
 
     /**
+     * Variant that also receives the bind-time {@link farm.query.vgi.function.Arguments}
+     * (for aggregates with const params like {@code vgi_percentile(value, p)}).
+     * Default delegates to the no-args overload.
+     */
+    default void update(java.util.Map<Long, S> states, long[] groupIds, VectorSchemaRoot input,
+                          farm.query.vgi.function.Arguments args) {
+        update(states, groupIds, input);
+    }
+
+    /** Variant that receives bind-time arguments. Default ignores them. */
+    default void finalize(VectorSchemaRoot output, int rowIndex, S state,
+                            farm.query.vgi.function.Arguments args) {
+        finalize(output, rowIndex, state);
+    }
+
+    /**
      * Merge {@code source} into {@code target} (in-place). Used when partial
      * results from multiple workers must be combined.
      */
