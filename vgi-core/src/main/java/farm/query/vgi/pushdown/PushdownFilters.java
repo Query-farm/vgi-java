@@ -30,6 +30,59 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
                 .collect(Collectors.joining(" AND "));
     }
 
+    /**
+     * Python-{@code repr}-style format that wraps each leaf in its filter
+     * class name (e.g. {@code ConstantFilter(n < 9500)}, {@code IsNullFilter(c
+     * IS NULL)}). The dynamic-filter integration test asserts {@code LIKE
+     * '%ConstantFilter(n <%'} on this representation to confirm the C++
+     * extension extracted the dynamic bound from inside a
+     * {@code ConjunctionAndFilter}.
+     */
+    public String formatRepr() {
+        if (filters.isEmpty()) return "(none)";
+        StringBuilder sb = new StringBuilder("PushdownFilters([");
+        boolean first = true;
+        for (PushdownFilter f : filters) {
+            if (!first) sb.append(", ");
+            sb.append(formatOneRepr(f));
+            first = false;
+        }
+        sb.append("])");
+        return sb.toString();
+    }
+
+    private static String formatOneRepr(PushdownFilter f) {
+        return switch (f) {
+            case PushdownFilter.Constant c -> "ConstantFilter(" + c.columnName() + " "
+                    + symbol(c.op()) + " " + sqlLiteral(c.value()) + ")";
+            case PushdownFilter.IsNull n -> "IsNullFilter(" + n.columnName() + " IS NULL)";
+            case PushdownFilter.IsNotNull n -> "IsNotNullFilter(" + n.columnName() + " IS NOT NULL)";
+            case PushdownFilter.In in -> {
+                if (in.values().size() > 20) {
+                    yield "InFilter(" + in.columnName() + " IN (" + in.values().size() + " values))";
+                }
+                String list = in.values().stream()
+                        .map(PushdownFilters::sqlLiteral)
+                        .collect(Collectors.joining(", "));
+                yield "InFilter(" + in.columnName() + " IN (" + list + "))";
+            }
+            case PushdownFilter.And a -> {
+                List<String> parts = new ArrayList<>();
+                for (PushdownFilter c : a.children()) parts.add(formatOneRepr(c));
+                yield "ConjunctionAndFilter([" + String.join(", ", parts) + "])";
+            }
+            case PushdownFilter.Or o -> {
+                List<String> parts = new ArrayList<>();
+                for (PushdownFilter c : o.children()) parts.add(formatOneRepr(c));
+                yield "ConjunctionOrFilter([" + String.join(", ", parts) + "])";
+            }
+            case PushdownFilter.Struct s -> "StructExtractFilter(" + s.columnName() + "."
+                    + s.childName() + " "
+                    + (s.childFilter() == null ? "<unfiltered>" : formatOneRepr(s.childFilter()))
+                    + ")";
+        };
+    }
+
     private static String formatOne(PushdownFilter f) {
         return switch (f) {
             case PushdownFilter.Constant c -> c.columnName() + " " + symbol(c.op()) + " " + sqlLiteral(c.value());

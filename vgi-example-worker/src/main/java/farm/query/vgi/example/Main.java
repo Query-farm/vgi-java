@@ -33,6 +33,7 @@ import farm.query.vgi.example.scalar.UnnestTensorFunction;
 import farm.query.vgi.example.scalar.UpperCaseFunction;
 import farm.query.vgi.example.scalar.WhoAmIFunction;
 import farm.query.vgi.example.table.DoubleSequenceFunction;
+import farm.query.vgi.example.table.DynamicFilterEchoFunction;
 import farm.query.vgi.example.table.FilterEchoFunction;
 import farm.query.vgi.example.table.FilterEchoPartitionedFunction;
 import farm.query.vgi.example.table.GeneratorExceptionFunction;
@@ -153,6 +154,7 @@ public final class Main {
                 .registerScalar(new UnnestTensorFunction())
                 .registerTable(new SequenceFunction())
                 .registerTable(new DoubleSequenceFunction())
+                .registerTable(new DynamicFilterEchoFunction())
                 .registerTable(new NamedParamsEchoFunction())
                 .registerTable(new GeneratorExceptionFunction())
                 .registerTable(new TenThousandFunction())
