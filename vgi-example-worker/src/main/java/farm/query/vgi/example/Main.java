@@ -269,15 +269,23 @@ public final class Main {
         boolean http = false;
         String host = "127.0.0.1";
         int port = 0;
+        String unixSocket = null;
+        long idleTimeoutMs = 0;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--http" -> http = true;
                 case "--host" -> host = args[++i];
                 case "--port" -> port = Integer.parseInt(args[++i]);
+                case "--unix" -> unixSocket = args[++i];
+                case "--idle-timeout" ->
+                        idleTimeoutMs = (long) (Double.parseDouble(args[++i]) * 1000.0);
                 default -> { System.err.println("unknown arg: " + args[i]); System.exit(2); }
             }
         }
-        if (http) {
+        if (unixSocket != null) {
+            try { w.runUnixSocket(java.nio.file.Path.of(unixSocket), idleTimeoutMs); }
+            catch (Exception e) { e.printStackTrace(); System.exit(1); }
+        } else if (http) {
             try { w.runHttp(host, port); }
             catch (Exception e) { e.printStackTrace(); System.exit(1); }
         } else {

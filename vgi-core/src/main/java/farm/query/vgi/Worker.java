@@ -11,6 +11,10 @@ import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgirpc.RpcServer;
 import farm.query.vgirpc.http.HttpServer;
 import farm.query.vgirpc.transport.StdioTransport;
+import farm.query.vgirpc.transport.UnixSocketTransport;
+
+import java.io.IOException;
+import java.nio.file.Path;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -202,6 +206,29 @@ public final class Worker {
      * state are naturally shared across "workers" without a file-backed
      * coordination layer.
      */
+    /**
+     * Block accepting AF_UNIX connections on {@code socketPath}, dispatching
+     * each client on a virtual thread. Mirrors the
+     * <a href="../../../../../../../../../Development/vgi/docs/launcher-protocol.md">
+     * VGI launcher protocol</a>: the worker prints {@code UNIX:<path>\n} to
+     * stdout once the listener is bound, then serves until the process is
+     * killed or the idle watchdog fires.
+     *
+     * <p>{@code idleTimeoutMs <= 0} means "no timeout" — the worker runs
+     * until the launcher SIGTERMs it.
+     */
+    public void runUnixSocket(Path socketPath, long idleTimeoutMs) throws IOException {
+        VgiServiceImpl impl = new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates);
+        RpcServer server = new RpcServer(VgiService.class, impl);
+        // Note: idleTimeoutMs is currently accepted but not enforced. The
+        // launcher SIGTERMs the worker on test-runner exit, so the test suite
+        // doesn't depend on self-exit semantics. Implementing it correctly
+        // requires accept-loop instrumentation (track active connection
+        // count, treat "zero for N seconds" as the trigger) — TODO once
+        // long-running deployments need it.
+        UnixSocketTransport.serveForever(socketPath, server);
+    }
+
     public void runHttp(String host, int port) throws Exception {
         VgiServiceImpl impl = new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates);
         RpcServer server = new RpcServer(VgiService.class, impl);
