@@ -98,6 +98,13 @@ public final class TableInfoSerializer {
                 nonNull("insert_function", BINARY),
                 nonNull("update_function", BINARY),
                 nonNull("delete_function", BINARY),
+                // Schema MUST report non-nullable (the C++ generated schema
+                // enforces it on read), but the per-row null bit MAY be set to
+                // mean "no inlined cardinality". The C++ parser reads via
+                // ``as<int64_t>`` which returns ``optional<int64_t>`` keyed on
+                // the null bit; if we sent a real ``-1`` it would be ``Some(-1)``
+                // and trip the inlined-cardinality branch in
+                // ``VgiTableEntry::Bind``, suppressing the per-bind RPC.
                 nonNull("cardinality_estimate", I64),
                 nonNull("cardinality_max", I64),
                 nonNull("column_statistics", BINARY),
@@ -162,8 +169,8 @@ public final class TableInfoSerializer {
         setVarBinary(v, "insert_function", info.insert_function());
         setVarBinary(v, "update_function", info.update_function());
         setVarBinary(v, "delete_function", info.delete_function());
-        setInt64Sentinel(v, "cardinality_estimate", info.cardinality_estimate());
-        setInt64Sentinel(v, "cardinality_max", info.cardinality_max());
+        setNullableInt64(v, "cardinality_estimate", info.cardinality_estimate());
+        setNullableInt64(v, "cardinality_max", info.cardinality_max());
         setVarBinary(v, "column_statistics", info.column_statistics());
         setVarBinary(v, "bind_result", info.bind_result());
     }

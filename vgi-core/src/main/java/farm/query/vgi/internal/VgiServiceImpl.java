@@ -440,11 +440,37 @@ public final class VgiServiceImpl implements VgiService {
     // -----------------------------------------------------------------------
 
     @Override
-    public farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(CardinalityRequest request) {
-        long result = computeCardinality(request);
+    public farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(byte[] request) {
+        CardinalityRequest inner = unpackCardinalityRequest(request);
+        long result = computeCardinality(inner);
         return new farm.query.vgi.protocol.CardinalityResponse(
                 result < 0 ? null : result,
                 result < 0 ? null : result);
+    }
+
+    /**
+     * Wire shape: an IPC stream of {@code {bind_call: binary, bind_opaque_data:
+     * binary?}}. Returns an empty {@link CardinalityRequest} on parse failure
+     * so the per-bind fallback logic still has something to dispatch on.
+     */
+    private static CardinalityRequest unpackCardinalityRequest(byte[] request) {
+        if (request == null || request.length == 0) return new CardinalityRequest(null, null);
+        try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(request);
+             org.apache.arrow.vector.ipc.ArrowStreamReader reader =
+                     new org.apache.arrow.vector.ipc.ArrowStreamReader(in, Allocators.root())) {
+            if (!reader.loadNextBatch()) return new CardinalityRequest(null, null);
+            org.apache.arrow.vector.VectorSchemaRoot root = reader.getVectorSchemaRoot();
+            if (root.getRowCount() == 0) return new CardinalityRequest(null, null);
+            org.apache.arrow.vector.VarBinaryVector bc =
+                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("bind_call");
+            org.apache.arrow.vector.VarBinaryVector bo =
+                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("bind_opaque_data");
+            byte[] bindCall = bc != null && !bc.isNull(0) ? bc.get(0) : null;
+            byte[] opaque = bo != null && !bo.isNull(0) ? bo.get(0) : null;
+            return new CardinalityRequest(bindCall, opaque);
+        } catch (Exception e) {
+            return new CardinalityRequest(null, null);
+        }
     }
 
     private long computeCardinality(CardinalityRequest request) {

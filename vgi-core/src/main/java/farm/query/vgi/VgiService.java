@@ -61,12 +61,19 @@ public interface VgiService {
     // Table-function statistics & cardinality (packed; default = unsupported)
     // -----------------------------------------------------------------------
 
-    default farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(
-            CardinalityRequest request) {
+    /**
+     * Wire shape: {@code {request: binary}}. The blob is an IPC-encoded
+     * inner batch with fields {@code {bind_call: binary, bind_opaque_data:
+     * binary?}} (see {@link CardinalityRequest}). The framework can't auto-
+     * destructure that nested IPC for us, so we accept the outer binary and
+     * unpack manually.
+     */
+    default farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(byte[] request) {
         return new farm.query.vgi.protocol.CardinalityResponse(null, null);
     }
 
-    default byte[] table_function_statistics(CardinalityRequest request) {
+    /** Same wrapper shape as {@link #table_function_cardinality}. */
+    default byte[] table_function_statistics(byte[] request) {
         throw new UnsupportedOperationException("table_function_statistics");
     }
 
