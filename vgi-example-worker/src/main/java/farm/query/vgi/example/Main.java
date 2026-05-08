@@ -34,6 +34,7 @@ import farm.query.vgi.example.scalar.UpperCaseFunction;
 import farm.query.vgi.example.scalar.WhoAmIFunction;
 import farm.query.vgi.example.table.DoubleSequenceFunction;
 import farm.query.vgi.example.table.FilterEchoFunction;
+import farm.query.vgi.example.table.FilterEchoPartitionedFunction;
 import farm.query.vgi.example.table.GeneratorExceptionFunction;
 import farm.query.vgi.example.table.LoggingGeneratorFunction;
 import farm.query.vgi.example.table.MakePairsFunctions;
@@ -155,6 +156,7 @@ public final class Main {
                 .registerTable(new GeneratorExceptionFunction())
                 .registerTable(new TenThousandFunction())
                 .registerTable(new FilterEchoFunction())
+                .registerTable(new FilterEchoPartitionedFunction())
                 .registerTable(new ProjectedDataFunction())
                 .registerTable(new NestedSequenceFunction())
                 .registerTable(new ProfilingDemoFunction())
