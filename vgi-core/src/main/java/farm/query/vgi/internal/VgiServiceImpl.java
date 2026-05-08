@@ -612,31 +612,42 @@ public final class VgiServiceImpl implements VgiService {
      * We have no tables/views/macros/indexes yet — declaring 0 lets the
      * extension short-circuit those scans.
      */
+    /**
+     * Per-schema object counts. Keys are the C++ extension's
+     * ``VgiObjectCounts`` field names (singular: ``"table"``, ``"view"``,
+     * ``"macro"``, ``"index"``, ``"scalar_function"``,
+     * ``"aggregate_function"``, ``"table_function"``). When a key is
+     * {@code 0}, the C++ extension treats it as a hard guarantee and skips
+     * the corresponding ``catalog_schema_contents_*`` RPC entirely (see
+     * ``VgiCatalogSet::ShouldBypassRpcLocked``).
+     */
     private Map<String, Long> schemaCounts(SchemaDesc s) {
         Map<String, Long> m = new java.util.LinkedHashMap<>();
+        long scalarCount = 0;
+        long tableFnCount = 0;
+        long aggregateCount = 0;
         if (s.name.equals(worker.defaultSchema())) {
-            long fnCount = 0;
-            for (var v : scalars.values()) fnCount += v.size();
-            for (var v : tables.values()) fnCount += v.size();
-            for (var v : tableInOuts.values()) fnCount += v.size();
-            for (var v : aggregates.values()) fnCount += v.size();
-            m.put("functions", fnCount);
-        } else {
-            m.put("functions", 0L);
+            for (var v : scalars.values()) scalarCount += v.size();
+            for (var v : tables.values()) tableFnCount += v.size();
+            for (var v : tableInOuts.values()) tableFnCount += v.size();
+            for (var v : aggregates.values()) aggregateCount += v.size();
         }
+        m.put("scalar_function", scalarCount);
+        m.put("table_function", tableFnCount);
+        m.put("aggregate_function", aggregateCount);
         long tableCount = worker.catalogTables().stream()
                 .filter(t -> t.schema().equals(s.name))
                 .count();
-        m.put("tables", tableCount);
+        m.put("table", tableCount);
         long viewCount = worker.views().stream()
                 .filter(v -> v.schema().equals(s.name))
                 .count();
-        m.put("views", viewCount);
+        m.put("view", viewCount);
         long macroCount = worker.macros().stream()
                 .filter(macro -> macro.schema().equals(s.name))
                 .count();
-        m.put("macros", macroCount);
-        m.put("indexes", 0L);
+        m.put("macro", macroCount);
+        m.put("index", 0L);
         return m;
     }
 
