@@ -42,6 +42,14 @@ public interface TableFunction {
     default long cardinality(TableBindParams params) { return -1L; }
 
     /**
+     * Hint to DuckDB how many parallel workers may scan this function. The
+     * value is sent in {@code GlobalInitResponse.max_workers}. Default 1
+     * (single-worker). Functions that share state across workers via a
+     * thread-safe queue should override.
+     */
+    default long maxWorkers() { return 1L; }
+
+    /**
      * EXPLAIN-ANALYZE-time diagnostics. DuckDB calls
      * {@code table_function_dynamic_to_string} once per parallel scan thread
      * at the end of the stream, passing the per-execution {@code

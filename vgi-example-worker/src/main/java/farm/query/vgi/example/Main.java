@@ -42,6 +42,7 @@ import farm.query.vgi.example.table.RepeatValueFunctions;
 import farm.query.vgi.example.table.NestedSequenceFunction;
 import farm.query.vgi.example.table.ProfilingDemoFunction;
 import farm.query.vgi.example.table.OrderEchoFunction;
+import farm.query.vgi.example.table.PartitionedSequenceFunction;
 import farm.query.vgi.example.table.ProjectedDataFunction;
 import farm.query.vgi.example.table.SampleEchoFunction;
 import farm.query.vgi.example.table.SlowCancellableFunction;
@@ -157,6 +158,7 @@ public final class Main {
                 .registerTable(new ProjectedDataFunction())
                 .registerTable(new NestedSequenceFunction())
                 .registerTable(new ProfilingDemoFunction())
+                .registerTable(new PartitionedSequenceFunction())
                 .registerTable(new LoggingGeneratorFunction())
                 .registerTable(new OrderEchoFunction())
                 .registerTable(new SlowCancellableFunction())

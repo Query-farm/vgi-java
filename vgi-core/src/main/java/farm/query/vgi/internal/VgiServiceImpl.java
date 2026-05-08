@@ -342,7 +342,9 @@ public final class VgiServiceImpl implements VgiService {
         }
         Schema realOutputSchema = SchemaUtil.deserializeSchema(request.output_schema());
         byte[] execId = request.execution_id() != null ? request.execution_id() : newExecutionId();
-        GlobalInitResponse header = GlobalInitResponse.of(execId);
+        long maxWorkers = bound instanceof BoundTable bt
+                ? bt.fn().maxWorkers() : 1L;
+        GlobalInitResponse header = new GlobalInitResponse(execId, maxWorkers, null);
 
         if (bound instanceof BoundScalar bs) {
             Schema inputSchema = bs.inputSchema() != null ? bs.inputSchema() : new Schema(List.of());
