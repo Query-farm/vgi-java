@@ -944,7 +944,7 @@ public final class VgiServiceImpl implements VgiService {
                 md.filterPushdown() ? Boolean.TRUE : null,
                 md.samplingPushdown() ? Boolean.TRUE : null,
                 List.of(),
-                null,
+                md.orderPreservation() == null ? null : md.orderPreservation().name(),
                 1,
                 "NOT_ORDER_DEPENDENT",
                 "NOT_DISTINCT_DEPENDENT",
