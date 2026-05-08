@@ -1,0 +1,138 @@
+// Copyright 2025-2026 Query.Farm LLC
+// SPDX-License-Identifier: Apache-2.0
+
+package farm.query.vgi.example.table;
+
+import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.protocol.BindResponse;
+import farm.query.vgi.table.BatchState;
+import farm.query.vgi.table.TableBindParams;
+import farm.query.vgi.table.TableFunction;
+import farm.query.vgi.table.TableInitParams;
+import farm.query.vgi.table.TableProducerState;
+import farm.query.vgi.types.Schemas;
+import farm.query.vgirpc.CallContext;
+import farm.query.vgirpc.OutputCollector;
+import farm.query.vgirpc.wire.Allocators;
+import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
+
+import java.io.Serializable;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * {@code profiling_demo(count BIGINT [const], batch_size := 1024, increment := 1)}
+ * — emits a sequence of {@code count} integers, but additionally publishes
+ * per-execution {@code rows_produced} / {@code batches_emitted} / {@code
+ * elapsed_ms} via the {@link TableFunction#dynamicToString} callback so
+ * EXPLAIN ANALYZE can render them as Extra Info.
+ */
+public final class ProfilingDemoFunction implements TableFunction {
+
+    private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
+            new Field("n", new FieldType(true, Schemas.INT64, null), null)));
+    private static final byte[] OUTPUT_SCHEMA_IPC =
+            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+
+    /** Shared per-execution counters keyed by global_execution_id (hex). */
+    private static final ConcurrentHashMap<String, ExecutionStats> STATS = new ConcurrentHashMap<>();
+
+    static final class ExecutionStats {
+        final AtomicLong rows = new AtomicLong();
+        final AtomicLong batches = new AtomicLong();
+        final long startedAtNs = System.nanoTime();
+    }
+
+    private static String key(byte[] executionId) {
+        if (executionId == null) return "";
+        StringBuilder sb = new StringBuilder(executionId.length * 2);
+        for (byte b : executionId) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
+    @Override public String name() { return "profiling_demo"; }
+    @Override public FunctionMetadata metadata() {
+        return FunctionMetadata.describe("Sequence generator publishing diagnostics under EXPLAIN ANALYZE");
+    }
+    @Override public List<ArgSpec> argumentSpecs() {
+        return List.of(
+                new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
+                new ArgSpec("batch_size", -1, Schemas.INT64, "", true, true, "1024", List.of(),
+                        false, false),
+                new ArgSpec("increment", -1, Schemas.INT64, "", true, true, "1", List.of(),
+                        false, false));
+    }
+    @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
+
+    @Override public long cardinality(TableBindParams p) {
+        Object c = p.arguments().positionalAt(0);
+        return c instanceof Number n ? n.longValue() : -1L;
+    }
+
+    @Override public TableProducerState createProducer(TableInitParams p) {
+        long count = ((Number) p.arguments().positionalAt(0)).longValue();
+        Object bsObj = p.arguments().named().get("batch_size");
+        long batchSize = bsObj == null ? 1024L : ((Number) bsObj).longValue();
+        Object incObj = p.arguments().named().get("increment");
+        long increment = incObj == null ? 1L : ((Number) incObj).longValue();
+        String execKey = key(p.executionId());
+        ExecutionStats stats = STATS.computeIfAbsent(execKey, k -> new ExecutionStats());
+        return new State(new BatchState(count, batchSize), increment, execKey, stats);
+    }
+
+    @Override
+    public java.util.LinkedHashMap<String, String> dynamicToString(byte[] globalExecutionId) {
+        ExecutionStats s = STATS.get(key(globalExecutionId));
+        java.util.LinkedHashMap<String, String> out = new LinkedHashMap<>();
+        if (s == null) return out;
+        long elapsedMs = (System.nanoTime() - s.startedAtNs) / 1_000_000L;
+        out.put("rows_produced", Long.toString(s.rows.get()));
+        out.put("batches_emitted", Long.toString(s.batches.get()));
+        out.put("elapsed_ms", Long.toString(elapsedMs));
+        return out;
+    }
+
+    public static final class State extends TableProducerState implements Serializable {
+        private static final long serialVersionUID = 1L;
+        public BatchState batch;
+        public long increment;
+        public String execKey;
+        public transient ExecutionStats statsRef;
+
+        public State() {}
+        State(BatchState batch, long increment, String execKey, ExecutionStats stats) {
+            this.batch = batch;
+            this.increment = increment;
+            this.execKey = execKey;
+            this.statsRef = stats;
+        }
+
+        private ExecutionStats stats() {
+            if (statsRef == null) statsRef = STATS.computeIfAbsent(execKey, k -> new ExecutionStats());
+            return statsRef;
+        }
+
+        @Override public void produceTick(OutputCollector out, CallContext ctx) {
+            if (batch.done()) { out.finish(); return; }
+            int n = batch.nextBatchSize();
+            long start = batch.index();
+            VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT_SCHEMA, Allocators.root());
+            root.allocateNew();
+            BigIntVector v = (BigIntVector) root.getVector("n");
+            for (int i = 0; i < n; i++) v.setSafe(i, (start + i) * increment);
+            root.setRowCount(n);
+            out.emit(root);
+            batch.advance(n);
+            ExecutionStats s = stats();
+            s.rows.addAndGet(n);
+            s.batches.incrementAndGet();
+        }
+    }
+}

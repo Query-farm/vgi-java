@@ -77,6 +77,18 @@ public interface VgiService {
         throw new UnsupportedOperationException("table_function_statistics");
     }
 
+    /**
+     * EXPLAIN-ANALYZE diagnostics callback. Wire shape:
+     * {@code {request: binary}} where the inner IPC carries {@code
+     * {bind_call: binary, bind_opaque_data: binary?, global_execution_id:
+     * binary}}. Result is a 1-row batch of two parallel string lists,
+     * {@code keys[]} and {@code values[]}, that DuckDB renders into the
+     * scan's Extra Info.
+     */
+    default farm.query.vgi.protocol.DynamicToStringResponse table_function_dynamic_to_string(byte[] request) {
+        return new farm.query.vgi.protocol.DynamicToStringResponse(java.util.List.of(), java.util.List.of());
+    }
+
     // -----------------------------------------------------------------------
     // Aggregate function lifecycle
     // -----------------------------------------------------------------------

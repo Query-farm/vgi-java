@@ -374,7 +374,8 @@ public final class VgiServiceImpl implements VgiService {
                     request.order_by_column_name(),
                     request.order_by_direction(),
                     request.order_by_null_order(),
-                    request.order_by_limit());
+                    request.order_by_limit(),
+                    execId);
             TableProducerState state = bt.fn().createProducer(params);
             return RpcStream.producer(fnOutputSchema, state, header);
         }
@@ -446,6 +447,57 @@ public final class VgiServiceImpl implements VgiService {
         return new farm.query.vgi.protocol.CardinalityResponse(
                 result < 0 ? null : result,
                 result < 0 ? null : result);
+    }
+
+    @Override
+    public farm.query.vgi.protocol.DynamicToStringResponse table_function_dynamic_to_string(byte[] request) {
+        DynamicToStringInner inner = unpackDynamicToStringRequest(request);
+        if (inner == null || inner.bind_call == null) {
+            return new farm.query.vgi.protocol.DynamicToStringResponse(List.of(), List.of());
+        }
+        BindRequest embedded = RecordCodec.deserializeFromBytes(inner.bind_call, BindRequest.class);
+        TableFunction fn = null;
+        if (tables.containsKey(embedded.function_name())) {
+            // Pick a variant — for diagnostics any registered overload of the
+            // name suffices since they share state.
+            Schema inputSchema = SchemaUtil.deserializeSchema(embedded.input_schema());
+            Arguments args = ArgumentsParser.parse(embedded.arguments());
+            int constN = args.positional().size();
+            int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
+            fn = pickVariant(tables.get(embedded.function_name()), constN + colN, args, inputSchema);
+        }
+        if (fn == null) {
+            return new farm.query.vgi.protocol.DynamicToStringResponse(List.of(), List.of());
+        }
+        java.util.LinkedHashMap<String, String> kv = fn.dynamicToString(inner.global_execution_id);
+        List<String> keys = new ArrayList<>(kv.keySet());
+        List<String> values = new ArrayList<>(kv.values());
+        return new farm.query.vgi.protocol.DynamicToStringResponse(keys, values);
+    }
+
+    private record DynamicToStringInner(byte[] bind_call, byte[] bind_opaque_data, byte[] global_execution_id) {}
+
+    private static DynamicToStringInner unpackDynamicToStringRequest(byte[] request) {
+        if (request == null || request.length == 0) return null;
+        try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(request);
+             org.apache.arrow.vector.ipc.ArrowStreamReader reader =
+                     new org.apache.arrow.vector.ipc.ArrowStreamReader(in, Allocators.root())) {
+            if (!reader.loadNextBatch()) return null;
+            org.apache.arrow.vector.VectorSchemaRoot root = reader.getVectorSchemaRoot();
+            if (root.getRowCount() == 0) return null;
+            org.apache.arrow.vector.VarBinaryVector bc =
+                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("bind_call");
+            org.apache.arrow.vector.VarBinaryVector bo =
+                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("bind_opaque_data");
+            org.apache.arrow.vector.VarBinaryVector gid =
+                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("global_execution_id");
+            byte[] bindCall = bc != null && !bc.isNull(0) ? bc.get(0) : null;
+            byte[] opaque = bo != null && !bo.isNull(0) ? bo.get(0) : null;
+            byte[] execId = gid != null && !gid.isNull(0) ? gid.get(0) : null;
+            return new DynamicToStringInner(bindCall, opaque, execId);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

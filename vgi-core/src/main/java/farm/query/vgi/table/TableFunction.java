@@ -40,4 +40,18 @@ public interface TableFunction {
      * {@code table_function_cardinality} RPC. {@code -1} means "unknown".
      */
     default long cardinality(TableBindParams params) { return -1L; }
+
+    /**
+     * EXPLAIN-ANALYZE-time diagnostics. DuckDB calls
+     * {@code table_function_dynamic_to_string} once per parallel scan thread
+     * at the end of the stream, passing the per-execution {@code
+     * globalExecutionId} (the same bytes the producer received via
+     * {@link TableInitParams#executionId}). Implementations should look up
+     * any per-execution counters / timers they accumulated during
+     * {@link TableProducerState#produceTick} and return key/value pairs to
+     * surface as Extra Info. Default: no extra info.
+     */
+    default java.util.LinkedHashMap<String, String> dynamicToString(byte[] globalExecutionId) {
+        return new java.util.LinkedHashMap<>();
+    }
 }

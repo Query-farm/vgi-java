@@ -40,6 +40,7 @@ import farm.query.vgi.example.table.MakePairsFunctions;
 import farm.query.vgi.example.table.MakeSeriesFunctions;
 import farm.query.vgi.example.table.RepeatValueFunctions;
 import farm.query.vgi.example.table.NestedSequenceFunction;
+import farm.query.vgi.example.table.ProfilingDemoFunction;
 import farm.query.vgi.example.table.OrderEchoFunction;
 import farm.query.vgi.example.table.ProjectedDataFunction;
 import farm.query.vgi.example.table.SampleEchoFunction;
@@ -155,6 +156,7 @@ public final class Main {
                 .registerTable(new FilterEchoFunction())
                 .registerTable(new ProjectedDataFunction())
                 .registerTable(new NestedSequenceFunction())
+                .registerTable(new ProfilingDemoFunction())
                 .registerTable(new LoggingGeneratorFunction())
                 .registerTable(new OrderEchoFunction())
                 .registerTable(new SlowCancellableFunction())
