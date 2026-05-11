@@ -17,8 +17,6 @@ import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.io.Serializable;
@@ -38,12 +36,12 @@ import java.util.List;
 public final class MakeSeriesFunctions {
 
     private static final Schema INT_SCHEMA = new Schema(List.of(
-            new Field("value", new FieldType(true, Schemas.INT64, null), null)));
+            Schemas.nullable("value", Schemas.INT64)));
     private static final byte[] INT_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(INT_SCHEMA);
 
     private static final Schema FLOAT_SCHEMA = new Schema(List.of(
-            new Field("value", new FieldType(true, Schemas.FLOAT64, null), null)));
+            Schemas.nullable("value", Schemas.FLOAT64)));
     private static final byte[] FLOAT_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(FLOAT_SCHEMA);
 

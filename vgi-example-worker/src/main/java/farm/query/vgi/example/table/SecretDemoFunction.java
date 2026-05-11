@@ -19,7 +19,6 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -36,9 +35,9 @@ import java.util.TreeMap;
 public final class SecretDemoFunction implements TableFunction {
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            new Field("key", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("value", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("arrow_type", new FieldType(true, Schemas.UTF8, null), null)));
+            Schemas.nullable("key", Schemas.UTF8),
+            Schemas.nullable("value", Schemas.UTF8),
+            Schemas.nullable("arrow_type", Schemas.UTF8)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 

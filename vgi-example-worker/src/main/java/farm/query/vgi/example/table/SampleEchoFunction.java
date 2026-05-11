@@ -23,7 +23,6 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -38,10 +37,10 @@ import java.util.List;
 public final class SampleEchoFunction implements TableFunction {
 
     private static final Schema FULL_SCHEMA = new Schema(List.of(
-            new Field("n", new FieldType(true, Schemas.INT64, null), null),
-            new Field("s", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("sample_percentage", new FieldType(true, Schemas.FLOAT64, null), null),
-            new Field("sample_seed", new FieldType(true, Schemas.INT64, null), null)));
+            Schemas.nullable("n", Schemas.INT64),
+            Schemas.nullable("s", Schemas.UTF8),
+            Schemas.nullable("sample_percentage", Schemas.FLOAT64),
+            Schemas.nullable("sample_seed", Schemas.INT64)));
     private static final byte[] FULL_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(FULL_SCHEMA);
 

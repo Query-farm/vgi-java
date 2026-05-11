@@ -65,7 +65,7 @@ public final class StubFunctions {
         public ExpressionFilterTest() {
             super("expression_filter_test",
                     "Filter pushdown reproducer with expression filters",
-                    new Schema(List.of(new Field("n", new FieldType(true, Schemas.INT64, null), null))),
+                    new Schema(List.of(Schemas.nullable("n", Schemas.INT64))),
                     List.of(new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true)));
         }
     }
@@ -76,7 +76,7 @@ public final class StubFunctions {
             super("spatial_filter_example",
                     "Spatial filter pushdown reproducer",
                     new Schema(List.of(
-                            new Field("id", new FieldType(true, Schemas.INT64, null), null),
+                            Schemas.nullable("id", Schemas.INT64),
                             new Field("geom", new FieldType(true, new org.apache.arrow.vector.types.pojo.ArrowType.Binary(), null), null))),
                     List.of(new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true)));
         }
@@ -88,8 +88,8 @@ public final class StubFunctions {
             super("versioned_data_scan",
                     "Versioned data scan function",
                     new Schema(List.of(
-                            new Field("id", new FieldType(true, Schemas.INT64, null), null),
-                            new Field("value", new FieldType(true, Schemas.UTF8, null), null))),
+                            Schemas.nullable("id", Schemas.INT64),
+                            Schemas.nullable("value", Schemas.UTF8))),
                     List.of(new ArgSpec("version", 0, Schemas.INT64, /*isConst=*/true)));
         }
     }
@@ -100,9 +100,9 @@ public final class StubFunctions {
             super("colors_scan",
                     "Colors table scan function",
                     new Schema(List.of(
-                            new Field("id", new FieldType(true, Schemas.INT64, null), null),
-                            new Field("color", new FieldType(true, Schemas.UTF8, null), null),
-                            new Field("hex_code", new FieldType(true, Schemas.UTF8, null), null))),
+                            Schemas.nullable("id", Schemas.INT64),
+                            Schemas.nullable("color", Schemas.UTF8),
+                            Schemas.nullable("hex_code", Schemas.UTF8))),
                     List.of());
         }
     }
@@ -113,9 +113,9 @@ public final class StubFunctions {
             super("departments_scan",
                     "Departments table scan function",
                     new Schema(List.of(
-                            new Field("id", new FieldType(true, Schemas.INT64, null), null),
-                            new Field("name", new FieldType(true, Schemas.UTF8, null), null),
-                            new Field("budget", new FieldType(true, Schemas.FLOAT64, null), null))),
+                            Schemas.nullable("id", Schemas.INT64),
+                            Schemas.nullable("name", Schemas.UTF8),
+                            Schemas.nullable("budget", Schemas.FLOAT64))),
                     List.of());
         }
     }
@@ -126,10 +126,10 @@ public final class StubFunctions {
             super("employees_scan",
                     "Employees table scan function",
                     new Schema(List.of(
-                            new Field("id", new FieldType(true, Schemas.INT64, null), null),
-                            new Field("name", new FieldType(true, Schemas.UTF8, null), null),
-                            new Field("email", new FieldType(true, Schemas.UTF8, null), null),
-                            new Field("department_id", new FieldType(true, Schemas.INT64, null), null))),
+                            Schemas.nullable("id", Schemas.INT64),
+                            Schemas.nullable("name", Schemas.UTF8),
+                            Schemas.nullable("email", Schemas.UTF8),
+                            Schemas.nullable("department_id", Schemas.INT64))),
                     List.of());
         }
     }
@@ -140,10 +140,10 @@ public final class StubFunctions {
             super("products_scan",
                     "Products table scan function",
                     new Schema(List.of(
-                            new Field("id", new FieldType(true, Schemas.INT64, null), null),
-                            new Field("name", new FieldType(true, Schemas.UTF8, null), null),
-                            new Field("price", new FieldType(true, Schemas.FLOAT64, null), null),
-                            new Field("quantity", new FieldType(true, Schemas.INT64, null), null))),
+                            Schemas.nullable("id", Schemas.INT64),
+                            Schemas.nullable("name", Schemas.UTF8),
+                            Schemas.nullable("price", Schemas.FLOAT64),
+                            Schemas.nullable("quantity", Schemas.INT64))),
                     List.of());
         }
     }
@@ -154,9 +154,9 @@ public final class StubFunctions {
             super("projects_scan",
                     "Projects table scan function",
                     new Schema(List.of(
-                            new Field("department_id", new FieldType(true, Schemas.INT64, null), null),
-                            new Field("project_code", new FieldType(true, Schemas.UTF8, null), null),
-                            new Field("title", new FieldType(true, Schemas.UTF8, null), null))),
+                            Schemas.nullable("department_id", Schemas.INT64),
+                            Schemas.nullable("project_code", Schemas.UTF8),
+                            Schemas.nullable("title", Schemas.UTF8))),
                     List.of());
         }
     }

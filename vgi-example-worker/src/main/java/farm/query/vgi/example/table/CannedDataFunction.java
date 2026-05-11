@@ -178,8 +178,8 @@ public final class CannedDataFunction implements TableFunction {
         Field rsRowId = new Field("row_id",
                 new FieldType(false, new ArrowType.Struct(), null),
                 List.of(
-                        new Field("a", new FieldType(true, Schemas.INT64, null), null),
-                        new Field("b", new FieldType(true, Schemas.UTF8, null), null)));
+                        Schemas.nullable("a", Schemas.INT64),
+                        Schemas.nullable("b", Schemas.UTF8)));
         SCHEMAS.put("rowid_struct", new Schema(List.of(
                 rsRowId,
                 f("payload", Schemas.UTF8, true))));

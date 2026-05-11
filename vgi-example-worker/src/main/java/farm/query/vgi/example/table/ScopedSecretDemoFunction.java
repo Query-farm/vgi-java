@@ -17,8 +17,6 @@ import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -33,8 +31,8 @@ import java.util.List;
 public final class ScopedSecretDemoFunction implements TableFunction {
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            new Field("scope", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("found", new FieldType(true, Schemas.BOOL, null), null)));
+            Schemas.nullable("scope", Schemas.UTF8),
+            Schemas.nullable("found", Schemas.BOOL)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 

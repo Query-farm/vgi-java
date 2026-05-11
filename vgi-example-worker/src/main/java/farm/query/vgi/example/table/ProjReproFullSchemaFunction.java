@@ -60,21 +60,21 @@ public class ProjReproFullSchemaFunction implements TableFunction {
 
     static {
         List<Field> fields = new ArrayList<>();
-        fields.add(new Field("topic", new FieldType(false, Schemas.UTF8, null), null));
+        fields.add(Schemas.nonNull("topic", Schemas.UTF8));
         fields.add(new Field("partition", new FieldType(false, new ArrowType.Int(32, true), null), null));
-        fields.add(new Field("offset", new FieldType(false, Schemas.INT64, null), null));
-        fields.add(new Field("timestamp", new FieldType(true, Schemas.INT64, null), null));
-        fields.add(new Field("timestamp_type", new FieldType(true, Schemas.UTF8, null), null));
+        fields.add(Schemas.nonNull("offset", Schemas.INT64));
+        fields.add(Schemas.nullable("timestamp", Schemas.INT64));
+        fields.add(Schemas.nullable("timestamp_type", Schemas.UTF8));
         fields.add(new Field("key", new FieldType(true, new ArrowType.Binary(), null), null));
-        fields.add(new Field("key_string", new FieldType(true, Schemas.UTF8, null), null));
+        fields.add(Schemas.nullable("key_string", Schemas.UTF8));
         fields.add(new Field("key_schema_id", new FieldType(true, new ArrowType.Int(32, true), null), null));
         fields.add(new Field("value", new FieldType(true, new ArrowType.Binary(), null), null));
-        fields.add(new Field("value_string", new FieldType(true, Schemas.UTF8, null), null));
+        fields.add(Schemas.nullable("value_string", Schemas.UTF8));
         fields.add(new Field("value_schema_id", new FieldType(true, new ArrowType.Int(32, true), null), null));
         fields.add(new Field("headers", new FieldType(false, new ArrowType.List(), null),
                 List.of(new Field("item", new FieldType(true, new ArrowType.Struct(), null),
                         List.of(
-                                new Field("k", new FieldType(true, Schemas.UTF8, null), null),
+                                Schemas.nullable("k", Schemas.UTF8),
                                 new Field("v", new FieldType(true, new ArrowType.Binary(), null), null))))));
         OUTPUT_SCHEMA = new Schema(fields);
         OUTPUT_SCHEMA_IPC = farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);

@@ -19,7 +19,6 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -45,11 +44,11 @@ public final class SettingsAwareFunction implements TableFunction {
 
     private static Schema buildSchema(boolean verbose) {
         List<Field> fields = new ArrayList<>();
-        fields.add(new Field("id", new FieldType(true, Schemas.INT64, null), null));
-        fields.add(new Field("greeting", new FieldType(true, Schemas.UTF8, null), null));
-        fields.add(new Field("value", new FieldType(true, Schemas.FLOAT64, null), null));
+        fields.add(Schemas.nullable("id", Schemas.INT64));
+        fields.add(Schemas.nullable("greeting", Schemas.UTF8));
+        fields.add(Schemas.nullable("value", Schemas.FLOAT64));
         if (verbose) {
-            fields.add(new Field("details", new FieldType(true, Schemas.UTF8, null), null));
+            fields.add(Schemas.nullable("details", Schemas.UTF8));
         }
         return new Schema(fields);
     }

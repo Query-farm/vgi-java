@@ -80,8 +80,8 @@ public final class AttachOptionsFixture {
                         List.of(1L, 2L, 3L)),
                 AttachOptionSpec.of("opt_struct", "Struct", STRUCT,
                         List.of(
-                                new Field("a", new FieldType(true, Schemas.INT64, null), null),
-                                new Field("b", new FieldType(true, Schemas.UTF8, null), null)),
+                                Schemas.nullable("a", Schemas.INT64),
+                                Schemas.nullable("b", Schemas.UTF8)),
                         Map.of("a", 1L, "b", "x")));
     }
 }

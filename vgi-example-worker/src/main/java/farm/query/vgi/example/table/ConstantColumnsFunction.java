@@ -62,7 +62,7 @@ public final class ConstantColumnsFunction implements TableFunction {
         }
         if (fields.isEmpty()) {
             // Catalog enumeration with no varargs supplied — placeholder.
-            fields.add(new Field("placeholder", new FieldType(true, Schemas.INT64, null), null));
+            fields.add(Schemas.nullable("placeholder", Schemas.INT64));
         }
         return BindResponse.forSchema(farm.query.vgi.internal.SchemaUtil.serializeSchema(
                 new Schema(fields)));

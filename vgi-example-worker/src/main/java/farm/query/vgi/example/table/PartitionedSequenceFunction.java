@@ -16,8 +16,6 @@ import farm.query.vgirpc.OutputCollector;
 import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.io.Serializable;
@@ -42,7 +40,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public final class PartitionedSequenceFunction implements TableFunction {
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            new Field("n", new FieldType(true, Schemas.INT64, null), null)));
+            Schemas.nullable("n", Schemas.INT64)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
     private static final long CHUNK = 10_000L;

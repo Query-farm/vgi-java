@@ -17,8 +17,6 @@ import farm.query.vgirpc.OutputCollector;
 import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
@@ -26,7 +24,7 @@ import java.util.List;
 public final class DoubleSequenceFunction implements TableFunction {
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            new Field("n", new FieldType(true, Schemas.FLOAT64, null), null)));
+            Schemas.nullable("n", Schemas.FLOAT64)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 

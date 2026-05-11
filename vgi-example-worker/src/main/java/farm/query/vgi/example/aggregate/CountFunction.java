@@ -9,8 +9,6 @@ import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.io.Serializable;
@@ -26,7 +24,7 @@ public final class CountFunction implements AggregateFunction<CountFunction.Stat
     }
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            new Field("result", new FieldType(true, Schemas.INT64, null), null)));
+            Schemas.nullable("result", Schemas.INT64)));
 
     @Override public String name() { return "vgi_count"; }
     @Override public FunctionMetadata metadata() {

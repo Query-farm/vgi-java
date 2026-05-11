@@ -23,8 +23,6 @@ import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -44,10 +42,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public final class FilterEchoPartitionedFunction implements TableFunction {
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            new Field("n", new FieldType(true, Schemas.INT64, null), null),
-            new Field("s", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("pushed_filters", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("worker_pid", new FieldType(true, Schemas.INT32, null), null)));
+            Schemas.nullable("n", Schemas.INT64),
+            Schemas.nullable("s", Schemas.UTF8),
+            Schemas.nullable("pushed_filters", Schemas.UTF8),
+            Schemas.nullable("worker_pid", Schemas.INT32)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
     private static final long CHUNK = 1000L;

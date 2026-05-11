@@ -22,7 +22,6 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -36,10 +35,10 @@ import java.util.List;
 public final class ProjectedDataFunction implements TableFunction {
 
     private static final Schema FULL_SCHEMA = new Schema(List.of(
-            new Field("id", new FieldType(true, Schemas.INT64, null), null),
-            new Field("name", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("value", new FieldType(true, Schemas.FLOAT64, null), null),
-            new Field("extra", new FieldType(true, Schemas.INT64, null), null)));
+            Schemas.nullable("id", Schemas.INT64),
+            Schemas.nullable("name", Schemas.UTF8),
+            Schemas.nullable("value", Schemas.FLOAT64),
+            Schemas.nullable("extra", Schemas.INT64)));
     private static final byte[] FULL_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(FULL_SCHEMA);
 

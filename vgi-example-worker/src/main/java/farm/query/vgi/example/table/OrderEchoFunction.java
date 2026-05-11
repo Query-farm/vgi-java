@@ -22,7 +22,6 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -37,12 +36,12 @@ import java.util.List;
 public final class OrderEchoFunction implements TableFunction {
 
     private static final Schema FULL_SCHEMA = new Schema(List.of(
-            new Field("n", new FieldType(true, Schemas.INT64, null), null),
-            new Field("s", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("order_column", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("order_direction", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("order_null_order", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("order_limit", new FieldType(true, Schemas.INT64, null), null)));
+            Schemas.nullable("n", Schemas.INT64),
+            Schemas.nullable("s", Schemas.UTF8),
+            Schemas.nullable("order_column", Schemas.UTF8),
+            Schemas.nullable("order_direction", Schemas.UTF8),
+            Schemas.nullable("order_null_order", Schemas.UTF8),
+            Schemas.nullable("order_limit", Schemas.INT64)));
     private static final byte[] FULL_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(FULL_SCHEMA);
 

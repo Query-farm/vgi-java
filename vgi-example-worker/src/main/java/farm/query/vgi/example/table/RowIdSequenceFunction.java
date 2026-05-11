@@ -101,13 +101,13 @@ public final class RowIdSequenceFunction implements TableFunction {
         };
         List<Field> ridChildren = "struct".equals(rowIdType)
                 ? List.of(
-                        new Field("a", new FieldType(true, Schemas.INT64, null), null),
-                        new Field("b", new FieldType(true, Schemas.UTF8, null), null))
+                        Schemas.nullable("a", Schemas.INT64),
+                        Schemas.nullable("b", Schemas.UTF8))
                 : List.of();
         Field rid = new Field("row_id",
                 new FieldType(false, ridType, null, rowIdMeta), ridChildren);
-        Field name = new Field("name", new FieldType(true, Schemas.UTF8, null), null);
-        Field value = new Field("value", new FieldType(true, Schemas.UTF8, null), null);
+        Field name = Schemas.nullable("name", Schemas.UTF8);
+        Field value = Schemas.nullable("value", Schemas.UTF8);
         List<Field> fields = switch (layout) {
             case "middle" -> List.of(name, rid, value);
             case "last"   -> List.of(name, value, rid);

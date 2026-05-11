@@ -17,8 +17,6 @@ import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -41,20 +39,20 @@ public final class MakePairsFunctions {
     private MakePairsFunctions() {}
 
     private static final Schema INT_SCHEMA = new Schema(List.of(
-            new Field("a", new FieldType(true, Schemas.INT64, null), null),
-            new Field("b", new FieldType(true, Schemas.INT64, null), null)));
+            Schemas.nullable("a", Schemas.INT64),
+            Schemas.nullable("b", Schemas.INT64)));
     private static final byte[] INT_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(INT_SCHEMA);
 
     private static final Schema STR_SCHEMA = new Schema(List.of(
-            new Field("a", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("b", new FieldType(true, Schemas.UTF8, null), null)));
+            Schemas.nullable("a", Schemas.UTF8),
+            Schemas.nullable("b", Schemas.UTF8)));
     private static final byte[] STR_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(STR_SCHEMA);
 
     private static final Schema MIXED_SCHEMA = new Schema(List.of(
-            new Field("a", new FieldType(true, Schemas.INT64, null), null),
-            new Field("b", new FieldType(true, Schemas.UTF8, null), null)));
+            Schemas.nullable("a", Schemas.INT64),
+            Schemas.nullable("b", Schemas.UTF8)));
     private static final byte[] MIXED_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(MIXED_SCHEMA);
 

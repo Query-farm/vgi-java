@@ -29,6 +29,21 @@ public final class Schemas {
 
     private Schemas() {}
 
+    /** Nullable {@link Field} builder — the default for fixture output columns. */
+    public static Field nullable(String name, ArrowType type) {
+        return new Field(name, new FieldType(true, type, null), null);
+    }
+
+    /** Non-null {@link Field} builder. */
+    public static Field nonNull(String name, ArrowType type) {
+        return new Field(name, new FieldType(false, type, null), null);
+    }
+
+    /** Build a {@link Schema} from a varargs list of fields. */
+    public static Schema of(Field... fields) {
+        return new Schema(List.of(fields));
+    }
+
     /** Single-column nullable {@code result} schema. */
     public static Schema singleResult(ArrowType t) {
         return new Schema(List.of(new Field("result", new FieldType(true, t, null), null)));

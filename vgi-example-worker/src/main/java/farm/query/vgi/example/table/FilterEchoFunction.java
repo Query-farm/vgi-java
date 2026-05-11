@@ -23,8 +23,6 @@ import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -42,9 +40,9 @@ import java.util.List;
 public final class FilterEchoFunction implements TableFunction {
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            new Field("n", new FieldType(true, Schemas.INT64, null), null),
-            new Field("s", new FieldType(true, Schemas.UTF8, null), null),
-            new Field("pushed_filters", new FieldType(true, Schemas.UTF8, null), null)));
+            Schemas.nullable("n", Schemas.INT64),
+            Schemas.nullable("s", Schemas.UTF8),
+            Schemas.nullable("pushed_filters", Schemas.UTF8)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
             farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
