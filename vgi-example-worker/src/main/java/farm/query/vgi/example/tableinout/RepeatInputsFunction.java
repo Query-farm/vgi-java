@@ -5,10 +5,8 @@ package farm.query.vgi.example.tableinout;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
-import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.tableinout.TableInOutBindParams;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
+import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgi.tableinout.TableInOutInitParams;
 import farm.query.vgi.types.Schemas;
@@ -26,7 +24,7 @@ import java.util.List;
  * {@code repeat_inputs(repeat_count BIGINT [const], data TABLE) -> *} —
  * duplicates each input batch {@code repeat_count} times.
  */
-public final class RepeatInputsFunction implements TableInOutFunction {
+public final class RepeatInputsFunction extends PassthroughTIOFunction {
 
     @Override public String name() { return "repeat_inputs"; }
 
@@ -38,14 +36,6 @@ public final class RepeatInputsFunction implements TableInOutFunction {
         return List.of(
                 new ArgSpec("repeat_count", 0, Schemas.INT64, /*isConst=*/true),
                 ArgSpec.table("data", 1));
-    }
-
-    @Override public BindResponse onBind(TableInOutBindParams params) {
-        Schema in = params.inputSchema();
-        if (in == null || in.getFields().isEmpty()) {
-            return BindResponse.forSchema(SchemaUtil.serializeSchema(new Schema(List.of())));
-        }
-        return BindResponse.forSchema(SchemaUtil.serializeSchema(in));
     }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {

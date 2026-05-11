@@ -5,17 +5,14 @@ package farm.query.vgi.example.tableinout;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
-import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.tableinout.TableInOutBindParams;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
+import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgi.tableinout.TableInOutInitParams;
 import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
 
@@ -24,7 +21,7 @@ import java.util.List;
  * intentional exception during FINALIZE. Exercises the FINALIZE-phase init
  * path + error propagation.
  */
-public final class ExceptionFinalizeFunction implements TableInOutFunction {
+public final class ExceptionFinalizeFunction extends PassthroughTIOFunction {
 
     @Override public String name() { return "exception_finalize"; }
 
@@ -38,14 +35,6 @@ public final class ExceptionFinalizeFunction implements TableInOutFunction {
                 new ArgSpec("logging", -1, farm.query.vgi.types.Schemas.BOOL, "",
                         /*isConst=*/true, /*hasDefault=*/true, "false",
                         List.of(), false, false));
-    }
-
-    @Override public BindResponse onBind(TableInOutBindParams params) {
-        Schema in = params.inputSchema();
-        if (in == null || in.getFields().isEmpty()) {
-            return BindResponse.forSchema(SchemaUtil.serializeSchema(new Schema(List.of())));
-        }
-        return BindResponse.forSchema(SchemaUtil.serializeSchema(in));
     }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {

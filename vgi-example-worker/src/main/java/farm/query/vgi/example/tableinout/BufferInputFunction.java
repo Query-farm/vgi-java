@@ -6,9 +6,8 @@ package farm.query.vgi.example.tableinout;
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.tableinout.TableInOutBindParams;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
+import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgi.tableinout.TableInOutInitParams;
 import farm.query.vgirpc.AnnotatedBatch;
@@ -28,21 +27,13 @@ import java.util.List;
  * exchange state, emits empty batches during INPUT, then drains the buffer
  * during FINALIZE. Used by table_in_out/buffer_input/* tests.
  */
-public final class BufferInputFunction implements TableInOutFunction {
+public final class BufferInputFunction extends PassthroughTIOFunction {
 
     @Override public String name() { return "buffer_input"; }
     @Override public FunctionMetadata metadata() {
         return FunctionMetadata.describe("Collects all input batches and emits during finalization");
     }
     @Override public List<ArgSpec> argumentSpecs() { return List.of(ArgSpec.table("data", 0)); }
-
-    @Override public BindResponse onBind(TableInOutBindParams params) {
-        Schema in = params.inputSchema();
-        if (in == null || in.getFields().isEmpty()) {
-            return BindResponse.forSchema(SchemaUtil.serializeSchema(new Schema(List.of())));
-        }
-        return BindResponse.forSchema(SchemaUtil.serializeSchema(in));
-    }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
         return new BufferState(SchemaUtil.serializeSchema(params.inputSchema()));

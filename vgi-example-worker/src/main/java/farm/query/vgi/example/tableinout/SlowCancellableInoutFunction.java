@@ -5,17 +5,14 @@ package farm.query.vgi.example.tableinout;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
-import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.tableinout.TableInOutBindParams;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
+import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgi.tableinout.TableInOutInitParams;
 import farm.query.vgi.types.Schemas;
 import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
-import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
 
@@ -24,7 +21,7 @@ import java.util.List;
  * data TABLE)} — sleeps {@code sleep_ms} per input batch then emits unchanged.
  * Used by table_in_out cancellation tests.
  */
-public final class SlowCancellableInoutFunction implements TableInOutFunction {
+public final class SlowCancellableInoutFunction extends PassthroughTIOFunction {
 
     @Override public String name() { return "slow_cancellable_inout"; }
     @Override public FunctionMetadata metadata() {
@@ -35,14 +32,6 @@ public final class SlowCancellableInoutFunction implements TableInOutFunction {
                 new ArgSpec("sleep_ms", 0, Schemas.INT64, /*isConst=*/true),
                 new ArgSpec("probe_path", 1, Schemas.UTF8, /*isConst=*/true),
                 ArgSpec.table("data", 2));
-    }
-
-    @Override public BindResponse onBind(TableInOutBindParams params) {
-        Schema in = params.inputSchema();
-        if (in == null || in.getFields().isEmpty()) {
-            return BindResponse.forSchema(SchemaUtil.serializeSchema(new Schema(List.of())));
-        }
-        return BindResponse.forSchema(SchemaUtil.serializeSchema(in));
     }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
