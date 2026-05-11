@@ -39,18 +39,19 @@ final class FunctionInfoSerializer {
 
     private FunctionInfoSerializer() {}
 
-    private static final EnumDict FUNCTION_TYPE = new EnumDict("function_type", 1,
-            List.of("scalar", "table", "aggregate"));
-    private static final EnumDict STABILITY = new EnumDict("stability", 2,
-            List.of("CONSISTENT", "VOLATILE", "CONSISTENT_WITHIN_QUERY"));
-    private static final EnumDict NULL_HANDLING = new EnumDict("null_handling", 3,
-            List.of("DEFAULT", "SPECIAL"));
-    private static final EnumDict ORDER_PRESERVATION = new EnumDict("order_preservation", 4,
+    private static final EnumDict FUNCTION_TYPE = new EnumDict("function_type",
+            DictionaryIds.FUNCTION_TYPE, List.of("scalar", "table", "aggregate"));
+    private static final EnumDict STABILITY = new EnumDict("stability",
+            DictionaryIds.STABILITY, List.of("CONSISTENT", "VOLATILE", "CONSISTENT_WITHIN_QUERY"));
+    private static final EnumDict NULL_HANDLING = new EnumDict("null_handling",
+            DictionaryIds.NULL_HANDLING, List.of("DEFAULT", "SPECIAL"));
+    private static final EnumDict ORDER_PRESERVATION = new EnumDict("order_preservation",
+            DictionaryIds.ORDER_PRESERVATION,
             List.of("NO_ORDER_PRESERVED", "INSERTION_ORDER", "FIXED_ORDER"));
-    private static final EnumDict ORDER_DEPENDENT = new EnumDict("order_dependent", 5,
-            List.of("NOT_ORDER_DEPENDENT", "ORDER_DEPENDENT"));
-    private static final EnumDict DISTINCT_DEPENDENT = new EnumDict("distinct_dependent", 6,
-            List.of("NOT_DISTINCT_DEPENDENT", "DISTINCT_DEPENDENT"));
+    private static final EnumDict ORDER_DEPENDENT = new EnumDict("order_dependent",
+            DictionaryIds.ORDER_DEPENDENT, List.of("NOT_ORDER_DEPENDENT", "ORDER_DEPENDENT"));
+    private static final EnumDict DISTINCT_DEPENDENT = new EnumDict("distinct_dependent",
+            DictionaryIds.DISTINCT_DEPENDENT, List.of("NOT_DISTINCT_DEPENDENT", "DISTINCT_DEPENDENT"));
 
     private static final List<EnumDict> DICTS = List.of(
             FUNCTION_TYPE, STABILITY, NULL_HANDLING,
