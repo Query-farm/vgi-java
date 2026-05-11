@@ -57,7 +57,8 @@ public final class ConstantColumnsFunction implements TableFunction {
         // positionals[0] is count, positionals[1..] are the varargs values.
         List<Field> fields = new ArrayList<>();
         for (int i = 1; i < positionals.size(); i++) {
-            fields.add(buildField("col_" + (i - 1), positionals.get(i)));
+            ArrowType wireType = p.arguments().positionalTypeAt(i);
+            fields.add(buildField("col_" + (i - 1), positionals.get(i), wireType));
         }
         if (fields.isEmpty()) {
             // Catalog enumeration with no varargs supplied — placeholder.
@@ -67,15 +68,27 @@ public final class ConstantColumnsFunction implements TableFunction {
                 new Schema(fields)));
     }
 
-    private static Field buildField(String name, Object v) {
+    /** Build a Field for a varargs value. Uses the wire-derived ArrowType
+     *  when available (preserves TINYINT vs BIGINT, FLOAT vs DOUBLE, etc.);
+     *  falls back to inference from the Java runtime class otherwise. */
+    private static Field buildField(String name, Object v, ArrowType wireType) {
         if (v instanceof java.util.Map<?, ?> m) {
             List<Field> children = new java.util.ArrayList<>();
             for (java.util.Map.Entry<?, ?> e : m.entrySet()) {
-                children.add(buildField(e.getKey().toString(), e.getValue()));
+                children.add(buildField(e.getKey().toString(), e.getValue(), null));
             }
             return new Field(name, new FieldType(true, new ArrowType.Struct(), null), children);
         }
+        if (wireType != null && !(wireType instanceof ArrowType.List) && !(wireType instanceof ArrowType.Struct)) {
+            return new Field(name, new FieldType(true, wireType, null), null);
+        }
         return new Field(name, new FieldType(true, listOrScalarType(v), null), listChildren(v, "item"));
+    }
+
+    /** Backwards-compat overload used by State.produceTick which doesn't have
+     *  access to the parsed positional types. */
+    private static Field buildField(String name, Object v) {
+        return buildField(name, v, null);
     }
 
     /** Walk into nested lists to compute the deepest scalar type. */
@@ -108,7 +121,9 @@ public final class ConstantColumnsFunction implements TableFunction {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
         List<Object> values = new ArrayList<>(params.arguments().positional().subList(
                 1, params.arguments().positional().size()));
-        return new State((int) count, values);
+        State state = new State((int) count, values);
+        state.outputSchemaIpc = farm.query.vgi.internal.SchemaUtil.serializeSchema(params.outputSchema());
+        return state;
     }
 
     private static ArrowType inferArrowType(Object v) {
@@ -128,6 +143,7 @@ public final class ConstantColumnsFunction implements TableFunction {
         public int total;
         public List<Object> values;
         public boolean done;
+        public byte[] outputSchemaIpc;
 
         public State() {}
         State(int total, List<Object> values) { this.total = total; this.values = values; }
@@ -135,11 +151,19 @@ public final class ConstantColumnsFunction implements TableFunction {
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (done) { out.finish(); return; }
             done = true;
-            List<Field> fields = new ArrayList<>();
-            for (int i = 0; i < values.size(); i++) {
-                fields.add(buildField("col_" + i, values.get(i)));
+            // Prefer the bind-time output schema so user-supplied types like
+            // TINYINT or FLOAT survive the round-trip. Falls back to inference
+            // from the Java runtime values if the schema isn't available.
+            Schema schema;
+            if (outputSchemaIpc != null && outputSchemaIpc.length > 0) {
+                schema = farm.query.vgi.internal.SchemaUtil.deserializeSchema(outputSchemaIpc);
+            } else {
+                List<Field> fields = new ArrayList<>();
+                for (int i = 0; i < values.size(); i++) {
+                    fields.add(buildField("col_" + i, values.get(i)));
+                }
+                schema = new Schema(fields);
             }
-            Schema schema = new Schema(fields);
             VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
             root.allocateNew();
             for (int c = 0; c < values.size(); c++) {
@@ -157,8 +181,34 @@ public final class ConstantColumnsFunction implements TableFunction {
             if (val == null) { v.setNull(row); return; }
             if (v instanceof BigIntVector bv) {
                 bv.setSafe(row, ((Number) val).longValue());
+            } else if (v instanceof org.apache.arrow.vector.IntVector iv) {
+                iv.setSafe(row, ((Number) val).intValue());
+            } else if (v instanceof org.apache.arrow.vector.SmallIntVector sv) {
+                sv.setSafe(row, ((Number) val).shortValue());
+            } else if (v instanceof org.apache.arrow.vector.TinyIntVector tv) {
+                tv.setSafe(row, ((Number) val).byteValue());
+            } else if (v instanceof org.apache.arrow.vector.UInt8Vector uv) {
+                uv.setSafe(row, ((Number) val).longValue());
+            } else if (v instanceof org.apache.arrow.vector.UInt4Vector uv) {
+                uv.setSafe(row, ((Number) val).intValue());
+            } else if (v instanceof org.apache.arrow.vector.UInt2Vector uv) {
+                uv.setSafe(row, (char) ((Number) val).intValue());
+            } else if (v instanceof org.apache.arrow.vector.UInt1Vector uv) {
+                uv.setSafe(row, ((Number) val).byteValue());
             } else if (v instanceof Float8Vector fv) {
                 fv.setSafe(row, ((Number) val).doubleValue());
+            } else if (v instanceof org.apache.arrow.vector.Float4Vector fv) {
+                fv.setSafe(row, ((Number) val).floatValue());
+            } else if (v instanceof org.apache.arrow.vector.DecimalVector dv) {
+                java.math.BigDecimal bd = val instanceof java.math.BigDecimal
+                        ? (java.math.BigDecimal) val
+                        : new java.math.BigDecimal(val.toString());
+                dv.setSafe(row, bd.setScale(dv.getScale(), java.math.RoundingMode.HALF_UP));
+            } else if (v instanceof org.apache.arrow.vector.Decimal256Vector dv) {
+                java.math.BigDecimal bd = val instanceof java.math.BigDecimal
+                        ? (java.math.BigDecimal) val
+                        : new java.math.BigDecimal(val.toString());
+                dv.setSafe(row, bd.setScale(dv.getScale(), java.math.RoundingMode.HALF_UP));
             } else if (v instanceof BitVector bit) {
                 bit.setSafe(row, (Boolean) val ? 1 : 0);
             } else if (v instanceof VarCharVector vc) {
