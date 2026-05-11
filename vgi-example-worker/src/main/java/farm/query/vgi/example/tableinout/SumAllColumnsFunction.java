@@ -11,6 +11,7 @@ import farm.query.vgi.tableinout.TableInOutBindParams;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgi.tableinout.TableInOutInitParams;
+import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
 import farm.query.vgi.types.CachedSchema;
 import farm.query.vgirpc.AnnotatedBatch;
@@ -19,11 +20,7 @@ import farm.query.vgirpc.OutputCollector;
 import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
-import org.apache.arrow.vector.IntVector;
-import org.apache.arrow.vector.SmallIntVector;
-import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -146,14 +143,14 @@ public class SumAllColumnsFunction implements TableInOutFunction {
                     long sum = 0;
                     for (int i = 0; i < rows; i++) {
                         if (col.isNull(i)) continue;
-                        sum += readLong(col, i);
+                        sum += ScalarHelpers.toLong(col, i);
                     }
                     intSums.merge(f.getName(), sum, Long::sum);
                 } else if (floatSums.containsKey(f.getName())) {
                     double sum = 0;
                     for (int i = 0; i < rows; i++) {
                         if (col.isNull(i)) continue;
-                        sum += readDouble(col, i);
+                        sum += ScalarHelpers.toDouble(col, i);
                     }
                     floatSums.merge(f.getName(), sum, Double::sum);
                 }
@@ -166,20 +163,5 @@ public class SumAllColumnsFunction implements TableInOutFunction {
             }
         }
 
-        private static long readLong(FieldVector v, int i) {
-            if (v instanceof BigIntVector b) return b.get(i);
-            if (v instanceof IntVector iv) return iv.get(i);
-            if (v instanceof SmallIntVector s) return s.get(i);
-            if (v instanceof TinyIntVector t) return t.get(i);
-            return 0;
-        }
-
-        private static double readDouble(FieldVector v, int i) {
-            if (v instanceof Float8Vector f) return f.get(i);
-            if (v instanceof Float4Vector f) return f.get(i);
-            if (v instanceof BigIntVector b) return b.get(i);
-            if (v instanceof IntVector iv) return iv.get(i);
-            return 0;
-        }
     }
 }
