@@ -56,6 +56,7 @@ public final class ArgumentsParser {
     private static Arguments extractFromStruct(StructVector args) {
         Map<Integer, Object> positionalByIdx = new LinkedHashMap<>();
         Map<Integer, org.apache.arrow.vector.types.pojo.ArrowType> positionalTypeByIdx = new LinkedHashMap<>();
+        Map<Integer, Field> positionalFieldByIdx = new LinkedHashMap<>();
         Map<String, Object> named = new LinkedHashMap<>();
         for (Field f : args.getField().getChildren()) {
             String name = f.getName();
@@ -65,6 +66,7 @@ public final class ArgumentsParser {
                 int idx = Integer.parseInt(name.substring("positional_".length()));
                 positionalByIdx.put(idx, value);
                 positionalTypeByIdx.put(idx, f.getType());
+                positionalFieldByIdx.put(idx, f);
                 named.put(name, value);
             } else if (name.startsWith("named_")) {
                 String pretty = name.substring("named_".length());
@@ -74,15 +76,19 @@ public final class ArgumentsParser {
                 named.put(name, value);
             }
         }
-        List<Object> positional = new ArrayList<>(positionalByIdx.size());
-        List<org.apache.arrow.vector.types.pojo.ArrowType> positionalTypes = new ArrayList<>(positionalTypeByIdx.size());
-        for (int i = 0; i < positionalByIdx.size(); i++) {
+        int n = positionalByIdx.size();
+        List<Object> positional = new ArrayList<>(n);
+        List<org.apache.arrow.vector.types.pojo.ArrowType> positionalTypes = new ArrayList<>(n);
+        List<Field> positionalFields = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
             positional.add(positionalByIdx.getOrDefault(i, null));
             positionalTypes.add(positionalTypeByIdx.getOrDefault(i, null));
+            positionalFields.add(positionalFieldByIdx.getOrDefault(i, null));
         }
         return new Arguments(java.util.Collections.unmodifiableList(positional),
                 java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(named)),
-                java.util.Collections.unmodifiableList(positionalTypes));
+                java.util.Collections.unmodifiableList(positionalTypes),
+                java.util.Collections.unmodifiableList(positionalFields));
     }
 
     private static Arguments extractFlat(VectorSchemaRoot root) {

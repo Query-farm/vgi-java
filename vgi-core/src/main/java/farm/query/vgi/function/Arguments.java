@@ -4,6 +4,7 @@
 package farm.query.vgi.function;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 
 import java.util.List;
 import java.util.Map;
@@ -15,16 +16,28 @@ import java.util.Map;
  * <p>{@code positionalTypes} preserves the source Arrow type per positional
  * arg (TINYINT vs BIGINT, FLOAT vs DOUBLE, …) so callers that emit a
  * dynamically-typed output schema can preserve the user's exact type.
+ * {@code positionalFields} additionally carries the source {@link Field}
+ * including {@code ARROW:extension:*} metadata, which DuckDB uses to round-
+ * trip types like HUGEINT (sent as {@code FixedSizeBinary(16)} with
+ * extension {@code arrow.opaque} / {@code type_name=hugeint}). Callers
+ * that need lossless type round-trip should rebuild output fields from
+ * {@code positionalFieldAt} rather than {@code positionalTypeAt}.
  */
 public record Arguments(List<Object> positional, Map<String, Object> named,
-                          List<ArrowType> positionalTypes) {
+                          List<ArrowType> positionalTypes,
+                          List<Field> positionalFields) {
 
     public Arguments(List<Object> positional, Map<String, Object> named) {
-        this(positional, named, List.of());
+        this(positional, named, List.of(), List.of());
+    }
+
+    public Arguments(List<Object> positional, Map<String, Object> named,
+                       List<ArrowType> positionalTypes) {
+        this(positional, named, positionalTypes, List.of());
     }
 
     public static Arguments empty() {
-        return new Arguments(List.of(), Map.of(), List.of());
+        return new Arguments(List.of(), Map.of(), List.of(), List.of());
     }
 
     public Object positionalAt(int index) {
@@ -35,6 +48,14 @@ public record Arguments(List<Object> positional, Map<String, Object> named,
     public ArrowType positionalTypeAt(int index) {
         if (positionalTypes == null || index >= positionalTypes.size()) return null;
         return positionalTypes.get(index);
+    }
+
+    /** Source {@link Field} for the positional argument at {@code index},
+     *  including any {@code ARROW:extension:*} metadata (DuckDB lossless
+     *  type tagging). Returns {@code null} when not available. */
+    public Field positionalFieldAt(int index) {
+        if (positionalFields == null || index >= positionalFields.size()) return null;
+        return positionalFields.get(index);
     }
 
     /** Typed accessor for a named long argument with a default. */

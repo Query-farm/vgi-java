@@ -140,10 +140,70 @@ public final class VectorScalarCodec {
         else if (v instanceof Float8Vector x) x.setSafe(row, ((Number) value).doubleValue());
         else if (v instanceof VarCharVector x) x.setSafe(row, new Text(value.toString()));
         else if (v instanceof VarBinaryVector x) x.setSafe(row, (byte[]) value);
-        else if (v instanceof DateDayVector x) x.setSafe(row, ((Number) value).intValue());
-        else if (v instanceof TimeMicroVector x) x.setSafe(row, ((Number) value).longValue());
-        else if (v instanceof TimeStampMicroVector x) x.setSafe(row, ((Number) value).longValue());
-        else if (v instanceof TimeStampMicroTZVector x) x.setSafe(row, ((Number) value).longValue());
+        else if (v instanceof DateDayVector x) {
+            // getObject returns LocalDate; setSafe wants epoch days (int).
+            if (value instanceof java.time.LocalDate ld) x.setSafe(row, (int) ld.toEpochDay());
+            else x.setSafe(row, ((Number) value).intValue());
+        }
+        else if (v instanceof TimeMicroVector x) {
+            if (value instanceof java.time.LocalTime lt) x.setSafe(row, lt.toNanoOfDay() / 1000L);
+            else x.setSafe(row, ((Number) value).longValue());
+        }
+        else if (v instanceof TimeStampMicroVector x) {
+            if (value instanceof java.time.LocalDateTime ldt) {
+                long micros = ldt.toEpochSecond(java.time.ZoneOffset.UTC) * 1_000_000L
+                        + ldt.getNano() / 1000L;
+                x.setSafe(row, micros);
+            } else x.setSafe(row, ((Number) value).longValue());
+        }
+        else if (v instanceof TimeStampMicroTZVector x) {
+            if (value instanceof java.time.ZonedDateTime zdt) {
+                long micros = zdt.toEpochSecond() * 1_000_000L + zdt.getNano() / 1000L;
+                x.setSafe(row, micros);
+            } else if (value instanceof java.time.Instant ist) {
+                long micros = ist.getEpochSecond() * 1_000_000L + ist.getNano() / 1000L;
+                x.setSafe(row, micros);
+            } else x.setSafe(row, ((Number) value).longValue());
+        }
+        else if (v instanceof org.apache.arrow.vector.DateMilliVector x) {
+            if (value instanceof java.time.LocalDateTime ldt) {
+                long ms = ldt.toEpochSecond(java.time.ZoneOffset.UTC) * 1000L + ldt.getNano() / 1_000_000L;
+                x.setSafe(row, ms);
+            } else x.setSafe(row, ((Number) value).longValue());
+        }
+        else if (v instanceof org.apache.arrow.vector.TimeStampSecVector x) {
+            if (value instanceof java.time.LocalDateTime ldt) {
+                x.setSafe(row, ldt.toEpochSecond(java.time.ZoneOffset.UTC));
+            } else x.setSafe(row, ((Number) value).longValue());
+        }
+        else if (v instanceof org.apache.arrow.vector.TimeStampMilliVector x) {
+            if (value instanceof java.time.LocalDateTime ldt) {
+                long ms = ldt.toEpochSecond(java.time.ZoneOffset.UTC) * 1000L + ldt.getNano() / 1_000_000L;
+                x.setSafe(row, ms);
+            } else x.setSafe(row, ((Number) value).longValue());
+        }
+        else if (v instanceof org.apache.arrow.vector.TimeStampNanoVector x) {
+            if (value instanceof java.time.LocalDateTime ldt) {
+                long ns = ldt.toEpochSecond(java.time.ZoneOffset.UTC) * 1_000_000_000L + ldt.getNano();
+                x.setSafe(row, ns);
+            } else x.setSafe(row, ((Number) value).longValue());
+        }
+        else if (v instanceof org.apache.arrow.vector.IntervalMonthDayNanoVector x) {
+            // IntervalMonthDayNanoVector.getObject returns Arrow's
+            // PeriodDuration wrapping a Period and Duration.
+            if (value instanceof org.apache.arrow.vector.PeriodDuration pd) {
+                java.time.Period p = pd.getPeriod();
+                java.time.Duration d = pd.getDuration();
+                x.setSafe(row, (int) p.toTotalMonths(), p.getDays(), d.toNanos());
+            } else if (value instanceof java.time.Period p) {
+                x.setSafe(row, (int) p.toTotalMonths(), p.getDays(), 0L);
+            } else if (value instanceof java.time.Duration d) {
+                x.setSafe(row, 0, 0, d.toNanos());
+            }
+        }
+        else if (v instanceof org.apache.arrow.vector.FixedSizeBinaryVector x) {
+            x.setSafe(row, (byte[]) value);
+        }
         else if (v instanceof DecimalVector x) {
             BigDecimal bd = value instanceof BigDecimal b ? b : new BigDecimal(value.toString());
             x.setSafe(row, bd.setScale(x.getScale(), RoundingMode.HALF_UP));

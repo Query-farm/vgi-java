@@ -59,7 +59,31 @@ public final class ConstantColumnsFunction implements TableFunction {
         List<Field> fields = new ArrayList<>();
         for (int i = 1; i < positionals.size(); i++) {
             ArrowType wireType = p.arguments().positionalTypeAt(i);
-            fields.add(buildField("col_" + (i - 1), positionals.get(i), wireType));
+            Field argField = p.arguments().positionalFieldAt(i);
+            // Preserve the bind-time Field structure for Map (Arrow Map
+            // type requires exact entries:struct<key,value> shape we can't
+            // synthesise from a Java Map) and lossless-tagged types
+            // (arrow.opaque / type_name=hugeint, etc.).
+            //
+            // List/Struct stay on the inference path because writeListItem
+            // currently dispatches the inner-vector writer on Java type
+            // (Long -> bigInt, Double -> float8), not on the declared
+            // inner Arrow type. Preserving argField for List would emit
+            // List<int32> while writeListItem still calls bigInt() → wrong.
+            // DictionaryEncoding (DuckDB ENUMs) is intentionally skipped:
+            // ArgumentsParser delivers only the index byte.
+            boolean useArgField = argField != null
+                    && argField.getDictionary() == null
+                    && (argField.getType() instanceof ArrowType.Map
+                            || (argField.getMetadata() != null && !argField.getMetadata().isEmpty()));
+            if (useArgField) {
+                fields.add(new Field("col_" + (i - 1),
+                        new FieldType(true, argField.getType(), argField.getDictionary(),
+                                argField.getMetadata()),
+                        argField.getChildren()));
+            } else {
+                fields.add(buildField("col_" + (i - 1), positionals.get(i), wireType));
+            }
         }
         if (fields.isEmpty()) {
             // Catalog enumeration with no varargs supplied — placeholder.
@@ -193,7 +217,10 @@ public final class ConstantColumnsFunction implements TableFunction {
             } else if (v instanceof org.apache.arrow.vector.UInt4Vector uv) {
                 uv.setSafe(row, ((Number) val).intValue());
             } else if (v instanceof org.apache.arrow.vector.UInt2Vector uv) {
-                uv.setSafe(row, (char) ((Number) val).intValue());
+                // UInt2Vector.getObject returns Character (uint16 = char range);
+                // ArgumentsParser stores it as-is, so handle either Character or Number.
+                int n = val instanceof Character c ? c.charValue() : ((Number) val).intValue();
+                uv.setSafe(row, (char) n);
             } else if (v instanceof org.apache.arrow.vector.UInt1Vector uv) {
                 uv.setSafe(row, ((Number) val).byteValue());
             } else if (v instanceof Float8Vector fv) {
@@ -204,18 +231,40 @@ public final class ConstantColumnsFunction implements TableFunction {
                 java.math.BigDecimal bd = val instanceof java.math.BigDecimal
                         ? (java.math.BigDecimal) val
                         : new java.math.BigDecimal(val.toString());
-                dv.setSafe(row, bd.setScale(dv.getScale(), java.math.RoundingMode.HALF_UP));
+                bd = bd.setScale(dv.getScale(), java.math.RoundingMode.HALF_UP);
+                if (bd.precision() > dv.getPrecision()) {
+                    // HUGEINT max (2^127-1) has 39 digits but Arrow Decimal128
+                    // declares precision 38. Bypass the precision check by
+                    // writing the raw 16-byte big-endian payload directly.
+                    dv.setBigEndianSafe(row, toFixedBigEndian(bd.unscaledValue(), 16));
+                } else {
+                    dv.setSafe(row, bd);
+                }
             } else if (v instanceof org.apache.arrow.vector.Decimal256Vector dv) {
                 java.math.BigDecimal bd = val instanceof java.math.BigDecimal
                         ? (java.math.BigDecimal) val
                         : new java.math.BigDecimal(val.toString());
-                dv.setSafe(row, bd.setScale(dv.getScale(), java.math.RoundingMode.HALF_UP));
+                bd = bd.setScale(dv.getScale(), java.math.RoundingMode.HALF_UP);
+                if (bd.precision() > dv.getPrecision()) {
+                    dv.setBigEndianSafe(row, toFixedBigEndian(bd.unscaledValue(), 32));
+                } else {
+                    dv.setSafe(row, bd);
+                }
             } else if (v instanceof BitVector bit) {
                 bit.setSafe(row, (Boolean) val ? 1 : 0);
             } else if (v instanceof VarCharVector vc) {
                 vc.setSafe(row, new Text(val.toString()));
             } else if (v instanceof VarBinaryVector vb) {
                 vb.setSafe(row, (byte[]) val);
+            } else if (v instanceof org.apache.arrow.vector.FixedSizeBinaryVector fb) {
+                // Lossless-tagged DuckDB types (HUGEINT → arrow.opaque,
+                // UHUGEINT → arrow.opaque, UUID → arrow.uuid, etc.) arrive
+                // as raw byte[] payloads. Pass them through unchanged.
+                fb.setSafe(row, (byte[]) val);
+            } else if (v instanceof org.apache.arrow.vector.complex.MapVector mv) {
+                // MapVector.getObject returns a List of {key, value} maps,
+                // not a single Map. ArgumentsParser passes that List through.
+                writeMapAt(mv, row, val);
             } else if (v instanceof org.apache.arrow.vector.complex.ListVector lv) {
                 writeListAt(lv, row, (List<Object>) val);
             } else if (v instanceof org.apache.arrow.vector.complex.StructVector sv) {
@@ -224,7 +273,59 @@ public final class ConstantColumnsFunction implements TableFunction {
                     setCell(sv.getChild(f.getName()), row, map.get(f.getName()));
                 }
                 sv.setIndexDefined(row);
+            } else {
+                // Date/time/interval/etc. — VectorScalarCodec.write knows how
+                // to map java.time.{LocalDate,LocalTime,LocalDateTime,...}
+                // back to the vector's epoch-units representation.
+                farm.query.vgi.internal.VectorScalarCodec.write(v, row, val);
             }
+        }
+
+        /**
+         * Pack a {@link java.math.BigInteger} into a fixed-width big-endian
+         * byte array (sign-extended on the left). Used to feed
+         * {@code DecimalVector.setBigEndianSafe}, which doesn't validate
+         * precision — needed for HUGEINT max ({@code 2^127-1}, 39 digits)
+         * that doesn't fit the wire-declared {@code Decimal(38, 0)}.
+         */
+        private static byte[] toFixedBigEndian(java.math.BigInteger v, int width) {
+            byte[] src = v.toByteArray();
+            byte[] out = new byte[width];
+            byte sign = (byte) (v.signum() < 0 ? 0xff : 0x00);
+            java.util.Arrays.fill(out, sign);
+            int copyLen = Math.min(width, src.length);
+            int srcOff = src.length - copyLen;
+            int dstOff = width - copyLen;
+            System.arraycopy(src, srcOff, out, dstOff, copyLen);
+            return out;
+        }
+
+        @SuppressWarnings({"unchecked"})
+        private static void writeMapAt(org.apache.arrow.vector.complex.MapVector mv,
+                                         int row, Object value) {
+            org.apache.arrow.vector.complex.impl.UnionMapWriter w = mv.getWriter();
+            w.setPosition(row);
+            w.startMap();
+            // Accept either a Map<K,V> or a List of {key, value} entry maps —
+            // depending on whether the value came from a Java caller (Map)
+            // or from MapVector.getObject() round-trip (List of entries).
+            if (value instanceof java.util.Map<?, ?> m) {
+                for (java.util.Map.Entry<?, ?> e : m.entrySet()) {
+                    w.startEntry();
+                    writeListItem(w.key(), e.getKey(), mv.getAllocator());
+                    writeListItem(w.value(), e.getValue(), mv.getAllocator());
+                    w.endEntry();
+                }
+            } else if (value instanceof java.util.List<?> entries) {
+                for (Object e : entries) {
+                    java.util.Map<String, Object> kv = (java.util.Map<String, Object>) e;
+                    w.startEntry();
+                    writeListItem(w.key(), kv.get("key"), mv.getAllocator());
+                    writeListItem(w.value(), kv.get("value"), mv.getAllocator());
+                    w.endEntry();
+                }
+            }
+            w.endMap();
         }
 
         private static void writeListAt(org.apache.arrow.vector.complex.ListVector lv,
@@ -242,9 +343,16 @@ public final class ConstantColumnsFunction implements TableFunction {
         private static void writeListItem(org.apache.arrow.vector.complex.writer.BaseWriter.ListWriter w,
                                             Object item, org.apache.arrow.memory.BufferAllocator alloc) {
             if (item == null) { w.writeNull(); return; }
+            // Dispatch on Java type → matching Arrow writer width. Critical
+            // for Map/List of int32 values: ArgumentsParser delivers Integer
+            // (from IntVector.getObject), and writing as bigInt() would slot
+            // into the wrong primitive width and yield 0.
             if (item instanceof Long l) w.bigInt().writeBigInt(l);
-            else if (item instanceof Integer i) w.bigInt().writeBigInt(i.longValue());
+            else if (item instanceof Integer i) w.integer().writeInt(i);
+            else if (item instanceof Short s) w.smallInt().writeSmallInt(s);
+            else if (item instanceof Byte b) w.tinyInt().writeTinyInt(b);
             else if (item instanceof Double d) w.float8().writeFloat8(d);
+            else if (item instanceof Float f) w.float4().writeFloat4(f);
             else if (item instanceof Boolean b) w.bit().writeBit(b ? 1 : 0);
             else if (item instanceof String s) {
                 byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
