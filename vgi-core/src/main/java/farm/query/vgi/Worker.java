@@ -244,17 +244,16 @@ public final class Worker {
     public Map<String, String> catalogTags() { return catalogTags; }
     public String defaultSchema() { return defaultSchema; }
     public List<SettingSpec> settingSpecs() { return settings; }
-    public List<TableFunction> tableFunctions() { return tables; }
-    public List<ScalarFunction> scalarFunctions() { return scalars; }
-    public List<AggregateFunction<?>> aggregateFunctions() { return aggregates; }
-    public List<TableInOutFunction> tableInOutFunctions() { return tableInOuts; }
+
+    private RpcServer buildServer() {
+        return new RpcServer(VgiService.class,
+                new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates));
+    }
 
     /** Block on stdin/stdout serving requests until the transport closes. */
     public void runStdio() {
-        VgiServiceImpl impl = new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates);
-        RpcServer server = new RpcServer(VgiService.class, impl);
         try (StdioTransport t = new StdioTransport()) {
-            server.serve(t);
+            buildServer().serve(t);
         }
     }
 
@@ -280,21 +279,17 @@ public final class Worker {
      * until the launcher SIGTERMs it.
      */
     public void runUnixSocket(Path socketPath, long idleTimeoutMs) throws IOException {
-        VgiServiceImpl impl = new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates);
-        RpcServer server = new RpcServer(VgiService.class, impl);
         // Note: idleTimeoutMs is currently accepted but not enforced. The
         // launcher SIGTERMs the worker on test-runner exit, so the test suite
         // doesn't depend on self-exit semantics. Implementing it correctly
         // requires accept-loop instrumentation (track active connection
         // count, treat "zero for N seconds" as the trigger) — TODO once
         // long-running deployments need it.
-        UnixSocketTransport.serveForever(socketPath, server);
+        UnixSocketTransport.serveForever(socketPath, buildServer());
     }
 
     public void runHttp(String host, int port) throws Exception {
-        VgiServiceImpl impl = new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates);
-        RpcServer server = new RpcServer(VgiService.class, impl);
-        HttpServer http = new HttpServer(server, HttpServer.Config.builder().host(host).port(port).build());
+        HttpServer http = new HttpServer(buildServer(), HttpServer.Config.builder().host(host).port(port).build());
         http.start();
         System.out.println("PORT:" + http.port());
         System.out.flush();

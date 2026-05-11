@@ -13,7 +13,6 @@ import farm.query.vgi.scalar.ScalarProcessParams;
 import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
 import farm.query.vgi.types.TypeRules;
-import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.FieldVector;

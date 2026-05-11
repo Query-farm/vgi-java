@@ -6,7 +6,6 @@ package farm.query.vgi.example.table;
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.table.BatchState;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
@@ -52,12 +51,7 @@ public final class PartitionedSequenceFunction implements TableFunction {
     private static final ConcurrentHashMap<String, ConcurrentLinkedQueue<long[]>> QUEUES =
             new ConcurrentHashMap<>();
 
-    private static String key(byte[] executionId) {
-        if (executionId == null) return "";
-        StringBuilder sb = new StringBuilder(executionId.length * 2);
-        for (byte b : executionId) sb.append(String.format("%02x", b));
-        return sb.toString();
-    }
+    private static String key(byte[] executionId) { return farm.query.vgi.internal.HexId.encode(executionId); }
 
     @Override public String name() { return "partitioned_sequence"; }
     @Override public FunctionMetadata metadata() {
@@ -81,8 +75,7 @@ public final class PartitionedSequenceFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams p) {
         long count = ((Number) p.arguments().positionalAt(0)).longValue();
-        Object incObj = p.arguments().named().get("increment");
-        long increment = incObj == null ? 1L : ((Number) incObj).longValue();
+        long increment = p.arguments().namedLong("increment", 1L);
         String execKey = key(p.executionId());
 
         ConcurrentLinkedQueue<long[]> queue = QUEUES.computeIfAbsent(execKey, k -> {

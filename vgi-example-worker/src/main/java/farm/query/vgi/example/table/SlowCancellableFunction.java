@@ -59,8 +59,7 @@ public final class SlowCancellableFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         String probePath = (String) params.arguments().positionalAt(0);
-        Object sleepObj = params.arguments().named().get("sleep_ms");
-        long sleepMs = sleepObj == null ? 50L : ((Number) sleepObj).longValue();
+        long sleepMs = params.arguments().namedLong("sleep_ms", 50L);
         Object countObj = params.arguments().named().get("count");
         long count = countObj == null ? 1_000_000L : ((Number) countObj).longValue();
         return new State(probePath, sleepMs, count);

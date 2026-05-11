@@ -48,12 +48,7 @@ public final class PartitionedOrderModeFunctions {
     private static final ConcurrentHashMap<String, ConcurrentLinkedQueue<long[]>> QUEUES =
             new ConcurrentHashMap<>();
 
-    private static String key(byte[] executionId) {
-        if (executionId == null) return "";
-        StringBuilder sb = new StringBuilder(executionId.length * 2);
-        for (byte b : executionId) sb.append(String.format("%02x", b));
-        return sb.toString();
-    }
+    private static String key(byte[] executionId) { return farm.query.vgi.internal.HexId.encode(executionId); }
 
     private static ConcurrentLinkedQueue<long[]> queueFor(String execKey, long count) {
         return QUEUES.computeIfAbsent(execKey, k -> {

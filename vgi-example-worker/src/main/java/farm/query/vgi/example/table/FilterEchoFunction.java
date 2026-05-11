@@ -6,6 +6,7 @@ package farm.query.vgi.example.table;
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
+import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.pushdown.PushdownFilters;
 import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import farm.query.vgi.table.BatchState;
@@ -66,8 +67,7 @@ public final class FilterEchoFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        Object bsObj = params.arguments().named().get("batch_size");
-        long batchSize = bsObj == null ? 2048L : ((Number) bsObj).longValue();
+        long batchSize = params.arguments().namedLong("batch_size", 2048L);
         byte[] pfBytes = params.pushdownFilters();
         PushdownFilters pf = pfBytes == null
                 ? PushdownFilters.empty()
@@ -150,10 +150,7 @@ public final class FilterEchoFunction implements TableFunction {
             }
             work.setRowCount(n);
             if (fb != null) {
-                PushdownFilters pf = PushdownFiltersDecoder.decode(fb,
-                        joinKeysIpc == null ? List.of() : joinKeysIpc);
-                boolean[] mask = pf.evaluate(work);
-                work = compact(work, mask);
+                work = FilterApplier.from(fb, joinKeysIpc).apply(work);
             }
             VectorSchemaRoot emit = projectTo(work, schema());
             out.emit(emit);
@@ -161,7 +158,6 @@ public final class FilterEchoFunction implements TableFunction {
         }
 
         private static VectorSchemaRoot projectTo(VectorSchemaRoot src, Schema target) {
-            // If the requested schema matches the source, no-op.
             if (src.getSchema().equals(target)) return src;
             VectorSchemaRoot dst = VectorSchemaRoot.create(target, Allocators.root());
             dst.allocateNew();
@@ -173,27 +169,6 @@ public final class FilterEchoFunction implements TableFunction {
                 for (int i = 0; i < rows; i++) dv.copyFromSafe(i, i, svv);
             }
             dst.setRowCount(rows);
-            src.close();
-            return dst;
-        }
-
-        private static VectorSchemaRoot compact(VectorSchemaRoot src, boolean[] mask) {
-            int kept = 0;
-            for (boolean b : mask) if (b) kept++;
-            if (kept == src.getRowCount()) return src;
-            VectorSchemaRoot dst = VectorSchemaRoot.create(src.getSchema(), Allocators.root());
-            dst.allocateNew();
-            int dstIdx = 0;
-            for (int i = 0; i < mask.length; i++) {
-                if (!mask[i]) continue;
-                for (int c = 0; c < dst.getFieldVectors().size(); c++) {
-                    FieldVector dv = dst.getVector(c);
-                    FieldVector svv = src.getVector(c);
-                    dv.copyFromSafe(i, dstIdx, svv);
-                }
-                dstIdx++;
-            }
-            dst.setRowCount(kept);
             src.close();
             return dst;
         }

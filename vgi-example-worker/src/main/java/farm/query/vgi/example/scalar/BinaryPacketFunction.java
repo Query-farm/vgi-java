@@ -20,9 +20,7 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 
 /**
  * {@code binary_packet(header BLOB [const], payload BLOB, config STRUCT(label,version) [const]) -> BLOB}.

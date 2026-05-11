@@ -19,7 +19,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Drives the {@code aggregate_bind / update / combine / finalize / destructor}
@@ -38,8 +37,6 @@ public final class AggregateRunner {
     public AggregateRunner(Map<String, AggregateFunction<?>> registry) {
         this.registry = registry;
     }
-
-    public boolean knows(String functionName) { return registry.containsKey(functionName); }
 
     public AggregateBindResponse bind(String functionName, byte[] inputSchemaIpc, byte[] argumentsIpc) {
         AggregateFunction<?> fn = registry.get(functionName);
@@ -237,12 +234,6 @@ public final class AggregateRunner {
     }
 
     private static byte[] newExecutionId() {
-        UUID u = UUID.randomUUID();
-        byte[] out = new byte[16];
-        long msb = u.getMostSignificantBits();
-        long lsb = u.getLeastSignificantBits();
-        for (int i = 0; i < 8; i++) out[i] = (byte) (msb >>> (8 * (7 - i)));
-        for (int i = 0; i < 8; i++) out[i + 8] = (byte) (lsb >>> (8 * (7 - i)));
-        return out;
+        return HexId.newExecutionId();
     }
 }

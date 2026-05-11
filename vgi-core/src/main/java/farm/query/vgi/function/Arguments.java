@@ -36,4 +36,28 @@ public record Arguments(List<Object> positional, Map<String, Object> named,
         if (positionalTypes == null || index >= positionalTypes.size()) return null;
         return positionalTypes.get(index);
     }
+
+    /** Typed accessor for a named long argument with a default. */
+    public long namedLong(String name, long defaultValue) {
+        Object v = named.get(name);
+        return v == null ? defaultValue : ((Number) v).longValue();
+    }
+
+    /** Typed accessor for a named double argument with a default. */
+    public double namedDouble(String name, double defaultValue) {
+        Object v = named.get(name);
+        return v == null ? defaultValue : ((Number) v).doubleValue();
+    }
+
+    /** Typed accessor for a named boolean argument with a default. */
+    public boolean namedBool(String name, boolean defaultValue) {
+        Object v = named.get(name);
+        return v == null ? defaultValue : (Boolean) v;
+    }
+
+    /** Typed accessor for a named string argument with a default. */
+    public String namedString(String name, String defaultValue) {
+        Object v = named.get(name);
+        return v == null ? defaultValue : v.toString();
+    }
 }

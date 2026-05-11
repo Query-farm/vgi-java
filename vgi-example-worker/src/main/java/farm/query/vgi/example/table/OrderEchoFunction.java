@@ -63,8 +63,7 @@ public final class OrderEchoFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        Object bsObj = params.arguments().named().get("batch_size");
-        long batchSize = bsObj == null ? 2048L : ((Number) bsObj).longValue();
+        long batchSize = params.arguments().namedLong("batch_size", 2048L);
         String col = params.orderByColumnName() == null || params.orderByColumnName().isEmpty()
                 ? "(none)" : params.orderByColumnName();
         String dir = params.orderByDirection() == null || params.orderByDirection().isEmpty()

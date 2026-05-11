@@ -32,15 +32,6 @@ public final class BatchState {
         this.batchSize = Math.max(1, batchSize);
     }
 
-    public long getTotal() { return total; }
-    public void setTotal(long v) { this.total = v; }
-
-    public long getBatchSize() { return batchSize; }
-    public void setBatchSize(long v) { this.batchSize = v; }
-
-    public long getIndex() { return index; }
-    public void setIndex(long v) { this.index = v; }
-
     public long total() { return total; }
     public long batchSize() { return batchSize; }
     public long index() { return index; }

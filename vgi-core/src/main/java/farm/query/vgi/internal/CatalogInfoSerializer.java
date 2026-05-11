@@ -4,7 +4,6 @@
 package farm.query.vgi.internal;
 
 import farm.query.vgirpc.wire.Allocators;
-import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.ListVector;

@@ -5,10 +5,5 @@ package farm.query.vgi.function;
 
 /** Predicate enum for "any"-typed argument validation. Mirrors vgi-go. */
 public enum TypeBoundPredicate {
-    IS_NUMERIC,
-    IS_INTEGER,
-    IS_FLOATING,
-    IS_ADDABLE,
-    IS_STRING,
-    IS_BOOLEAN
+    IS_ADDABLE
 }

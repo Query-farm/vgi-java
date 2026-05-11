@@ -3,7 +3,6 @@
 
 package farm.query.vgi.internal;
 
-import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;

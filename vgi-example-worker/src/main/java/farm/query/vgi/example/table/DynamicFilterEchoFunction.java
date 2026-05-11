@@ -8,7 +8,6 @@ import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.PushdownFilters;
 import farm.query.vgi.pushdown.PushdownFiltersDecoder;
-import farm.query.vgi.table.BatchState;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
@@ -68,8 +67,7 @@ public final class DynamicFilterEchoFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        Object bsObj = params.arguments().named().get("batch_size");
-        long batchSize = bsObj == null ? 100L : ((Number) bsObj).longValue();
+        long batchSize = params.arguments().namedLong("batch_size", 100L);
         // Init-time filter — overridden each tick by the dynamic filter
         // payload arriving in custom_metadata. Use the Python-repr-style
         // representation so the dynamic_filter.test LIKE assertions match

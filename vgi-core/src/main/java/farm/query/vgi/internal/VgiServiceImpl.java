@@ -28,7 +28,6 @@ import farm.query.vgi.protocol.ItemsResponse;
 import farm.query.vgi.protocol.SchemaInfo;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
@@ -50,7 +49,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 public final class VgiServiceImpl implements VgiService {
 
@@ -79,8 +77,6 @@ public final class VgiServiceImpl implements VgiService {
                                        TableInOutInitParams params) {}
     private final SecureRandom rng = new SecureRandom();
 
-    private byte[] currentAttachId;
-
     /** Cached state from a {@code bind} call, picked up by the matching {@code init}. */
     private sealed interface BoundEntry {
         Arguments args();
@@ -92,66 +88,17 @@ public final class VgiServiceImpl implements VgiService {
         byte[] outputSchemaIpc();
     }
 
-    private static final class BoundScalar implements BoundEntry {
-        final ScalarFunction fn;
-        final Arguments args;
-        final Schema inputSchema;
-        final Schema outputSchema;
-        final Map<String, Object> settings;
-        final byte[] argumentsIpc;
-        final byte[] settingsIpc;
-        final byte[] outputSchemaIpc;
-        byte[] secrets;
+    private record BoundScalar(ScalarFunction fn, Arguments args, Schema inputSchema,
+                                Schema outputSchema, Map<String, Object> settings,
+                                byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
+                                byte[] secrets)
+            implements BoundEntry {}
 
-        BoundScalar(ScalarFunction fn, Arguments args, Schema inputSchema, Schema outputSchema,
-                     Map<String, Object> settings, byte[] argumentsIpc, byte[] settingsIpc,
-                     byte[] outputSchemaIpc) {
-            this.fn = fn; this.args = args; this.inputSchema = inputSchema;
-            this.outputSchema = outputSchema; this.settings = settings;
-            this.argumentsIpc = argumentsIpc; this.settingsIpc = settingsIpc;
-            this.outputSchemaIpc = outputSchemaIpc;
-        }
-
-        public ScalarFunction fn() { return fn; }
-        public Arguments args() { return args; }
-        public Schema inputSchema() { return inputSchema; }
-        public Schema outputSchema() { return outputSchema; }
-        public Map<String, Object> settings() { return settings; }
-        public byte[] argumentsIpc() { return argumentsIpc; }
-        public byte[] settingsIpc() { return settingsIpc; }
-        public byte[] outputSchemaIpc() { return outputSchemaIpc; }
-    }
-
-    private static final class BoundTable implements BoundEntry {
-        final TableFunction fn;
-        final Arguments args;
-        final Schema inputSchema;
-        final Schema outputSchema;
-        final Map<String, Object> settings;
-        final byte[] argumentsIpc;
-        final byte[] settingsIpc;
-        final byte[] outputSchemaIpc;
-        byte[] secrets;
-        byte[] attachId;
-
-        BoundTable(TableFunction fn, Arguments args, Schema inputSchema, Schema outputSchema,
-                    Map<String, Object> settings, byte[] argumentsIpc, byte[] settingsIpc,
-                    byte[] outputSchemaIpc) {
-            this.fn = fn; this.args = args; this.inputSchema = inputSchema;
-            this.outputSchema = outputSchema; this.settings = settings;
-            this.argumentsIpc = argumentsIpc; this.settingsIpc = settingsIpc;
-            this.outputSchemaIpc = outputSchemaIpc;
-        }
-
-        public TableFunction fn() { return fn; }
-        public Arguments args() { return args; }
-        public Schema inputSchema() { return inputSchema; }
-        public Schema outputSchema() { return outputSchema; }
-        public Map<String, Object> settings() { return settings; }
-        public byte[] argumentsIpc() { return argumentsIpc; }
-        public byte[] settingsIpc() { return settingsIpc; }
-        public byte[] outputSchemaIpc() { return outputSchemaIpc; }
-    }
+    private record BoundTable(TableFunction fn, Arguments args, Schema inputSchema,
+                               Schema outputSchema, Map<String, Object> settings,
+                               byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
+                               byte[] secrets, byte[] attachId)
+            implements BoundEntry {}
 
     private record BoundTableInOut(TableInOutFunction fn, Arguments args, Schema inputSchema,
                                     Schema outputSchema, Map<String, Object> settings,
@@ -169,8 +116,7 @@ public final class VgiServiceImpl implements VgiService {
         Map<String, AggregateFunction<?>> aggFlat = new HashMap<>();
         for (var e : this.aggregates.entrySet()) aggFlat.put(e.getKey(), e.getValue().get(0));
         this.aggregateRunner = new AggregateRunner(aggFlat);
-        ServiceLocator.setCurrent(new ServiceLocator(
-                this.scalars, this.tables, this.tableInOuts, this.aggregates));
+        ServiceLocator.setCurrent(new ServiceLocator(this.scalars));
     }
 
     /** Pick the variant whose argument-spec count matches the arg count seen at bind. */
@@ -334,8 +280,8 @@ public final class VgiServiceImpl implements VgiService {
                     ? null
                     : SchemaUtil.deserializeSchema(upstream.output_schema());
             BoundScalar bs = new BoundScalar(fn, args, inputSchema, outputSchema, settings,
-                    request.arguments(), request.settings(), upstream.output_schema());
-            bs.secrets = request.secrets();
+                    request.arguments(), request.settings(), upstream.output_schema(),
+                    request.secrets());
             pendingBinds.put(key, bs);
             return new BindResponse(upstream.output_schema(), token,
                     upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
@@ -348,9 +294,8 @@ public final class VgiServiceImpl implements VgiService {
                     ? null
                     : SchemaUtil.deserializeSchema(upstream.output_schema());
             BoundTable bt = new BoundTable(fn, args, inputSchema, outputSchema, settings,
-                    request.arguments(), request.settings(), upstream.output_schema());
-            bt.secrets = request.secrets();
-            bt.attachId = request.attach_id();
+                    request.arguments(), request.settings(), upstream.output_schema(),
+                    request.secrets(), request.attach_id());
             pendingBinds.put(key, bt);
             return new BindResponse(upstream.output_schema(), token,
                     upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
@@ -410,7 +355,7 @@ public final class VgiServiceImpl implements VgiService {
             ScalarStreamState state = new ScalarStreamState(
                     bs.fn().name(), bs.fn().argumentSpecs().size(), variantIdx,
                     request.output_schema(), bs.argumentsIpc(), bs.settingsIpc());
-            state.setSecrets(bs.secrets);
+            state.setSecrets(bs.secrets());
             return RpcStream.exchange(inputSchema, realOutputSchema, state, header);
         }
         if (bound instanceof BoundTable bt) {
@@ -437,8 +382,8 @@ public final class VgiServiceImpl implements VgiService {
                     request.order_by_null_order(),
                     request.order_by_limit(),
                     execId,
-                    bt.secrets,
-                    bt.attachId);
+                    bt.secrets(),
+                    bt.attachId());
             TableProducerState state = bt.fn().createProducer(params);
             return RpcStream.producer(fnOutputSchema, state, header);
         }
@@ -483,21 +428,9 @@ public final class VgiServiceImpl implements VgiService {
         return picked.isEmpty() ? full : new Schema(picked);
     }
 
-    private static String bytesKey(byte[] b) {
-        StringBuilder sb = new StringBuilder(b.length * 2);
-        for (byte x : b) sb.append(String.format("%02x", x));
-        return sb.toString();
-    }
+    private static String bytesKey(byte[] b) { return HexId.encode(b); }
 
-    private byte[] newExecutionId() {
-        UUID u = UUID.randomUUID();
-        byte[] out = new byte[16];
-        long msb = u.getMostSignificantBits();
-        long lsb = u.getLeastSignificantBits();
-        for (int i = 0; i < 8; i++) out[i] = (byte) (msb >>> (8 * (7 - i)));
-        for (int i = 0; i < 8; i++) out[i + 8] = (byte) (lsb >>> (8 * (7 - i)));
-        return out;
-    }
+    private static byte[] newExecutionId() { return HexId.newExecutionId(); }
 
     // -----------------------------------------------------------------------
     // Cardinality (table functions only; scalars never get this call)
@@ -541,26 +474,11 @@ public final class VgiServiceImpl implements VgiService {
     private record DynamicToStringInner(byte[] bind_call, byte[] bind_opaque_data, byte[] global_execution_id) {}
 
     private static DynamicToStringInner unpackDynamicToStringRequest(byte[] request) {
-        if (request == null || request.length == 0) return null;
-        try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(request);
-             org.apache.arrow.vector.ipc.ArrowStreamReader reader =
-                     new org.apache.arrow.vector.ipc.ArrowStreamReader(in, Allocators.root())) {
-            if (!reader.loadNextBatch()) return null;
-            org.apache.arrow.vector.VectorSchemaRoot root = reader.getVectorSchemaRoot();
-            if (root.getRowCount() == 0) return null;
-            org.apache.arrow.vector.VarBinaryVector bc =
-                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("bind_call");
-            org.apache.arrow.vector.VarBinaryVector bo =
-                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("bind_opaque_data");
-            org.apache.arrow.vector.VarBinaryVector gid =
-                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("global_execution_id");
-            byte[] bindCall = bc != null && !bc.isNull(0) ? bc.get(0) : null;
-            byte[] opaque = bo != null && !bo.isNull(0) ? bo.get(0) : null;
-            byte[] execId = gid != null && !gid.isNull(0) ? gid.get(0) : null;
-            return new DynamicToStringInner(bindCall, opaque, execId);
-        } catch (Exception e) {
-            return null;
-        }
+        Map<String, byte[]> fields = unpackBinaryFields(request, "bind_call", "bind_opaque_data", "global_execution_id");
+        if (fields == null) return null;
+        return new DynamicToStringInner(fields.get("bind_call"),
+                fields.get("bind_opaque_data"),
+                fields.get("global_execution_id"));
     }
 
     /**
@@ -569,22 +487,34 @@ public final class VgiServiceImpl implements VgiService {
      * so the per-bind fallback logic still has something to dispatch on.
      */
     private static CardinalityRequest unpackCardinalityRequest(byte[] request) {
-        if (request == null || request.length == 0) return new CardinalityRequest(null, null);
+        Map<String, byte[]> fields = unpackBinaryFields(request, "bind_call", "bind_opaque_data");
+        if (fields == null) return new CardinalityRequest(null, null);
+        return new CardinalityRequest(fields.get("bind_call"), fields.get("bind_opaque_data"));
+    }
+
+    /**
+     * Decode a 1-row IPC stream into {@code name → byte[]} for the requested
+     * VarBinary columns. Returns {@code null} on parse failure / empty batch
+     * so callers can route to their own fallback. Per-cell nulls are simply
+     * omitted from the returned map.
+     */
+    private static Map<String, byte[]> unpackBinaryFields(byte[] request, String... fieldNames) {
+        if (request == null || request.length == 0) return null;
         try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(request);
              org.apache.arrow.vector.ipc.ArrowStreamReader reader =
                      new org.apache.arrow.vector.ipc.ArrowStreamReader(in, Allocators.root())) {
-            if (!reader.loadNextBatch()) return new CardinalityRequest(null, null);
+            if (!reader.loadNextBatch()) return null;
             org.apache.arrow.vector.VectorSchemaRoot root = reader.getVectorSchemaRoot();
-            if (root.getRowCount() == 0) return new CardinalityRequest(null, null);
-            org.apache.arrow.vector.VarBinaryVector bc =
-                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("bind_call");
-            org.apache.arrow.vector.VarBinaryVector bo =
-                    (org.apache.arrow.vector.VarBinaryVector) root.getVector("bind_opaque_data");
-            byte[] bindCall = bc != null && !bc.isNull(0) ? bc.get(0) : null;
-            byte[] opaque = bo != null && !bo.isNull(0) ? bo.get(0) : null;
-            return new CardinalityRequest(bindCall, opaque);
+            if (root.getRowCount() == 0) return null;
+            Map<String, byte[]> out = new HashMap<>();
+            for (String name : fieldNames) {
+                org.apache.arrow.vector.VarBinaryVector vec =
+                        (org.apache.arrow.vector.VarBinaryVector) root.getVector(name);
+                if (vec != null && !vec.isNull(0)) out.put(name, vec.get(0));
+            }
+            return out;
         } catch (Exception e) {
-            return new CardinalityRequest(null, null);
+            return null;
         }
     }
 
@@ -692,7 +622,6 @@ public final class VgiServiceImpl implements VgiService {
             attachId = new byte[16];
             rng.nextBytes(attachId);
         }
-        currentAttachId = attachId;
         List<byte[]> settings = new ArrayList<>();
         for (SettingSpec spec : worker.settingSpecs()) {
             settings.add(SettingSpecSerializer.serialize(spec));
@@ -738,7 +667,7 @@ public final class VgiServiceImpl implements VgiService {
         List<String> implVersions = implVersionsList != null && !implVersionsList.isEmpty()
                 ? java.util.Arrays.asList(implVersionsList.split(","))
                 : java.util.List.of(supported);
-        String resolved = resolveNpmSpec(requested, implVersions);
+        String resolved = SemverHelpers.resolveNpmSpec(requested, implVersions);
         if (resolved == null) {
             throw new IllegalArgumentException("Unsupported implementation_version: " + requested);
         }
@@ -758,8 +687,8 @@ public final class VgiServiceImpl implements VgiService {
             return defaultVer != null && !defaultVer.isEmpty() ? defaultVer : "1.2.0";
         }
         List<String> supportedVersions = supportedVersions();
-        String resolved = resolveNpmSpec(spec, supportedVersions);
-        if (resolved == null || !matchesRange(resolved, range)) {
+        String resolved = SemverHelpers.resolveNpmSpec(spec, supportedVersions);
+        if (resolved == null || !SemverHelpers.matchesRange(resolved, range)) {
             throw new IllegalArgumentException("Unsupported data_version_spec: " + spec);
         }
         return resolved;
@@ -774,91 +703,9 @@ public final class VgiServiceImpl implements VgiService {
         return java.util.List.of("1.0.0", "1.1.0", "1.2.0", "2.0.0", "3.0.0");
     }
 
-    /** Resolve an npm-style {@code spec} (exact / caret / tilde / partial)
-     *  against an ascending list of {@code supported} concrete versions.
-     *  Returns the highest matching supported version, or null. */
-    static String resolveNpmSpec(String spec, List<String> supported) {
-        if (spec == null) return null;
-        // Sort supported versions descending for "highest match" semantics.
-        List<String> sorted = new ArrayList<>(supported);
-        sorted.sort((a, b) -> -compareVersions(a, b));
-        // Caret: ^A.B.C → >=A.B.C and <(A+1).0.0  (or special-case 0.x)
-        if (spec.startsWith("^")) {
-            String base = spec.substring(1);
-            String[] bs = base.split("\\.");
-            int major = Integer.parseInt(bs[0]);
-            String upper = (major + 1) + ".0.0";
-            for (String v : sorted) {
-                if (compareVersions(v, base) >= 0 && compareVersions(v, upper) < 0) return v;
-            }
-            return null;
-        }
-        // Tilde: ~A.B.C → >=A.B.C and <A.(B+1).0
-        if (spec.startsWith("~")) {
-            String base = spec.substring(1);
-            String[] bs = base.split("\\.");
-            int major = Integer.parseInt(bs[0]);
-            int minor = bs.length > 1 ? Integer.parseInt(bs[1]) : 0;
-            String upper = major + "." + (minor + 1) + ".0";
-            for (String v : sorted) {
-                if (compareVersions(v, base) >= 0 && compareVersions(v, upper) < 0) return v;
-            }
-            return null;
-        }
-        // Bare major or major.minor → highest matching that prefix.
-        String[] parts = spec.split("\\.");
-        if (parts.length < 3) {
-            String prefix = spec + ".";
-            for (String v : sorted) {
-                if (v.startsWith(prefix) || v.equals(spec)) return v;
-            }
-            return null;
-        }
-        // Exact: must appear in supported.
-        return supported.contains(spec) ? spec : null;
-    }
-
-    private static boolean matchesRange(String version, String range) {
-        // Simple ">=A.B.C,<D.E.F" parser. Versions compared as dotted ints.
-        String[] parts = range.split(",");
-        for (String p : parts) {
-            p = p.trim();
-            String op;
-            String val;
-            if (p.startsWith(">=")) { op = ">="; val = p.substring(2); }
-            else if (p.startsWith(">")) { op = ">"; val = p.substring(1); }
-            else if (p.startsWith("<=")) { op = "<="; val = p.substring(2); }
-            else if (p.startsWith("<")) { op = "<"; val = p.substring(1); }
-            else if (p.startsWith("=")) { op = "="; val = p.substring(1); }
-            else { op = "="; val = p; }
-            int cmp = compareVersions(version, val);
-            boolean ok = switch (op) {
-                case ">=" -> cmp >= 0;
-                case ">"  -> cmp >  0;
-                case "<=" -> cmp <= 0;
-                case "<"  -> cmp <  0;
-                default  -> cmp == 0;
-            };
-            if (!ok) return false;
-        }
-        return true;
-    }
-
-    private static int compareVersions(String a, String b) {
-        String[] as = a.split("\\.");
-        String[] bs = b.split("\\.");
-        int n = Math.max(as.length, bs.length);
-        for (int i = 0; i < n; i++) {
-            int av = i < as.length ? Integer.parseInt(as[i]) : 0;
-            int bv = i < bs.length ? Integer.parseInt(bs[i]) : 0;
-            if (av != bv) return Integer.compare(av, bv);
-        }
-        return 0;
-    }
 
     @Override
     public void catalog_detach(byte[] attach_id) {
-        if (Arrays.equals(currentAttachId, attach_id)) currentAttachId = null;
     }
 
     @Override
@@ -957,9 +804,9 @@ public final class VgiServiceImpl implements VgiService {
             if (isVersionedTables && !isVtFixture) continue;
             if (!isVersionedTables && isVtFixture) continue;
             if (isVersionedTables && "plants".equals(t.name()) && dv != null
-                    && compareVersions(dv, "2.0.0") < 0) continue;
+                    && SemverHelpers.compareVersions(dv, "2.0.0") < 0) continue;
             if (isVersionedTables && "animals".equals(t.name()) && dv != null
-                    && compareVersions(dv, "3.0.0") >= 0) continue;
+                    && SemverHelpers.compareVersions(dv, "3.0.0") >= 0) continue;
             Worker.CatalogTable resolved = dv == null ? t : resolveVersion(t, "data_version", dv);
             items.add(TableInfoSerializer.serialize(toTableInfo(resolved)));
         }
@@ -1012,10 +859,10 @@ public final class VgiServiceImpl implements VgiService {
         }
         // Hide plants below 2.0.0 in the versioned-tables catalog.
         if ("versioned_tables".equals(worker.catalogName())) {
-            if ("plants".equals(name) && dv != null && compareVersions(dv, "2.0.0") < 0) {
+            if ("plants".equals(name) && dv != null && SemverHelpers.compareVersions(dv, "2.0.0") < 0) {
                 return ItemsResponse.empty();
             }
-            if ("animals".equals(name) && dv != null && compareVersions(dv, "3.0.0") >= 0) {
+            if ("animals".equals(name) && dv != null && SemverHelpers.compareVersions(dv, "3.0.0") >= 0) {
                 return ItemsResponse.empty();
             }
         }

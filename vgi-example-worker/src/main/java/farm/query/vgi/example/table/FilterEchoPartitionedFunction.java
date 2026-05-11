@@ -6,6 +6,7 @@ package farm.query.vgi.example.table;
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
+import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.pushdown.PushdownFilters;
 import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import farm.query.vgi.table.TableBindParams;
@@ -53,12 +54,7 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
     private static final ConcurrentHashMap<String, ConcurrentLinkedQueue<long[]>> QUEUES =
             new ConcurrentHashMap<>();
 
-    private static String key(byte[] executionId) {
-        if (executionId == null) return "";
-        StringBuilder sb = new StringBuilder(executionId.length * 2);
-        for (byte b : executionId) sb.append(String.format("%02x", b));
-        return sb.toString();
-    }
+    private static String key(byte[] executionId) { return farm.query.vgi.internal.HexId.encode(executionId); }
 
     @Override public String name() { return "filter_echo_partitioned"; }
 
@@ -166,10 +162,7 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
             work.setRowCount(n);
             currentIdx += n;
             if (filterBytes != null) {
-                PushdownFilters pf = PushdownFiltersDecoder.decode(filterBytes,
-                        joinKeysIpc == null ? List.of() : joinKeysIpc);
-                boolean[] mask = pf.evaluate(work);
-                work = compact(work, mask);
+                work = FilterApplier.from(filterBytes, joinKeysIpc).apply(work);
             }
             VectorSchemaRoot emit = projectTo(work, schema());
             out.emit(emit);
@@ -187,27 +180,6 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
                 for (int i = 0; i < rows; i++) dv.copyFromSafe(i, i, sv);
             }
             dst.setRowCount(rows);
-            src.close();
-            return dst;
-        }
-
-        private static VectorSchemaRoot compact(VectorSchemaRoot src, boolean[] mask) {
-            int kept = 0;
-            for (boolean b : mask) if (b) kept++;
-            if (kept == src.getRowCount()) return src;
-            VectorSchemaRoot dst = VectorSchemaRoot.create(src.getSchema(), Allocators.root());
-            dst.allocateNew();
-            int dstIdx = 0;
-            for (int i = 0; i < mask.length; i++) {
-                if (!mask[i]) continue;
-                for (int c = 0; c < dst.getFieldVectors().size(); c++) {
-                    FieldVector dv = dst.getVector(c);
-                    FieldVector sv = src.getVector(c);
-                    dv.copyFromSafe(i, dstIdx, sv);
-                }
-                dstIdx++;
-            }
-            dst.setRowCount(kept);
             src.close();
             return dst;
         }

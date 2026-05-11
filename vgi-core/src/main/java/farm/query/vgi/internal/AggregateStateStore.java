@@ -3,7 +3,6 @@
 
 package farm.query.vgi.internal;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -14,7 +13,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -206,33 +204,4 @@ public final class AggregateStateStore {
         }
     }
 
-    /** Drop all rows for an execution_id. */
-    public void deleteExecution(byte[] executionId, String functionName) {
-        try (Connection c = conn();
-             PreparedStatement ps = c.prepareStatement(
-                     "DELETE FROM agg_state WHERE execution_id=? AND function_name=?")) {
-            ps.setBytes(1, executionId);
-            ps.setString(2, functionName);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            throw new RuntimeException("AggregateStateStore.deleteExecution", e);
-        }
-    }
-
-    /** Read all gids stored for an execution_id (used by combine when both src and tgt are local). */
-    public Map<Long, byte[]> loadExecutionStates(byte[] executionId, String functionName) {
-        Map<Long, byte[]> out = new LinkedHashMap<>();
-        try (Connection c = conn();
-             PreparedStatement ps = c.prepareStatement(
-                     "SELECT group_id, state FROM agg_state WHERE execution_id=? AND function_name=?")) {
-            ps.setBytes(1, executionId);
-            ps.setString(2, functionName);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) out.put(rs.getLong(1), rs.getBytes(2));
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException("AggregateStateStore.loadExecutionStates", e);
-        }
-        return out;
-    }
 }

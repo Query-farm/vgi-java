@@ -15,9 +15,4 @@ public record ScalarProcessParams(
         Schema outputSchema,
         Map<String, Object> settings,
         byte[] secrets) {
-
-    public ScalarProcessParams(String functionName, Arguments arguments, Schema outputSchema,
-                                 Map<String, Object> settings) {
-        this(functionName, arguments, outputSchema, settings, null);
-    }
 }

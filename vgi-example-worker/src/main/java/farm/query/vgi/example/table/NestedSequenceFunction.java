@@ -78,10 +78,8 @@ public final class NestedSequenceFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        Object bsObj = params.arguments().named().get("batch_size");
-        long batchSize = bsObj == null ? 1000L : ((Number) bsObj).longValue();
-        Object hsObj = params.arguments().named().get("history_size");
-        long historySize = hsObj == null ? 20L : ((Number) hsObj).longValue();
+        long batchSize = params.arguments().namedLong("batch_size", 1000L);
+        long historySize = params.arguments().namedLong("history_size", 20L);
         return new State(new BatchState(count, batchSize), historySize,
                 farm.query.vgi.internal.SchemaUtil.serializeSchema(params.outputSchema()),
                 FilterApplier.from(params.pushdownFilters(), params.joinKeys()));

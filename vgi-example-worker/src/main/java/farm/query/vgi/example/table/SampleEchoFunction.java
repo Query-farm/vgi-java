@@ -66,8 +66,7 @@ public final class SampleEchoFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        Object bsObj = params.arguments().named().get("batch_size");
-        long batchSize = bsObj == null ? 2048L : ((Number) bsObj).longValue();
+        long batchSize = params.arguments().namedLong("batch_size", 2048L);
         double pct = params.tablesamplePercentage() == null ? -1.0 : params.tablesamplePercentage();
         long seed = params.tablesampleSeed() == null ? -1L : params.tablesampleSeed();
         return new State(new BatchState(count, batchSize), pct, seed,

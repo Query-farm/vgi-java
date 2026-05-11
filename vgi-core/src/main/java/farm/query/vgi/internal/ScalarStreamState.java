@@ -44,11 +44,6 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
     /** No-arg ctor for {@link PortableStreamState} round-trip. */
     public ScalarStreamState() {}
 
-    public ScalarStreamState(String functionName, int argCount, byte[] outputSchemaIpc,
-                              byte[] argumentsIpc, byte[] settingsIpc) {
-        this(functionName, argCount, 0, outputSchemaIpc, argumentsIpc, settingsIpc);
-    }
-
     public ScalarStreamState(String functionName, int argCount, int variantIndex,
                               byte[] outputSchemaIpc, byte[] argumentsIpc, byte[] settingsIpc) {
         this.functionName = functionName;

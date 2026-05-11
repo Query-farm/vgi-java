@@ -17,7 +17,6 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
-import java.util.function.IntFunction;
 
 /**
  * Helpers for scalar function processing: numeric dispatch + per-row mapping.

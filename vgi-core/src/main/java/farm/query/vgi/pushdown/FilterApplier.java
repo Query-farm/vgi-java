@@ -27,19 +27,10 @@ public final class FilterApplier {
         return new FilterApplier(filterBytes, joinKeysIpc);
     }
 
-    /** No-arg ctor for {@link farm.query.vgirpc.PortableStreamState} round-trip. */
-    public FilterApplier() {
-        this.filterBytes = null;
-        this.joinKeysIpc = List.of();
-    }
-
     private FilterApplier(byte[] filterBytes, List<byte[]> joinKeysIpc) {
         this.filterBytes = filterBytes;
         this.joinKeysIpc = joinKeysIpc == null ? List.of() : joinKeysIpc;
     }
-
-    public byte[] filterBytes() { return filterBytes; }
-    public List<byte[]> joinKeysIpc() { return joinKeysIpc; }
 
     private PushdownFilters filters() {
         if (cached == null) {
@@ -49,8 +40,6 @@ public final class FilterApplier {
         }
         return cached;
     }
-
-    public PushdownFilters pushdownFilters() { return filters(); }
 
     /**
      * Compact {@code src} to only rows that pass the parsed filters. Returns

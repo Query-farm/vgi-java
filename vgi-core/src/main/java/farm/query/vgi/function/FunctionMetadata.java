@@ -49,10 +49,6 @@ public record FunctionMetadata(
                 filterPushdown, samplingPushdown, List.of(), null);
     }
 
-    public static FunctionMetadata defaults() {
-        return new FunctionMetadata("", Stability.CONSISTENT, NullHandling.DEFAULT, false, false, false, false);
-    }
-
     public static FunctionMetadata describe(String description) {
         return new FunctionMetadata(description, Stability.CONSISTENT, NullHandling.DEFAULT, false, false, false, false);
     }

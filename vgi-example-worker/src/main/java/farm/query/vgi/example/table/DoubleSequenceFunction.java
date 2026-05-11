@@ -49,10 +49,8 @@ public final class DoubleSequenceFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        Object bsObj = params.arguments().named().get("batch_size");
-        long batchSize = bsObj == null ? 1000L : ((Number) bsObj).longValue();
-        Object incObj = params.arguments().named().get("increment");
-        double increment = incObj == null ? 1.0 : ((Number) incObj).doubleValue();
+        long batchSize = params.arguments().namedLong("batch_size", 1000L);
+        double increment = params.arguments().namedDouble("increment", 1.0);
         return new State(new BatchState(count, batchSize), increment);
     }
 

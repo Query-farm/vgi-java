@@ -50,11 +50,6 @@ public record AttachOptionSpec(
         return new AttachOptionSpec(name, description, field, defaults);
     }
 
-    /** Option with no default (NULL on ATTACH without override). */
-    public static AttachOptionSpec required(String name, String description, ArrowType type) {
-        return of(name, description, type, null);
-    }
-
     public ArrowType type() { return valueField.getType(); }
 
     public List<Field> children() { return valueField.getChildren(); }

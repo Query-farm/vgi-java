@@ -50,12 +50,7 @@ public final class ProfilingDemoFunction implements TableFunction {
         final long startedAtNs = System.nanoTime();
     }
 
-    private static String key(byte[] executionId) {
-        if (executionId == null) return "";
-        StringBuilder sb = new StringBuilder(executionId.length * 2);
-        for (byte b : executionId) sb.append(String.format("%02x", b));
-        return sb.toString();
-    }
+    private static String key(byte[] executionId) { return farm.query.vgi.internal.HexId.encode(executionId); }
 
     @Override public String name() { return "profiling_demo"; }
     @Override public FunctionMetadata metadata() {
@@ -78,10 +73,8 @@ public final class ProfilingDemoFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams p) {
         long count = ((Number) p.arguments().positionalAt(0)).longValue();
-        Object bsObj = p.arguments().named().get("batch_size");
-        long batchSize = bsObj == null ? 1024L : ((Number) bsObj).longValue();
-        Object incObj = p.arguments().named().get("increment");
-        long increment = incObj == null ? 1L : ((Number) incObj).longValue();
+        long batchSize = p.arguments().namedLong("batch_size", 1024L);
+        long increment = p.arguments().namedLong("increment", 1L);
         String execKey = key(p.executionId());
         ExecutionStats stats = STATS.computeIfAbsent(execKey, k -> new ExecutionStats());
         return new State(new BatchState(count, batchSize), increment, execKey, stats);

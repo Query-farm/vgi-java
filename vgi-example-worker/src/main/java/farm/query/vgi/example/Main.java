@@ -103,6 +103,13 @@ public final class Main {
                 null);
     }
 
+    /** {@link #col(String, ArrowType, boolean, String, String) col} with no metadata. */
+    private static org.apache.arrow.vector.types.pojo.Field col(String name,
+                                                                  org.apache.arrow.vector.types.pojo.ArrowType type,
+                                                                  boolean nullable) {
+        return col(name, type, nullable, null, null);
+    }
+
     /** Composite-struct row_id field for rowid_struct table. */
     private static org.apache.arrow.vector.types.pojo.Field rowidStructField() {
         return new org.apache.arrow.vector.types.pojo.Field("row_id",
@@ -219,31 +226,50 @@ public final class Main {
                 .catalogComment("Example VGI catalog for testing")
                 .catalogTags(Map.of(
                         "source", "vgi-fixture-worker",
-                        "version", "1"))
-                .settings(
-                        new SettingSpec("vgi_verbose_mode", "Enable verbose output",
-                                Schemas.BOOL, Boolean.FALSE),
-                        new SettingSpec("greeting", "Custom greeting message",
-                                Schemas.UTF8, "Hello"),
-                        new SettingSpec("multiplier", "Value multiplier",
-                                Schemas.INT64, 1L),
-                        new SettingSpec("threshold", "Filter threshold",
-                                Schemas.INT64, 0L),
-                        new SettingSpec("config", "Sequence configuration struct",
-                                new org.apache.arrow.vector.types.pojo.ArrowType.Struct(),
-                                java.util.List.of(
-                                        new org.apache.arrow.vector.types.pojo.Field("start",
-                                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
-                                        new org.apache.arrow.vector.types.pojo.Field("step",
-                                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
-                                        new org.apache.arrow.vector.types.pojo.Field("label",
-                                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null), null))))
-                .secretTypes(
-                        new farm.query.vgi.SecretTypeSpec(
-                                "vgi_example",
-                                "Example secret for VGI integration tests",
-                                vgiExampleSecretSchema()))
-                .registerScalar(new AddValuesFunction())
+                        "version", "1"));
+        registerSettings(w);
+        registerSecretTypes(w);
+        registerScalars(w);
+        registerTables(w);
+        registerAggregates(w);
+        registerTableInOuts(w);
+        registerViews(w);
+        registerCatalogTables(w);
+        registerMacros(w);
+
+        runWorker(w, args);
+    }
+
+    private static void registerSettings(Worker w) {
+        w.settings(
+                new SettingSpec("vgi_verbose_mode", "Enable verbose output",
+                        Schemas.BOOL, Boolean.FALSE),
+                new SettingSpec("greeting", "Custom greeting message",
+                        Schemas.UTF8, "Hello"),
+                new SettingSpec("multiplier", "Value multiplier",
+                        Schemas.INT64, 1L),
+                new SettingSpec("threshold", "Filter threshold",
+                        Schemas.INT64, 0L),
+                new SettingSpec("config", "Sequence configuration struct",
+                        new org.apache.arrow.vector.types.pojo.ArrowType.Struct(),
+                        java.util.List.of(
+                                new org.apache.arrow.vector.types.pojo.Field("start",
+                                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
+                                new org.apache.arrow.vector.types.pojo.Field("step",
+                                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
+                                new org.apache.arrow.vector.types.pojo.Field("label",
+                                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null), null))));
+    }
+
+    private static void registerSecretTypes(Worker w) {
+        w.secretTypes(new farm.query.vgi.SecretTypeSpec(
+                "vgi_example",
+                "Example secret for VGI integration tests",
+                vgiExampleSecretSchema()));
+    }
+
+    private static void registerScalars(Worker w) {
+        w.registerScalar(new AddValuesFunction())
                 .registerScalar(new ConditionalMessageFunction())
                 .registerScalar(new DoubleFunction())
                 .registerScalar(new HashSeedFunction())
@@ -281,8 +307,11 @@ public final class Main {
                 .registerScalar(new BernoulliFunction())
                 .registerScalar(new RandomBytesFunction())
                 .registerScalar(new ReturnSecretValueFunction())
-                .registerScalar(new UnnestTensorFunction())
-                .registerTable(new SequenceFunction())
+                .registerScalar(new UnnestTensorFunction());
+    }
+
+    private static void registerTables(Worker w) {
+        w.registerTable(new SequenceFunction())
                 .registerTable(new farm.query.vgi.example.table.SecretDemoFunction())
                 .registerTable(new farm.query.vgi.example.table.ScopedSecretDemoFunction())
                 .registerTable(new farm.query.vgi.example.table.CannedDataFunction())
@@ -329,8 +358,11 @@ public final class Main {
                 .registerTable(new MakePairsFunctions.StrVariant())
                 .registerTable(new MakePairsFunctions.MixedVariant())
                 .registerTable(new StructSettingsFunction())
-                .registerTable(new SettingsAwareFunction())
-                .registerAggregate(new SumFunction())
+                .registerTable(new SettingsAwareFunction());
+    }
+
+    private static void registerAggregates(Worker w) {
+        w.registerAggregate(new SumFunction())
                 .registerAggregate(new CountFunction())
                 .registerAggregate(new AvgFunction())
                 .registerAggregate(new ListAggFunction())
@@ -343,8 +375,11 @@ public final class Main {
                 .registerAggregate(new StubAggregates.WindowSum())
                 .registerAggregate(new StubAggregates.WindowSumBatch())
                 .registerAggregate(new StubAggregates.WindowMedian())
-                .registerAggregate(new StubAggregates.WindowListagg())
-                .registerTableInOut(new EchoFunction())
+                .registerAggregate(new StubAggregates.WindowListagg());
+    }
+
+    private static void registerTableInOuts(Worker w) {
+        w.registerTableInOut(new EchoFunction())
                 .registerTableInOut(new RepeatInputsFunction())
                 .registerTableInOut(new ExceptionFinalizeFunction())
                 .registerTableInOut(new ExceptionProcessFunction())
@@ -353,8 +388,11 @@ public final class Main {
                 .registerTableInOut(new BufferInputFunction())
                 .registerTableInOut(new FilterBySettingFunction())
                 .registerTableInOut(new SlowCancellableInoutFunction())
-                .registerTableInOut(new UnnestTensorRowsFunction())
-                .registerView(new Worker.View(
+                .registerTableInOut(new UnnestTensorRowsFunction());
+    }
+
+    private static void registerViews(Worker w) {
+        w.registerView(new Worker.View(
                         "main", "first_ten",
                         "SELECT * FROM sequence(10)", "First 10 integers"))
                 .registerView(new Worker.View(
@@ -364,8 +402,11 @@ public final class Main {
                 .registerView(new Worker.View(
                         "data", "small_numbers",
                         "SELECT * FROM example.main.make_series(10)",
-                        "Numbers less than 10"))
-                .registerCatalogTable(Worker.CatalogTable.functionBacked(
+                        "Numbers less than 10"));
+    }
+
+    private static void registerCatalogTables(Worker w) {
+        w.registerCatalogTable(Worker.CatalogTable.functionBacked(
                         "data", "ten_thousand_table",
                         farm.query.vgi.internal.SchemaUtil.serializeSchema(
                                 new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
@@ -423,8 +464,8 @@ public final class Main {
                                 java.util.List.of()))
                 .registerCatalogTable(stubTable("data", "departments",
                         "Department reference table",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("name", Schemas.UTF8, false, null, null),
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, false),
                         col("budget", Schemas.FLOAT64, true, null, "0"))
                         .withConstraints(
                                 java.util.List.of(java.util.List.of(0)),               // PK: id
@@ -433,10 +474,10 @@ public final class Main {
                                 java.util.List.of()))
                 .registerCatalogTable(stubTable("data", "employees",
                         "Employee table with FK to departments",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("name", Schemas.UTF8, false, null, null),
-                        col("email", Schemas.UTF8, false, null, null),
-                        col("department_id", Schemas.INT64, true, null, null))
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, false),
+                        col("email", Schemas.UTF8, false),
+                        col("department_id", Schemas.INT64, true))
                         .withConstraints(
                                 java.util.List.of(java.util.List.of(0)),               // PK: id
                                 java.util.List.of(java.util.List.of(2)),               // UNIQUE: email
@@ -447,25 +488,25 @@ public final class Main {
                                         "data", "departments"))))
                 .registerCatalogTable(stubTable("data", "colors",
                         "Colors table with ENUM-derived statistics",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("color", Schemas.UTF8, false, null, null),
-                        col("hex_code", Schemas.UTF8, false, null, null)))
+                        col("id", Schemas.INT64, false),
+                        col("color", Schemas.UTF8, false),
+                        col("hex_code", Schemas.UTF8, false)))
                 .registerCatalogTable(stubTable("data", "funny_numbers",
                         "123456 integers; stats served by the sequence function, not the table",
-                        col("n", Schemas.INT64, true, null, null)))
+                        col("n", Schemas.INT64, true)))
                 .registerCatalogTable(stubTable("data", "volatile_numbers",
                         "Numbers with volatile stats (TTL=0, always re-fetched)",
-                        col("value", Schemas.INT64, true, null, null)))
+                        col("value", Schemas.INT64, true)))
                 .registerCatalogTable(stubTable("data", "generated_sequence",
                         "Table with generated columns backed by sequence(10)",
-                        col("n", Schemas.INT64, true, null, null),
+                        col("n", Schemas.INT64, true),
                         genCol("doubled", Schemas.INT64, true, "n * 2"),
                         genCol("label", Schemas.UTF8, true, "'item_' || n::VARCHAR")))
                 .registerCatalogTable(stubTable("data", "projects",
                         "Projects with composite PK and FK to departments",
-                        col("department_id", Schemas.INT64, false, null, null),
-                        col("project_code", Schemas.UTF8, false, null, null),
-                        col("title", Schemas.UTF8, false, null, null))
+                        col("department_id", Schemas.INT64, false),
+                        col("project_code", Schemas.UTF8, false),
+                        col("title", Schemas.UTF8, false))
                         .withConstraints(
                                 java.util.List.of(java.util.List.of(0, 1)),            // PK: (department_id, project_code)
                                 java.util.List.of(),
@@ -477,52 +518,52 @@ public final class Main {
                 .registerCatalogTable(stubTable("data", "rowid_first",
                         "Table with row_id at column index 0",
                         rowIdCol("row_id", Schemas.INT64),
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("value", Schemas.UTF8, true, null, null)))
+                        col("name", Schemas.UTF8, true),
+                        col("value", Schemas.UTF8, true)))
                 .registerCatalogTable(stubTable("data", "rowid_middle",
                         "Table with row_id at column index 1",
-                        col("name", Schemas.UTF8, true, null, null),
+                        col("name", Schemas.UTF8, true),
                         rowIdCol("row_id", Schemas.INT64),
-                        col("value", Schemas.UTF8, true, null, null)))
+                        col("value", Schemas.UTF8, true)))
                 .registerCatalogTable(stubTable("data", "rowid_last",
                         "Table with row_id at column index 2",
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("value", Schemas.UTF8, true, null, null),
+                        col("name", Schemas.UTF8, true),
+                        col("value", Schemas.UTF8, true),
                         rowIdCol("row_id", Schemas.INT64)))
                 .registerCatalogTable(stubTable("data", "rowid_string",
                         "Table with string row_id",
                         rowIdCol("row_id", Schemas.UTF8),
-                        col("payload", Schemas.UTF8, true, null, null)))
+                        col("payload", Schemas.UTF8, true)))
                 .registerCatalogTable(new Worker.CatalogTable(
                         "data", "rowid_struct",
                         cols(rowidStructField(),
-                                col("payload", Schemas.UTF8, true, null, null)),
+                                col("payload", Schemas.UTF8, true)),
                         "Table with struct row_id", java.util.Map.of(),
                         "_table_data", java.util.List.of((Object) "rowid_struct"),
                         java.util.Map.of(), null, null, false, true))
                 .registerCatalogTable(stubTable("data", "versioned_data",
                         "Versioned data table demonstrating time travel with schema evolution",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("score", Schemas.FLOAT64, true, null, null)))
+                        col("id", Schemas.INT64, false),
+                        col("score", Schemas.FLOAT64, true)))
                 .registerCatalogTable(stubTable("data", "versioned_data_v1",
                         "Versioned data — version 1 (id only)",
-                        col("id", Schemas.INT64, false, null, null)))
+                        col("id", Schemas.INT64, false)))
                 .registerCatalogTable(stubTable("data", "versioned_data_v2",
                         "Versioned data — version 2 (id, name, score, active)",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("score", Schemas.FLOAT64, true, null, null),
-                        col("active", Schemas.BOOL, true, null, null)))
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, true),
+                        col("score", Schemas.FLOAT64, true),
+                        col("active", Schemas.BOOL, true)))
                 .registerCatalogTable(stubTable("data", "versioned_data_v3",
                         "Versioned data — version 3 (id, score)",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("score", Schemas.FLOAT64, true, null, null)))
+                        col("id", Schemas.INT64, false),
+                        col("score", Schemas.FLOAT64, true)))
                 .registerCatalogTable(stubTable("data", "versioned_constraints",
                         "Table with constraints that evolve across versions",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("name", Schemas.UTF8, false, null, null),
-                        col("email", Schemas.UTF8, true, null, null),
-                        col("department_id", Schemas.INT64, true, null, null))
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, false),
+                        col("email", Schemas.UTF8, true),
+                        col("department_id", Schemas.INT64, true))
                         .withConstraints(
                                 java.util.List.of(java.util.List.of(0)),               // PK: id
                                 java.util.List.of(java.util.List.of(2)),               // UNIQUE: email
@@ -533,60 +574,63 @@ public final class Main {
                                         "data", "departments"))))
                 .registerCatalogTable(stubTable("data", "versioned_constraints_v1",
                         "v1 (id, name)",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("name", Schemas.UTF8, true, null, null)))
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, true)))
                 .registerCatalogTable(stubTable("data", "versioned_constraints_v2",
                         "v2 (id, name, email)",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("name", Schemas.UTF8, false, null, null),
-                        col("email", Schemas.UTF8, false, null, null)))
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, false),
+                        col("email", Schemas.UTF8, false)))
                 .registerCatalogTable(stubTable("data", "versioned_constraints_v3",
                         "v3 (id, name, email, department_id)",
-                        col("id", Schemas.INT64, false, null, null),
-                        col("name", Schemas.UTF8, false, null, null),
-                        col("email", Schemas.UTF8, false, null, null),
-                        col("department_id", Schemas.INT64, true, null, null)))
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, false),
+                        col("email", Schemas.UTF8, false),
+                        col("department_id", Schemas.INT64, true)))
                 // Animals table for the "versioned_tables" worker — only
                 // visible when that catalog is loaded. Schema evolves
                 // across data versions (color column appears at 1.1.0).
                 .registerCatalogTable(stubTable("main", "animals",
                         "Animals table (versioned)",
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("legs", Schemas.INT64, true, null, null),
-                        col("sound", Schemas.UTF8, true, null, null)))
+                        col("name", Schemas.UTF8, true),
+                        col("legs", Schemas.INT64, true),
+                        col("sound", Schemas.UTF8, true)))
                 .registerCatalogTable(stubTable("main", "animals_v_1_0_0",
                         "Animals v1.0.0",
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("legs", Schemas.INT64, true, null, null),
-                        col("sound", Schemas.UTF8, true, null, null)))
+                        col("name", Schemas.UTF8, true),
+                        col("legs", Schemas.INT64, true),
+                        col("sound", Schemas.UTF8, true)))
                 .registerCatalogTable(stubTable("main", "animals_v_1_1_0",
                         "Animals v1.1.0 — adds color",
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("legs", Schemas.INT64, true, null, null),
-                        col("sound", Schemas.UTF8, true, null, null),
-                        col("color", Schemas.UTF8, true, null, null)))
+                        col("name", Schemas.UTF8, true),
+                        col("legs", Schemas.INT64, true),
+                        col("sound", Schemas.UTF8, true),
+                        col("color", Schemas.UTF8, true)))
                 .registerCatalogTable(stubTable("main", "animals_v_2_0_0",
                         "Animals v2.0.0",
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("legs", Schemas.INT64, true, null, null),
-                        col("sound", Schemas.UTF8, true, null, null),
-                        col("color", Schemas.UTF8, true, null, null)))
+                        col("name", Schemas.UTF8, true),
+                        col("legs", Schemas.INT64, true),
+                        col("sound", Schemas.UTF8, true),
+                        col("color", Schemas.UTF8, true)))
                 .registerCatalogTable(stubTable("main", "plants",
                         "Plants table (versioned, appears at 2.0.0)",
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("kind", Schemas.UTF8, true, null, null),
-                        col("height_m", Schemas.FLOAT64, true, null, null)))
+                        col("name", Schemas.UTF8, true),
+                        col("kind", Schemas.UTF8, true),
+                        col("height_m", Schemas.FLOAT64, true)))
                 .registerCatalogTable(stubTable("main", "plants_v_2_0_0",
                         "Plants v2.0.0",
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("kind", Schemas.UTF8, true, null, null),
-                        col("height_m", Schemas.FLOAT64, true, null, null)))
+                        col("name", Schemas.UTF8, true),
+                        col("kind", Schemas.UTF8, true),
+                        col("height_m", Schemas.FLOAT64, true)))
                 .registerCatalogTable(stubTable("main", "plants_v_3_0_0",
                         "Plants v3.0.0",
-                        col("name", Schemas.UTF8, true, null, null),
-                        col("kind", Schemas.UTF8, true, null, null),
-                        col("height_m", Schemas.FLOAT64, true, null, null)))
-                .registerMacro(new Worker.Macro(
+                        col("name", Schemas.UTF8, true),
+                        col("kind", Schemas.UTF8, true),
+                        col("height_m", Schemas.FLOAT64, true)));
+    }
+
+    private static void registerMacros(Worker w) {
+        w.registerMacro(new Worker.Macro(
                         "main", "vgi_multiply", Worker.MacroType.SCALAR,
                         java.util.List.of("x", "y"), "x * y", "Multiply two values"))
                 .registerMacro(new Worker.Macro(
@@ -600,8 +644,6 @@ public final class Main {
                         java.util.List.of("n"),
                         "SELECT * FROM range(n)",
                         "Table macro returning range of values"));
-
-        runWorker(w, args);
     }
 
     private static void runWorker(Worker w, String[] args) {

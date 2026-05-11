@@ -79,10 +79,8 @@ public final class SequenceFunction implements TableFunction {
     @Override public TableProducerState createProducer(TableInitParams params) {
         validate(params.arguments().named());
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        Object bsObj = params.arguments().named().get("batch_size");
-        long batchSize = bsObj == null ? 1000L : ((Number) bsObj).longValue();
-        Object incObj = params.arguments().named().get("increment");
-        long increment = incObj == null ? 1L : ((Number) incObj).longValue();
+        long batchSize = params.arguments().namedLong("batch_size", 1000L);
+        long increment = params.arguments().namedLong("increment", 1L);
         return new SequenceState(new BatchState(count, batchSize), increment,
                 FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
     }
