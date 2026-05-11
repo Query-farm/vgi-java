@@ -126,6 +126,7 @@ public final class VgiServiceImpl implements VgiService {
         Map<String, AggregateFunction<?>> aggFlat = new HashMap<>();
         for (var e : this.aggregates.entrySet()) aggFlat.put(e.getKey(), e.getValue().get(0));
         this.aggregateRunner = new AggregateRunner(aggFlat);
+        this.catalogRegistry = new CatalogRegistry(worker);
         ServiceLocator.setCurrent(new ServiceLocator(this.scalars));
     }
 
@@ -438,15 +439,7 @@ public final class VgiServiceImpl implements VgiService {
         return new farm.query.vgi.protocol.CatalogVersionResponse(1L);
     }
 
-    /** Per-attach resolved-data-version, keyed by attach_id hex. Used by
-     *  catalog_table_get to pick the right per-version table variant for
-     *  information_schema queries (which don't pass at_value). */
-    private final java.util.Map<String, String> attachDataVersions = new java.util.concurrent.ConcurrentHashMap<>();
-
-    /** Per-attach catalog name (from the {@code ATTACH 'name'} clause).
-     *  Used to filter fixture-vs-fixture across multiple logical catalogs
-     *  served by the same worker binary. */
-    private final java.util.Map<String, String> attachCatalogNames = new java.util.concurrent.ConcurrentHashMap<>();
+    private final CatalogRegistry catalogRegistry;
 
     @Override
     public CatalogAttachResult catalog_attach(CatalogAttachRequest request, CallContext ctx) {
@@ -476,10 +469,7 @@ public final class VgiServiceImpl implements VgiService {
         // back to ATTACH).
         String resolvedImpl = resolveImplementationVersion(request.implementation_version());
         String resolvedData = resolveDataVersion(request.data_version_spec());
-        if (resolvedData != null) attachDataVersions.put(bytesKey(attachId), resolvedData);
-        if (request.name() != null && !request.name().isEmpty()) {
-            attachCatalogNames.put(bytesKey(attachId), request.name());
-        }
+        catalogRegistry.recordAttach(attachId, resolvedData, request.name());
         Map<String, String> tags = new java.util.LinkedHashMap<>(worker.catalogTags() == null ? Map.of() : worker.catalogTags());
         if (resolvedImpl != null) tags.put("vgi_resolved_implementation_version", resolvedImpl);
         if (resolvedData != null) tags.put("vgi_resolved_data_version", resolvedData);
@@ -627,7 +617,7 @@ public final class VgiServiceImpl implements VgiService {
     public ItemsResponse catalog_schema_contents_tables(
             byte[] attach_id, String name, byte[] transaction_id) {
         List<byte[]> items = new ArrayList<>();
-        String dv = attach_id == null ? null : attachDataVersions.get(bytesKey(attach_id));
+        String dv = catalogRegistry.dataVersion(attach_id);
         for (CatalogTable t : worker.catalogTables()) {
             if (!t.schema().equals(name)) continue;
             // Hide per-version variant tables (e.g. versioned_data_v1,
@@ -647,7 +637,7 @@ public final class VgiServiceImpl implements VgiService {
                     && SemverHelpers.compareVersions(dv, "2.0.0") < 0) continue;
             if (isVersionedTables && "animals".equals(t.name()) && dv != null
                     && SemverHelpers.compareVersions(dv, "3.0.0") >= 0) continue;
-            CatalogTable resolved = dv == null ? t : resolveVersion(t, "data_version", dv);
+            CatalogTable resolved = dv == null ? t : catalogRegistry.resolveVersion(t, "data_version", dv);
             items.add(TableInfoSerializer.serialize(toTableInfo(resolved)));
         }
         return new ItemsResponse(items);
@@ -663,7 +653,7 @@ public final class VgiServiceImpl implements VgiService {
         String effectiveAtUnit = at_unit;
         String effectiveAtValue = at_value;
         if ((effectiveAtUnit == null || effectiveAtUnit.isEmpty()) && attach_id != null) {
-            String dv = attachDataVersions.get(bytesKey(attach_id));
+            String dv = catalogRegistry.dataVersion(attach_id);
             if (dv != null) {
                 effectiveAtUnit = "data_version";
                 effectiveAtValue = dv;
@@ -671,7 +661,7 @@ public final class VgiServiceImpl implements VgiService {
         }
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
-                CatalogTable resolved = resolveVersion(t, effectiveAtUnit, effectiveAtValue);
+                CatalogTable resolved = catalogRegistry.resolveVersion(t, effectiveAtUnit, effectiveAtValue);
                 if (resolved.scanFunctionName() == null) break;
                 byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
                         resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
@@ -692,7 +682,7 @@ public final class VgiServiceImpl implements VgiService {
         // (so information_schema queries pick the right schema).
         String effectiveAtUnit = at_unit;
         String effectiveAtValue = at_value;
-        String dv = attach_id == null ? null : attachDataVersions.get(bytesKey(attach_id));
+        String dv = catalogRegistry.dataVersion(attach_id);
         if ((effectiveAtUnit == null || effectiveAtUnit.isEmpty()) && dv != null) {
             effectiveAtUnit = "data_version";
             effectiveAtValue = dv;
@@ -708,89 +698,11 @@ public final class VgiServiceImpl implements VgiService {
         }
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
-                CatalogTable resolved = resolveVersion(t, effectiveAtUnit, effectiveAtValue);
+                CatalogTable resolved = catalogRegistry.resolveVersion(t, effectiveAtUnit, effectiveAtValue);
                 return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(resolved))));
             }
         }
         return ItemsResponse.empty();
-    }
-
-    /**
-     * For {@code versioned_data} / {@code versioned_constraints}, swap the
-     * declared columns + scan args for a version-specific variant when the
-     * client asked {@code AT (VERSION => N)}. Other tables and AT clauses
-     * pass through unchanged. Throws if N is out of range so DuckDB surfaces
-     * "Unknown version" / "table did not exist before <year>" cleanly.
-     */
-    private CatalogTable resolveVersion(CatalogTable t, String at_unit, String at_value) {
-        if (at_unit == null || at_value == null || at_unit.isEmpty()) return t;
-        if ("data_version".equalsIgnoreCase(at_unit)) {
-            // Try a registered "<name>_v_<X>_<Y>_<Z>" variant — used by
-            // version-aware catalog tables that aren't time-travel tables.
-            String suffix = "_v_" + at_value.replace('.', '_');
-            String dvName = t.name() + suffix;
-            for (CatalogTable vt : worker.catalogTables()) {
-                if (vt.schema().equals(t.schema()) && vt.name().equals(dvName)) {
-                    return new CatalogTable(
-                            t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
-                            vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
-                            null, null, false, true,
-                            List.of(), List.of(), List.of(), List.of());
-                }
-            }
-            return t;
-        }
-        // Tables that don't declare time-travel behaviour reject AT clauses
-        // up-front. The catalog-level supports_time_travel=true gate is
-        // necessary for time-travel-capable tables to be accepted by
-        // DuckDB's binder, but each individual table can still error out
-        // here when asked for a non-default version.
-        if (!"versioned_data".equals(t.name()) && !"versioned_constraints".equals(t.name())) {
-            throw new IllegalArgumentException("table " + t.name() + " does not support time travel");
-        }
-        int version = -1;
-        if ("version".equalsIgnoreCase(at_unit)) {
-            try { version = Integer.parseInt(at_value); }
-            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + at_value); }
-        } else if ("timestamp".equalsIgnoreCase(at_unit)) {
-            // Map the timestamp to a version: <2020 errors, [2020..2021) → v1,
-            // [2021..2022) → v2, ≥2022 → v3 (matches time_travel.test).
-            String s = at_value;
-            int yearEnd = Math.min(4, s.length());
-            int year;
-            try { year = Integer.parseInt(s.substring(0, yearEnd)); }
-            catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Unknown timestamp: " + at_value);
-            }
-            if (year < 2020) {
-                throw new IllegalArgumentException("table did not exist before 2020");
-            }
-            if (year < 2021) version = 1;
-            else if (year < 2022) version = 2;
-            else version = 3;
-        } else {
-            return t;
-        }
-        if (version < 1 || version > 3) {
-            throw new IllegalArgumentException("Unknown version: " + version);
-        }
-        // Find the registered CatalogTable for "<name>_v<version>" and reuse
-        // its columns + scan args. The worker registers per-version variants
-        // as hidden internal tables; this method swaps them in at query time.
-        // Constraints are dropped on the versioned variant because column
-        // indices baked into PK/UNIQUE/FK refer to the *default* schema and
-        // would point past the end on older versions with fewer columns.
-        String versionedName = t.name() + "_v" + version;
-        for (CatalogTable vt : worker.catalogTables()) {
-            if (vt.schema().equals(t.schema()) && vt.name().equals(versionedName)) {
-                return new CatalogTable(
-                        t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
-                        vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
-                        null, null, false, true,
-                        List.of(), List.of(), List.of(), List.of());
-            }
-        }
-        return t;
     }
 
     private static List<Integer> extractNotNullColumnIndices(byte[] columnsIpc) {
@@ -933,7 +845,7 @@ public final class VgiServiceImpl implements VgiService {
             }
         }
         if (wantTable) {
-            String attachCatName = attach_id == null ? null : attachCatalogNames.get(bytesKey(attach_id));
+            String attachCatName = catalogRegistry.catalogName(attach_id);
             boolean isProjReproAttach = "projection_repro".equals(attachCatName);
             for (List<TableFunction> variants : tables.values()) {
                 for (TableFunction fn : variants) {

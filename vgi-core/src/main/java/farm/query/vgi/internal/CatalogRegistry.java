@@ -1,0 +1,119 @@
+// Copyright 2025-2026 Query.Farm LLC
+// SPDX-License-Identifier: Apache-2.0
+
+package farm.query.vgi.internal;
+
+import farm.query.vgi.Worker;
+import farm.query.vgi.catalog.CatalogTable;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Per-attach catalog state and version resolution.
+ *
+ * <p>Holds, keyed by {@code attach_id}:
+ * <ul>
+ *   <li>The resolved {@code data_version} string negotiated at ATTACH time,
+ *       used to default the version for queries that don't pass an AT clause
+ *       (information_schema, plain {@code SELECT * FROM ...}).</li>
+ *   <li>The catalog name from the {@code ATTACH 'name'} clause, used to
+ *       filter fixture-vs-fixture across multiple logical catalogs served
+ *       by the same worker binary.</li>
+ * </ul>
+ *
+ * <p>Also owns {@link #resolveVersion}: for time-travel-capable tables,
+ * swap the declared columns + scan args for a version-specific variant
+ * registered under {@code <name>_v<N>} or {@code <name>_v_<X>_<Y>_<Z>}.
+ */
+public final class CatalogRegistry {
+
+    private final Worker worker;
+    private final Map<String, String> attachDataVersions = new ConcurrentHashMap<>();
+    private final Map<String, String> attachCatalogNames = new ConcurrentHashMap<>();
+
+    public CatalogRegistry(Worker worker) {
+        this.worker = worker;
+    }
+
+    public void recordAttach(byte[] attachId, String resolvedDataVersion, String catalogName) {
+        if (resolvedDataVersion != null) {
+            attachDataVersions.put(HexId.encode(attachId), resolvedDataVersion);
+        }
+        if (catalogName != null && !catalogName.isEmpty()) {
+            attachCatalogNames.put(HexId.encode(attachId), catalogName);
+        }
+    }
+
+    public String dataVersion(byte[] attachId) {
+        return attachId == null ? null : attachDataVersions.get(HexId.encode(attachId));
+    }
+
+    public String catalogName(byte[] attachId) {
+        return attachId == null ? null : attachCatalogNames.get(HexId.encode(attachId));
+    }
+
+    /**
+     * For {@code versioned_data} / {@code versioned_constraints}, swap the
+     * declared columns + scan args for a version-specific variant when the
+     * client asked {@code AT (VERSION => N)}. Other tables and AT clauses
+     * pass through unchanged. Throws if N is out of range so DuckDB surfaces
+     * "Unknown version" / "table did not exist before <year>" cleanly.
+     */
+    public CatalogTable resolveVersion(CatalogTable t, String at_unit, String at_value) {
+        if (at_unit == null || at_value == null || at_unit.isEmpty()) return t;
+        if ("data_version".equalsIgnoreCase(at_unit)) {
+            String suffix = "_v_" + at_value.replace('.', '_');
+            String dvName = t.name() + suffix;
+            for (CatalogTable vt : worker.catalogTables()) {
+                if (vt.schema().equals(t.schema()) && vt.name().equals(dvName)) {
+                    return new CatalogTable(
+                            t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
+                            vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
+                            null, null, false, true,
+                            List.of(), List.of(), List.of(), List.of());
+                }
+            }
+            return t;
+        }
+        if (!"versioned_data".equals(t.name()) && !"versioned_constraints".equals(t.name())) {
+            throw new IllegalArgumentException("table " + t.name() + " does not support time travel");
+        }
+        int version = -1;
+        if ("version".equalsIgnoreCase(at_unit)) {
+            try { version = Integer.parseInt(at_value); }
+            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + at_value); }
+        } else if ("timestamp".equalsIgnoreCase(at_unit)) {
+            String s = at_value;
+            int yearEnd = Math.min(4, s.length());
+            int year;
+            try { year = Integer.parseInt(s.substring(0, yearEnd)); }
+            catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Unknown timestamp: " + at_value);
+            }
+            if (year < 2020) {
+                throw new IllegalArgumentException("table did not exist before 2020");
+            }
+            if (year < 2021) version = 1;
+            else if (year < 2022) version = 2;
+            else version = 3;
+        } else {
+            return t;
+        }
+        if (version < 1 || version > 3) {
+            throw new IllegalArgumentException("Unknown version: " + version);
+        }
+        String versionedName = t.name() + "_v" + version;
+        for (CatalogTable vt : worker.catalogTables()) {
+            if (vt.schema().equals(t.schema()) && vt.name().equals(versionedName)) {
+                return new CatalogTable(
+                        t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
+                        vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
+                        null, null, false, true,
+                        List.of(), List.of(), List.of(), List.of());
+            }
+        }
+        return t;
+    }
+}
