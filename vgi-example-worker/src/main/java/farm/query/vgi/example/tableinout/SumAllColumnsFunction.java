@@ -49,8 +49,7 @@ public class SumAllColumnsFunction implements TableInOutFunction {
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 ArgSpec.table("data", 0),
-                new ArgSpec("logging", -1, Schemas.BOOL, "", true, true, "false",
-                        List.of(), false, false));
+                ArgSpec.named("logging", Schemas.BOOL, "false"));
     }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {

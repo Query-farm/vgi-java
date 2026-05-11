@@ -47,10 +47,8 @@ public final class SlowCancellableFunction implements TableFunction {
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 new ArgSpec("probe_path", 0, Schemas.UTF8, /*isConst=*/true),
-                new ArgSpec("sleep_ms", -1, Schemas.INT64, "", true, true, "50",
-                        List.of(), false, false),
-                new ArgSpec("count", -1, Schemas.INT64, "", true, true, "1000000",
-                        List.of(), false, false));
+                ArgSpec.named("sleep_ms", Schemas.INT64, "50"),
+                ArgSpec.named("count", Schemas.INT64, "1000000"));
     }
 
     @Override public BindResponse onBind(TableBindParams params) {

@@ -52,10 +52,8 @@ public final class RowIdSequenceFunction implements TableFunction {
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                new ArgSpec("layout", -1, Schemas.UTF8, "", true, true, "first",
-                        List.of(), false, false),
-                new ArgSpec("row_id_type", -1, Schemas.UTF8, "", true, true, "int64",
-                        List.of(), false, false));
+                ArgSpec.named("layout", Schemas.UTF8, "first"),
+                ArgSpec.named("row_id_type", Schemas.UTF8, "int64"));
     }
 
     @Override public BindResponse onBind(TableBindParams p) {

@@ -60,8 +60,7 @@ public final class PartitionedSequenceFunction implements TableFunction {
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                new ArgSpec("increment", -1, Schemas.INT64, "", true, true, "1", List.of(),
-                        false, false));
+                ArgSpec.named("increment", Schemas.INT64, "1"));
     }
     @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
 

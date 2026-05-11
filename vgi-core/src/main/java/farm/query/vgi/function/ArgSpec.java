@@ -70,6 +70,22 @@ public record ArgSpec(
     }
 
     /**
+     * Named-only constant argument (no positional slot, accessible only via
+     * {@code arg => value} syntax). The most common shape for fixture
+     * configuration knobs like {@code batch_size}, {@code logging}, etc.
+     */
+    public static ArgSpec named(String name, ArrowType type, String defaultValue) {
+        return new ArgSpec(name, -1, type, "", true, true, defaultValue,
+                List.of(), false, false, false);
+    }
+
+    /** Positional varargs constant argument (e.g. {@code make_pairs(a, b, c, d, ...)}). */
+    public static ArgSpec varargs(String name, int position, ArrowType type) {
+        return new ArgSpec(name, position, type, "", true, false, "",
+                List.of(), true, false, false);
+    }
+
+    /**
      * Construct an ArgSpec for a nested Arrow type (struct/list/fixed_list)
      * with explicit child field shape. {@code varargs} switches the spec to
      * varargs.

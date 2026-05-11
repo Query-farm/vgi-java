@@ -48,10 +48,10 @@ public final class NamedParamsEchoFunction implements TableFunction {
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                new ArgSpec("greeting", -1, Schemas.UTF8, "", true, true, "hello", List.of(), false, false),
-                new ArgSpec("multiplier", -1, Schemas.INT64, "", true, true, "1", List.of(), false, false),
-                new ArgSpec("scale", -1, Schemas.FLOAT64, "", true, true, "1.0", List.of(), false, false),
-                new ArgSpec("enabled", -1, Schemas.BOOL, "", true, true, "true", List.of(), false, false));
+                ArgSpec.named("greeting", Schemas.UTF8, "hello"),
+                ArgSpec.named("multiplier", Schemas.INT64, "1"),
+                ArgSpec.named("scale", Schemas.FLOAT64, "1.0"),
+                ArgSpec.named("enabled", Schemas.BOOL, "true"));
     }
 
     @Override public BindResponse onBind(TableBindParams params) {

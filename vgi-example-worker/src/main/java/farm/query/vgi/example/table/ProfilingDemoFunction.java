@@ -59,10 +59,8 @@ public final class ProfilingDemoFunction implements TableFunction {
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                new ArgSpec("batch_size", -1, Schemas.INT64, "", true, true, "1024", List.of(),
-                        false, false),
-                new ArgSpec("increment", -1, Schemas.INT64, "", true, true, "1", List.of(),
-                        false, false));
+                ArgSpec.named("batch_size", Schemas.INT64, "1024"),
+                ArgSpec.named("increment", Schemas.INT64, "1"));
     }
     @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
 

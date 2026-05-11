@@ -58,8 +58,7 @@ public final class FilterEchoFunction implements TableFunction {
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                new ArgSpec("batch_size", -1, Schemas.INT64, "", true, true, "2048", List.of(),
-                        false, false));
+                ArgSpec.named("batch_size", Schemas.INT64, "2048"));
     }
 
     @Override public BindResponse onBind(TableBindParams params) {
