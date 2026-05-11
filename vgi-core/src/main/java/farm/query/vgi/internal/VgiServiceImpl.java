@@ -141,56 +141,65 @@ public final class VgiServiceImpl implements VgiService {
         Arguments args = ArgumentsParser.parse(request.arguments());
         Map<String, Object> settings = SettingsParser.parse(request.settings());
 
-        // Per-bind token used as both BindResponse.opaque_data and the
-        // pendingBinds key. DuckDB echoes it back via InitRequest.bind_opaque_data.
         byte[] token = new byte[16];
         rng.nextBytes(token);
-        String key = bytesKey(token);
 
-        // argCount = const args (in `arguments` field) + column args (in input_schema fields).
-        int constArgCount = args.positional().size();
-        int columnArgCount = inputSchema == null ? 0 : inputSchema.getFields().size();
-        int argCount = constArgCount + columnArgCount;
+        int argCount = args.positional().size()
+                + (inputSchema == null ? 0 : inputSchema.getFields().size());
+
         if (scalars.containsKey(name)) {
-            ScalarFunction fn = OverloadResolver.pick(scalars.get(name), argCount, args, inputSchema);
-            BindResponse upstream = fn.onBind(new ScalarBindParams(name, args, inputSchema, settings,
-                    request.secrets(), request.resolved_secrets_provided()));
-            Schema outputSchema = upstream.output_schema() == null
-                    ? null
-                    : SchemaUtil.deserializeSchema(upstream.output_schema());
-            BoundScalar bs = new BoundScalar(fn, args, inputSchema, outputSchema, settings,
-                    request.arguments(), request.settings(), upstream.output_schema(),
-                    request.secrets());
-            pendingBinds.put(key, bs);
-            return new BindResponse(upstream.output_schema(), token,
-                    upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
+            return bindScalar(request, name, args, inputSchema, settings, argCount, token);
         }
         if (tables.containsKey(name)) {
-            TableFunction fn = OverloadResolver.pick(tables.get(name), argCount, args, inputSchema);
-            BindResponse upstream = fn.onBind(new TableBindParams(name, args, inputSchema, settings,
-                    request.secrets(), request.resolved_secrets_provided(), request.attach_id()));
-            Schema outputSchema = upstream.output_schema() == null
-                    ? null
-                    : SchemaUtil.deserializeSchema(upstream.output_schema());
-            BoundTable bt = new BoundTable(fn, args, inputSchema, outputSchema, settings,
-                    request.arguments(), request.settings(), upstream.output_schema(),
-                    request.secrets(), request.attach_id());
-            pendingBinds.put(key, bt);
-            return new BindResponse(upstream.output_schema(), token,
-                    upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
+            return bindTable(request, name, args, inputSchema, settings, argCount, token);
         }
         if (tableInOuts.containsKey(name)) {
-            TableInOutFunction fn = OverloadResolver.pick(tableInOuts.get(name), argCount, args, inputSchema);
-            BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings));
-            Schema outputSchema = upstream.output_schema() == null
-                    ? null
-                    : SchemaUtil.deserializeSchema(upstream.output_schema());
-            pendingBinds.put(key, new BoundTableInOut(fn, args, inputSchema, outputSchema, settings,
-                    request.arguments(), request.settings(), upstream.output_schema()));
-            return new BindResponse(upstream.output_schema(), token,
-                    upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
+            return bindTableInOut(request, name, args, inputSchema, settings, argCount, token);
         }
         throw new IllegalArgumentException("Unknown function: " + name);
+    }
+
+    private BindResponse bindScalar(BindRequest request, String name, Arguments args,
+                                     Schema inputSchema, Map<String, Object> settings,
+                                     int argCount, byte[] token) {
+        ScalarFunction fn = OverloadResolver.pick(scalars.get(name), argCount, args, inputSchema);
+        BindResponse upstream = fn.onBind(new ScalarBindParams(name, args, inputSchema, settings,
+                request.secrets(), request.resolved_secrets_provided()));
+        Schema outputSchema = upstream.output_schema() == null
+                ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
+        pendingBinds.put(bytesKey(token), new BoundScalar(fn, args, inputSchema, outputSchema, settings,
+                request.arguments(), request.settings(), upstream.output_schema(),
+                request.secrets()));
+        return new BindResponse(upstream.output_schema(), token,
+                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
+    }
+
+    private BindResponse bindTable(BindRequest request, String name, Arguments args,
+                                    Schema inputSchema, Map<String, Object> settings,
+                                    int argCount, byte[] token) {
+        TableFunction fn = OverloadResolver.pick(tables.get(name), argCount, args, inputSchema);
+        BindResponse upstream = fn.onBind(new TableBindParams(name, args, inputSchema, settings,
+                request.secrets(), request.resolved_secrets_provided(), request.attach_id()));
+        Schema outputSchema = upstream.output_schema() == null
+                ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
+        pendingBinds.put(bytesKey(token), new BoundTable(fn, args, inputSchema, outputSchema, settings,
+                request.arguments(), request.settings(), upstream.output_schema(),
+                request.secrets(), request.attach_id()));
+        return new BindResponse(upstream.output_schema(), token,
+                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
+    }
+
+    private BindResponse bindTableInOut(BindRequest request, String name, Arguments args,
+                                         Schema inputSchema, Map<String, Object> settings,
+                                         int argCount, byte[] token) {
+        TableInOutFunction fn = OverloadResolver.pick(tableInOuts.get(name), argCount, args, inputSchema);
+        BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings));
+        Schema outputSchema = upstream.output_schema() == null
+                ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
+        pendingBinds.put(bytesKey(token), new BoundTableInOut(fn, args, inputSchema, outputSchema, settings,
+                request.arguments(), request.settings(), upstream.output_schema()));
+        return new BindResponse(upstream.output_schema(), token,
+                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
 
     @Override
@@ -228,75 +237,83 @@ public final class VgiServiceImpl implements VgiService {
                 ? bt.fn().maxWorkers() : 1L;
         GlobalInitResponse header = new GlobalInitResponse(execId, maxWorkers, null);
 
-        if (bound instanceof BoundScalar bs) {
-            Schema inputSchema = bs.inputSchema() != null ? bs.inputSchema() : new Schema(List.of());
-            int variantIdx = ServiceLocator.current().scalarIndexOf(bs.fn().name(), bs.fn());
-            ScalarStreamState state = new ScalarStreamState(
-                    bs.fn().name(), bs.fn().argumentSpecs().size(), variantIdx,
-                    request.output_schema(), bs.argumentsIpc(), bs.settingsIpc());
-            state.setSecrets(bs.secrets());
-            return RpcStream.exchange(inputSchema, realOutputSchema, state, header);
-        }
-        if (bound instanceof BoundTable bt) {
-            // Project the full output schema down to the columns DuckDB
-            // requested (projection_ids), but only when the function opts
-            // into projection pushdown. Otherwise the framework would have
-            // to auto-project the emitted batches; not implemented yet, so
-            // non-pushdown functions keep the full schema.
-            List<Integer> projIds = request.projection_ids() == null
-                    ? List.of() : request.projection_ids();
-            Schema fnOutputSchema = realOutputSchema;
-            if (bt.fn().metadata().projectionPushdown() && !projIds.isEmpty()) {
-                fnOutputSchema = projectSchema(realOutputSchema, projIds);
-            }
-            TableInitParams params = new TableInitParams(
-                    bt.fn().name(), bt.args(), fnOutputSchema, bt.settings(), Allocators.root(),
-                    request.pushdown_filters(),
-                    projIds,
-                    request.join_keys() == null ? List.of() : request.join_keys(),
-                    request.tablesample_percentage(),
-                    request.tablesample_seed(),
-                    request.order_by_column_name(),
-                    request.order_by_direction(),
-                    request.order_by_null_order(),
-                    request.order_by_limit(),
-                    execId,
-                    bt.secrets(),
-                    bt.attachId());
-            TableProducerState state = bt.fn().createProducer(params);
-            return RpcStream.producer(fnOutputSchema, state, header);
-        }
-        if (bound instanceof BoundTableInOut bio) {
-            String phase = request.phase();
-            String execKey = bytesKey(execId);
-            if ("FINALIZE".equalsIgnoreCase(phase)) {
-                // FINALIZE: look up the exchange state captured during INPUT
-                // phase and emit any buffered batches via a producer stream.
-                TioExecutionState saved = tioExecutions.get(execKey);
-                java.util.List<org.apache.arrow.vector.VectorSchemaRoot> batches =
-                        saved != null
-                                ? bio.fn().finalizeBatches(saved.state(), saved.params())
-                                : bio.fn().finalizeBatches(null,
-                                        new TableInOutInitParams(bio.fn().name(), bio.args(),
-                                                bio.inputSchema(), realOutputSchema,
-                                                bio.settings(), Allocators.root()));
-                tioExecutions.remove(execKey);
-                farm.query.vgirpc.ProducerState producer = new FinalizeProducerState(batches);
-                return RpcStream.producer(realOutputSchema, producer, header);
-            }
-            // INPUT phase
-            Schema inputSchema = bio.inputSchema() != null ? bio.inputSchema() : new Schema(List.of());
-            TableInOutInitParams params = new TableInOutInitParams(
-                    bio.fn().name(), bio.args(), inputSchema, realOutputSchema,
-                    bio.settings(), Allocators.root());
-            TableInOutExchangeState state = bio.fn().createExchange(params);
-            // Stash for the matching FINALIZE init.
-            if (bio.fn().hasFinalize()) {
-                tioExecutions.put(execKey, new TioExecutionState(bio.fn(), state, params));
-            }
-            return RpcStream.exchange(inputSchema, realOutputSchema, state, header);
-        }
+        if (bound instanceof BoundScalar bs) return initScalar(request, bs, realOutputSchema, header);
+        if (bound instanceof BoundTable bt) return initTable(request, bt, realOutputSchema, execId, header);
+        if (bound instanceof BoundTableInOut bio) return initTableInOut(request, bio, realOutputSchema, execId, header);
         throw new IllegalStateException("Unexpected bound type: " + bound);
+    }
+
+    private RpcStream<? extends StreamState> initScalar(InitRequest request, BoundScalar bs,
+                                                          Schema realOutputSchema, GlobalInitResponse header) {
+        Schema inputSchema = bs.inputSchema() != null ? bs.inputSchema() : new Schema(List.of());
+        int variantIdx = ServiceLocator.current().scalarIndexOf(bs.fn().name(), bs.fn());
+        ScalarStreamState state = new ScalarStreamState(
+                bs.fn().name(), bs.fn().argumentSpecs().size(), variantIdx,
+                request.output_schema(), bs.argumentsIpc(), bs.settingsIpc());
+        state.setSecrets(bs.secrets());
+        return RpcStream.exchange(inputSchema, realOutputSchema, state, header);
+    }
+
+    private RpcStream<? extends StreamState> initTable(InitRequest request, BoundTable bt,
+                                                         Schema realOutputSchema, byte[] execId,
+                                                         GlobalInitResponse header) {
+        // Project the full output schema down to the columns DuckDB requested,
+        // but only when the function opts into projection pushdown. Otherwise
+        // the framework would have to auto-project emitted batches (not
+        // implemented), so non-pushdown functions keep the full schema.
+        List<Integer> projIds = request.projection_ids() == null
+                ? List.of() : request.projection_ids();
+        Schema fnOutputSchema = realOutputSchema;
+        if (bt.fn().metadata().projectionPushdown() && !projIds.isEmpty()) {
+            fnOutputSchema = projectSchema(realOutputSchema, projIds);
+        }
+        TableInitParams params = new TableInitParams(
+                bt.fn().name(), bt.args(), fnOutputSchema, bt.settings(), Allocators.root(),
+                request.pushdown_filters(),
+                projIds,
+                request.join_keys() == null ? List.of() : request.join_keys(),
+                request.tablesample_percentage(),
+                request.tablesample_seed(),
+                request.order_by_column_name(),
+                request.order_by_direction(),
+                request.order_by_null_order(),
+                request.order_by_limit(),
+                execId,
+                bt.secrets(),
+                bt.attachId());
+        TableProducerState state = bt.fn().createProducer(params);
+        return RpcStream.producer(fnOutputSchema, state, header);
+    }
+
+    private RpcStream<? extends StreamState> initTableInOut(InitRequest request, BoundTableInOut bio,
+                                                              Schema realOutputSchema, byte[] execId,
+                                                              GlobalInitResponse header) {
+        String phase = request.phase();
+        String execKey = bytesKey(execId);
+        if ("FINALIZE".equalsIgnoreCase(phase)) {
+            // Look up the exchange state captured during INPUT phase and
+            // emit buffered batches via a producer stream.
+            TioExecutionState saved = tioExecutions.get(execKey);
+            java.util.List<org.apache.arrow.vector.VectorSchemaRoot> batches =
+                    saved != null
+                            ? bio.fn().finalizeBatches(saved.state(), saved.params())
+                            : bio.fn().finalizeBatches(null,
+                                    new TableInOutInitParams(bio.fn().name(), bio.args(),
+                                            bio.inputSchema(), realOutputSchema,
+                                            bio.settings(), Allocators.root()));
+            tioExecutions.remove(execKey);
+            farm.query.vgirpc.ProducerState producer = new FinalizeProducerState(batches);
+            return RpcStream.producer(realOutputSchema, producer, header);
+        }
+        Schema inputSchema = bio.inputSchema() != null ? bio.inputSchema() : new Schema(List.of());
+        TableInOutInitParams params = new TableInOutInitParams(
+                bio.fn().name(), bio.args(), inputSchema, realOutputSchema,
+                bio.settings(), Allocators.root());
+        TableInOutExchangeState state = bio.fn().createExchange(params);
+        if (bio.fn().hasFinalize()) {
+            tioExecutions.put(execKey, new TioExecutionState(bio.fn(), state, params));
+        }
+        return RpcStream.exchange(inputSchema, realOutputSchema, state, header);
     }
 
     private static Schema projectSchema(Schema full, List<Integer> projectionIds) {
