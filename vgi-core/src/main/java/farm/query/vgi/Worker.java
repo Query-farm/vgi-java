@@ -98,6 +98,26 @@ public final class Worker {
         return this;
     }
 
+    public Worker registerScalars(Iterable<? extends ScalarFunction> fns) {
+        for (ScalarFunction f : fns) scalars.add(f);
+        return this;
+    }
+
+    public Worker registerTables(Iterable<? extends TableFunction> fns) {
+        for (TableFunction f : fns) tables.add(f);
+        return this;
+    }
+
+    public Worker registerAggregates(Iterable<? extends AggregateFunction<?>> fns) {
+        for (AggregateFunction<?> f : fns) aggregates.add(f);
+        return this;
+    }
+
+    public Worker registerTableInOuts(Iterable<? extends TableInOutFunction> fns) {
+        for (TableInOutFunction f : fns) tableInOuts.add(f);
+        return this;
+    }
+
     public Worker settings(SettingSpec... specs) {
         for (SettingSpec s : specs) settings.add(s);
         return this;

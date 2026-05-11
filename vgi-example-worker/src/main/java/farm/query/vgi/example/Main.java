@@ -74,7 +74,12 @@ import farm.query.vgi.example.tableinout.ExceptionProcessFunction;
 import farm.query.vgi.example.tableinout.RepeatInputsFunction;
 import farm.query.vgi.example.tableinout.SumAllColumnsFunction;
 import farm.query.vgi.types.Schemas;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
 
+import java.util.List;
 import java.util.Map;
 import farm.query.vgi.catalog.CatalogTable;
 import farm.query.vgi.catalog.Macro;
@@ -94,66 +99,64 @@ public final class Main {
 
     /** Build a Field with optional {@code comment} and {@code default} metadata
      *  (read by the C++ extension at vgi_catalog_api.cpp:2061-2078). */
-    private static org.apache.arrow.vector.types.pojo.Field col(String name,
-                                                                  org.apache.arrow.vector.types.pojo.ArrowType type,
-                                                                  boolean nullable,
-                                                                  String comment, String defaultExpr) {
+    private static Field col(String name,
+                ArrowType type,
+                boolean nullable,
+                String comment, String defaultExpr) {
         java.util.LinkedHashMap<String, String> md = new java.util.LinkedHashMap<>();
         if (comment != null) md.put("comment", comment);
         if (defaultExpr != null) md.put("default", defaultExpr);
-        return new org.apache.arrow.vector.types.pojo.Field(name,
-                new org.apache.arrow.vector.types.pojo.FieldType(nullable, type, null,
+        return new Field(name,
+                new FieldType(nullable, type, null,
                         md.isEmpty() ? null : md),
                 null);
     }
 
     /** {@link #col(String, ArrowType, boolean, String, String) col} with no metadata. */
-    private static org.apache.arrow.vector.types.pojo.Field col(String name,
-                                                                  org.apache.arrow.vector.types.pojo.ArrowType type,
-                                                                  boolean nullable) {
+    private static Field col(String name,
+                ArrowType type,
+                boolean nullable) {
         return col(name, type, nullable, null, null);
     }
 
     /** Composite-struct row_id field for rowid_struct table. */
-    private static org.apache.arrow.vector.types.pojo.Field rowidStructField() {
-        return new org.apache.arrow.vector.types.pojo.Field("row_id",
-                new org.apache.arrow.vector.types.pojo.FieldType(false,
-                        new org.apache.arrow.vector.types.pojo.ArrowType.Struct(),
+    private static Field rowidStructField() {
+        return new Field("row_id",
+                new FieldType(false,
+                        new ArrowType.Struct(),
                         null,
-                        java.util.Map.of("is_row_id", "true")),
-                java.util.List.of(
-                        new org.apache.arrow.vector.types.pojo.Field("a",
-                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
-                        new org.apache.arrow.vector.types.pojo.Field("b",
-                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null), null)));
+                        Map.of("is_row_id", "true")),
+                List.of(
+                        Schemas.nullable("a", Schemas.INT64),
+                        Schemas.nullable("b", Schemas.UTF8)));
     }
 
     /** Build a Field with the {@code is_row_id} metadata key, marking it as
      *  DuckDB's virtual {@code rowid} for this table (see C++ catalog
      *  binding at vgi_catalog_api.cpp:1684). */
-    private static org.apache.arrow.vector.types.pojo.Field rowIdCol(String name,
-                                                                       org.apache.arrow.vector.types.pojo.ArrowType type) {
-        return new org.apache.arrow.vector.types.pojo.Field(name,
-                new org.apache.arrow.vector.types.pojo.FieldType(false, type, null,
-                        java.util.Map.of("is_row_id", "true")),
+    private static Field rowIdCol(String name,
+                ArrowType type) {
+        return new Field(name,
+                new FieldType(false, type, null,
+                        Map.of("is_row_id", "true")),
                 null);
     }
 
     /** Build a Field with a generated_expression metadata key. */
-    private static org.apache.arrow.vector.types.pojo.Field genCol(String name,
-                                                                     org.apache.arrow.vector.types.pojo.ArrowType type,
-                                                                     boolean nullable,
-                                                                     String expr) {
-        return new org.apache.arrow.vector.types.pojo.Field(name,
-                new org.apache.arrow.vector.types.pojo.FieldType(nullable, type, null,
-                        java.util.Map.of("generated_expression", expr)),
+    private static Field genCol(String name,
+                ArrowType type,
+                boolean nullable,
+                String expr) {
+        return new Field(name,
+                new FieldType(nullable, type, null,
+                        Map.of("generated_expression", expr)),
                 null);
     }
 
     /** Serialize a list of fields as a TableInfo.columns IPC blob. */
-    private static byte[] cols(org.apache.arrow.vector.types.pojo.Field... fields) {
+    private static byte[] cols(Field... fields) {
         return farm.query.vgi.internal.SchemaUtil.serializeSchema(
-                new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(fields)));
+                new Schema(List.of(fields)));
     }
 
     /** Build a CatalogTable backed by the {@code _table_data} canned-data
@@ -161,33 +164,30 @@ public final class Main {
      *  fails cleanly rather than crashing on a column-count mismatch).
      */
     private static CatalogTable stubTable(String schema, String name, String comment,
-                                                  org.apache.arrow.vector.types.pojo.Field... fields) {
+                Field... fields) {
         boolean hasData = farm.query.vgi.example.table.CannedDataFunction.has(name);
         if (hasData) {
             return new CatalogTable(
-                    schema, name, cols(fields), comment, java.util.Map.of(),
-                    "_table_data", java.util.List.of((Object) name), java.util.Map.of(),
+                    schema, name, cols(fields), comment, Map.of(),
+                    "_table_data", List.of((Object) name), Map.of(),
                     null, null, false, /*inlineScanFunction=*/true);
         }
         return new CatalogTable(
-                schema, name, cols(fields), comment, java.util.Map.of(),
-                null, java.util.List.of(), java.util.Map.of(),
+                schema, name, cols(fields), comment, Map.of(),
+                null, List.of(), Map.of(),
                 null, null, false, false);
     }
 
-    private static org.apache.arrow.vector.types.pojo.Schema vgiExampleSecretSchema() {
-        var redact = java.util.Map.of("redact", "true");
-        return new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
-                new org.apache.arrow.vector.types.pojo.Field("secret_string",
-                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null, redact), null),
-                new org.apache.arrow.vector.types.pojo.Field("api_key",
-                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null, redact), null),
-                new org.apache.arrow.vector.types.pojo.Field("port",
-                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
-                new org.apache.arrow.vector.types.pojo.Field("use_ssl",
-                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.BOOL, null), null),
-                new org.apache.arrow.vector.types.pojo.Field("timeout",
-                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.FLOAT64, null), null)));
+    private static Schema vgiExampleSecretSchema() {
+        var redact = Map.of("redact", "true");
+        return new Schema(List.of(
+                new Field("secret_string",
+                        new FieldType(true, Schemas.UTF8, null, redact), null),
+                new Field("api_key",
+                        new FieldType(true, Schemas.UTF8, null, redact), null),
+                Schemas.nullable("port", Schemas.INT64),
+                Schemas.nullable("use_ssl", Schemas.BOOL),
+                Schemas.nullable("timeout", Schemas.FLOAT64)));
     }
 
     public static void main(String[] args) {
@@ -255,14 +255,11 @@ public final class Main {
                 new SettingSpec("threshold", "Filter threshold",
                         Schemas.INT64, 0L),
                 new SettingSpec("config", "Sequence configuration struct",
-                        new org.apache.arrow.vector.types.pojo.ArrowType.Struct(),
-                        java.util.List.of(
-                                new org.apache.arrow.vector.types.pojo.Field("start",
-                                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
-                                new org.apache.arrow.vector.types.pojo.Field("step",
-                                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
-                                new org.apache.arrow.vector.types.pojo.Field("label",
-                                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null), null))));
+                        new ArrowType.Struct(),
+                        List.of(
+                Schemas.nullable("start", Schemas.INT64),
+                Schemas.nullable("step", Schemas.INT64),
+                Schemas.nullable("label", Schemas.UTF8))));
     }
 
     private static void registerSecretTypes(Worker w) {
@@ -273,126 +270,130 @@ public final class Main {
     }
 
     private static void registerScalars(Worker w) {
-        w.registerScalar(new AddValuesFunction())
-                .registerScalar(new ConditionalMessageFunction())
-                .registerScalar(new DoubleFunction())
-                .registerScalar(new HashSeedFunction())
-                .registerScalar(new UpperCaseFunction())
-                .registerScalar(new NullHandlingFunction())
-                .registerScalar(new MultiplyBySettingFunction())
-                .registerScalar(new RandomIntFunction())
-                .registerScalar(new SumValuesFunction())
-                .registerScalar(new WhoAmIFunction())
-                .registerScalar(new GeoDistanceStructFunction())
-                .registerScalar(new GeoDistanceListFunction())
-                .registerScalar(new GeoDistanceFixedFunction())
-                .registerScalar(new GeoCentroidStructFunction())
-                .registerScalar(new GeoCentroidListFunction())
-                .registerScalar(new GeoCentroidFixedFunction())
-                .registerScalar(new BinaryPacketFunction())
-                .registerScalar(new MultiplyFunction())
-                .registerScalar(new FormatNumberFunctions.Default())
-                .registerScalar(new FormatNumberFunctions.WithPrecision())
-                .registerScalar(new FormatNumberFunctions.Full())
-                .registerScalar(new ConcatValuesFunctions.IntVariant())
-                .registerScalar(new ConcatValuesFunctions.StrVariant())
-                .registerScalar(new TypeInfoFunctions.Int32())
-                .registerScalar(new TypeInfoFunctions.Int64())
-                .registerScalar(new TypeInfoFunctions.UInt32())
-                .registerScalar(new TypeInfoFunctions.UInt64())
-                .registerScalar(new TypeInfoFunctions.Varchar())
-                .registerScalar(new PairTypeFunctions.IntInt())
-                .registerScalar(new PairTypeFunctions.StrStr())
-                .registerScalar(new PairTypeFunctions.IntStr())
-                .registerScalar(new AnyMixedFunctions.IntVariant())
-                .registerScalar(new AnyMixedFunctions.StrVariant())
-                .registerScalar(new AnyMixedFunctions.SmartFormatInt())
-                .registerScalar(new AnyMixedFunctions.SmartFormatStr())
-                .registerScalar(new BernoulliFunction())
-                .registerScalar(new RandomBytesFunction())
-                .registerScalar(new ReturnSecretValueFunction())
-                .registerScalar(new UnnestTensorFunction());
+        w.registerScalars(List.of(
+                new AddValuesFunction(),
+                new ConditionalMessageFunction(),
+                new DoubleFunction(),
+                new HashSeedFunction(),
+                new UpperCaseFunction(),
+                new NullHandlingFunction(),
+                new MultiplyBySettingFunction(),
+                new RandomIntFunction(),
+                new SumValuesFunction(),
+                new WhoAmIFunction(),
+                new GeoDistanceStructFunction(),
+                new GeoDistanceListFunction(),
+                new GeoDistanceFixedFunction(),
+                new GeoCentroidStructFunction(),
+                new GeoCentroidListFunction(),
+                new GeoCentroidFixedFunction(),
+                new BinaryPacketFunction(),
+                new MultiplyFunction(),
+                new FormatNumberFunctions.Default(),
+                new FormatNumberFunctions.WithPrecision(),
+                new FormatNumberFunctions.Full(),
+                new ConcatValuesFunctions.IntVariant(),
+                new ConcatValuesFunctions.StrVariant(),
+                new TypeInfoFunctions.Int32(),
+                new TypeInfoFunctions.Int64(),
+                new TypeInfoFunctions.UInt32(),
+                new TypeInfoFunctions.UInt64(),
+                new TypeInfoFunctions.Varchar(),
+                new PairTypeFunctions.IntInt(),
+                new PairTypeFunctions.StrStr(),
+                new PairTypeFunctions.IntStr(),
+                new AnyMixedFunctions.IntVariant(),
+                new AnyMixedFunctions.StrVariant(),
+                new AnyMixedFunctions.SmartFormatInt(),
+                new AnyMixedFunctions.SmartFormatStr(),
+                new BernoulliFunction(),
+                new RandomBytesFunction(),
+                new ReturnSecretValueFunction(),
+                new UnnestTensorFunction()));
     }
 
     private static void registerTables(Worker w) {
-        w.registerTable(new SequenceFunction())
-                .registerTable(new farm.query.vgi.example.table.SecretDemoFunction())
-                .registerTable(new farm.query.vgi.example.table.ScopedSecretDemoFunction())
-                .registerTable(new farm.query.vgi.example.table.CannedDataFunction())
-                .registerTable(new farm.query.vgi.example.table.ConstantColumnsFunction())
-                .registerTable(new farm.query.vgi.example.table.RowIdSequenceFunction())
-                .registerTable(new farm.query.vgi.example.table.ProjReproFullSchemaFunction())
-                .registerTable(new farm.query.vgi.example.table.ProjReproFullSchemaFunction.Chunked())
-                .registerTable(new farm.query.vgi.example.table.ProjReproFullSchemaFunction.MultiWorker())
-                .registerTable(new farm.query.vgi.example.table.ProjReproFullSchemaFunction.Strict())
-                .registerTable(new farm.query.vgi.example.table.StubFunctions.ExpressionFilterTest())
-                .registerTable(new farm.query.vgi.example.table.StubFunctions.SpatialFilterExample())
-                .registerTable(new farm.query.vgi.example.table.StubFunctions.VersionedDataScan())
-                .registerTable(new farm.query.vgi.example.table.StubFunctions.ColorsScan())
-                .registerTable(new farm.query.vgi.example.table.StubFunctions.DepartmentsScan())
-                .registerTable(new farm.query.vgi.example.table.StubFunctions.EmployeesScan())
-                .registerTable(new farm.query.vgi.example.table.StubFunctions.ProductsScan())
-                .registerTable(new farm.query.vgi.example.table.StubFunctions.ProjectsScan())
-                .registerTable(new DoubleSequenceFunction())
-                .registerTable(new DynamicFilterEchoFunction())
-                .registerTable(new NamedParamsEchoFunction())
-                .registerTable(new GeneratorExceptionFunction())
-                .registerTable(new TenThousandFunction())
-                .registerTable(new FilterEchoFunction())
-                .registerTable(new FilterEchoPartitionedFunction())
-                .registerTable(new ProjectedDataFunction())
-                .registerTable(new NestedSequenceFunction())
-                .registerTable(new ProfilingDemoFunction())
-                .registerTable(new PartitionedSequenceFunction())
-                .registerTable(new PartitionedOrderModeFunctions.FixedOrder())
-                .registerTable(new PartitionedOrderModeFunctions.PreservesOrder())
-                .registerTable(new PartitionedOrderModeFunctions.NoOrderGuarantee())
-                .registerTable(new LoggingGeneratorFunction())
-                .registerTable(new OrderEchoFunction())
-                .registerTable(new SlowCancellableFunction())
-                .registerTable(new SampleEchoFunction())
-                .registerTable(new MakeSeriesFunctions.Count())
-                .registerTable(new MakeSeriesFunctions.Range())
-                .registerTable(new MakeSeriesFunctions.Step())
-                .registerTable(new MakeSeriesFunctions.Csv())
-                .registerTable(new MakeSeriesFunctions.FloatStep())
-                .registerTable(new RepeatValueFunctions.IntVariant())
-                .registerTable(new RepeatValueFunctions.StrVariant())
-                .registerTable(new MakePairsFunctions.IntVariant())
-                .registerTable(new MakePairsFunctions.StrVariant())
-                .registerTable(new MakePairsFunctions.MixedVariant())
-                .registerTable(new StructSettingsFunction())
-                .registerTable(new SettingsAwareFunction());
+        w.registerTables(List.of(
+                new SequenceFunction(),
+                new farm.query.vgi.example.table.SecretDemoFunction(),
+                new farm.query.vgi.example.table.ScopedSecretDemoFunction(),
+                new farm.query.vgi.example.table.CannedDataFunction(),
+                new farm.query.vgi.example.table.ConstantColumnsFunction(),
+                new farm.query.vgi.example.table.RowIdSequenceFunction(),
+                new farm.query.vgi.example.table.ProjReproFullSchemaFunction(),
+                new farm.query.vgi.example.table.ProjReproFullSchemaFunction.Chunked(),
+                new farm.query.vgi.example.table.ProjReproFullSchemaFunction.MultiWorker(),
+                new farm.query.vgi.example.table.ProjReproFullSchemaFunction.Strict(),
+                new farm.query.vgi.example.table.StubFunctions.ExpressionFilterTest(),
+                new farm.query.vgi.example.table.StubFunctions.SpatialFilterExample(),
+                new farm.query.vgi.example.table.StubFunctions.VersionedDataScan(),
+                new farm.query.vgi.example.table.StubFunctions.ColorsScan(),
+                new farm.query.vgi.example.table.StubFunctions.DepartmentsScan(),
+                new farm.query.vgi.example.table.StubFunctions.EmployeesScan(),
+                new farm.query.vgi.example.table.StubFunctions.ProductsScan(),
+                new farm.query.vgi.example.table.StubFunctions.ProjectsScan(),
+                new DoubleSequenceFunction(),
+                new DynamicFilterEchoFunction(),
+                new NamedParamsEchoFunction(),
+                new GeneratorExceptionFunction(),
+                new TenThousandFunction(),
+                new FilterEchoFunction(),
+                new FilterEchoPartitionedFunction(),
+                new ProjectedDataFunction(),
+                new NestedSequenceFunction(),
+                new ProfilingDemoFunction(),
+                new PartitionedSequenceFunction(),
+                new PartitionedOrderModeFunctions.FixedOrder(),
+                new PartitionedOrderModeFunctions.PreservesOrder(),
+                new PartitionedOrderModeFunctions.NoOrderGuarantee(),
+                new LoggingGeneratorFunction(),
+                new OrderEchoFunction(),
+                new SlowCancellableFunction(),
+                new SampleEchoFunction(),
+                new MakeSeriesFunctions.Count(),
+                new MakeSeriesFunctions.Range(),
+                new MakeSeriesFunctions.Step(),
+                new MakeSeriesFunctions.Csv(),
+                new MakeSeriesFunctions.FloatStep(),
+                new RepeatValueFunctions.IntVariant(),
+                new RepeatValueFunctions.StrVariant(),
+                new MakePairsFunctions.IntVariant(),
+                new MakePairsFunctions.StrVariant(),
+                new MakePairsFunctions.MixedVariant(),
+                new StructSettingsFunction(),
+                new SettingsAwareFunction()));
     }
 
     private static void registerAggregates(Worker w) {
-        w.registerAggregate(new SumFunction())
-                .registerAggregate(new CountFunction())
-                .registerAggregate(new AvgFunction())
-                .registerAggregate(new ListAggFunction())
-                .registerAggregate(new WeightedSumFunction())
-                .registerAggregate(new SumAllFunction())
-                .registerAggregate(new GenericSumFunction())
-                .registerAggregate(new PercentileFunction())
-                .registerAggregate(new StubAggregates.StreamingSum())
-                .registerAggregate(new StubAggregates.NestTensor())
-                .registerAggregate(new StubAggregates.WindowSum())
-                .registerAggregate(new StubAggregates.WindowSumBatch())
-                .registerAggregate(new StubAggregates.WindowMedian())
-                .registerAggregate(new StubAggregates.WindowListagg());
+        w.registerAggregates(List.of(
+                new SumFunction(),
+                new CountFunction(),
+                new AvgFunction(),
+                new ListAggFunction(),
+                new WeightedSumFunction(),
+                new SumAllFunction(),
+                new GenericSumFunction(),
+                new PercentileFunction(),
+                new StubAggregates.StreamingSum(),
+                new StubAggregates.NestTensor(),
+                new StubAggregates.WindowSum(),
+                new StubAggregates.WindowSumBatch(),
+                new StubAggregates.WindowMedian(),
+                new StubAggregates.WindowListagg()));
     }
 
     private static void registerTableInOuts(Worker w) {
-        w.registerTableInOut(new EchoFunction())
-                .registerTableInOut(new RepeatInputsFunction())
-                .registerTableInOut(new ExceptionFinalizeFunction())
-                .registerTableInOut(new ExceptionProcessFunction())
-                .registerTableInOut(new SumAllColumnsFunction())
-                .registerTableInOut(new DistributedSumFunction())
-                .registerTableInOut(new BufferInputFunction())
-                .registerTableInOut(new FilterBySettingFunction())
-                .registerTableInOut(new SlowCancellableInoutFunction())
-                .registerTableInOut(new UnnestTensorRowsFunction());
+        w.registerTableInOuts(List.of(
+                new EchoFunction(),
+                new RepeatInputsFunction(),
+                new ExceptionFinalizeFunction(),
+                new ExceptionProcessFunction(),
+                new SumAllColumnsFunction(),
+                new DistributedSumFunction(),
+                new BufferInputFunction(),
+                new FilterBySettingFunction(),
+                new SlowCancellableInoutFunction(),
+                new UnnestTensorRowsFunction()));
     }
 
     private static void registerViews(Worker w) {
@@ -413,47 +414,39 @@ public final class Main {
         w.registerCatalogTable(CatalogTable.functionBacked(
                         "data", "ten_thousand_table",
                         farm.query.vgi.internal.SchemaUtil.serializeSchema(
-                                new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
-                                        new org.apache.arrow.vector.types.pojo.Field("n",
-                                                new org.apache.arrow.vector.types.pojo.FieldType(true,
-                                                        Schemas.INT64, null), null)))),
+                new Schema(List.of(
+                Schemas.nullable("n", Schemas.INT64)))),
                         "Function-backed table over the no-arg ten_thousand function",
                         "ten_thousand"))
                 .registerCatalogTable(new CatalogTable(
                         "data", "numbers",
                         farm.query.vgi.internal.SchemaUtil.serializeSchema(
-                                new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
-                                        new org.apache.arrow.vector.types.pojo.Field("value",
-                                                new org.apache.arrow.vector.types.pojo.FieldType(true,
-                                                        Schemas.INT64, null), null)))),
+                new Schema(List.of(
+                Schemas.nullable("value", Schemas.INT64)))),
                         "First 100 integers (demonstrates explicit columns)",
-                        java.util.Map.of(),
+                        Map.of(),
                         "make_series",
-                        java.util.List.of((Object) 100L),
-                        java.util.Map.of(),
+                        List.of((Object) 100L),
+                        Map.of(),
                         100L, 100L, true, /*inlineScanFunction=*/false))
                 .registerCatalogTable(new CatalogTable(
                         "data", "large_sequence",
                         farm.query.vgi.internal.SchemaUtil.serializeSchema(
-                                new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
-                                        new org.apache.arrow.vector.types.pojo.Field("n",
-                                                new org.apache.arrow.vector.types.pojo.FieldType(true,
-                                                        Schemas.INT64, null), null)))),
+                new Schema(List.of(
+                Schemas.nullable("n", Schemas.INT64)))),
                         "A large sequence of integers from 0 to 1,000,000",
-                        java.util.Map.of(),
+                        Map.of(),
                         "sequence",
-                        java.util.List.of((Object) 1_000_001L),
-                        java.util.Map.of(),
+                        List.of((Object) 1_000_001L),
+                        Map.of(),
                         1_000_001L, 1_000_001L, true, /*inlineScanFunction=*/true))
                 .registerCatalogTable(CatalogTable.functionBacked(
-                                "data", "cardinality_inlined_table",
-                                farm.query.vgi.internal.SchemaUtil.serializeSchema(
-                                        new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
-                                                new org.apache.arrow.vector.types.pojo.Field("n",
-                                                        new org.apache.arrow.vector.types.pojo.FieldType(true,
-                                                                Schemas.INT64, null), null)))),
-                                "Function-backed table with inlined cardinality (10000 rows)",
-                                "ten_thousand")
+                "data", "cardinality_inlined_table",
+                farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                new Schema(List.of(
+                Schemas.nullable("n", Schemas.INT64)))),
+                "Function-backed table with inlined cardinality (10000 rows)",
+                "ten_thousand")
                         .withCardinality(10000L, 10000L))
                 .registerCatalogTable(stubTable("data", "products",
                         "Product table with column defaults",
@@ -462,20 +455,20 @@ public final class Main {
                         col("price", Schemas.FLOAT64, true, "Unit price in USD", "9.99"),
                         col("quantity", Schemas.INT64, true, null, "0"))
                         .withConstraints(
-                                java.util.List.of(java.util.List.of(0)),               // PK: id
-                                java.util.List.of(),
-                                java.util.List.of(),
-                                java.util.List.of()))
+                List.of(List.of(0)),               // PK: id
+                List.of(),
+                List.of(),
+                List.of()))
                 .registerCatalogTable(stubTable("data", "departments",
                         "Department reference table",
                         col("id", Schemas.INT64, false),
                         col("name", Schemas.UTF8, false),
                         col("budget", Schemas.FLOAT64, true, null, "0"))
                         .withConstraints(
-                                java.util.List.of(java.util.List.of(0)),               // PK: id
-                                java.util.List.of(java.util.List.of(1)),               // UNIQUE: name
-                                java.util.List.of("budget >= 0"),                      // CHECK
-                                java.util.List.of()))
+                List.of(List.of(0)),               // PK: id
+                List.of(List.of(1)),               // UNIQUE: name
+                List.of("budget >= 0"),                      // CHECK
+                List.of()))
                 .registerCatalogTable(stubTable("data", "employees",
                         "Employee table with FK to departments",
                         col("id", Schemas.INT64, false),
@@ -483,13 +476,13 @@ public final class Main {
                         col("email", Schemas.UTF8, false),
                         col("department_id", Schemas.INT64, true))
                         .withConstraints(
-                                java.util.List.of(java.util.List.of(0)),               // PK: id
-                                java.util.List.of(java.util.List.of(2)),               // UNIQUE: email
-                                java.util.List.of(),
-                                java.util.List.of(new CatalogTable.ForeignKey(
-                                        java.util.List.of("department_id"),
-                                        java.util.List.of("id"),
-                                        "data", "departments"))))
+                List.of(List.of(0)),               // PK: id
+                List.of(List.of(2)),               // UNIQUE: email
+                List.of(),
+                List.of(new CatalogTable.ForeignKey(
+                List.of("department_id"),
+                List.of("id"),
+                "data", "departments"))))
                 .registerCatalogTable(stubTable("data", "colors",
                         "Colors table with ENUM-derived statistics",
                         col("id", Schemas.INT64, false),
@@ -512,13 +505,13 @@ public final class Main {
                         col("project_code", Schemas.UTF8, false),
                         col("title", Schemas.UTF8, false))
                         .withConstraints(
-                                java.util.List.of(java.util.List.of(0, 1)),            // PK: (department_id, project_code)
-                                java.util.List.of(),
-                                java.util.List.of(),
-                                java.util.List.of(new CatalogTable.ForeignKey(
-                                        java.util.List.of("department_id"),
-                                        java.util.List.of("id"),
-                                        "data", "departments"))))
+                List.of(List.of(0, 1)),            // PK: (department_id, project_code)
+                List.of(),
+                List.of(),
+                List.of(new CatalogTable.ForeignKey(
+                List.of("department_id"),
+                List.of("id"),
+                "data", "departments"))))
                 .registerCatalogTable(stubTable("data", "rowid_first",
                         "Table with row_id at column index 0",
                         rowIdCol("row_id", Schemas.INT64),
@@ -541,10 +534,10 @@ public final class Main {
                 .registerCatalogTable(new CatalogTable(
                         "data", "rowid_struct",
                         cols(rowidStructField(),
-                                col("payload", Schemas.UTF8, true)),
-                        "Table with struct row_id", java.util.Map.of(),
-                        "_table_data", java.util.List.of((Object) "rowid_struct"),
-                        java.util.Map.of(), null, null, false, true))
+                col("payload", Schemas.UTF8, true)),
+                        "Table with struct row_id", Map.of(),
+                        "_table_data", List.of((Object) "rowid_struct"),
+                        Map.of(), null, null, false, true))
                 .registerCatalogTable(stubTable("data", "versioned_data",
                         "Versioned data table demonstrating time travel with schema evolution",
                         col("id", Schemas.INT64, false),
@@ -569,13 +562,13 @@ public final class Main {
                         col("email", Schemas.UTF8, true),
                         col("department_id", Schemas.INT64, true))
                         .withConstraints(
-                                java.util.List.of(java.util.List.of(0)),               // PK: id
-                                java.util.List.of(java.util.List.of(2)),               // UNIQUE: email
-                                java.util.List.of(),
-                                java.util.List.of(new CatalogTable.ForeignKey(
-                                        java.util.List.of("department_id"),
-                                        java.util.List.of("id"),
-                                        "data", "departments"))))
+                List.of(List.of(0)),               // PK: id
+                List.of(List.of(2)),               // UNIQUE: email
+                List.of(),
+                List.of(new CatalogTable.ForeignKey(
+                List.of("department_id"),
+                List.of("id"),
+                "data", "departments"))))
                 .registerCatalogTable(stubTable("data", "versioned_constraints_v1",
                         "v1 (id, name)",
                         col("id", Schemas.INT64, false),
@@ -636,16 +629,16 @@ public final class Main {
     private static void registerMacros(Worker w) {
         w.registerMacro(new Macro(
                         "main", "vgi_multiply", MacroType.SCALAR,
-                        java.util.List.of("x", "y"), "x * y", "Multiply two values"))
+                        List.of("x", "y"), "x * y", "Multiply two values"))
                 .registerMacro(new Macro(
                         "main", "vgi_clamp", MacroType.SCALAR,
-                        java.util.List.of("val", "lo", "hi"),
+                        List.of("val", "lo", "hi"),
                         clampDefaults(),
                         "GREATEST(lo, LEAST(hi, val))",
                         "Clamp a value between lo and hi (defaults: 0..100)"))
                 .registerMacro(new Macro(
                         "main", "vgi_range_table", MacroType.TABLE,
-                        java.util.List.of("n"),
+                        List.of("n"),
                         "SELECT * FROM range(n)",
                         "Table macro returning range of values"));
     }
