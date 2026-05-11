@@ -5,6 +5,7 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.internal.VectorProjector;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.pushdown.PushdownFilters;
@@ -19,7 +20,6 @@ import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
 import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
-import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -157,24 +157,7 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
             if (filterBytes != null) {
                 work = FilterApplier.from(filterBytes, joinKeysIpc).apply(work);
             }
-            VectorSchemaRoot emit = projectTo(work, outputSchema.get());
-            out.emit(emit);
-        }
-
-        private static VectorSchemaRoot projectTo(VectorSchemaRoot src, Schema target) {
-            if (src.getSchema().equals(target)) return src;
-            VectorSchemaRoot dst = VectorSchemaRoot.create(target, Allocators.root());
-            dst.allocateNew();
-            int rows = src.getRowCount();
-            for (Field f : target.getFields()) {
-                FieldVector dv = dst.getVector(f.getName());
-                FieldVector sv = src.getVector(f.getName());
-                if (sv == null) continue;
-                for (int i = 0; i < rows; i++) dv.copyFromSafe(i, i, sv);
-            }
-            dst.setRowCount(rows);
-            src.close();
-            return dst;
+            out.emit(VectorProjector.project(work, outputSchema.get()));
         }
     }
 }
