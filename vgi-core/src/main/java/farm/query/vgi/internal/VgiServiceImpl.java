@@ -316,7 +316,10 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(byte[] request) {
-        CardinalityRequest inner = unpackCardinalityRequest(request);
+        Map<String, byte[]> fields = IpcUnpacker.unpack(request, "bind_call", "bind_opaque_data");
+        CardinalityRequest inner = fields == null
+                ? new CardinalityRequest(null, null)
+                : new CardinalityRequest(fields.get("bind_call"), fields.get("bind_opaque_data"));
         long result = computeCardinality(inner);
         return new farm.query.vgi.protocol.CardinalityResponse(
                 result < 0 ? null : result,
@@ -325,10 +328,14 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public farm.query.vgi.protocol.DynamicToStringResponse table_function_dynamic_to_string(byte[] request) {
-        DynamicToStringInner inner = unpackDynamicToStringRequest(request);
-        if (inner == null || inner.bind_call == null) {
+        Map<String, byte[]> fields = IpcUnpacker.unpack(request,
+                "bind_call", "bind_opaque_data", "global_execution_id");
+        byte[] bindCall = fields == null ? null : fields.get("bind_call");
+        if (bindCall == null) {
             return new farm.query.vgi.protocol.DynamicToStringResponse(List.of(), List.of());
         }
+        DynamicToStringInner inner = new DynamicToStringInner(bindCall,
+                fields.get("bind_opaque_data"), fields.get("global_execution_id"));
         BindRequest embedded = RecordCodec.deserializeFromBytes(inner.bind_call, BindRequest.class);
         TableFunction fn = null;
         if (tables.containsKey(embedded.function_name())) {
@@ -350,51 +357,6 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private record DynamicToStringInner(byte[] bind_call, byte[] bind_opaque_data, byte[] global_execution_id) {}
-
-    private static DynamicToStringInner unpackDynamicToStringRequest(byte[] request) {
-        Map<String, byte[]> fields = unpackBinaryFields(request, "bind_call", "bind_opaque_data", "global_execution_id");
-        if (fields == null) return null;
-        return new DynamicToStringInner(fields.get("bind_call"),
-                fields.get("bind_opaque_data"),
-                fields.get("global_execution_id"));
-    }
-
-    /**
-     * Wire shape: an IPC stream of {@code {bind_call: binary, bind_opaque_data:
-     * binary?}}. Returns an empty {@link CardinalityRequest} on parse failure
-     * so the per-bind fallback logic still has something to dispatch on.
-     */
-    private static CardinalityRequest unpackCardinalityRequest(byte[] request) {
-        Map<String, byte[]> fields = unpackBinaryFields(request, "bind_call", "bind_opaque_data");
-        if (fields == null) return new CardinalityRequest(null, null);
-        return new CardinalityRequest(fields.get("bind_call"), fields.get("bind_opaque_data"));
-    }
-
-    /**
-     * Decode a 1-row IPC stream into {@code name → byte[]} for the requested
-     * VarBinary columns. Returns {@code null} on parse failure / empty batch
-     * so callers can route to their own fallback. Per-cell nulls are simply
-     * omitted from the returned map.
-     */
-    private static Map<String, byte[]> unpackBinaryFields(byte[] request, String... fieldNames) {
-        if (request == null || request.length == 0) return null;
-        try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(request);
-             org.apache.arrow.vector.ipc.ArrowStreamReader reader =
-                     new org.apache.arrow.vector.ipc.ArrowStreamReader(in, Allocators.root())) {
-            if (!reader.loadNextBatch()) return null;
-            org.apache.arrow.vector.VectorSchemaRoot root = reader.getVectorSchemaRoot();
-            if (root.getRowCount() == 0) return null;
-            Map<String, byte[]> out = new HashMap<>();
-            for (String name : fieldNames) {
-                org.apache.arrow.vector.VarBinaryVector vec =
-                        (org.apache.arrow.vector.VarBinaryVector) root.getVector(name);
-                if (vec != null && !vec.isNull(0)) out.put(name, vec.get(0));
-            }
-            return out;
-        } catch (Exception e) {
-            return null;
-        }
-    }
 
     private long computeCardinality(CardinalityRequest request) {
         if (request.bind_opaque_data() != null) {
