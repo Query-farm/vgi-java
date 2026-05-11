@@ -109,8 +109,22 @@ find ~/Development/vgi/test/sql/integration -name '*.test' \
 
 Until that test is fixed, including it crashes the runner before it
 finishes the suite. The segfault is downstream of the dict-batch fix
-— previously this test silently returned 0 rows; now we emit valid
-wire that exercises a separate nested+dict parse bug in DuckDB.
+— previously this test silently returned 0 rows; now we emit data
+that exercises a separate bug.
+
+**Root cause** (traced via wire-byte capture and pyarrow diff against
+Python's worker):  with `SET arrow_lossless_conversion = true`,
+DuckDB sends `list<enum>` on the wire as
+`list<sparse_union<varchar: dict<...>=24, uint1: uint8=33>>` —
+sparse-union-tagged elements that preserve enum vs NULL identity.
+Python's worker collapses this back to plain `list<dict<...>>` before
+emit; Java's `EchoFunction` TransferPair-passes the sparse-union
+through unchanged, and DuckDB segfaults trying to read its own
+lossless encoding back through a wire shape that doesn't match the
+bind-time schema. Fix lives in the fixture-side handling of
+lossless-tagged inputs (probably needs to detect sparse_union
+children of list/struct and re-collapse them to their declared
+type before emit).
 
 Remaining 14 failures (excluding the segfault), briefly (see `git log`
 for what was tried):
