@@ -55,6 +55,33 @@ public final class CatalogRegistry {
     }
 
     /**
+     * If the caller didn't pass an AT clause, default to the resolved
+     * data version recorded for this attach. Otherwise return the caller's
+     * clause unchanged.
+     */
+    public AtClause effectiveAt(byte[] attachId, String atUnit, String atValue) {
+        if (atUnit != null && !atUnit.isEmpty()) return new AtClause(atUnit, atValue);
+        String dv = dataVersion(attachId);
+        return dv == null ? new AtClause(atUnit, atValue) : new AtClause("data_version", dv);
+    }
+
+    public record AtClause(String unit, String value) {}
+
+    /**
+     * For the {@code versioned_tables} catalog only, gate the plants/animals
+     * fixtures by the attach's resolved data version. Returns {@code true} if
+     * the table should be hidden from the catalog.
+     */
+    public boolean isHiddenInVersionedTables(String tableName, byte[] attachId) {
+        if (!"versioned_tables".equals(worker.catalogName())) return false;
+        String dv = dataVersion(attachId);
+        if (dv == null) return false;
+        if ("plants".equals(tableName) && SemverHelpers.compareVersions(dv, "2.0.0") < 0) return true;
+        if ("animals".equals(tableName) && SemverHelpers.compareVersions(dv, "3.0.0") >= 0) return true;
+        return false;
+    }
+
+    /**
      * For {@code versioned_data} / {@code versioned_constraints}, swap the
      * declared columns + scan args for a version-specific variant when the
      * client asked {@code AT (VERSION => N)}. Other tables and AT clauses

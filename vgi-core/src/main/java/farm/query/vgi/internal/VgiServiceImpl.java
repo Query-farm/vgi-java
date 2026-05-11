@@ -635,6 +635,7 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_id, String name, byte[] transaction_id) {
         List<byte[]> items = new ArrayList<>();
         String dv = catalogRegistry.dataVersion(attach_id);
+        boolean isVersionedTables = "versioned_tables".equals(worker.catalogName());
         for (CatalogTable t : worker.catalogTables()) {
             if (!t.schema().equals(name)) continue;
             // Hide per-version variant tables (e.g. versioned_data_v1,
@@ -643,17 +644,11 @@ public final class VgiServiceImpl implements VgiService {
             // clause or via the attach's resolved data version.
             if (t.name().matches(".*_v\\d+$")) continue;
             if (t.name().matches(".*_v(_\\d+){3,}$")) continue;
-            // Catalog isolation. When the worker acts as the versioned-tables
-            // catalog, only the animals/plants user-visible fixtures are
-            // exposed (and only ones available at the resolved data version).
-            boolean isVersionedTables = "versioned_tables".equals(worker.catalogName());
+            // Catalog isolation: versioned_tables only exposes animals/plants;
+            // other catalogs must not expose them.
             boolean isVtFixture = "animals".equals(t.name()) || "plants".equals(t.name());
-            if (isVersionedTables && !isVtFixture) continue;
-            if (!isVersionedTables && isVtFixture) continue;
-            if (isVersionedTables && "plants".equals(t.name()) && dv != null
-                    && SemverHelpers.compareVersions(dv, "2.0.0") < 0) continue;
-            if (isVersionedTables && "animals".equals(t.name()) && dv != null
-                    && SemverHelpers.compareVersions(dv, "3.0.0") >= 0) continue;
+            if (isVersionedTables != isVtFixture) continue;
+            if (catalogRegistry.isHiddenInVersionedTables(t.name(), attach_id)) continue;
             CatalogTable resolved = dv == null ? t : catalogRegistry.resolveVersion(t, "data_version", dv);
             items.add(TableInfoSerializer.serialize(toTableInfo(resolved)));
         }
@@ -664,21 +659,10 @@ public final class VgiServiceImpl implements VgiService {
     public farm.query.vgi.protocol.TableScanFunctionGetResponse catalog_table_scan_function_get(
             byte[] attach_id, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_id) {
-        // Same version-resolution logic as catalog_table_get: if the table
-        // has per-version variants and the caller didn't explicitly ask for
-        // a version, fall back to the attach's resolved data version.
-        String effectiveAtUnit = at_unit;
-        String effectiveAtValue = at_value;
-        if ((effectiveAtUnit == null || effectiveAtUnit.isEmpty()) && attach_id != null) {
-            String dv = catalogRegistry.dataVersion(attach_id);
-            if (dv != null) {
-                effectiveAtUnit = "data_version";
-                effectiveAtValue = dv;
-            }
-        }
+        var at = catalogRegistry.effectiveAt(attach_id, at_unit, at_value);
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
-                CatalogTable resolved = catalogRegistry.resolveVersion(t, effectiveAtUnit, effectiveAtValue);
+                CatalogTable resolved = catalogRegistry.resolveVersion(t, at.unit(), at.value());
                 if (resolved.scanFunctionName() == null) break;
                 byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
                         resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
@@ -694,28 +678,11 @@ public final class VgiServiceImpl implements VgiService {
     public ItemsResponse catalog_table_get(
             byte[] attach_id, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_id) {
-        // If the table has per-version variants and the caller didn't pass
-        // at_unit/at_value, default to the version this attach was bound to
-        // (so information_schema queries pick the right schema).
-        String effectiveAtUnit = at_unit;
-        String effectiveAtValue = at_value;
-        String dv = catalogRegistry.dataVersion(attach_id);
-        if ((effectiveAtUnit == null || effectiveAtUnit.isEmpty()) && dv != null) {
-            effectiveAtUnit = "data_version";
-            effectiveAtValue = dv;
-        }
-        // Hide plants below 2.0.0 in the versioned-tables catalog.
-        if ("versioned_tables".equals(worker.catalogName())) {
-            if ("plants".equals(name) && dv != null && SemverHelpers.compareVersions(dv, "2.0.0") < 0) {
-                return ItemsResponse.empty();
-            }
-            if ("animals".equals(name) && dv != null && SemverHelpers.compareVersions(dv, "3.0.0") >= 0) {
-                return ItemsResponse.empty();
-            }
-        }
+        if (catalogRegistry.isHiddenInVersionedTables(name, attach_id)) return ItemsResponse.empty();
+        var at = catalogRegistry.effectiveAt(attach_id, at_unit, at_value);
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
-                CatalogTable resolved = catalogRegistry.resolveVersion(t, effectiveAtUnit, effectiveAtValue);
+                CatalogTable resolved = catalogRegistry.resolveVersion(t, at.unit(), at.value());
                 return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(resolved))));
             }
         }
