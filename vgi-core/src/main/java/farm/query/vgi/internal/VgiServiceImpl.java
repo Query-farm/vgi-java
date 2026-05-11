@@ -129,138 +129,6 @@ public final class VgiServiceImpl implements VgiService {
         ServiceLocator.setCurrent(new ServiceLocator(this.scalars));
     }
 
-    /** Pick the variant whose argument-spec count matches the arg count seen at bind. */
-    private static <T> T pickVariant(List<T> variants, int argCount) {
-        return pickVariant(variants, argCount, null, null);
-    }
-
-    /**
-     * Type-aware variant pick. When two variants share the same arity,
-     * compares each declared {@link farm.query.vgi.function.ArgSpec#arrowType}
-     * against the actual argument's type — const args use the parsed value's
-     * Java class, column args use {@code inputSchema}'s field type at the
-     * column's position.
-     */
-    private static <T> T pickVariant(List<T> variants, int argCount,
-                                       Arguments args, Schema inputSchema) {
-        if (variants == null || variants.isEmpty()) return null;
-        if (variants.size() == 1) return variants.get(0);
-
-        // First filter by arity — accept exact matches plus varargs catch-alls.
-        List<T> matching = new ArrayList<>();
-        for (T v : variants) {
-            int n = countArgs(v);
-            if (n == argCount) { matching.add(v); continue; }
-            if (hasVarargs(v) && argCount >= n) matching.add(v);
-        }
-        if (matching.isEmpty()) matching = variants;
-        if (matching.size() == 1) return matching.get(0);
-
-        // Tiebreak by argument type. Score each variant by the number of
-        // positions whose declared type aligns with the actual argument type.
-        T best = matching.get(0);
-        int bestScore = scoreTypeMatch(best, args, inputSchema);
-        for (int i = 1; i < matching.size(); i++) {
-            T v = matching.get(i);
-            int score = scoreTypeMatch(v, args, inputSchema);
-            if (score > bestScore) { bestScore = score; best = v; }
-        }
-        return best;
-    }
-
-    private static int countArgs(Object fn) {
-        if (fn instanceof ScalarFunction f) return f.argumentSpecs().size();
-        if (fn instanceof TableFunction f) return f.argumentSpecs().size();
-        if (fn instanceof TableInOutFunction f) return f.argumentSpecs().size();
-        return -1;
-    }
-
-    private static boolean hasVarargs(Object fn) {
-        List<farm.query.vgi.function.ArgSpec> specs = argSpecs(fn);
-        if (specs == null || specs.isEmpty()) return false;
-        for (farm.query.vgi.function.ArgSpec s : specs) if (s.varargs()) return true;
-        return false;
-    }
-
-    private static List<farm.query.vgi.function.ArgSpec> argSpecs(Object fn) {
-        if (fn instanceof ScalarFunction f) return f.argumentSpecs();
-        if (fn instanceof TableFunction f) return f.argumentSpecs();
-        if (fn instanceof TableInOutFunction f) return f.argumentSpecs();
-        return null;
-    }
-
-    /**
-     * Per-position type-match score. Each position whose declared type
-     * matches the actual arg's type adds 1; an {@code anyType} ArgSpec is
-     * neutral (0); a mismatch subtracts 1 so explicit-type variants
-     * outrank "any" variants when they fit, and lose when they don't.
-     */
-    private static int scoreTypeMatch(Object fn, Arguments args, Schema inputSchema) {
-        List<farm.query.vgi.function.ArgSpec> specs = argSpecs(fn);
-        if (specs == null) return 0;
-        int constN = args == null ? 0 : args.positional().size();
-        int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
-        int total = constN + colN;
-        int score = 0;
-        for (int i = 0; i < total; i++) {
-            farm.query.vgi.function.ArgSpec spec = specAt(specs, i);
-            if (spec == null || spec.anyType()) continue;
-            org.apache.arrow.vector.types.pojo.ArrowType expected = spec.arrowType();
-            org.apache.arrow.vector.types.pojo.ArrowType actual;
-            if (i < constN) actual = inferConstType(args.positional().get(i));
-            else actual = inputSchema.getFields().get(i - constN).getType();
-            if (actual == null || expected == null) continue;
-            if (typesAlign(expected, actual)) score += 1;
-            else score -= 1;
-        }
-        return score;
-    }
-
-    private static farm.query.vgi.function.ArgSpec specAt(
-            List<farm.query.vgi.function.ArgSpec> specs, int position) {
-        for (farm.query.vgi.function.ArgSpec s : specs) {
-            if (s.position() == position) return s;
-        }
-        // Varargs spread: the last varargs spec absorbs all positions >= its position.
-        farm.query.vgi.function.ArgSpec va = null;
-        for (farm.query.vgi.function.ArgSpec s : specs) {
-            if (s.varargs() && s.position() >= 0 && s.position() <= position) va = s;
-        }
-        return va;
-    }
-
-    private static org.apache.arrow.vector.types.pojo.ArrowType inferConstType(Object v) {
-        if (v == null) return null;
-        if (v instanceof Boolean) return new org.apache.arrow.vector.types.pojo.ArrowType.Bool();
-        if (v instanceof Long || v instanceof Integer || v instanceof Short || v instanceof Byte) {
-            return new org.apache.arrow.vector.types.pojo.ArrowType.Int(64, true);
-        }
-        if (v instanceof Double || v instanceof Float) {
-            return new org.apache.arrow.vector.types.pojo.ArrowType.FloatingPoint(
-                    org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE);
-        }
-        if (v instanceof CharSequence) return new org.apache.arrow.vector.types.pojo.ArrowType.Utf8();
-        if (v instanceof byte[]) return new org.apache.arrow.vector.types.pojo.ArrowType.Binary();
-        return null;
-    }
-
-    private static boolean typesAlign(org.apache.arrow.vector.types.pojo.ArrowType expected,
-                                        org.apache.arrow.vector.types.pojo.ArrowType actual) {
-        if (expected.getClass() != actual.getClass()) return false;
-        // Strict match for Int — distinguish int32/int64/uint32/uint64 so
-        // type-dispatched fixtures like type_info pick the right variant.
-        if (expected instanceof org.apache.arrow.vector.types.pojo.ArrowType.Int e
-                && actual instanceof org.apache.arrow.vector.types.pojo.ArrowType.Int a) {
-            return e.getBitWidth() == a.getBitWidth() && e.getIsSigned() == a.getIsSigned();
-        }
-        // Strict match for FloatingPoint — float vs double.
-        if (expected instanceof org.apache.arrow.vector.types.pojo.ArrowType.FloatingPoint e
-                && actual instanceof org.apache.arrow.vector.types.pojo.ArrowType.FloatingPoint a) {
-            return e.getPrecision() == a.getPrecision();
-        }
-        return expected.equals(actual);
-    }
-
     // -----------------------------------------------------------------------
     // Function execution
     // -----------------------------------------------------------------------
@@ -283,7 +151,7 @@ public final class VgiServiceImpl implements VgiService {
         int columnArgCount = inputSchema == null ? 0 : inputSchema.getFields().size();
         int argCount = constArgCount + columnArgCount;
         if (scalars.containsKey(name)) {
-            ScalarFunction fn = pickVariant(scalars.get(name), argCount, args, inputSchema);
+            ScalarFunction fn = OverloadResolver.pick(scalars.get(name), argCount, args, inputSchema);
             BindResponse upstream = fn.onBind(new ScalarBindParams(name, args, inputSchema, settings,
                     request.secrets(), request.resolved_secrets_provided()));
             Schema outputSchema = upstream.output_schema() == null
@@ -297,7 +165,7 @@ public final class VgiServiceImpl implements VgiService {
                     upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
         }
         if (tables.containsKey(name)) {
-            TableFunction fn = pickVariant(tables.get(name), argCount, args, inputSchema);
+            TableFunction fn = OverloadResolver.pick(tables.get(name), argCount, args, inputSchema);
             BindResponse upstream = fn.onBind(new TableBindParams(name, args, inputSchema, settings,
                     request.secrets(), request.resolved_secrets_provided(), request.attach_id()));
             Schema outputSchema = upstream.output_schema() == null
@@ -311,7 +179,7 @@ public final class VgiServiceImpl implements VgiService {
                     upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
         }
         if (tableInOuts.containsKey(name)) {
-            TableInOutFunction fn = pickVariant(tableInOuts.get(name), argCount, args, inputSchema);
+            TableInOutFunction fn = OverloadResolver.pick(tableInOuts.get(name), argCount, args, inputSchema);
             BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings));
             Schema outputSchema = upstream.output_schema() == null
                     ? null
@@ -470,7 +338,7 @@ public final class VgiServiceImpl implements VgiService {
             Arguments args = ArgumentsParser.parse(embedded.arguments());
             int constN = args.positional().size();
             int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
-            fn = pickVariant(tables.get(embedded.function_name()), constN + colN, args, inputSchema);
+            fn = OverloadResolver.pick(tables.get(embedded.function_name()), constN + colN, args, inputSchema);
         }
         if (fn == null) {
             return new farm.query.vgi.protocol.DynamicToStringResponse(List.of(), List.of());
@@ -544,7 +412,7 @@ public final class VgiServiceImpl implements VgiService {
                 Map<String, Object> settings = SettingsParser.parse(embedded.settings());
                 int constN = args.positional().size();
                 int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
-                TableFunction fn = pickVariant(tables.get(embedded.function_name()),
+                TableFunction fn = OverloadResolver.pick(tables.get(embedded.function_name()),
                         constN + colN, args, inputSchema);
                 return fn.cardinality(new TableBindParams(embedded.function_name(),
                         args, inputSchema, settings));
