@@ -91,14 +91,37 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 
 ## State of play (as of 2026-05-11)
 
-**Passing: 112/129.** Remaining failures, briefly (see `git log` for what
-was tried):
+**Passing: 114/129** (was 112/129 before commits `880a5e4` /
+`bdccadc` / `5cd91f0` in `vgi-rpc-java`, which fixed three layered
+dict-encoded bugs: cast-rejects-memory-format, WriteChannel-position-
+desync, and missing dict-batch emission between schema and record
+batch).
+
+⚠️ **`table_in_out/echo/nested_type_combinations.test` SEGFAULTS the
+C++ harness mid-run.** Filter it out of integration runs:
+
+```bash
+find ~/Development/vgi/test/sql/integration -name '*.test' \
+  -not -path '*/writable/*' -not -path '*/simple_writable/*' \
+  -not -name 'nested_type_combinations.test' \
+  | sort > /tmp/intest.txt
+```
+
+Until that test is fixed, including it crashes the runner before it
+finishes the suite. The segfault is downstream of the dict-batch fix
+— previously this test silently returned 0 rows; now we emit valid
+wire that exercises a separate nested+dict parse bug in DuckDB.
+
+Remaining 14 failures (excluding the segfault), briefly (see `git log`
+for what was tried):
 
 - `aggregate/nest_tensor.test`, `scalar/unnest_tensor.test`,
   `table_in_out/unnest_tensor_rows.test` — nested struct+list writer
   offsets in TIO/aggregate paths.
-- `table_in_out/echo/{all_types,nested_type_combinations}.test`,
-  `filter_pushdown/enums.test` — dict-encoded round-trip in echo TIO.
+- ~~`table_in_out/echo/{all_types,nested_type_combinations}.test`,
+  `filter_pushdown/enums.test` — dict-encoded round-trip in echo TIO~~
+  → all_types + enums PASS; nested_type_combinations now segfaults
+  (see warning above).
 - `table/{column,table_function}_statistics.test` — sparse-union encoding
   for statistics RPC.
 - `table/{filter_echo_partitioned,order_preservation_modes,partitioned_sequence}.test`
