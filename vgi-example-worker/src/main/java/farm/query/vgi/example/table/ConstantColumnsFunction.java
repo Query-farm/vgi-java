@@ -60,45 +60,8 @@ public final class ConstantColumnsFunction implements TableFunction {
         for (int i = 1; i < positionals.size(); i++) {
             ArrowType wireType = p.arguments().positionalTypeAt(i);
             Field argField = p.arguments().positionalFieldAt(i);
-            // Preserve the bind-time Field structure for Map (Arrow Map
-            // type requires exact entries:struct<key,value> shape we can't
-            // synthesise from a Java Map) and lossless-tagged types
-            // (arrow.opaque / type_name=hugeint, etc.).
-            //
-            // List/Struct stay on the inference path because writeListItem
-            // currently dispatches the inner-vector writer on Java type
-            // (Long -> bigInt, Double -> float8), not on the declared
-            // inner Arrow type. Preserving argField for List would emit
-            // List<int32> while writeListItem still calls bigInt() → wrong.
-            // DictionaryEncoding (DuckDB ENUMs) is intentionally skipped:
-            // ArgumentsParser delivers only the index byte.
             Object val = positionals.get(i);
-
-            boolean useArgField = argField != null
-                    && argField.getDictionary() == null
-                    && (argField.getType() instanceof ArrowType.Map
-                            || (argField.getMetadata() != null && !argField.getMetadata().isEmpty()));
-            if (useArgField) {
-                fields.add(new Field("col_" + (i - 1),
-                        new FieldType(true, argField.getType(), argField.getDictionary(),
-                                argField.getMetadata()),
-                        argField.getChildren()));
-            } else if (argField != null && argField.getDictionary() != null) {
-                // ENUM: ArgumentsParser resolves the dict index to the
-                // underlying value (e.g. 'happy'). Re-infer the field type
-                // from the resolved value, not the dict-encoded index type.
-                fields.add(buildField("col_" + (i - 1), val, null));
-            } else if (argField != null
-                    && (wireType instanceof ArrowType.List
-                            || wireType instanceof ArrowType.FixedSizeList)) {
-                // LIST: preserve the bind-time child type (INTEGER[] is
-                // List<int32>, not List<int64>). The runtime-inference path
-                // in buildField widens everything to int64.
-                fields.add(new Field("col_" + (i - 1),
-                        new FieldType(true, wireType, null), argField.getChildren()));
-            } else {
-                fields.add(buildField("col_" + (i - 1), val, wireType));
-            }
+            fields.add(buildOutputField("col_" + (i - 1), val, wireType, argField));
         }
         if (fields.isEmpty()) {
             // Catalog enumeration with no varargs supplied — placeholder.
@@ -106,6 +69,53 @@ public final class ConstantColumnsFunction implements TableFunction {
         }
         return BindResponse.forSchema(SchemaUtil.serializeSchema(
                 new Schema(fields)));
+    }
+
+    /**
+     * Pick the output Field for a varargs value at bind time.
+     *
+     * <p>Strategy by precedence:
+     * <ol>
+     *   <li>ENUM (dict-encoded source field): {@link ArgumentsParser} has
+     *       already resolved the index byte to its underlying value, so
+     *       infer the output type from the resolved Java value — we can't
+     *       reproduce a dict batch on the producer path.</li>
+     *   <li>Compound types (Struct / List / Map / FixedSizeList): reuse
+     *       the source Field's structure verbatim under the new
+     *       {@code col_N} name. Inferring from runtime values widens
+     *       INTEGER[] to BIGINT[], drops Map identity, and misses the
+     *       entries:struct<key,value> shape Arrow Map requires.</li>
+     *   <li>Lossless-tagged scalars (arrow.opaque, arrow.uuid, …):
+     *       preserve the source Field's extension metadata so DuckDB
+     *       rebinds the SQL type (HUGEINT, UUID, …) rather than seeing a
+     *       generic FixedSizeBinary.</li>
+     *   <li>Plain scalars: use the bind-time {@code wireType} directly
+     *       (TINYINT vs BIGINT, FLOAT vs DOUBLE, …).</li>
+     *   <li>No type info at all: fall back to {@code buildField}'s
+     *       runtime-class inference.</li>
+     * </ol>
+     */
+    private static Field buildOutputField(String name, Object v, ArrowType wireType, Field argField) {
+        if (argField != null && argField.getDictionary() != null) {
+            return buildField(name, v, null);
+        }
+        if (argField != null && (argField.getType() instanceof ArrowType.Struct
+                || argField.getType() instanceof ArrowType.List
+                || argField.getType() instanceof ArrowType.FixedSizeList
+                || argField.getType() instanceof ArrowType.Map)) {
+            return new Field(name,
+                    new FieldType(true, argField.getType(), argField.getDictionary(),
+                            argField.getMetadata()),
+                    argField.getChildren());
+        }
+        if (argField != null && argField.getMetadata() != null
+                && !argField.getMetadata().isEmpty()) {
+            return new Field(name,
+                    new FieldType(true, argField.getType(), argField.getDictionary(),
+                            argField.getMetadata()),
+                    argField.getChildren());
+        }
+        return buildField(name, v, wireType);
     }
 
     /** Build a Field for a varargs value. Uses the wire-derived ArrowType
