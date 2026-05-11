@@ -888,13 +888,17 @@ public final class VgiServiceImpl implements VgiService {
     private FunctionInfo baseFunctionInfo(farm.query.vgi.function.FunctionDescriptor fn,
                                            String schemaName, String type,
                                            byte[] outputSchema, boolean hasFinalize) {
+        // Only TableFunction has a meaningful maxWorkers; everything else
+        // is single-worker by definition.
+        int maxWorkers = fn instanceof TableFunction tf ? (int) tf.maxWorkers() : 1;
         return baseFunctionInfo(fn.name(), fn.metadata(), schemaName, type,
-                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), outputSchema, hasFinalize);
+                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), outputSchema, hasFinalize,
+                maxWorkers);
     }
 
     private FunctionInfo baseFunctionInfo(String name, FunctionMetadata md, String schemaName,
                                            String type, byte[] arguments, byte[] outputSchema,
-                                           boolean hasFinalize) {
+                                           boolean hasFinalize, int maxWorkers) {
         return new FunctionInfo(
                 md.description().isEmpty() ? null : md.description(),
                 Map.of(),
@@ -913,7 +917,7 @@ public final class VgiServiceImpl implements VgiService {
                 md.samplingPushdown() ? Boolean.TRUE : null,
                 List.of(),
                 md.orderPreservation() == null ? null : md.orderPreservation().name(),
-                1,
+                maxWorkers,
                 "NOT_ORDER_DEPENDENT",
                 "NOT_DISTINCT_DEPENDENT",
                 false,
