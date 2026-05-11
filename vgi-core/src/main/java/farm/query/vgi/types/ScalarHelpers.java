@@ -14,8 +14,13 @@ import org.apache.arrow.vector.SmallIntVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
+
+import java.util.List;
+import java.util.function.IntToDoubleFunction;
+import java.util.function.IntToLongFunction;
 
 
 /**
@@ -57,6 +62,42 @@ public final class ScalarHelpers {
                 v.setNull(i);
             } else {
                 v.setSafe(i, op.apply(i));
+            }
+        }
+        out.setRowCount(rows);
+        return out;
+    }
+
+    /**
+     * Build a single {@code result} column of int64 or float64 (chosen by
+     * {@code outSchema}'s result field type), running {@code longOp} or
+     * {@code doubleOp} per row. Rows where any of {@code inputCols} is null
+     * yield null output (default null handling).
+     *
+     * <p>The two ops are passed as separate lambdas because the per-row
+     * computation differs by output type (int sums of int inputs, double
+     * sums when any input widens).</p>
+     */
+    public static VectorSchemaRoot mapNumericRows(Schema outSchema, BufferAllocator alloc,
+                                                    List<FieldVector> inputCols, int rows,
+                                                    IntToLongFunction longOp,
+                                                    IntToDoubleFunction doubleOp) {
+        ArrowType outType = outSchema.getFields().get(0).getType();
+        boolean floating = outType instanceof ArrowType.FloatingPoint;
+        VectorSchemaRoot out = VectorSchemaRoot.create(outSchema, alloc);
+        out.allocateNew();
+        FieldVector v = out.getVector("result");
+        for (int i = 0; i < rows; i++) {
+            boolean anyNull = false;
+            for (FieldVector c : inputCols) {
+                if (c.isNull(i)) { anyNull = true; break; }
+            }
+            if (anyNull) {
+                v.setNull(i);
+            } else if (floating) {
+                ((Float8Vector) v).setSafe(i, doubleOp.applyAsDouble(i));
+            } else {
+                ((BigIntVector) v).setSafe(i, longOp.applyAsLong(i));
             }
         }
         out.setRowCount(rows);
