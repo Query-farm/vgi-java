@@ -29,29 +29,39 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class CatalogRegistry {
 
+    /** Per-attach record: the resolved data_version + catalog name (either may be null). */
+    public record AttachRecord(String dataVersion, String catalogName) {}
+
     private final Worker worker;
-    private final Map<String, String> attachDataVersions = new ConcurrentHashMap<>();
-    private final Map<String, String> attachCatalogNames = new ConcurrentHashMap<>();
+    private final Map<String, AttachRecord> attaches = new ConcurrentHashMap<>();
 
     public CatalogRegistry(Worker worker) {
         this.worker = worker;
     }
 
+    /**
+     * Record (or replace) the per-attach state. Called once per {@code
+     * catalog_attach} RPC. If both fields are null/empty the call is a
+     * no-op rather than inserting an empty record.
+     */
     public void recordAttach(byte[] attachId, String resolvedDataVersion, String catalogName) {
-        if (resolvedDataVersion != null) {
-            attachDataVersions.put(HexId.encode(attachId), resolvedDataVersion);
-        }
-        if (catalogName != null && !catalogName.isEmpty()) {
-            attachCatalogNames.put(HexId.encode(attachId), catalogName);
-        }
+        String name = (catalogName == null || catalogName.isEmpty()) ? null : catalogName;
+        if (resolvedDataVersion == null && name == null) return;
+        attaches.put(HexId.encode(attachId), new AttachRecord(resolvedDataVersion, name));
     }
 
     public String dataVersion(byte[] attachId) {
-        return attachId == null ? null : attachDataVersions.get(HexId.encode(attachId));
+        AttachRecord r = lookup(attachId);
+        return r == null ? null : r.dataVersion();
     }
 
     public String catalogName(byte[] attachId) {
-        return attachId == null ? null : attachCatalogNames.get(HexId.encode(attachId));
+        AttachRecord r = lookup(attachId);
+        return r == null ? null : r.catalogName();
+    }
+
+    private AttachRecord lookup(byte[] attachId) {
+        return attachId == null ? null : attaches.get(HexId.encode(attachId));
     }
 
     /**
