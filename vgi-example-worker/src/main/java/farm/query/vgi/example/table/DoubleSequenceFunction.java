@@ -66,16 +66,10 @@ public final class DoubleSequenceFunction implements TableFunction {
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            if (batch.done()) { out.finish(); return; }
-            int n = batch.nextBatchSize();
-            long start = batch.index();
-            VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT_SCHEMA, Allocators.root());
-            root.allocateNew();
-            Float8Vector v = (Float8Vector) root.getVector("n");
-            for (int i = 0; i < n; i++) v.setSafe(i, (start + i) * increment);
-            root.setRowCount(n);
-            out.emit(root);
-            batch.advance(n);
+            farm.query.vgi.internal.BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, null, out, (root, n, start) -> {
+                Float8Vector v = (Float8Vector) root.getVector("n");
+                for (int i = 0; i < n; i++) v.setSafe(i, (start + i) * increment);
+            });
         }
     }
 }

@@ -19,9 +19,10 @@ import org.apache.arrow.vector.util.Text;
 import java.io.ByteArrayOutputStream;
 import java.nio.channels.Channels;
 import java.util.List;
+import farm.query.vgi.catalog.CatalogTable;
 
 /**
- * Serialises a {@link Worker.CatalogTable.ForeignKey} to wire bytes (a 1-row
+ * Serialises a {@link CatalogTable.ForeignKey} to wire bytes (a 1-row
  * IPC stream with schema {@code {fk_columns: list<utf8>, pk_columns:
  * list<utf8>, referenced_table: utf8, referenced_schema: utf8}}). Mirrors
  * vgi-go's {@code serializeForeignKey}.
@@ -40,7 +41,7 @@ public final class ForeignKeySerializer {
             new Field("referenced_table", new FieldType(true, UTF8, null), null),
             new Field("referenced_schema", new FieldType(true, UTF8, null), null)));
 
-    public static byte[] serialize(Worker.CatalogTable.ForeignKey fk) {
+    public static byte[] serialize(CatalogTable.ForeignKey fk) {
         try (VectorSchemaRoot root = VectorSchemaRoot.create(WIRE_SCHEMA, Allocators.root())) {
             root.allocateNew();
             writeStringList(root, "fk_columns", fk.fkColumns());

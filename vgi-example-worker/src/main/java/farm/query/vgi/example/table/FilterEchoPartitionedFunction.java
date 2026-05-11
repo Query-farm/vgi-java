@@ -14,6 +14,7 @@ import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
+import farm.query.vgi.types.CachedSchema;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
 import farm.query.vgirpc.wire.Allocators;
@@ -93,7 +94,7 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
                 ? PushdownFilters.empty()
                 : PushdownFiltersDecoder.decode(pfBytes, params.joinKeys());
         return new State(queue, execKey, pf.formatInline(), pfBytes,
-                farm.query.vgi.internal.SchemaUtil.serializeSchema(params.outputSchema()),
+                new CachedSchema(params.outputSchema()),
                 params.joinKeys());
     }
 
@@ -102,7 +103,7 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
         public String execKey;
         public String filterStr;
         public byte[] filterBytes;
-        public byte[] outputSchemaIpc;
+        public CachedSchema outputSchema;
         public List<byte[]> joinKeysIpc;
         public transient ConcurrentLinkedQueue<long[]> queueRef;
 
@@ -113,26 +114,18 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
         public State() {}
 
         State(ConcurrentLinkedQueue<long[]> queue, String execKey, String filterStr,
-                byte[] filterBytes, byte[] outputSchemaIpc, List<byte[]> joinKeysIpc) {
+                byte[] filterBytes, CachedSchema outputSchema, List<byte[]> joinKeysIpc) {
             this.queueRef = queue;
             this.execKey = execKey;
             this.filterStr = filterStr;
             this.filterBytes = filterBytes;
-            this.outputSchemaIpc = outputSchemaIpc;
+            this.outputSchema = outputSchema;
             this.joinKeysIpc = joinKeysIpc;
         }
 
         private ConcurrentLinkedQueue<long[]> queue() {
             if (queueRef == null) queueRef = QUEUES.get(execKey);
             return queueRef;
-        }
-
-        private transient Schema cachedSchema;
-        private Schema schema() {
-            if (cachedSchema == null) {
-                cachedSchema = farm.query.vgi.internal.SchemaUtil.deserializeSchema(outputSchemaIpc);
-            }
-            return cachedSchema;
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
@@ -164,7 +157,7 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
             if (filterBytes != null) {
                 work = FilterApplier.from(filterBytes, joinKeysIpc).apply(work);
             }
-            VectorSchemaRoot emit = projectTo(work, schema());
+            VectorSchemaRoot emit = projectTo(work, outputSchema.get());
             out.emit(emit);
         }
 

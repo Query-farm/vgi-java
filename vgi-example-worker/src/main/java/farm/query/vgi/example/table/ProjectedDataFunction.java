@@ -11,6 +11,7 @@ import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
+import farm.query.vgi.types.CachedSchema;
 import farm.query.vgi.types.Schemas;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
@@ -59,65 +60,49 @@ public final class ProjectedDataFunction implements TableFunction {
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        return new State(new BatchState(count, 1000),
-                farm.query.vgi.internal.SchemaUtil.serializeSchema(params.outputSchema()));
+        return new State(new BatchState(count, 1000), new CachedSchema(params.outputSchema()));
     }
 
     public static final class State extends TableProducerState {
         public BatchState batch;
-        public byte[] outputSchemaIpc;
-
-        private transient Schema cachedSchema;
+        public CachedSchema outputSchema;
 
         public State() {}
 
-        State(BatchState batch, byte[] outputSchemaIpc) {
+        State(BatchState batch, CachedSchema outputSchema) {
             this.batch = batch;
-            this.outputSchemaIpc = outputSchemaIpc;
-        }
-
-        private Schema schema() {
-            if (cachedSchema == null) {
-                cachedSchema = farm.query.vgi.internal.SchemaUtil.deserializeSchema(outputSchemaIpc);
-            }
-            return cachedSchema;
+            this.outputSchema = outputSchema;
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            if (batch.done()) { out.finish(); return; }
-            int n = batch.nextBatchSize();
-            long start = batch.index();
-            Schema s = schema();
-            VectorSchemaRoot root = VectorSchemaRoot.create(s, Allocators.root());
-            root.allocateNew();
-            for (Field f : s.getFields()) {
-                FieldVector v = root.getVector(f.getName());
-                switch (f.getName()) {
-                    case "id" -> {
-                        BigIntVector b = (BigIntVector) v;
-                        for (int i = 0; i < n; i++) b.setSafe(i, start + i);
-                    }
-                    case "name" -> {
-                        VarCharVector vc = (VarCharVector) v;
-                        for (int i = 0; i < n; i++) vc.setSafe(i, new Text("item_" + (start + i)));
-                    }
-                    case "value" -> {
-                        Float8Vector f8 = (Float8Vector) v;
-                        for (int i = 0; i < n; i++) f8.setSafe(i, (start + i) * 1.5);
-                    }
-                    case "extra" -> {
-                        BigIntVector b = (BigIntVector) v;
-                        for (int i = 0; i < n; i++) {
-                            long x = start + i;
-                            b.setSafe(i, x * x);
+            Schema s = outputSchema.get();
+            farm.query.vgi.internal.BatchUtil.produceBatch(batch, s, null, out, (root, n, start) -> {
+                for (Field f : s.getFields()) {
+                    FieldVector v = root.getVector(f.getName());
+                    switch (f.getName()) {
+                        case "id" -> {
+                            BigIntVector b = (BigIntVector) v;
+                            for (int i = 0; i < n; i++) b.setSafe(i, start + i);
                         }
+                        case "name" -> {
+                            VarCharVector vc = (VarCharVector) v;
+                            for (int i = 0; i < n; i++) vc.setSafe(i, new Text("item_" + (start + i)));
+                        }
+                        case "value" -> {
+                            Float8Vector f8 = (Float8Vector) v;
+                            for (int i = 0; i < n; i++) f8.setSafe(i, (start + i) * 1.5);
+                        }
+                        case "extra" -> {
+                            BigIntVector b = (BigIntVector) v;
+                            for (int i = 0; i < n; i++) {
+                                long x = start + i;
+                                b.setSafe(i, x * x);
+                            }
+                        }
+                        default -> {}
                     }
-                    default -> {}
                 }
-            }
-            root.setRowCount(n);
-            out.emit(root);
-            batch.advance(n);
+            });
         }
     }
 }

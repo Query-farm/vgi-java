@@ -13,6 +13,7 @@ import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
+import farm.query.vgi.types.CachedSchema;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
 import farm.query.vgirpc.wire.Allocators;
@@ -70,7 +71,7 @@ public final class SampleEchoFunction implements TableFunction {
         double pct = params.tablesamplePercentage() == null ? -1.0 : params.tablesamplePercentage();
         long seed = params.tablesampleSeed() == null ? -1L : params.tablesampleSeed();
         return new State(new BatchState(count, batchSize), pct, seed,
-                farm.query.vgi.internal.SchemaUtil.serializeSchema(params.outputSchema()),
+                new CachedSchema(params.outputSchema()),
                 FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
     }
 
@@ -78,62 +79,46 @@ public final class SampleEchoFunction implements TableFunction {
         public BatchState batch;
         public double percentage;
         public long seed;
-        public byte[] outputSchemaIpc;
+        public CachedSchema outputSchema;
         public FilterApplier filters;
-
-        private transient Schema cachedSchema;
 
         public State() {}
 
-        State(BatchState batch, double percentage, long seed, byte[] outputSchemaIpc,
+        State(BatchState batch, double percentage, long seed, CachedSchema outputSchema,
                 FilterApplier filters) {
             this.batch = batch;
             this.percentage = percentage;
             this.seed = seed;
-            this.outputSchemaIpc = outputSchemaIpc;
+            this.outputSchema = outputSchema;
             this.filters = filters;
         }
 
-        private Schema schema() {
-            if (cachedSchema == null) {
-                cachedSchema = farm.query.vgi.internal.SchemaUtil.deserializeSchema(outputSchemaIpc);
-            }
-            return cachedSchema;
-        }
-
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            if (batch.done()) { out.finish(); return; }
-            int n = batch.nextBatchSize();
-            long start = batch.index();
-            Schema s = schema();
-            VectorSchemaRoot root = VectorSchemaRoot.create(s, Allocators.root());
-            root.allocateNew();
-            for (Field f : s.getFields()) {
-                FieldVector v = root.getVector(f.getName());
-                switch (f.getName()) {
-                    case "n" -> {
-                        BigIntVector b = (BigIntVector) v;
-                        for (int i = 0; i < n; i++) b.setSafe(i, start + i);
+            Schema s = outputSchema.get();
+            farm.query.vgi.internal.BatchUtil.produceBatch(batch, s, filters, out, (root, n, start) -> {
+                for (Field f : s.getFields()) {
+                    FieldVector v = root.getVector(f.getName());
+                    switch (f.getName()) {
+                        case "n" -> {
+                            BigIntVector b = (BigIntVector) v;
+                            for (int i = 0; i < n; i++) b.setSafe(i, start + i);
+                        }
+                        case "s" -> {
+                            VarCharVector vc = (VarCharVector) v;
+                            for (int i = 0; i < n; i++) vc.setSafe(i, new Text("row_" + (start + i)));
+                        }
+                        case "sample_percentage" -> {
+                            Float8Vector f8 = (Float8Vector) v;
+                            for (int i = 0; i < n; i++) f8.setSafe(i, percentage);
+                        }
+                        case "sample_seed" -> {
+                            BigIntVector b = (BigIntVector) v;
+                            for (int i = 0; i < n; i++) b.setSafe(i, seed);
+                        }
+                        default -> {}
                     }
-                    case "s" -> {
-                        VarCharVector vc = (VarCharVector) v;
-                        for (int i = 0; i < n; i++) vc.setSafe(i, new Text("row_" + (start + i)));
-                    }
-                    case "sample_percentage" -> {
-                        Float8Vector f8 = (Float8Vector) v;
-                        for (int i = 0; i < n; i++) f8.setSafe(i, percentage);
-                    }
-                    case "sample_seed" -> {
-                        BigIntVector b = (BigIntVector) v;
-                        for (int i = 0; i < n; i++) b.setSafe(i, seed);
-                    }
-                    default -> {}
                 }
-            }
-            root.setRowCount(n);
-            if (filters != null) root = filters.apply(root);
-            out.emit(root);
-            batch.advance(n);
+            });
         }
     }
 }

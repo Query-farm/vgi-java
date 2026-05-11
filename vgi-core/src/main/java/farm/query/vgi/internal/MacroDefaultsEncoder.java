@@ -24,11 +24,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import farm.query.vgi.catalog.Macro;
 
 /**
  * Encodes a macro's named-parameter default values as a 1-row IPC RecordBatch
  * whose columns are the named parameters and whose row 0 holds the typed
- * default values. The default-value SQL strings in {@link Worker.Macro} are
+ * default values. The default-value SQL strings in {@link Macro} are
  * parsed loosely: {@code 0}/{@code 100} → BIGINT, decimals → FLOAT64,
  * {@code 'foo'} → VARCHAR, {@code true}/{@code false} → BOOL. Anything else
  * falls back to VARCHAR with the literal text.

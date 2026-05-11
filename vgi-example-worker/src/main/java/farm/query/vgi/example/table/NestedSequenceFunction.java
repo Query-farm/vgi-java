@@ -13,6 +13,7 @@ import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
+import farm.query.vgi.types.CachedSchema;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
 import farm.query.vgirpc.wire.Allocators;
@@ -81,57 +82,41 @@ public final class NestedSequenceFunction implements TableFunction {
         long batchSize = params.arguments().namedLong("batch_size", 1000L);
         long historySize = params.arguments().namedLong("history_size", 20L);
         return new State(new BatchState(count, batchSize), historySize,
-                farm.query.vgi.internal.SchemaUtil.serializeSchema(params.outputSchema()),
+                new CachedSchema(params.outputSchema()),
                 FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
     }
 
     public static final class State extends TableProducerState {
         public BatchState batch;
         public long historySize;
-        public byte[] outputSchemaIpc;
+        public CachedSchema outputSchema;
         public FilterApplier filters;
-
-        private transient Schema cachedSchema;
 
         public State() {}
 
-        State(BatchState batch, long historySize, byte[] outputSchemaIpc, FilterApplier filters) {
+        State(BatchState batch, long historySize, CachedSchema outputSchema, FilterApplier filters) {
             this.batch = batch;
             this.historySize = historySize;
-            this.outputSchemaIpc = outputSchemaIpc;
+            this.outputSchema = outputSchema;
             this.filters = filters;
         }
 
-        private Schema schema() {
-            if (cachedSchema == null) {
-                cachedSchema = farm.query.vgi.internal.SchemaUtil.deserializeSchema(outputSchemaIpc);
-            }
-            return cachedSchema;
-        }
-
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            if (batch.done()) { out.finish(); return; }
-            int n = batch.nextBatchSize();
-            long start = batch.index();
-            Schema s = schema();
-            VectorSchemaRoot root = VectorSchemaRoot.create(s, Allocators.root());
-            root.allocateNew();
-            for (Field f : s.getFields()) {
-                FieldVector v = root.getVector(f.getName());
-                switch (f.getName()) {
-                    case "n" -> {
-                        BigIntVector b = (BigIntVector) v;
-                        for (int i = 0; i < n; i++) b.setSafe(i, start + i);
+            Schema s = outputSchema.get();
+            farm.query.vgi.internal.BatchUtil.produceBatch(batch, s, filters, out, (root, n, start) -> {
+                for (Field f : s.getFields()) {
+                    FieldVector v = root.getVector(f.getName());
+                    switch (f.getName()) {
+                        case "n" -> {
+                            BigIntVector b = (BigIntVector) v;
+                            for (int i = 0; i < n; i++) b.setSafe(i, start + i);
+                        }
+                        case "metadata" -> fillMetadata((StructVector) v, n, start);
+                        case "history" -> fillHistory((ListVector) v, n, start, historySize);
+                        default -> {}
                     }
-                    case "metadata" -> fillMetadata((StructVector) v, n, start);
-                    case "history" -> fillHistory((ListVector) v, n, start, historySize);
-                    default -> {}
                 }
-            }
-            root.setRowCount(n);
-            if (filters != null) root = filters.apply(root);
-            out.emit(root);
-            batch.advance(n);
+            });
         }
 
         private static void fillMetadata(StructVector struct, int n, long start) {

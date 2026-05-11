@@ -5,20 +5,9 @@ package farm.query.vgi.pushdown;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import farm.query.vgi.internal.VectorScalarCodec;
 import farm.query.vgirpc.wire.Allocators;
-import org.apache.arrow.vector.BigIntVector;
-import org.apache.arrow.vector.BitVector;
-import org.apache.arrow.vector.DateDayVector;
-import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.Float4Vector;
-import org.apache.arrow.vector.Float8Vector;
-import org.apache.arrow.vector.IntVector;
-import org.apache.arrow.vector.LargeVarBinaryVector;
-import org.apache.arrow.vector.LargeVarCharVector;
-import org.apache.arrow.vector.SmallIntVector;
-import org.apache.arrow.vector.TinyIntVector;
-import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.ListVector;
@@ -158,44 +147,16 @@ public final class PushdownFiltersDecoder {
 
     private static Object readScalarAt(VectorSchemaRoot root, int colIdx, int row) {
         if (colIdx < 0 || colIdx >= root.getFieldVectors().size()) return null;
-        FieldVector v = root.getVector(colIdx);
-        if (v.isNull(row)) return null;
-        if (v instanceof BigIntVector b) return b.get(row);
-        if (v instanceof IntVector i) return (long) i.get(row);
-        if (v instanceof SmallIntVector s) return (long) s.get(row);
-        if (v instanceof TinyIntVector t) return (long) t.get(row);
-        if (v instanceof Float8Vector f) return f.get(row);
-        if (v instanceof Float4Vector f) return (double) f.get(row);
-        if (v instanceof BitVector b) return b.get(row) != 0;
-        if (v instanceof VarCharVector vc) {
-            byte[] bytes = vc.get(row);
-            return bytes == null ? null : new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-        }
-        if (v instanceof LargeVarCharVector vc) {
-            byte[] bytes = vc.get(row);
-            return bytes == null ? null : new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-        }
-        if (v instanceof VarBinaryVector vb) return vb.get(row);
-        if (v instanceof LargeVarBinaryVector vb) return vb.get(row);
-        if (v instanceof DecimalVector d) return d.getObject(row);
-        if (v instanceof DateDayVector d) return (long) d.get(row);
-        return v.getObject(row);
+        return VectorScalarCodec.read(root.getVector(colIdx), row);
     }
 
     private static List<Object> readListAt(VectorSchemaRoot root, int colIdx, int row) {
         if (colIdx < 0 || colIdx >= root.getFieldVectors().size()) return List.of();
         FieldVector v = root.getVector(colIdx);
         if (!(v instanceof ListVector lv) || lv.isNull(row)) return List.of();
-        int start = lv.getElementStartIndex(row);
-        int end = lv.getElementEndIndex(row);
-        FieldVector inner = lv.getDataVector();
-        // Wrap inner in a 1-col VSR so we can reuse readScalarAt.
-        VectorSchemaRoot wrap = new VectorSchemaRoot(
-                List.of(inner.getField()),
-                List.of(inner),
-                inner.getValueCount());
-        List<Object> out = new ArrayList<>(end - start);
-        for (int i = start; i < end; i++) out.add(readScalarAt(wrap, 0, i));
+        Object result = VectorScalarCodec.read(lv, row);
+        @SuppressWarnings("unchecked")
+        List<Object> out = result == null ? List.of() : (List<Object>) result;
         return out;
     }
 }

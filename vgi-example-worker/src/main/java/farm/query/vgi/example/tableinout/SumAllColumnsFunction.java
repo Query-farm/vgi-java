@@ -12,6 +12,7 @@ import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgi.tableinout.TableInOutInitParams;
 import farm.query.vgi.types.Schemas;
+import farm.query.vgi.types.CachedSchema;
 import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
@@ -81,7 +82,7 @@ public class SumAllColumnsFunction implements TableInOutFunction {
         }
         Object loggingObj = params.arguments().named().get("logging");
         boolean logging = loggingObj instanceof Boolean b && b;
-        return new SumState(intSums, floatSums, SchemaUtil.serializeSchema(params.outputSchema()), logging);
+        return new SumState(intSums, floatSums, new CachedSchema(params.outputSchema()), logging);
     }
 
     @Override public boolean hasFinalize() { return true; }
@@ -89,7 +90,7 @@ public class SumAllColumnsFunction implements TableInOutFunction {
     @Override
     public List<VectorSchemaRoot> finalizeBatches(TableInOutExchangeState state, TableInOutInitParams params) {
         SumState s = (SumState) state;
-        Schema schema = s.schema();
+        Schema schema = s.outputSchema.get();
         VectorSchemaRoot out = VectorSchemaRoot.create(schema, Allocators.root());
         out.allocateNew();
         for (Field f : schema.getFields()) {
@@ -108,34 +109,27 @@ public class SumAllColumnsFunction implements TableInOutFunction {
     public static class SumState extends TableInOutExchangeState {
         public Map<String, Long> intSums;
         public Map<String, Double> floatSums;
-        public byte[] outputSchemaIpc;
+        public CachedSchema outputSchema;
         public boolean logging;
         public long batchCount;
 
-        private transient Schema cachedSchema;
-
         public SumState() {}
 
-        public SumState(Map<String, Long> intSums, Map<String, Double> floatSums, byte[] outputSchemaIpc) {
-            this(intSums, floatSums, outputSchemaIpc, false);
+        public SumState(Map<String, Long> intSums, Map<String, Double> floatSums, CachedSchema outputSchema) {
+            this(intSums, floatSums, outputSchema, false);
         }
 
-        public SumState(Map<String, Long> intSums, Map<String, Double> floatSums, byte[] outputSchemaIpc,
+        public SumState(Map<String, Long> intSums, Map<String, Double> floatSums, CachedSchema outputSchema,
                           boolean logging) {
             this.intSums = intSums;
             this.floatSums = floatSums;
-            this.outputSchemaIpc = outputSchemaIpc;
+            this.outputSchema = outputSchema;
             this.logging = logging;
-        }
-
-        public Schema schema() {
-            if (cachedSchema == null) cachedSchema = SchemaUtil.deserializeSchema(outputSchemaIpc);
-            return cachedSchema;
         }
 
         @Override
         public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-            Schema schema = schema();
+            Schema schema = outputSchema.get();
             VectorSchemaRoot src = input.root();
             int rows = src.getRowCount();
             if (logging) {

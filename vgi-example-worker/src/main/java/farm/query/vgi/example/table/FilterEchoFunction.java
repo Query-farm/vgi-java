@@ -14,6 +14,7 @@ import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
+import farm.query.vgi.types.CachedSchema;
 import farm.query.vgi.types.Schemas;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
@@ -73,7 +74,7 @@ public final class FilterEchoFunction implements TableFunction {
                 ? PushdownFilters.empty()
                 : PushdownFiltersDecoder.decode(pfBytes, params.joinKeys());
         return new State(new BatchState(count, batchSize), pf.formatInline(), pfBytes,
-                farm.query.vgi.internal.SchemaUtil.serializeSchema(params.outputSchema()),
+                new CachedSchema(params.outputSchema()),
                 params.joinKeys());
     }
 
@@ -81,27 +82,18 @@ public final class FilterEchoFunction implements TableFunction {
         public BatchState batch;
         public String filterStr;
         public byte[] filterBytes;
-        public byte[] outputSchemaIpc;
+        public CachedSchema outputSchema;
         public List<byte[]> joinKeysIpc;
-
-        private transient Schema cachedSchema;
 
         public State() {}
 
-        State(BatchState batch, String filterStr, byte[] filterBytes, byte[] outputSchemaIpc,
+        State(BatchState batch, String filterStr, byte[] filterBytes, CachedSchema outputSchema,
                 List<byte[]> joinKeysIpc) {
             this.batch = batch;
             this.filterStr = filterStr;
             this.filterBytes = filterBytes;
-            this.outputSchemaIpc = outputSchemaIpc;
+            this.outputSchema = outputSchema;
             this.joinKeysIpc = joinKeysIpc;
-        }
-
-        private Schema schema() {
-            if (cachedSchema == null) {
-                cachedSchema = farm.query.vgi.internal.SchemaUtil.deserializeSchema(outputSchemaIpc);
-            }
-            return cachedSchema;
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
@@ -152,7 +144,7 @@ public final class FilterEchoFunction implements TableFunction {
             if (fb != null) {
                 work = FilterApplier.from(fb, joinKeysIpc).apply(work);
             }
-            VectorSchemaRoot emit = projectTo(work, schema());
+            VectorSchemaRoot emit = projectTo(work, outputSchema.get());
             out.emit(emit);
             batch.advance(n);
         }

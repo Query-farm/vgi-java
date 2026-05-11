@@ -5,18 +5,7 @@ package farm.query.vgi.internal;
 
 import farm.query.vgi.function.Arguments;
 import farm.query.vgirpc.wire.Allocators;
-import org.apache.arrow.vector.BigIntVector;
-import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.Float4Vector;
-import org.apache.arrow.vector.Float8Vector;
-import org.apache.arrow.vector.IntVector;
-import org.apache.arrow.vector.LargeVarBinaryVector;
-import org.apache.arrow.vector.LargeVarCharVector;
-import org.apache.arrow.vector.SmallIntVector;
-import org.apache.arrow.vector.TinyIntVector;
-import org.apache.arrow.vector.VarBinaryVector;
-import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
@@ -111,63 +100,6 @@ public final class ArgumentsParser {
     /** Read the scalar (row 0) value out of a vector. Returns null for null/empty. */
     private static Object readScalar(FieldVector v) {
         if (v.getValueCount() == 0) return null;
-        return readScalarAt(v, 0);
-    }
-
-    private static Object readScalarAt(FieldVector v, int row) {
-        // Struct vectors may carry valid children even when the struct itself
-        // is reported as "null" — the args wrapper sometimes leaves the
-        // top-level struct mask unset. Recurse into children so callers see
-        // populated maps rather than a top-level null.
-        if (!(v instanceof StructVector) && v.isNull(row)) return null;
-        if (v instanceof BigIntVector b) return b.get(row);
-        if (v instanceof IntVector i) return (long) i.get(row);
-        if (v instanceof SmallIntVector s) return (long) s.get(row);
-        if (v instanceof TinyIntVector t) return (long) t.get(row);
-        if (v instanceof Float8Vector f) return f.get(row);
-        if (v instanceof Float4Vector f) return (double) f.get(row);
-        if (v instanceof BitVector b) return b.get(row) != 0;
-        if (v instanceof VarCharVector vc) {
-            byte[] bytes = vc.get(row);
-            return bytes == null ? null : new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-        }
-        if (v instanceof LargeVarCharVector vc) {
-            byte[] bytes = vc.get(row);
-            return bytes == null ? null : new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-        }
-        if (v instanceof VarBinaryVector vb) return vb.get(row);
-        if (v instanceof LargeVarBinaryVector vb) return vb.get(row);
-        if (v instanceof org.apache.arrow.vector.DecimalVector d) return d.getObject(row);
-        if (v instanceof org.apache.arrow.vector.Decimal256Vector d) return d.getObject(row);
-        if (v instanceof StructVector sv) {
-            Map<String, Object> out = new LinkedHashMap<>();
-            for (Field f : sv.getField().getChildren()) {
-                FieldVector child = sv.getChild(f.getName());
-                out.put(f.getName(), readScalarAt(child, row));
-            }
-            return out;
-        }
-        if (v instanceof org.apache.arrow.vector.complex.ListVector lv) {
-            int start = lv.getOffsetBuffer().getInt(row * 4L);
-            int end = lv.getOffsetBuffer().getInt((row + 1) * 4L);
-            FieldVector inner = lv.getDataVector();
-            List<Object> out = new ArrayList<>(end - start);
-            for (int i = start; i < end; i++) {
-                out.add(readScalarAt(inner, i));
-            }
-            return out;
-        }
-        if (v instanceof org.apache.arrow.vector.complex.FixedSizeListVector fl) {
-            int width = fl.getListSize();
-            int start = row * width;
-            FieldVector inner = fl.getDataVector();
-            List<Object> out = new ArrayList<>(width);
-            for (int i = 0; i < width; i++) {
-                out.add(readScalarAt(inner, start + i));
-            }
-            return out;
-        }
-        // Fallback: leave as the vector itself for callers that need column-level access.
-        return v;
+        return VectorScalarCodec.read(v, 0);
     }
 }

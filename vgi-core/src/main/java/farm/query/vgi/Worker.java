@@ -4,6 +4,9 @@
 package farm.query.vgi;
 
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.catalog.CatalogTable;
+import farm.query.vgi.catalog.Macro;
+import farm.query.vgi.catalog.View;
 import farm.query.vgi.internal.VgiServiceImpl;
 import farm.query.vgi.scalar.ScalarFunction;
 import farm.query.vgi.table.TableFunction;
@@ -44,41 +47,6 @@ public final class Worker {
     private final List<AttachOptionSpec> attachOptions = new ArrayList<>();
     private final List<View> views = new ArrayList<>();
 
-    /**
-     * A SQL view exposed in the catalog. {@code schema} is the schema name
-     * (matches one of {@link #defaultSchema()} or any registered schema);
-     * {@code definition} is a SQL query string evaluated by DuckDB.
-     */
-    public record View(String schema, String name, String definition,
-                        String comment, Map<String, String> tags) {
-        public View(String schema, String name, String definition, String comment) {
-            this(schema, name, definition, comment, Map.of());
-        }
-    }
-
-    public enum MacroType { SCALAR, TABLE }
-
-    /**
-     * A SQL macro exposed in the catalog. {@code parameterDefaults} is an
-     * optional ordered map of parameter-name → SQL expression (used when the
-     * macro has named-with-default parameters).
-     */
-    public record Macro(String schema, String name, MacroType macroType,
-                         List<String> parameters,
-                         @SuppressWarnings("rawtypes") Map<String, String> parameterDefaults,
-                         String definition, String comment, Map<String, String> tags) {
-        public Macro(String schema, String name, MacroType macroType,
-                      List<String> parameters, String definition, String comment) {
-            this(schema, name, macroType, parameters, Map.of(), definition, comment, Map.of());
-        }
-
-        public Macro(String schema, String name, MacroType macroType,
-                      List<String> parameters, Map<String, String> parameterDefaults,
-                      String definition, String comment) {
-            this(schema, name, macroType, parameters, parameterDefaults, definition, comment, Map.of());
-        }
-    }
-
     private final List<Macro> macros = new ArrayList<>();
 
     public Worker registerMacro(Macro m) {
@@ -87,89 +55,6 @@ public final class Worker {
     }
 
     public List<Macro> macros() { return macros; }
-
-    /**
-     * A catalog table. {@code columns} is the table's Arrow schema serialized
-     * as IPC bytes. {@code scanFunctionName} (with {@code scanFunctionArgs})
-     * inlines the scan function so the C++ extension can skip
-     * {@code catalog_table_scan_function_get}; if {@code null}, the worker
-     * must implement that RPC manually.
-     */
-    public record CatalogTable(
-            String schema,
-            String name,
-            byte[] columns,
-            String comment,
-            Map<String, String> tags,
-            String scanFunctionName,
-            List<Object> scanFunctionPositional,
-            Map<String, Object> scanFunctionNamed,
-            Long cardinalityEstimate,
-            Long cardinalityMax,
-            boolean inlineCardinality,
-            boolean inlineScanFunction,
-            List<List<Integer>> primaryKey,
-            List<List<Integer>> uniqueConstraints,
-            List<String> checkConstraints,
-            List<ForeignKey> foreignKeys) {
-
-        /** Foreign-key constraint declaration. Wire shape uses column NAMES
-         *  (not indices) for both sides — matches the vgi-go fkSchema. */
-        public record ForeignKey(
-                List<String> fkColumns,
-                List<String> pkColumns,
-                String referencedSchema,
-                String referencedTable) {}
-
-        /** Backward-compat ctor — no constraints. */
-        public CatalogTable(String schema, String name, byte[] columns, String comment,
-                              Map<String, String> tags, String scanFunctionName,
-                              List<Object> scanFunctionPositional, Map<String, Object> scanFunctionNamed,
-                              Long cardinalityEstimate, Long cardinalityMax,
-                              boolean inlineCardinality, boolean inlineScanFunction) {
-            this(schema, name, columns, comment, tags, scanFunctionName, scanFunctionPositional,
-                    scanFunctionNamed, cardinalityEstimate, cardinalityMax,
-                    inlineCardinality, inlineScanFunction,
-                    List.of(), List.of(), List.of(), List.of());
-        }
-
-        public static CatalogTable functionBacked(
-                String schema, String name, byte[] columns, String comment,
-                String scanFunction) {
-            return new CatalogTable(schema, name, columns, comment, Map.of(),
-                    scanFunction, List.of(), Map.of(), null, null, false, true);
-        }
-
-        public CatalogTable withCardinality(long estimate, long max) {
-            return new CatalogTable(schema, name, columns, comment, tags,
-                    scanFunctionName, scanFunctionPositional, scanFunctionNamed,
-                    estimate, max, true, inlineScanFunction,
-                    primaryKey, uniqueConstraints, checkConstraints, foreignKeys);
-        }
-
-        /** Same backing function but skip the {@code TableInfo.scan_function}
-         * inline so the C++ extension fires {@code catalog_table_scan_function_get}. */
-        public CatalogTable withRpcScanFunction() {
-            return new CatalogTable(schema, name, columns, comment, tags,
-                    scanFunctionName, scanFunctionPositional, scanFunctionNamed,
-                    cardinalityEstimate, cardinalityMax, inlineCardinality, false,
-                    primaryKey, uniqueConstraints, checkConstraints, foreignKeys);
-        }
-
-        /** Attach PK/UNIQUE/CHECK/FK constraints to this table. */
-        public CatalogTable withConstraints(List<List<Integer>> pk,
-                                              List<List<Integer>> unique,
-                                              List<String> check,
-                                              List<ForeignKey> fks) {
-            return new CatalogTable(schema, name, columns, comment, tags,
-                    scanFunctionName, scanFunctionPositional, scanFunctionNamed,
-                    cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
-                    pk == null ? List.of() : pk,
-                    unique == null ? List.of() : unique,
-                    check == null ? List.of() : check,
-                    fks == null ? List.of() : fks);
-        }
-    }
 
     private final List<CatalogTable> catalogTables = new ArrayList<>();
 

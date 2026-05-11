@@ -49,6 +49,10 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import farm.query.vgi.catalog.CatalogTable;
+import farm.query.vgi.catalog.Macro;
+import farm.query.vgi.catalog.MacroType;
+import farm.query.vgi.catalog.View;
 
 public final class VgiServiceImpl implements VgiService {
 
@@ -63,14 +67,20 @@ public final class VgiServiceImpl implements VgiService {
      * {@link BindResponse#opaque_data} and echoed back via
      * {@link InitRequest#bind_opaque_data}. Concurrent in-flight calls to the
      * same function (POSITIONAL JOIN, self-join) get distinct tokens.
+     *
+     * <p>Bounded to avoid unbounded growth when bind/init isn't followed by
+     * cleanup (cancelled query plans, statistics fan-out). Entries are
+     * normally short-lived; the cap is sized for the worst-case planner fan-out.</p>
      */
-    private final java.util.Map<String, BoundEntry> pendingBinds = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final int MAX_PENDING_BINDS = 4096;
+    private static final int MAX_TIO_EXECUTIONS = 1024;
+    private final java.util.Map<String, BoundEntry> pendingBinds = BoundedMap.create(MAX_PENDING_BINDS);
     /**
      * Per-execution table-in-out exchange states, keyed by hex execution_id.
      * Survives the INPUT→FINALIZE phase boundary so that buffered state
      * accumulated during exchange ticks can be drained at finalize time.
      */
-    private final java.util.Map<String, TioExecutionState> tioExecutions = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<String, TioExecutionState> tioExecutions = BoundedMap.create(MAX_TIO_EXECUTIONS);
 
     /** Snapshot of an in-flight TIO execution, kept alive for FINALIZE-phase init. */
     private record TioExecutionState(TableInOutFunction fn, TableInOutExchangeState state,
@@ -788,7 +798,7 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_id, String name, byte[] transaction_id) {
         List<byte[]> items = new ArrayList<>();
         String dv = attach_id == null ? null : attachDataVersions.get(bytesKey(attach_id));
-        for (Worker.CatalogTable t : worker.catalogTables()) {
+        for (CatalogTable t : worker.catalogTables()) {
             if (!t.schema().equals(name)) continue;
             // Hide per-version variant tables (e.g. versioned_data_v1,
             // animals_v_1_0_0) from table listings — they are dispatched
@@ -807,7 +817,7 @@ public final class VgiServiceImpl implements VgiService {
                     && SemverHelpers.compareVersions(dv, "2.0.0") < 0) continue;
             if (isVersionedTables && "animals".equals(t.name()) && dv != null
                     && SemverHelpers.compareVersions(dv, "3.0.0") >= 0) continue;
-            Worker.CatalogTable resolved = dv == null ? t : resolveVersion(t, "data_version", dv);
+            CatalogTable resolved = dv == null ? t : resolveVersion(t, "data_version", dv);
             items.add(TableInfoSerializer.serialize(toTableInfo(resolved)));
         }
         return new ItemsResponse(items);
@@ -829,9 +839,9 @@ public final class VgiServiceImpl implements VgiService {
                 effectiveAtValue = dv;
             }
         }
-        for (Worker.CatalogTable t : worker.catalogTables()) {
+        for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
-                Worker.CatalogTable resolved = resolveVersion(t, effectiveAtUnit, effectiveAtValue);
+                CatalogTable resolved = resolveVersion(t, effectiveAtUnit, effectiveAtValue);
                 if (resolved.scanFunctionName() == null) break;
                 byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
                         resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
@@ -866,9 +876,9 @@ public final class VgiServiceImpl implements VgiService {
                 return ItemsResponse.empty();
             }
         }
-        for (Worker.CatalogTable t : worker.catalogTables()) {
+        for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
-                Worker.CatalogTable resolved = resolveVersion(t, effectiveAtUnit, effectiveAtValue);
+                CatalogTable resolved = resolveVersion(t, effectiveAtUnit, effectiveAtValue);
                 return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(resolved))));
             }
         }
@@ -882,16 +892,16 @@ public final class VgiServiceImpl implements VgiService {
      * pass through unchanged. Throws if N is out of range so DuckDB surfaces
      * "Unknown version" / "table did not exist before <year>" cleanly.
      */
-    private Worker.CatalogTable resolveVersion(Worker.CatalogTable t, String at_unit, String at_value) {
+    private CatalogTable resolveVersion(CatalogTable t, String at_unit, String at_value) {
         if (at_unit == null || at_value == null || at_unit.isEmpty()) return t;
         if ("data_version".equalsIgnoreCase(at_unit)) {
             // Try a registered "<name>_v_<X>_<Y>_<Z>" variant — used by
             // version-aware catalog tables that aren't time-travel tables.
             String suffix = "_v_" + at_value.replace('.', '_');
             String dvName = t.name() + suffix;
-            for (Worker.CatalogTable vt : worker.catalogTables()) {
+            for (CatalogTable vt : worker.catalogTables()) {
                 if (vt.schema().equals(t.schema()) && vt.name().equals(dvName)) {
-                    return new Worker.CatalogTable(
+                    return new CatalogTable(
                             t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
                             vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
                             null, null, false, true,
@@ -941,9 +951,9 @@ public final class VgiServiceImpl implements VgiService {
         // indices baked into PK/UNIQUE/FK refer to the *default* schema and
         // would point past the end on older versions with fewer columns.
         String versionedName = t.name() + "_v" + version;
-        for (Worker.CatalogTable vt : worker.catalogTables()) {
+        for (CatalogTable vt : worker.catalogTables()) {
             if (vt.schema().equals(t.schema()) && vt.name().equals(versionedName)) {
-                return new Worker.CatalogTable(
+                return new CatalogTable(
                         t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
                         vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
                         null, null, false, true,
@@ -965,7 +975,7 @@ public final class VgiServiceImpl implements VgiService {
         return out;
     }
 
-    private farm.query.vgi.protocol.TableInfo toTableInfo(Worker.CatalogTable t) {
+    private farm.query.vgi.protocol.TableInfo toTableInfo(CatalogTable t) {
         byte[] scanFn = null;
         if (t.scanFunctionName() != null && t.inlineScanFunction()) {
             scanFn = ScanFunctionResultEncoder.encode(
@@ -977,7 +987,7 @@ public final class VgiServiceImpl implements VgiService {
         List<Integer> notNullCols = extractNotNullColumnIndices(t.columns());
         List<byte[]> foreignKeys = new ArrayList<>();
         if (t.foreignKeys() != null) {
-            for (Worker.CatalogTable.ForeignKey fk : t.foreignKeys()) {
+            for (CatalogTable.ForeignKey fk : t.foreignKeys()) {
                 foreignKeys.add(ForeignKeySerializer.serialize(fk));
             }
         }
@@ -1015,7 +1025,7 @@ public final class VgiServiceImpl implements VgiService {
         if ("versioned_tables".equals(worker.catalogName())) {
             return new ItemsResponse(items);
         }
-        for (Worker.View v : worker.views()) {
+        for (View v : worker.views()) {
             if (!v.schema().equals(name)) continue;
             items.add(RecordCodec.serializeToBytes(new farm.query.vgi.protocol.ViewInfo(
                     v.comment(), v.tags(), v.name(), v.schema(), v.definition())));
@@ -1025,7 +1035,7 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public ItemsResponse catalog_view_get(byte[] attach_id, String schema_name, String name, byte[] transaction_id) {
-        for (Worker.View v : worker.views()) {
+        for (View v : worker.views()) {
             if (v.schema().equals(schema_name) && v.name().equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
                         new farm.query.vgi.protocol.ViewInfo(v.comment(), v.tags(),
@@ -1043,9 +1053,9 @@ public final class VgiServiceImpl implements VgiService {
         boolean wantTable = type == null || type.equalsIgnoreCase("table")
                 || type.equalsIgnoreCase("table_macro");
         List<byte[]> items = new ArrayList<>();
-        for (Worker.Macro m : worker.macros()) {
+        for (Macro m : worker.macros()) {
             if (!m.schema().equals(name)) continue;
-            boolean isScalar = m.macroType() == Worker.MacroType.SCALAR;
+            boolean isScalar = m.macroType() == MacroType.SCALAR;
             if (isScalar && !wantScalar) continue;
             if (!isScalar && !wantTable) continue;
             items.add(MacroInfoSerializer.serialize(toMacroInfo(m)));
@@ -1055,7 +1065,7 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public ItemsResponse catalog_macro_get(byte[] attach_id, String schema_name, String name, byte[] transaction_id) {
-        for (Worker.Macro m : worker.macros()) {
+        for (Macro m : worker.macros()) {
             if (m.schema().equals(schema_name) && m.name().equals(name)) {
                 return new ItemsResponse(List.of(MacroInfoSerializer.serialize(toMacroInfo(m))));
             }
@@ -1063,8 +1073,8 @@ public final class VgiServiceImpl implements VgiService {
         return ItemsResponse.empty();
     }
 
-    private static farm.query.vgi.protocol.MacroInfo toMacroInfo(Worker.Macro m) {
-        String macroType = m.macroType() == Worker.MacroType.SCALAR ? "scalar" : "table";
+    private static farm.query.vgi.protocol.MacroInfo toMacroInfo(Macro m) {
+        String macroType = m.macroType() == MacroType.SCALAR ? "scalar" : "table";
         byte[] defaults = MacroDefaultsEncoder.encode(m.parameterDefaults());
         return new farm.query.vgi.protocol.MacroInfo(
                 m.comment(), m.tags(), m.name(), m.schema(), macroType,

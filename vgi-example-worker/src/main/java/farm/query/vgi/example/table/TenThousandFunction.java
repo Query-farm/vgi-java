@@ -48,16 +48,10 @@ public final class TenThousandFunction implements TableFunction {
         public State() {}
         State(BatchState batch) { this.batch = batch; }
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            if (batch.done()) { out.finish(); return; }
-            int n = batch.nextBatchSize();
-            long start = batch.index();
-            VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT_SCHEMA, Allocators.root());
-            root.allocateNew();
-            BigIntVector v = (BigIntVector) root.getVector("n");
-            for (int i = 0; i < n; i++) v.setSafe(i, start + i);
-            root.setRowCount(n);
-            out.emit(root);
-            batch.advance(n);
+            farm.query.vgi.internal.BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, null, out, (root, n, start) -> {
+                BigIntVector v = (BigIntVector) root.getVector("n");
+                for (int i = 0; i < n; i++) v.setSafe(i, start + i);
+            });
         }
     }
 }

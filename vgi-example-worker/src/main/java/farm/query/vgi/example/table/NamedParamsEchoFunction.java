@@ -86,28 +86,22 @@ public final class NamedParamsEchoFunction implements TableFunction {
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            if (batch.done()) { out.finish(); return; }
-            int n = batch.nextBatchSize();
-            long start = batch.index();
-            VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT_SCHEMA, Allocators.root());
-            root.allocateNew();
-            BigIntVector id = (BigIntVector) root.getVector("id");
-            VarCharVector g = (VarCharVector) root.getVector("greeting");
-            BigIntVector v = (BigIntVector) root.getVector("value");
-            Float8Vector fv = (Float8Vector) root.getVector("float_value");
-            BitVector en = (BitVector) root.getVector("enabled");
             Text greetingText = new Text(greeting);
-            for (int i = 0; i < n; i++) {
-                long row = start + i;
-                id.setSafe(i, row);
-                g.setSafe(i, greetingText);
-                v.setSafe(i, row * multiplier);
-                fv.setSafe(i, (double) row * scale);
-                en.setSafe(i, enabled ? 1 : 0);
-            }
-            root.setRowCount(n);
-            out.emit(root);
-            batch.advance(n);
+            farm.query.vgi.internal.BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, null, out, (root, n, start) -> {
+                BigIntVector id = (BigIntVector) root.getVector("id");
+                VarCharVector g = (VarCharVector) root.getVector("greeting");
+                BigIntVector v = (BigIntVector) root.getVector("value");
+                Float8Vector fv = (Float8Vector) root.getVector("float_value");
+                BitVector en = (BitVector) root.getVector("enabled");
+                for (int i = 0; i < n; i++) {
+                    long row = start + i;
+                    id.setSafe(i, row);
+                    g.setSafe(i, greetingText);
+                    v.setSafe(i, row * multiplier);
+                    fv.setSafe(i, (double) row * scale);
+                    en.setSafe(i, enabled ? 1 : 0);
+                }
+            });
         }
     }
 }

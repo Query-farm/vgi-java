@@ -100,22 +100,10 @@ public final class SequenceFunction implements TableFunction {
 
         @Override
         public void produceTick(OutputCollector out, CallContext ctx) {
-            if (batch.done()) {
-                out.finish();
-                return;
-            }
-            int n = batch.nextBatchSize();
-            long start = batch.index();
-            VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT_SCHEMA, Allocators.root());
-            root.allocateNew();
-            BigIntVector v = (BigIntVector) root.getVector("n");
-            for (int i = 0; i < n; i++) {
-                v.setSafe(i, (start + i) * increment);
-            }
-            root.setRowCount(n);
-            if (filters != null) root = filters.apply(root);
-            out.emit(root);
-            batch.advance(n);
+            farm.query.vgi.internal.BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, filters, out, (root, n, start) -> {
+                BigIntVector v = (BigIntVector) root.getVector("n");
+                for (int i = 0; i < n; i++) v.setSafe(i, (start + i) * increment);
+            });
         }
     }
 }

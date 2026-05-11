@@ -76,6 +76,10 @@ import farm.query.vgi.example.tableinout.SumAllColumnsFunction;
 import farm.query.vgi.types.Schemas;
 
 import java.util.Map;
+import farm.query.vgi.catalog.CatalogTable;
+import farm.query.vgi.catalog.Macro;
+import farm.query.vgi.catalog.MacroType;
+import farm.query.vgi.catalog.View;
 
 public final class Main {
 
@@ -156,16 +160,16 @@ public final class Main {
      *  fixture if it knows about {@code name}; otherwise metadata-only (SELECT
      *  fails cleanly rather than crashing on a column-count mismatch).
      */
-    private static Worker.CatalogTable stubTable(String schema, String name, String comment,
+    private static CatalogTable stubTable(String schema, String name, String comment,
                                                   org.apache.arrow.vector.types.pojo.Field... fields) {
         boolean hasData = farm.query.vgi.example.table.CannedDataFunction.has(name);
         if (hasData) {
-            return new Worker.CatalogTable(
+            return new CatalogTable(
                     schema, name, cols(fields), comment, java.util.Map.of(),
                     "_table_data", java.util.List.of((Object) name), java.util.Map.of(),
                     null, null, false, /*inlineScanFunction=*/true);
         }
-        return new Worker.CatalogTable(
+        return new CatalogTable(
                 schema, name, cols(fields), comment, java.util.Map.of(),
                 null, java.util.List.of(), java.util.Map.of(),
                 null, null, false, false);
@@ -392,21 +396,21 @@ public final class Main {
     }
 
     private static void registerViews(Worker w) {
-        w.registerView(new Worker.View(
+        w.registerView(new View(
                         "main", "first_ten",
                         "SELECT * FROM sequence(10)", "First 10 integers"))
-                .registerView(new Worker.View(
+                .registerView(new View(
                         "main", "even_numbers",
                         "SELECT * FROM sequence(100) WHERE n % 2 = 0",
                         "Even numbers from 0 to 98"))
-                .registerView(new Worker.View(
+                .registerView(new View(
                         "data", "small_numbers",
                         "SELECT * FROM example.main.make_series(10)",
                         "Numbers less than 10"));
     }
 
     private static void registerCatalogTables(Worker w) {
-        w.registerCatalogTable(Worker.CatalogTable.functionBacked(
+        w.registerCatalogTable(CatalogTable.functionBacked(
                         "data", "ten_thousand_table",
                         farm.query.vgi.internal.SchemaUtil.serializeSchema(
                                 new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
@@ -415,7 +419,7 @@ public final class Main {
                                                         Schemas.INT64, null), null)))),
                         "Function-backed table over the no-arg ten_thousand function",
                         "ten_thousand"))
-                .registerCatalogTable(new Worker.CatalogTable(
+                .registerCatalogTable(new CatalogTable(
                         "data", "numbers",
                         farm.query.vgi.internal.SchemaUtil.serializeSchema(
                                 new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
@@ -428,7 +432,7 @@ public final class Main {
                         java.util.List.of((Object) 100L),
                         java.util.Map.of(),
                         100L, 100L, true, /*inlineScanFunction=*/false))
-                .registerCatalogTable(new Worker.CatalogTable(
+                .registerCatalogTable(new CatalogTable(
                         "data", "large_sequence",
                         farm.query.vgi.internal.SchemaUtil.serializeSchema(
                                 new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
@@ -441,7 +445,7 @@ public final class Main {
                         java.util.List.of((Object) 1_000_001L),
                         java.util.Map.of(),
                         1_000_001L, 1_000_001L, true, /*inlineScanFunction=*/true))
-                .registerCatalogTable(Worker.CatalogTable.functionBacked(
+                .registerCatalogTable(CatalogTable.functionBacked(
                                 "data", "cardinality_inlined_table",
                                 farm.query.vgi.internal.SchemaUtil.serializeSchema(
                                         new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
@@ -482,7 +486,7 @@ public final class Main {
                                 java.util.List.of(java.util.List.of(0)),               // PK: id
                                 java.util.List.of(java.util.List.of(2)),               // UNIQUE: email
                                 java.util.List.of(),
-                                java.util.List.of(new Worker.CatalogTable.ForeignKey(
+                                java.util.List.of(new CatalogTable.ForeignKey(
                                         java.util.List.of("department_id"),
                                         java.util.List.of("id"),
                                         "data", "departments"))))
@@ -511,7 +515,7 @@ public final class Main {
                                 java.util.List.of(java.util.List.of(0, 1)),            // PK: (department_id, project_code)
                                 java.util.List.of(),
                                 java.util.List.of(),
-                                java.util.List.of(new Worker.CatalogTable.ForeignKey(
+                                java.util.List.of(new CatalogTable.ForeignKey(
                                         java.util.List.of("department_id"),
                                         java.util.List.of("id"),
                                         "data", "departments"))))
@@ -534,7 +538,7 @@ public final class Main {
                         "Table with string row_id",
                         rowIdCol("row_id", Schemas.UTF8),
                         col("payload", Schemas.UTF8, true)))
-                .registerCatalogTable(new Worker.CatalogTable(
+                .registerCatalogTable(new CatalogTable(
                         "data", "rowid_struct",
                         cols(rowidStructField(),
                                 col("payload", Schemas.UTF8, true)),
@@ -568,7 +572,7 @@ public final class Main {
                                 java.util.List.of(java.util.List.of(0)),               // PK: id
                                 java.util.List.of(java.util.List.of(2)),               // UNIQUE: email
                                 java.util.List.of(),
-                                java.util.List.of(new Worker.CatalogTable.ForeignKey(
+                                java.util.List.of(new CatalogTable.ForeignKey(
                                         java.util.List.of("department_id"),
                                         java.util.List.of("id"),
                                         "data", "departments"))))
@@ -630,17 +634,17 @@ public final class Main {
     }
 
     private static void registerMacros(Worker w) {
-        w.registerMacro(new Worker.Macro(
-                        "main", "vgi_multiply", Worker.MacroType.SCALAR,
+        w.registerMacro(new Macro(
+                        "main", "vgi_multiply", MacroType.SCALAR,
                         java.util.List.of("x", "y"), "x * y", "Multiply two values"))
-                .registerMacro(new Worker.Macro(
-                        "main", "vgi_clamp", Worker.MacroType.SCALAR,
+                .registerMacro(new Macro(
+                        "main", "vgi_clamp", MacroType.SCALAR,
                         java.util.List.of("val", "lo", "hi"),
                         clampDefaults(),
                         "GREATEST(lo, LEAST(hi, val))",
                         "Clamp a value between lo and hi (defaults: 0..100)"))
-                .registerMacro(new Worker.Macro(
-                        "main", "vgi_range_table", Worker.MacroType.TABLE,
+                .registerMacro(new Macro(
+                        "main", "vgi_range_table", MacroType.TABLE,
                         java.util.List.of("n"),
                         "SELECT * FROM range(n)",
                         "Table macro returning range of values"));

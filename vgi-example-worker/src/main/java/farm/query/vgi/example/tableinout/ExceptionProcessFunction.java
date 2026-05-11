@@ -46,7 +46,7 @@ public final class ExceptionProcessFunction extends SumAllColumnsFunction {
         Map<String, Double> zeroFloats = new HashMap<>();
         for (String k : s.floatSums.keySet()) zeroFloats.put(k, 0.0);
         SumAllColumnsFunction.SumState zero =
-                new SumAllColumnsFunction.SumState(zeroInts, zeroFloats, s.outputSchemaIpc);
+                new SumAllColumnsFunction.SumState(zeroInts, zeroFloats, s.outputSchema);
         return super.finalizeBatches(zero, params);
     }
 
@@ -60,7 +60,8 @@ public final class ExceptionProcessFunction extends SumAllColumnsFunction {
                 floatSums.put(f.getName(), 0.0);
             }
         }
-        return new ThrowingState(intSums, floatSums, SchemaUtil.serializeSchema(params.outputSchema()));
+        return new ThrowingState(intSums, floatSums,
+                new farm.query.vgi.types.CachedSchema(params.outputSchema()));
     }
 
     public static final class ThrowingState extends SumAllColumnsFunction.SumState {
@@ -68,8 +69,9 @@ public final class ExceptionProcessFunction extends SumAllColumnsFunction {
 
         public ThrowingState() {}
 
-        ThrowingState(Map<String, Long> intSums, Map<String, Double> floatSums, byte[] outputSchemaIpc) {
-            super(intSums, floatSums, outputSchemaIpc);
+        ThrowingState(Map<String, Long> intSums, Map<String, Double> floatSums,
+                       farm.query.vgi.types.CachedSchema outputSchema) {
+            super(intSums, floatSums, outputSchema);
         }
 
         @Override

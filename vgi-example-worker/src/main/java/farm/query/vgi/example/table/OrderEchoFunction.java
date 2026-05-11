@@ -13,6 +13,7 @@ import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
+import farm.query.vgi.types.CachedSchema;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
 import farm.query.vgirpc.wire.Allocators;
@@ -72,7 +73,7 @@ public final class OrderEchoFunction implements TableFunction {
                 ? "(none)" : params.orderByNullOrder();
         long limit = params.orderByLimit() == null ? -1L : params.orderByLimit();
         return new State(new BatchState(count, batchSize), col, dir, nul, limit,
-                farm.query.vgi.internal.SchemaUtil.serializeSchema(params.outputSchema()),
+                new CachedSchema(params.outputSchema()),
                 FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
     }
 
@@ -82,74 +83,59 @@ public final class OrderEchoFunction implements TableFunction {
         public String orderDir;
         public String orderNull;
         public long orderLimit;
-        public byte[] outputSchemaIpc;
+        public CachedSchema outputSchema;
         public FilterApplier filters;
-
-        private transient Schema cachedSchema;
 
         public State() {}
 
         State(BatchState batch, String orderCol, String orderDir, String orderNull, long orderLimit,
-                byte[] outputSchemaIpc, FilterApplier filters) {
+                CachedSchema outputSchema, FilterApplier filters) {
             this.batch = batch;
             this.orderCol = orderCol;
             this.orderDir = orderDir;
             this.orderNull = orderNull;
             this.orderLimit = orderLimit;
-            this.outputSchemaIpc = outputSchemaIpc;
+            this.outputSchema = outputSchema;
             this.filters = filters;
         }
 
-        private Schema schema() {
-            if (cachedSchema == null) cachedSchema =
-                    farm.query.vgi.internal.SchemaUtil.deserializeSchema(outputSchemaIpc);
-            return cachedSchema;
-        }
-
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            if (batch.done()) { out.finish(); return; }
-            int n = batch.nextBatchSize();
-            long start = batch.index();
-            Schema s = schema();
-            VectorSchemaRoot root = VectorSchemaRoot.create(s, Allocators.root());
-            root.allocateNew();
-            for (Field f : s.getFields()) {
-                FieldVector v = root.getVector(f.getName());
-                switch (f.getName()) {
-                    case "n" -> {
-                        BigIntVector b = (BigIntVector) v;
-                        for (int i = 0; i < n; i++) b.setSafe(i, start + i);
+            Schema s = outputSchema.get();
+            farm.query.vgi.internal.BatchUtil.produceBatch(batch, s, filters, out, (root, n, start) -> {
+                for (Field f : s.getFields()) {
+                    FieldVector v = root.getVector(f.getName());
+                    switch (f.getName()) {
+                        case "n" -> {
+                            BigIntVector b = (BigIntVector) v;
+                            for (int i = 0; i < n; i++) b.setSafe(i, start + i);
+                        }
+                        case "s" -> {
+                            VarCharVector vc = (VarCharVector) v;
+                            for (int i = 0; i < n; i++) vc.setSafe(i, new Text("row_" + (start + i)));
+                        }
+                        case "order_column" -> {
+                            VarCharVector vc = (VarCharVector) v;
+                            Text t = new Text(orderCol);
+                            for (int i = 0; i < n; i++) vc.setSafe(i, t);
+                        }
+                        case "order_direction" -> {
+                            VarCharVector vc = (VarCharVector) v;
+                            Text t = new Text(orderDir);
+                            for (int i = 0; i < n; i++) vc.setSafe(i, t);
+                        }
+                        case "order_null_order" -> {
+                            VarCharVector vc = (VarCharVector) v;
+                            Text t = new Text(orderNull);
+                            for (int i = 0; i < n; i++) vc.setSafe(i, t);
+                        }
+                        case "order_limit" -> {
+                            BigIntVector b = (BigIntVector) v;
+                            for (int i = 0; i < n; i++) b.setSafe(i, orderLimit);
+                        }
+                        default -> {}
                     }
-                    case "s" -> {
-                        VarCharVector vc = (VarCharVector) v;
-                        for (int i = 0; i < n; i++) vc.setSafe(i, new Text("row_" + (start + i)));
-                    }
-                    case "order_column" -> {
-                        VarCharVector vc = (VarCharVector) v;
-                        Text t = new Text(orderCol);
-                        for (int i = 0; i < n; i++) vc.setSafe(i, t);
-                    }
-                    case "order_direction" -> {
-                        VarCharVector vc = (VarCharVector) v;
-                        Text t = new Text(orderDir);
-                        for (int i = 0; i < n; i++) vc.setSafe(i, t);
-                    }
-                    case "order_null_order" -> {
-                        VarCharVector vc = (VarCharVector) v;
-                        Text t = new Text(orderNull);
-                        for (int i = 0; i < n; i++) vc.setSafe(i, t);
-                    }
-                    case "order_limit" -> {
-                        BigIntVector b = (BigIntVector) v;
-                        for (int i = 0; i < n; i++) b.setSafe(i, orderLimit);
-                    }
-                    default -> {}
                 }
-            }
-            root.setRowCount(n);
-            if (filters != null) root = filters.apply(root);
-            out.emit(root);
-            batch.advance(n);
+            });
         }
     }
 }
