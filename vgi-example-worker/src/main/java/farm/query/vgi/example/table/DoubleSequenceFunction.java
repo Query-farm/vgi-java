@@ -5,28 +5,21 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
-import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.BatchState;
-import farm.query.vgi.table.TableBindParams;
-import farm.query.vgi.table.TableFunction;
+import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
-import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.Float8Vector;
-import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
 
-public final class DoubleSequenceFunction implements TableFunction {
+public final class DoubleSequenceFunction extends CountdownTableFunction {
 
-    private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            Schemas.nullable("n", Schemas.FLOAT64)));
-    private static final byte[] OUTPUT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+    private static final Schema OUTPUT_SCHEMA = Schemas.of(Schemas.nullable("n", Schemas.FLOAT64));
 
     @Override public String name() { return "double_sequence"; }
 
@@ -34,15 +27,10 @@ public final class DoubleSequenceFunction implements TableFunction {
         return FunctionMetadata.describe("Generates a sequence of floating-point numbers from 0 to n-1");
     }
 
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                ArgSpec.named("batch_size", Schemas.INT64, "1000"),
-                ArgSpec.named("increment", Schemas.FLOAT64, "1.0"));
-    }
+    @Override protected Schema outputSchema() { return OUTPUT_SCHEMA; }
 
-    @Override public BindResponse onBind(TableBindParams params) {
-        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
+    @Override protected List<ArgSpec> extraArgs() {
+        return List.of(ArgSpec.named("increment", Schemas.FLOAT64, "1.0"));
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {

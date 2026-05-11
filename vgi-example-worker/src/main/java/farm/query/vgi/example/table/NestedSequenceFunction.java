@@ -5,11 +5,9 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
-import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.table.BatchState;
-import farm.query.vgi.table.TableBindParams;
-import farm.query.vgi.table.TableFunction;
+import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
@@ -37,7 +35,7 @@ import java.util.List;
  * {@code history: LIST<BIGINT>}. Opts into projection + filter pushdown so
  * DuckDB can prune unwanted columns and push WHERE clauses.
  */
-public final class NestedSequenceFunction implements TableFunction {
+public final class NestedSequenceFunction extends CountdownTableFunction {
 
     private static final FieldType F_NULLABLE_INT64 =
             new FieldType(true, Schemas.INT64, null);
@@ -54,8 +52,6 @@ public final class NestedSequenceFunction implements TableFunction {
             new Field("history",
                     new FieldType(true, new ArrowType.List(), null),
                     List.of(new Field("item", F_NULLABLE_INT64, null)))));
-    private static final byte[] FULL_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(FULL_SCHEMA);
 
     @Override public String name() { return "nested_sequence"; }
 
@@ -64,15 +60,10 @@ public final class NestedSequenceFunction implements TableFunction {
                 .withPushdown(/*projection=*/true, /*filter=*/true, /*autoApply=*/true);
     }
 
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                ArgSpec.named("batch_size", Schemas.INT64, "1000"),
-                ArgSpec.named("history_size", Schemas.INT64, "20"));
-    }
+    @Override protected Schema outputSchema() { return FULL_SCHEMA; }
 
-    @Override public BindResponse onBind(TableBindParams params) {
-        return BindResponse.forSchema(FULL_SCHEMA_IPC);
+    @Override protected List<ArgSpec> extraArgs() {
+        return List.of(ArgSpec.named("history_size", Schemas.INT64, "20"));
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {

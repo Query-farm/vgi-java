@@ -5,30 +5,23 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
-import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.table.BatchState;
-import farm.query.vgi.table.TableBindParams;
-import farm.query.vgi.table.TableFunction;
+import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
-import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
 
 /** {@code sequence(count BIGINT, batch_size := 1000, increment := 1)}. */
-public final class SequenceFunction implements TableFunction {
+public final class SequenceFunction extends CountdownTableFunction {
 
-    private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            Schemas.nullable("n", Schemas.INT64)));
-    private static final byte[] OUTPUT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+    private static final Schema OUTPUT_SCHEMA = Schemas.of(Schemas.nullable("n", Schemas.INT64));
 
     @Override public String name() { return "sequence"; }
 
@@ -37,27 +30,19 @@ public final class SequenceFunction implements TableFunction {
                 .withPushdown(false, true, false).withCategories("generator", "utility");
     }
 
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                ArgSpec.named("batch_size", Schemas.INT64, "1000"),
-                ArgSpec.named("increment", Schemas.INT64, "1"));
-    }
+    @Override protected Schema outputSchema() { return OUTPUT_SCHEMA; }
 
-    @Override public BindResponse onBind(TableBindParams params) {
-        validate(params.arguments().named());
-        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
+    @Override protected List<ArgSpec> extraArgs() {
+        return List.of(ArgSpec.named("increment", Schemas.INT64, "1"));
     }
 
     private static void validate(java.util.Map<String, Object> named) {
-        // Required positional must be non-NULL.
         if (named.containsKey("positional_0") && named.get("positional_0") == null) {
             throw new IllegalArgumentException("count cannot be NULL");
         }
         if (named.get("count") == null && named.containsKey("count")) {
             throw new IllegalArgumentException("count cannot be NULL");
         }
-        // Optional named args: NULL is a hard error (different from "absent").
         if (named.containsKey("batch_size") && named.get("batch_size") == null) {
             throw new IllegalArgumentException("batch_size cannot be NULL");
         }
@@ -72,6 +57,12 @@ public final class SequenceFunction implements TableFunction {
         if (inc instanceof Number n && n.longValue() < 1L) {
             throw new IllegalArgumentException("increment must be >= 1, got " + n);
         }
+    }
+
+    @Override
+    public farm.query.vgi.protocol.BindResponse onBind(farm.query.vgi.table.TableBindParams params) {
+        validate(params.arguments().named());
+        return super.onBind(params);
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {

@@ -3,16 +3,13 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.internal.VectorProjector;
-import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.pushdown.PushdownFilters;
 import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import farm.query.vgi.table.BatchState;
-import farm.query.vgi.table.TableBindParams;
-import farm.query.vgi.table.TableFunction;
+import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.CachedSchema;
@@ -37,14 +34,12 @@ import java.util.List;
  * + {@link FunctionMetadata#autoApplyFilters}. We don't apply filters in
  * Java — DuckDB applies them post-emit to the data we return.
  */
-public final class FilterEchoFunction implements TableFunction {
+public final class FilterEchoFunction extends CountdownTableFunction {
 
-    private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
+    private static final Schema OUTPUT_SCHEMA = Schemas.of(
             Schemas.nullable("n", Schemas.INT64),
             Schemas.nullable("s", Schemas.UTF8),
-            Schemas.nullable("pushed_filters", Schemas.UTF8)));
-    private static final byte[] OUTPUT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+            Schemas.nullable("pushed_filters", Schemas.UTF8));
 
     @Override public String name() { return "filter_echo"; }
 
@@ -53,15 +48,9 @@ public final class FilterEchoFunction implements TableFunction {
                 .withPushdown(/*projection=*/true, /*filter=*/true, /*autoApply=*/true);
     }
 
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                ArgSpec.named("batch_size", Schemas.INT64, "2048"));
-    }
+    @Override protected Schema outputSchema() { return OUTPUT_SCHEMA; }
 
-    @Override public BindResponse onBind(TableBindParams params) {
-        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
-    }
+    @Override protected long defaultBatchSize() { return 2048L; }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();

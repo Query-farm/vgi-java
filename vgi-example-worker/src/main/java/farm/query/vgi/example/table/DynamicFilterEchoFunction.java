@@ -3,13 +3,10 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
-import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.PushdownFilters;
 import farm.query.vgi.pushdown.PushdownFiltersDecoder;
-import farm.query.vgi.table.TableBindParams;
-import farm.query.vgi.table.TableFunction;
+import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
@@ -36,13 +33,11 @@ import java.util.Map;
  * exercising the dynamic-filter wire path
  * ({@code vgi_pushdown_filters}, base64 IPC bytes).
  */
-public final class DynamicFilterEchoFunction implements TableFunction {
+public final class DynamicFilterEchoFunction extends CountdownTableFunction {
 
-    private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
+    private static final Schema OUTPUT_SCHEMA = Schemas.of(
             Schemas.nullable("n", Schemas.INT64),
-            Schemas.nullable("pushed_filters", Schemas.UTF8)));
-    private static final byte[] OUTPUT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+            Schemas.nullable("pushed_filters", Schemas.UTF8));
 
     @Override public String name() { return "dynamic_filter_echo"; }
     @Override public FunctionMetadata metadata() {
@@ -50,17 +45,8 @@ public final class DynamicFilterEchoFunction implements TableFunction {
                 "Generates descending integers, echoes dynamic tick filter per batch")
                 .withPushdown(/*projection=*/true, /*filter=*/true, /*autoApply=*/true);
     }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                ArgSpec.named("batch_size", Schemas.INT64, "100"));
-    }
-    @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
-
-    @Override public long cardinality(TableBindParams p) {
-        Object c = p.arguments().positionalAt(0);
-        return c instanceof Number n ? n.longValue() : -1L;
-    }
+    @Override protected Schema outputSchema() { return OUTPUT_SCHEMA; }
+    @Override protected long defaultBatchSize() { return 100L; }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();

@@ -5,10 +5,8 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
-import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.BatchState;
-import farm.query.vgi.table.TableBindParams;
-import farm.query.vgi.table.TableFunction;
+import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
@@ -32,12 +30,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * elapsed_ms} via the {@link TableFunction#dynamicToString} callback so
  * EXPLAIN ANALYZE can render them as Extra Info.
  */
-public final class ProfilingDemoFunction implements TableFunction {
+public final class ProfilingDemoFunction extends CountdownTableFunction {
 
-    private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
-            Schemas.nullable("n", Schemas.INT64)));
-    private static final byte[] OUTPUT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+    private static final Schema OUTPUT_SCHEMA = Schemas.of(Schemas.nullable("n", Schemas.INT64));
 
     /** Shared per-execution counters keyed by global_execution_id (hex). */
     private static final ConcurrentHashMap<String, ExecutionStats> STATS = new ConcurrentHashMap<>();
@@ -54,17 +49,10 @@ public final class ProfilingDemoFunction implements TableFunction {
     @Override public FunctionMetadata metadata() {
         return FunctionMetadata.describe("Sequence generator publishing diagnostics under EXPLAIN ANALYZE");
     }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
-                ArgSpec.named("batch_size", Schemas.INT64, "1024"),
-                ArgSpec.named("increment", Schemas.INT64, "1"));
-    }
-    @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
-
-    @Override public long cardinality(TableBindParams p) {
-        Object c = p.arguments().positionalAt(0);
-        return c instanceof Number n ? n.longValue() : -1L;
+    @Override protected Schema outputSchema() { return OUTPUT_SCHEMA; }
+    @Override protected long defaultBatchSize() { return 1024L; }
+    @Override protected List<ArgSpec> extraArgs() {
+        return List.of(ArgSpec.named("increment", Schemas.INT64, "1"));
     }
 
     @Override public TableProducerState createProducer(TableInitParams p) {
