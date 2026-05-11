@@ -28,8 +28,8 @@ public final class RandomBytesFunction implements ScalarFunction {
     }
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
-                new ArgSpec("seed", 0, Schemas.INT64, /*isConst=*/true),
-                new ArgSpec("byte_length", 1, Schemas.INT64, /*isConst=*/true));
+                ArgSpec.positional("seed", 0, Schemas.INT64),
+                ArgSpec.positional("byte_length", 1, Schemas.INT64));
     }
     @Override public BindResponse onBind(ScalarBindParams p) {
         Object lenObj = p.arguments().named().get("byte_length");

@@ -95,7 +95,7 @@ public final class AnyMixedFunctions {
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("width", 0, Schemas.INT64, /*isConst=*/true),
+                    ArgSpec.positional("width", 0, Schemas.INT64),
                     new ArgSpec("value", 1, Schemas.FLOAT64));
         }
         @Override public BindResponse onBind(ScalarBindParams p) { return BindResponse.forSchema(OUT); }
@@ -123,7 +123,7 @@ public final class AnyMixedFunctions {
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("prefix", 0, Schemas.UTF8, /*isConst=*/true),
+                    ArgSpec.positional("prefix", 0, Schemas.UTF8),
                     new ArgSpec("value", 1, Schemas.FLOAT64));
         }
         @Override public BindResponse onBind(ScalarBindParams p) { return BindResponse.forSchema(OUT); }

@@ -54,8 +54,7 @@ public final class SampleEchoFunction implements TableFunction {
 
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
-                new ArgSpec("count", 0, Schemas.INT64, "", true, true, "10",
-                        List.of(), false, false),
+                ArgSpec.positionalWithDefault("count", 0, Schemas.INT64, "10"),
                 ArgSpec.named("batch_size", Schemas.INT64, "2048"));
     }
 

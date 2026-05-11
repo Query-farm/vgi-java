@@ -85,7 +85,7 @@ public class ProjReproFullSchemaFunction implements TableFunction {
         return FunctionMetadata.describe("Projection-pushdown reproducer (emits full FIXED_SCHEMA)");
     }
     @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("n", 0, Schemas.INT64, /*isConst=*/true));
+        return List.of(ArgSpec.positional("n", 0, Schemas.INT64));
     }
     @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
     @Override public long cardinality(TableBindParams p) {

@@ -54,7 +54,7 @@ public final class CannedDataFunction implements TableFunction {
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("table_name", 0, Schemas.UTF8, /*isConst=*/true));
+        return List.of(ArgSpec.positional("table_name", 0, Schemas.UTF8));
     }
 
     @Override public BindResponse onBind(TableBindParams p) {

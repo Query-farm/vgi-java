@@ -40,7 +40,7 @@ public final class LoggingGeneratorFunction implements TableFunction {
         return FunctionMetadata.describe("Emits log messages during generation");
     }
     @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true));
+        return List.of(ArgSpec.positional("count", 0, Schemas.INT64));
     }
     @Override public BindResponse onBind(TableBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

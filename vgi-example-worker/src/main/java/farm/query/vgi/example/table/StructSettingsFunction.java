@@ -41,7 +41,7 @@ public final class StructSettingsFunction implements TableFunction {
         return FunctionMetadata.describe("Generate a sequence configured by a struct setting");
     }
     @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true));
+        return List.of(ArgSpec.positional("count", 0, Schemas.INT64));
     }
     @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
 

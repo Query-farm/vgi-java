@@ -43,7 +43,7 @@ public final class ScopedSecretDemoFunction implements TableFunction {
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("path", 0, Schemas.UTF8, /*isConst=*/true));
+        return List.of(ArgSpec.positional("path", 0, Schemas.UTF8));
     }
 
     @Override public BindResponse onBind(TableBindParams p) {

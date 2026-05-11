@@ -79,6 +79,20 @@ public record ArgSpec(
                 List.of(), false, false, false);
     }
 
+    /** Plain positional const argument with no default value. */
+    public static ArgSpec positional(String name, int position, ArrowType type) {
+        return new ArgSpec(name, position, type, "", true, false, "",
+                List.of(), false, false, false);
+    }
+
+    /** Positional const argument with a default value (used by fixtures
+     *  where the positional slot may be omitted at the call site). */
+    public static ArgSpec positionalWithDefault(String name, int position, ArrowType type,
+                                                  String defaultValue) {
+        return new ArgSpec(name, position, type, "", true, true, defaultValue,
+                List.of(), false, false, false);
+    }
+
     /** Positional varargs constant argument (e.g. {@code make_pairs(a, b, c, d, ...)}). */
     public static ArgSpec varargs(String name, int position, ArrowType type) {
         return new ArgSpec(name, position, type, "", true, false, "",

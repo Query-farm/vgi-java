@@ -29,8 +29,8 @@ public final class SlowCancellableInoutFunction extends PassthroughTIOFunction {
     }
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
-                new ArgSpec("sleep_ms", 0, Schemas.INT64, /*isConst=*/true),
-                new ArgSpec("probe_path", 1, Schemas.UTF8, /*isConst=*/true),
+                ArgSpec.positional("sleep_ms", 0, Schemas.INT64),
+                ArgSpec.positional("probe_path", 1, Schemas.UTF8),
                 ArgSpec.table("data", 2));
     }
 

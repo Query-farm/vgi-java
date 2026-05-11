@@ -34,7 +34,7 @@ public final class RepeatInputsFunction extends PassthroughTIOFunction {
 
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
-                new ArgSpec("repeat_count", 0, Schemas.INT64, /*isConst=*/true),
+                ArgSpec.positional("repeat_count", 0, Schemas.INT64),
                 ArgSpec.table("data", 1));
     }
 

@@ -28,7 +28,7 @@ public final class MultiplyFunction implements ScalarFunction {
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 new ArgSpec("value", 0, Schemas.INT64),
-                new ArgSpec("factor", 1, Schemas.INT64, /*isConst=*/true));
+                ArgSpec.positional("factor", 1, Schemas.INT64));
     }
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

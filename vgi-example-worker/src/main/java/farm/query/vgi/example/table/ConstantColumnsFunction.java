@@ -47,7 +47,7 @@ public final class ConstantColumnsFunction implements TableFunction {
 
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
-                new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
+                ArgSpec.positional("count", 0, Schemas.INT64),
                 new ArgSpec("values", 1, new ArrowType.Null(), "", true, false, "",
                         List.of(), /*varargs=*/true, /*anyType=*/true));
     }

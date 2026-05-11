@@ -66,7 +66,7 @@ public final class StubFunctions {
             super("expression_filter_test",
                     "Filter pushdown reproducer with expression filters",
                     new Schema(List.of(Schemas.nullable("n", Schemas.INT64))),
-                    List.of(new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true)));
+                    List.of(ArgSpec.positional("count", 0, Schemas.INT64)));
         }
     }
 
@@ -78,7 +78,7 @@ public final class StubFunctions {
                     new Schema(List.of(
                             Schemas.nullable("id", Schemas.INT64),
                             new Field("geom", new FieldType(true, new org.apache.arrow.vector.types.pojo.ArrowType.Binary(), null), null))),
-                    List.of(new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true)));
+                    List.of(ArgSpec.positional("count", 0, Schemas.INT64)));
         }
     }
 
@@ -90,7 +90,7 @@ public final class StubFunctions {
                     new Schema(List.of(
                             Schemas.nullable("id", Schemas.INT64),
                             Schemas.nullable("value", Schemas.UTF8))),
-                    List.of(new ArgSpec("version", 0, Schemas.INT64, /*isConst=*/true)));
+                    List.of(ArgSpec.positional("version", 0, Schemas.INT64)));
         }
     }
 

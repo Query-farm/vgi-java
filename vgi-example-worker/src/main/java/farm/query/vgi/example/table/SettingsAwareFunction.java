@@ -39,7 +39,7 @@ public final class SettingsAwareFunction implements TableFunction {
         return FunctionMetadata.describe("Generates data demonstrating settings are passed");
     }
     @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true));
+        return List.of(ArgSpec.positional("count", 0, Schemas.INT64));
     }
 
     private static Schema buildSchema(boolean verbose) {

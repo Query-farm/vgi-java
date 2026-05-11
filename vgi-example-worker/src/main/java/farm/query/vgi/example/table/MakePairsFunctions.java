@@ -63,8 +63,8 @@ public final class MakePairsFunctions {
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("start", 0, Schemas.INT64, true),
-                    new ArgSpec("stop", 1, Schemas.INT64, true));
+                    ArgSpec.positional("start", 0, Schemas.INT64),
+                    ArgSpec.positional("stop", 1, Schemas.INT64));
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
@@ -81,8 +81,8 @@ public final class MakePairsFunctions {
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("prefix", 0, Schemas.UTF8, true),
-                    new ArgSpec("suffix", 1, Schemas.UTF8, true));
+                    ArgSpec.positional("prefix", 0, Schemas.UTF8),
+                    ArgSpec.positional("suffix", 1, Schemas.UTF8));
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(STR_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
@@ -99,8 +99,8 @@ public final class MakePairsFunctions {
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("start", 0, Schemas.INT64, true),
-                    new ArgSpec("label", 1, Schemas.UTF8, true));
+                    ArgSpec.positional("start", 0, Schemas.INT64),
+                    ArgSpec.positional("label", 1, Schemas.UTF8));
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(MIXED_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {

@@ -43,7 +43,7 @@ public final class BinaryPacketFunction implements ScalarFunction {
         Field versionField = new Field("version",
                 new FieldType(true, Schemas.INT64, null), null);
         return List.of(
-                new ArgSpec("header", 0, Schemas.BINARY, /*isConst=*/true),
+                ArgSpec.positional("header", 0, Schemas.BINARY),
                 new ArgSpec("payload", 1, Schemas.BINARY),
                 ArgSpec.nested("config", 2,
                         ArrowType.Struct.INSTANCE,

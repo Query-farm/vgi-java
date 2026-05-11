@@ -41,7 +41,7 @@ public final class PercentileFunction implements AggregateFunction<PercentileFun
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
                 new ArgSpec("value", 0, Schemas.FLOAT64),
-                new ArgSpec("p", 1, Schemas.FLOAT64, /*isConst=*/true));
+                ArgSpec.positional("p", 1, Schemas.FLOAT64));
     }
     @Override public Schema outputSchema() { return OUTPUT_SCHEMA; }
     @Override public State newState() { return new State(); }

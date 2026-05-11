@@ -32,7 +32,7 @@ public final class HashSeedFunction implements ScalarFunction {
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("seed", 0, Schemas.INT64, /*isConst=*/true));
+        return List.of(ArgSpec.positional("seed", 0, Schemas.INT64));
     }
 
     @Override public BindResponse onBind(ScalarBindParams params) {

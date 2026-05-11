@@ -39,8 +39,8 @@ public final class ConditionalMessageFunction implements ScalarFunction {
 
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
-                new ArgSpec("repeat_count", 0, Schemas.INT64, /*isConst=*/true),
-                new ArgSpec("message", 1, Schemas.UTF8, /*isConst=*/true),
+                ArgSpec.positional("repeat_count", 0, Schemas.INT64),
+                ArgSpec.positional("message", 1, Schemas.UTF8),
                 new ArgSpec("condition", 2, Schemas.BOOL));
     }
 

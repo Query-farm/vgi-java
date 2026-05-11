@@ -97,7 +97,7 @@ public final class MakeSeriesFunctions {
         @Override public String name() { return "make_series"; }
         @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate integers from 0 to count-1"); }
         @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(new ArgSpec("count", 0, Schemas.INT64, true));
+            return List.of(ArgSpec.positional("count", 0, Schemas.INT64));
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
@@ -114,8 +114,8 @@ public final class MakeSeriesFunctions {
         @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate integers from start to stop-1"); }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("start", 0, Schemas.INT64, true),
-                    new ArgSpec("stop", 1, Schemas.INT64, true));
+                    ArgSpec.positional("start", 0, Schemas.INT64),
+                    ArgSpec.positional("stop", 1, Schemas.INT64));
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
@@ -134,9 +134,9 @@ public final class MakeSeriesFunctions {
         @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate integers from start to stop-1 with step"); }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("start", 0, Schemas.INT64, true),
-                    new ArgSpec("stop", 1, Schemas.INT64, true),
-                    new ArgSpec("step", 2, Schemas.INT64, true));
+                    ArgSpec.positional("start", 0, Schemas.INT64),
+                    ArgSpec.positional("stop", 1, Schemas.INT64),
+                    ArgSpec.positional("step", 2, Schemas.INT64));
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
@@ -157,7 +157,7 @@ public final class MakeSeriesFunctions {
         @Override public String name() { return "make_series"; }
         @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Parse comma-separated integers into rows"); }
         @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(new ArgSpec("values", 0, Schemas.UTF8, true));
+            return List.of(ArgSpec.positional("values", 0, Schemas.UTF8));
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
@@ -174,7 +174,7 @@ public final class MakeSeriesFunctions {
         @Override public String name() { return "make_series"; }
         @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate 10 float values with given step size"); }
         @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(new ArgSpec("step", 0, Schemas.FLOAT64, true));
+            return List.of(ArgSpec.positional("step", 0, Schemas.FLOAT64));
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(FLOAT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {

@@ -64,7 +64,7 @@ public final class FormatNumberFunctions {
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("precision", 0, Schemas.INT64, /*isConst=*/true),
+                    ArgSpec.positional("precision", 0, Schemas.INT64),
                     new ArgSpec("value", 1, Schemas.FLOAT64));
         }
         @Override public BindResponse onBind(ScalarBindParams params) {
@@ -85,8 +85,8 @@ public final class FormatNumberFunctions {
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("precision", 0, Schemas.INT64, /*isConst=*/true),
-                    new ArgSpec("prefix", 1, Schemas.UTF8, /*isConst=*/true),
+                    ArgSpec.positional("precision", 0, Schemas.INT64),
+                    ArgSpec.positional("prefix", 1, Schemas.UTF8),
                     new ArgSpec("value", 2, Schemas.FLOAT64));
         }
         @Override public BindResponse onBind(ScalarBindParams params) {

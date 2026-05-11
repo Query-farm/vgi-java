@@ -63,7 +63,7 @@ public final class RepeatValueFunctions {
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("count", 0, Schemas.INT64, true),
+                    ArgSpec.positional("count", 0, Schemas.INT64),
                     new ArgSpec("values", 1, Schemas.INT64, "", true, false, "",
                             List.of(), /*varargs=*/true, /*anyType=*/false));
         }
@@ -89,7 +89,7 @@ public final class RepeatValueFunctions {
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
-                    new ArgSpec("count", 0, Schemas.INT64, true),
+                    ArgSpec.positional("count", 0, Schemas.INT64),
                     new ArgSpec("values", 1, Schemas.UTF8, "", true, false, "",
                             List.of(), /*varargs=*/true, /*anyType=*/false));
         }

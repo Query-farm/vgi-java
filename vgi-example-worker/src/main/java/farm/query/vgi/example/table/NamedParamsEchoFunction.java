@@ -45,7 +45,7 @@ public final class NamedParamsEchoFunction implements TableFunction {
 
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
-                new ArgSpec("count", 0, Schemas.INT64, /*isConst=*/true),
+                ArgSpec.positional("count", 0, Schemas.INT64),
                 ArgSpec.named("greeting", Schemas.UTF8, "hello"),
                 ArgSpec.named("multiplier", Schemas.INT64, "1"),
                 ArgSpec.named("scale", Schemas.FLOAT64, "1.0"),
