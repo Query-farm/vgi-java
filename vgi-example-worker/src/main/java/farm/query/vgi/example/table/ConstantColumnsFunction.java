@@ -72,6 +72,8 @@ public final class ConstantColumnsFunction implements TableFunction {
             // List<int32> while writeListItem still calls bigInt() → wrong.
             // DictionaryEncoding (DuckDB ENUMs) is intentionally skipped:
             // ArgumentsParser delivers only the index byte.
+            Object val = positionals.get(i);
+
             boolean useArgField = argField != null
                     && argField.getDictionary() == null
                     && (argField.getType() instanceof ArrowType.Map
@@ -81,8 +83,21 @@ public final class ConstantColumnsFunction implements TableFunction {
                         new FieldType(true, argField.getType(), argField.getDictionary(),
                                 argField.getMetadata()),
                         argField.getChildren()));
+            } else if (argField != null && argField.getDictionary() != null) {
+                // ENUM: ArgumentsParser resolves the dict index to the
+                // underlying value (e.g. 'happy'). Re-infer the field type
+                // from the resolved value, not the dict-encoded index type.
+                fields.add(buildField("col_" + (i - 1), val, null));
+            } else if (argField != null
+                    && (wireType instanceof ArrowType.List
+                            || wireType instanceof ArrowType.FixedSizeList)) {
+                // LIST: preserve the bind-time child type (INTEGER[] is
+                // List<int32>, not List<int64>). The runtime-inference path
+                // in buildField widens everything to int64.
+                fields.add(new Field("col_" + (i - 1),
+                        new FieldType(true, wireType, null), argField.getChildren()));
             } else {
-                fields.add(buildField("col_" + (i - 1), positionals.get(i), wireType));
+                fields.add(buildField("col_" + (i - 1), val, wireType));
             }
         }
         if (fields.isEmpty()) {
@@ -133,8 +148,10 @@ public final class ConstantColumnsFunction implements TableFunction {
                     new FieldType(true, Schemas.INT64, null), null));
         }
         Object first = l.get(0);
-        return List.of(new Field(childName,
-                new FieldType(true, listOrScalarType(first), null), listChildren(first, "item")));
+        // Recurse via buildField so nested Map elements (structs inside a
+        // list) get their child fields populated, not left as empty
+        // structs that DuckDB rejects with "no fields".
+        return List.of(buildField(childName, first, null));
     }
 
     @Override public long cardinality(TableBindParams p) {
@@ -261,22 +278,12 @@ public final class ConstantColumnsFunction implements TableFunction {
                 // UHUGEINT → arrow.opaque, UUID → arrow.uuid, etc.) arrive
                 // as raw byte[] payloads. Pass them through unchanged.
                 fb.setSafe(row, (byte[]) val);
-            } else if (v instanceof org.apache.arrow.vector.complex.MapVector mv) {
-                // MapVector.getObject returns a List of {key, value} maps,
-                // not a single Map. ArgumentsParser passes that List through.
-                writeMapAt(mv, row, val);
-            } else if (v instanceof org.apache.arrow.vector.complex.ListVector lv) {
-                writeListAt(lv, row, (List<Object>) val);
-            } else if (v instanceof org.apache.arrow.vector.complex.StructVector sv) {
-                java.util.Map<String, Object> map = (java.util.Map<String, Object>) val;
-                for (org.apache.arrow.vector.types.pojo.Field f : sv.getField().getChildren()) {
-                    setCell(sv.getChild(f.getName()), row, map.get(f.getName()));
-                }
-                sv.setIndexDefined(row);
             } else {
-                // Date/time/interval/etc. — VectorScalarCodec.write knows how
-                // to map java.time.{LocalDate,LocalTime,LocalDateTime,...}
-                // back to the vector's epoch-units representation.
+                // List / Struct / Date / Time / Interval / etc.
+                // VectorScalarCodec.write dispatches on the destination
+                // vector type, so e.g. a Long item lands as int32 when
+                // the inner is IntVector — UnionListWriter would have
+                // mis-routed it through .bigInt().
                 farm.query.vgi.internal.VectorScalarCodec.write(v, row, val);
             }
         }
@@ -328,16 +335,6 @@ public final class ConstantColumnsFunction implements TableFunction {
             w.endMap();
         }
 
-        private static void writeListAt(org.apache.arrow.vector.complex.ListVector lv,
-                                          int row, List<Object> list) {
-            org.apache.arrow.vector.complex.impl.UnionListWriter w = lv.getWriter();
-            w.setPosition(row);
-            w.startList();
-            for (Object item : list) {
-                writeListItem((org.apache.arrow.vector.complex.writer.BaseWriter.ListWriter) w, item, lv.getAllocator());
-            }
-            w.endList();
-        }
 
         @SuppressWarnings("unchecked")
         private static void writeListItem(org.apache.arrow.vector.complex.writer.BaseWriter.ListWriter w,

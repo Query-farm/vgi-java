@@ -40,20 +40,25 @@ public final class ArgumentsParser {
             VectorSchemaRoot root = reader.getVectorSchemaRoot();
             if (root.getRowCount() == 0) return Arguments.empty();
 
+            // ArrowStreamReader IS a DictionaryProvider; pass it through so
+            // dict-encoded args (DuckDB ENUMs) resolve to their underlying
+            // value (e.g. 'happy') rather than the raw index byte.
+            org.apache.arrow.vector.dictionary.DictionaryProvider provider = reader;
             // Only the "args" struct shape is in scope for Phase 2.
             if (root.getFieldVectors().size() == 1
                     && "args".equals(root.getVector(0).getName())
                     && root.getVector(0) instanceof StructVector args) {
-                return extractFromStruct(args);
+                return extractFromStruct(args, provider);
             }
             // Fallback: flat columns named directly by parameter name.
-            return extractFlat(root);
+            return extractFlat(root, provider);
         } catch (Exception e) {
             throw new RuntimeException("ArgumentsParser failed", e);
         }
     }
 
-    private static Arguments extractFromStruct(StructVector args) {
+    private static Arguments extractFromStruct(StructVector args,
+                                                  org.apache.arrow.vector.dictionary.DictionaryProvider provider) {
         Map<Integer, Object> positionalByIdx = new LinkedHashMap<>();
         Map<Integer, org.apache.arrow.vector.types.pojo.ArrowType> positionalTypeByIdx = new LinkedHashMap<>();
         Map<Integer, Field> positionalFieldByIdx = new LinkedHashMap<>();
@@ -61,7 +66,7 @@ public final class ArgumentsParser {
         for (Field f : args.getField().getChildren()) {
             String name = f.getName();
             FieldVector child = args.getChild(name);
-            Object value = readScalar(child);
+            Object value = readScalarResolvingDict(child, f, provider);
             if (name.startsWith("positional_")) {
                 int idx = Integer.parseInt(name.substring("positional_".length()));
                 positionalByIdx.put(idx, value);
@@ -91,11 +96,12 @@ public final class ArgumentsParser {
                 java.util.Collections.unmodifiableList(positionalFields));
     }
 
-    private static Arguments extractFlat(VectorSchemaRoot root) {
+    private static Arguments extractFlat(VectorSchemaRoot root,
+                                            org.apache.arrow.vector.dictionary.DictionaryProvider provider) {
         List<Object> positional = new ArrayList<>();
         Map<String, Object> named = new LinkedHashMap<>();
         for (FieldVector v : root.getFieldVectors()) {
-            Object value = readScalar(v);
+            Object value = readScalarResolvingDict(v, v.getField(), provider);
             named.put(v.getName(), value);
             positional.add(value);
         }
@@ -103,9 +109,30 @@ public final class ArgumentsParser {
                 java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(named)));
     }
 
-    /** Read the scalar (row 0) value out of a vector. Returns null for null/empty. */
-    private static Object readScalar(FieldVector v) {
+    /**
+     * Read the scalar (row 0) value out of a vector. For dict-encoded fields
+     * (DuckDB ENUMs), look up the underlying dictionary value via {@code
+     * provider} and return that — not the raw index byte. {@code null} for
+     * null/empty.
+     */
+    private static Object readScalarResolvingDict(FieldVector v, Field f,
+                                                    org.apache.arrow.vector.dictionary.DictionaryProvider provider) {
         if (v.getValueCount() == 0) return null;
+        org.apache.arrow.vector.types.pojo.DictionaryEncoding enc = f.getDictionary();
+        if (enc != null && provider != null) {
+            org.apache.arrow.vector.dictionary.Dictionary d = provider.lookup(enc.getId());
+            if (d != null && !v.isNull(0)) {
+                int idx;
+                Object raw = VectorScalarCodec.read(v, 0);
+                if (raw instanceof Number n) idx = n.intValue();
+                else if (raw instanceof Character c) idx = c.charValue();
+                else return raw;  // can't resolve; pass through
+                org.apache.arrow.vector.FieldVector dv = d.getVector();
+                if (idx >= 0 && idx < dv.getValueCount()) {
+                    return VectorScalarCodec.read(dv, idx);
+                }
+            }
+        }
         return VectorScalarCodec.read(v, 0);
     }
 }
