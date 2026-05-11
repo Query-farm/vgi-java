@@ -4,6 +4,8 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.BatchUtil;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.FilterApplier;
@@ -43,7 +45,7 @@ public final class OrderEchoFunction implements TableFunction {
             Schemas.nullable("order_null_order", Schemas.UTF8),
             Schemas.nullable("order_limit", Schemas.INT64)));
     private static final byte[] FULL_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(FULL_SCHEMA);
+            SchemaUtil.serializeSchema(FULL_SCHEMA);
 
     @Override public String name() { return "order_echo"; }
     @Override public FunctionMetadata metadata() {
@@ -98,7 +100,7 @@ public final class OrderEchoFunction implements TableFunction {
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             Schema s = outputSchema.get();
-            farm.query.vgi.internal.BatchUtil.produceBatch(batch, s, filters, out, (root, n, start) -> {
+            BatchUtil.produceBatch(batch, s, filters, out, (root, n, start) -> {
                 for (Field f : s.getFields()) {
                     FieldVector v = root.getVector(f.getName());
                     switch (f.getName()) {

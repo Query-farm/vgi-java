@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.table.BatchState;
 import farm.query.vgi.table.CountdownTableFunction;
@@ -52,7 +53,7 @@ public final class DoubleSequenceFunction extends CountdownTableFunction {
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            farm.query.vgi.internal.BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, null, out, (root, n, start) -> {
+            BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, null, out, (root, n, start) -> {
                 Float8Vector v = (Float8Vector) root.getVector("n");
                 for (int i = 0; i < n; i++) v.setSafe(i, (start + i) * increment);
             });

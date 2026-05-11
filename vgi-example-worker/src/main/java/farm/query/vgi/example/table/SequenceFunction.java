@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.table.BatchState;
@@ -89,7 +90,7 @@ public final class SequenceFunction extends CountdownTableFunction {
 
         @Override
         public void produceTick(OutputCollector out, CallContext ctx) {
-            farm.query.vgi.internal.BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, filters, out, (root, n, start) -> {
+            BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, filters, out, (root, n, start) -> {
                 BigIntVector v = (BigIntVector) root.getVector("n");
                 for (int i = 0; i < n; i++) v.setSafe(i, (start + i) * increment);
             });

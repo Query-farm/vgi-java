@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -45,7 +46,7 @@ public final class RepeatValueFunctions {
         for (int i = 0; i < n; i++) {
             fields.add(new Field("v" + i, new FieldType(true, t, null), null));
         }
-        return farm.query.vgi.internal.SchemaUtil.serializeSchema(new Schema(fields));
+        return SchemaUtil.serializeSchema(new Schema(fields));
     }
 
     private static Schema schema(int n, ArrowType t) {

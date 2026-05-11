@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -41,7 +42,7 @@ public final class StubFunctions {
             this.name = name;
             this.description = description;
             this.outputSchema = outputSchema;
-            this.outputSchemaIpc = farm.query.vgi.internal.SchemaUtil.serializeSchema(outputSchema);
+            this.outputSchemaIpc = SchemaUtil.serializeSchema(outputSchema);
             this.argSpecs = argSpecs;
         }
 

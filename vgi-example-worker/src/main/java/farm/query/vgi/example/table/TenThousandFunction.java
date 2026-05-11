@@ -4,6 +4,8 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.BatchUtil;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.BatchState;
@@ -26,7 +28,7 @@ public final class TenThousandFunction implements TableFunction {
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("n", Schemas.INT64)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+            SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
     @Override public String name() { return "ten_thousand"; }
     @Override public FunctionMetadata metadata() {
@@ -46,7 +48,7 @@ public final class TenThousandFunction implements TableFunction {
         public State() {}
         State(BatchState batch) { this.batch = batch; }
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            farm.query.vgi.internal.BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, null, out, (root, n, start) -> {
+            BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, null, out, (root, n, start) -> {
                 BigIntVector v = (BigIntVector) root.getVector("n");
                 for (int i = 0; i < n; i++) v.setSafe(i, start + i);
             });

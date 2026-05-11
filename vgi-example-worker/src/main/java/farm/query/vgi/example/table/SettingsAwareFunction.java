@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -56,7 +57,7 @@ public final class SettingsAwareFunction implements TableFunction {
     @Override public BindResponse onBind(TableBindParams params) {
         boolean verbose = isVerbose(params.settings());
         return BindResponse.forSchema(
-                farm.query.vgi.internal.SchemaUtil.serializeSchema(buildSchema(verbose)));
+                SchemaUtil.serializeSchema(buildSchema(verbose)));
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {

@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -77,7 +78,7 @@ public class ProjReproFullSchemaFunction implements TableFunction {
                                 Schemas.nullable("k", Schemas.UTF8),
                                 new Field("v", new FieldType(true, new ArrowType.Binary(), null), null))))));
         OUTPUT_SCHEMA = new Schema(fields);
-        OUTPUT_SCHEMA_IPC = farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+        OUTPUT_SCHEMA_IPC = SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
     }
 
     @Override public String name() { return "proj_repro_full_schema"; }

@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.HexId;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.table.BatchState;
 import farm.query.vgi.table.CountdownTableFunction;
@@ -43,7 +44,7 @@ public final class ProfilingDemoFunction extends CountdownTableFunction {
         final long startedAtNs = System.nanoTime();
     }
 
-    private static String key(byte[] executionId) { return farm.query.vgi.internal.HexId.encode(executionId); }
+    private static String key(byte[] executionId) { return HexId.encode(executionId); }
 
     @Override public String name() { return "profiling_demo"; }
     @Override public FunctionMetadata metadata() {

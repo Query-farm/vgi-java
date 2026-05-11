@@ -4,6 +4,8 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.BatchUtil;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.BatchState;
@@ -35,7 +37,7 @@ public final class NamedParamsEchoFunction implements TableFunction {
             Schemas.nullable("float_value", Schemas.FLOAT64),
             Schemas.nullable("enabled", Schemas.BOOL)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+            SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
     @Override public String name() { return "named_params_echo"; }
 
@@ -85,7 +87,7 @@ public final class NamedParamsEchoFunction implements TableFunction {
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             Text greetingText = new Text(greeting);
-            farm.query.vgi.internal.BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, null, out, (root, n, start) -> {
+            BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, null, out, (root, n, start) -> {
                 BigIntVector id = (BigIntVector) root.getVector("id");
                 VarCharVector g = (VarCharVector) root.getVector("greeting");
                 BigIntVector v = (BigIntVector) root.getVector("value");

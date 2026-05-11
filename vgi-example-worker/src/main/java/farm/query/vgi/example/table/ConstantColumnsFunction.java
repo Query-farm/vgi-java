@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -64,7 +65,7 @@ public final class ConstantColumnsFunction implements TableFunction {
             // Catalog enumeration with no varargs supplied — placeholder.
             fields.add(Schemas.nullable("placeholder", Schemas.INT64));
         }
-        return BindResponse.forSchema(farm.query.vgi.internal.SchemaUtil.serializeSchema(
+        return BindResponse.forSchema(SchemaUtil.serializeSchema(
                 new Schema(fields)));
     }
 
@@ -122,7 +123,7 @@ public final class ConstantColumnsFunction implements TableFunction {
         List<Object> values = new ArrayList<>(params.arguments().positional().subList(
                 1, params.arguments().positional().size()));
         State state = new State((int) count, values);
-        state.outputSchemaIpc = farm.query.vgi.internal.SchemaUtil.serializeSchema(params.outputSchema());
+        state.outputSchemaIpc = SchemaUtil.serializeSchema(params.outputSchema());
         return state;
     }
 
@@ -156,7 +157,7 @@ public final class ConstantColumnsFunction implements TableFunction {
             // from the Java runtime values if the schema isn't available.
             Schema schema;
             if (outputSchemaIpc != null && outputSchemaIpc.length > 0) {
-                schema = farm.query.vgi.internal.SchemaUtil.deserializeSchema(outputSchemaIpc);
+                schema = SchemaUtil.deserializeSchema(outputSchemaIpc);
             } else {
                 List<Field> fields = new ArrayList<>();
                 for (int i = 0; i < values.size(); i++) {

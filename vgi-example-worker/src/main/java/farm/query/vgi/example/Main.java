@@ -4,6 +4,7 @@
 package farm.query.vgi.example;
 
 import farm.query.vgi.SettingSpec;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.Worker;
 import farm.query.vgi.example.scalar.AddValuesFunction;
 import farm.query.vgi.example.scalar.BinaryPacketFunction;
@@ -155,7 +156,7 @@ public final class Main {
 
     /** Serialize a list of fields as a TableInfo.columns IPC blob. */
     private static byte[] cols(Field... fields) {
-        return farm.query.vgi.internal.SchemaUtil.serializeSchema(
+        return SchemaUtil.serializeSchema(
                 new Schema(List.of(fields)));
     }
 
@@ -413,14 +414,14 @@ public final class Main {
     private static void registerCatalogTables(Worker w) {
         w.registerCatalogTable(CatalogTable.functionBacked(
                         "data", "ten_thousand_table",
-                        farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                        SchemaUtil.serializeSchema(
                 new Schema(List.of(
                 Schemas.nullable("n", Schemas.INT64)))),
                         "Function-backed table over the no-arg ten_thousand function",
                         "ten_thousand"))
                 .registerCatalogTable(new CatalogTable(
                         "data", "numbers",
-                        farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                        SchemaUtil.serializeSchema(
                 new Schema(List.of(
                 Schemas.nullable("value", Schemas.INT64)))),
                         "First 100 integers (demonstrates explicit columns)",
@@ -431,7 +432,7 @@ public final class Main {
                         100L, 100L, true, /*inlineScanFunction=*/false))
                 .registerCatalogTable(new CatalogTable(
                         "data", "large_sequence",
-                        farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                        SchemaUtil.serializeSchema(
                 new Schema(List.of(
                 Schemas.nullable("n", Schemas.INT64)))),
                         "A large sequence of integers from 0 to 1,000,000",
@@ -442,7 +443,7 @@ public final class Main {
                         1_000_001L, 1_000_001L, true, /*inlineScanFunction=*/true))
                 .registerCatalogTable(CatalogTable.functionBacked(
                 "data", "cardinality_inlined_table",
-                farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                SchemaUtil.serializeSchema(
                 new Schema(List.of(
                 Schemas.nullable("n", Schemas.INT64)))),
                 "Function-backed table with inlined cardinality (10000 rows)",

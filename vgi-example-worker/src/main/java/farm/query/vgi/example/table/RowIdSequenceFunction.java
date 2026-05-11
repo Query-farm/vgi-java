@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -65,7 +66,7 @@ public final class RowIdSequenceFunction implements TableFunction {
         if (!ROW_ID_TYPES.contains(rowIdType)) {
             throw new IllegalArgumentException("row_id_type must be one of the allowed choices [int64, string, struct], got '" + rowIdType + "'");
         }
-        return BindResponse.forSchema(farm.query.vgi.internal.SchemaUtil.serializeSchema(
+        return BindResponse.forSchema(SchemaUtil.serializeSchema(
                 buildSchema(layout, rowIdType)));
     }
 

@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -42,19 +43,19 @@ public final class MakePairsFunctions {
             Schemas.nullable("a", Schemas.INT64),
             Schemas.nullable("b", Schemas.INT64)));
     private static final byte[] INT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(INT_SCHEMA);
+            SchemaUtil.serializeSchema(INT_SCHEMA);
 
     private static final Schema STR_SCHEMA = new Schema(List.of(
             Schemas.nullable("a", Schemas.UTF8),
             Schemas.nullable("b", Schemas.UTF8)));
     private static final byte[] STR_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(STR_SCHEMA);
+            SchemaUtil.serializeSchema(STR_SCHEMA);
 
     private static final Schema MIXED_SCHEMA = new Schema(List.of(
             Schemas.nullable("a", Schemas.INT64),
             Schemas.nullable("b", Schemas.UTF8)));
     private static final byte[] MIXED_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(MIXED_SCHEMA);
+            SchemaUtil.serializeSchema(MIXED_SCHEMA);
 
     public static final class IntVariant implements TableFunction {
         @Override public String name() { return "make_pairs"; }

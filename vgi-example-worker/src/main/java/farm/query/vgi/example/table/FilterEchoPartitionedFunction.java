@@ -6,6 +6,8 @@ package farm.query.vgi.example.table;
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.internal.VectorProjector;
+import farm.query.vgi.internal.HexId;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.pushdown.PushdownFilters;
@@ -47,13 +49,13 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
             Schemas.nullable("pushed_filters", Schemas.UTF8),
             Schemas.nullable("worker_pid", Schemas.INT32)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+            SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
     private static final long CHUNK = 1000L;
 
     private static final ConcurrentHashMap<String, ConcurrentLinkedQueue<long[]>> QUEUES =
             new ConcurrentHashMap<>();
 
-    private static String key(byte[] executionId) { return farm.query.vgi.internal.HexId.encode(executionId); }
+    private static String key(byte[] executionId) { return HexId.encode(executionId); }
 
     @Override public String name() { return "filter_echo_partitioned"; }
 

@@ -4,6 +4,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.table.BatchState;
@@ -92,7 +93,7 @@ public final class NestedSequenceFunction extends CountdownTableFunction {
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             Schema s = outputSchema.get();
-            farm.query.vgi.internal.BatchUtil.produceBatch(batch, s, filters, out, (root, n, start) -> {
+            BatchUtil.produceBatch(batch, s, filters, out, (root, n, start) -> {
                 for (Field f : s.getFields()) {
                     FieldVector v = root.getVector(f.getName());
                     switch (f.getName()) {

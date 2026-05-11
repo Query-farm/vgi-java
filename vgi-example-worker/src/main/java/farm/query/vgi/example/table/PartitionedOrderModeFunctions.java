@@ -4,6 +4,8 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.HexId;
+import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionMetadata.OrderPreservation;
 import farm.query.vgi.protocol.BindResponse;
@@ -40,13 +42,13 @@ public final class PartitionedOrderModeFunctions {
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("n", Schemas.INT64)));
     private static final byte[] OUTPUT_SCHEMA_IPC =
-            farm.query.vgi.internal.SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
+            SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
     private static final long CHUNK = 10_000L;
 
     private static final ConcurrentHashMap<String, ConcurrentLinkedQueue<long[]>> QUEUES =
             new ConcurrentHashMap<>();
 
-    private static String key(byte[] executionId) { return farm.query.vgi.internal.HexId.encode(executionId); }
+    private static String key(byte[] executionId) { return HexId.encode(executionId); }
 
     private static ConcurrentLinkedQueue<long[]> queueFor(String execKey, long count) {
         return QUEUES.computeIfAbsent(execKey, k -> {
