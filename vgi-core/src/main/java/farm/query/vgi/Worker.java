@@ -41,6 +41,7 @@ public final class Worker {
     private final List<AggregateFunction<?>> aggregates = new ArrayList<>();
     private final List<SettingSpec> settings = new ArrayList<>();
     private final List<SecretTypeSpec> secretTypes = new ArrayList<>();
+    private final List<AttachOptionSpec> attachOptions = new ArrayList<>();
     private final List<View> views = new ArrayList<>();
 
     /**
@@ -223,6 +224,13 @@ public final class Worker {
     }
 
     public List<SecretTypeSpec> secretTypeSpecs() { return secretTypes; }
+
+    public Worker attachOptions(AttachOptionSpec... specs) {
+        for (AttachOptionSpec s : specs) attachOptions.add(s);
+        return this;
+    }
+
+    public List<AttachOptionSpec> attachOptionSpecs() { return attachOptions; }
 
     public Worker registerView(View v) {
         views.add(v);

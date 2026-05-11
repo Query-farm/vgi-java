@@ -14,10 +14,17 @@ public record TableBindParams(
         Schema inputSchema,
         Map<String, Object> settings,
         byte[] secrets,
-        boolean resolvedSecretsProvided) {
+        boolean resolvedSecretsProvided,
+        byte[] attachId) {
 
     public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
                             Map<String, Object> settings) {
-        this(functionName, arguments, inputSchema, settings, null, false);
+        this(functionName, arguments, inputSchema, settings, null, false, null);
+    }
+
+    public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
+                            Map<String, Object> settings, byte[] secrets,
+                            boolean resolvedSecretsProvided) {
+        this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided, null);
     }
 }

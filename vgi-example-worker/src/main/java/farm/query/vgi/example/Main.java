@@ -200,6 +200,18 @@ public final class Main {
                 ? catalogNameOverride : "example";
         String implVer = System.getenv("VGI_WORKER_IMPLEMENTATION_VERSION");
         String dataSpec = System.getenv("VGI_WORKER_DATA_VERSION_SPEC");
+        if (farm.query.vgi.example.table.AttachOptionsFixture.CATALOG_NAME.equals(catalogName)) {
+            // Dedicated attach_options worker mode: register only echo_attach_options
+            // and the 20 declared option specs. ATTACH 'attach_options' AS … must
+            // see a catalog whose only function is echo_attach_options.
+            Worker ao = Worker.builder()
+                    .catalogName(catalogName)
+                    .attachOptions(farm.query.vgi.example.table.AttachOptionsFixture
+                            .declaredSpecs().toArray(new farm.query.vgi.AttachOptionSpec[0]))
+                    .registerTable(new farm.query.vgi.example.table.EchoAttachOptionsFunction());
+            runWorker(ao, args);
+            return;
+        }
         Worker w = Worker.builder()
                 .catalogName(catalogName)
                 .implementationVersion(implVer)
@@ -589,6 +601,10 @@ public final class Main {
                         "SELECT * FROM range(n)",
                         "Table macro returning range of values"));
 
+        runWorker(w, args);
+    }
+
+    private static void runWorker(Worker w, String[] args) {
         boolean http = false;
         String host = "127.0.0.1";
         int port = 0;

@@ -132,6 +132,7 @@ public final class VgiServiceImpl implements VgiService {
         final byte[] settingsIpc;
         final byte[] outputSchemaIpc;
         byte[] secrets;
+        byte[] attachId;
 
         BoundTable(TableFunction fn, Arguments args, Schema inputSchema, Schema outputSchema,
                     Map<String, Object> settings, byte[] argumentsIpc, byte[] settingsIpc,
@@ -342,13 +343,14 @@ public final class VgiServiceImpl implements VgiService {
         if (tables.containsKey(name)) {
             TableFunction fn = pickVariant(tables.get(name), argCount, args, inputSchema);
             BindResponse upstream = fn.onBind(new TableBindParams(name, args, inputSchema, settings,
-                    request.secrets(), request.resolved_secrets_provided()));
+                    request.secrets(), request.resolved_secrets_provided(), request.attach_id()));
             Schema outputSchema = upstream.output_schema() == null
                     ? null
                     : SchemaUtil.deserializeSchema(upstream.output_schema());
             BoundTable bt = new BoundTable(fn, args, inputSchema, outputSchema, settings,
                     request.arguments(), request.settings(), upstream.output_schema());
             bt.secrets = request.secrets();
+            bt.attachId = request.attach_id();
             pendingBinds.put(key, bt);
             return new BindResponse(upstream.output_schema(), token,
                     upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
@@ -435,7 +437,8 @@ public final class VgiServiceImpl implements VgiService {
                     request.order_by_null_order(),
                     request.order_by_limit(),
                     execId,
-                    bt.secrets);
+                    bt.secrets,
+                    bt.attachId);
             TableProducerState state = bt.fn().createProducer(params);
             return RpcStream.producer(fnOutputSchema, state, header);
         }
@@ -651,9 +654,13 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public ItemsResponse catalog_catalogs() {
+        List<byte[]> attachOptionBytes = new ArrayList<>();
+        for (farm.query.vgi.AttachOptionSpec spec : worker.attachOptionSpecs()) {
+            attachOptionBytes.add(AttachOptionSpecSerializer.serialize(spec));
+        }
         return new ItemsResponse(List.of(CatalogInfoSerializer.serialize(
                 worker.catalogName(), worker.implementationVersion(),
-                worker.dataVersionSpec(), List.of())));
+                worker.dataVersionSpec(), attachOptionBytes)));
     }
 
     @Override
@@ -673,8 +680,18 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public CatalogAttachResult catalog_attach(CatalogAttachRequest request, CallContext ctx) {
-        byte[] attachId = new byte[16];
-        rng.nextBytes(attachId);
+        byte[] attachId;
+        if (!worker.attachOptionSpecs().isEmpty()) {
+            // attach_options pattern (Go/Python parity): encode merged
+            // {defaults + user options} batch directly into attach_id so the
+            // echo function is stateless under pool reuse / HTTP transport.
+            // attach_id = uuid(16) || 0x00 || ipc(mergedBatch).
+            attachId = AttachOptionsAttachId.encode(
+                    worker.attachOptionSpecs(), request.options(), rng);
+        } else {
+            attachId = new byte[16];
+            rng.nextBytes(attachId);
+        }
         currentAttachId = attachId;
         List<byte[]> settings = new ArrayList<>();
         for (SettingSpec spec : worker.settingSpecs()) {
