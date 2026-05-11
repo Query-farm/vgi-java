@@ -4,7 +4,6 @@
 package farm.query.vgi.internal;
 
 import farm.query.vgi.protocol.FunctionInfo;
-import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.dictionary.DictionaryProvider;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -17,15 +16,12 @@ import static farm.query.vgi.internal.IpcStructBuilder.BINARY;
 import static farm.query.vgi.internal.IpcStructBuilder.BOOL;
 import static farm.query.vgi.internal.IpcStructBuilder.I32;
 import static farm.query.vgi.internal.IpcStructBuilder.UTF8;
-import static farm.query.vgi.internal.IpcStructBuilder.dict;
 import static farm.query.vgi.internal.IpcStructBuilder.listOf;
 import static farm.query.vgi.internal.IpcStructBuilder.listOfPrim;
 import static farm.query.vgi.internal.IpcStructBuilder.mapUtf8Utf8;
 import static farm.query.vgi.internal.IpcStructBuilder.nonNull;
 import static farm.query.vgi.internal.IpcStructBuilder.nullable;
-import static farm.query.vgi.internal.IpcStructBuilder.registerDict;
 import static farm.query.vgi.internal.IpcStructBuilder.writeBool;
-import static farm.query.vgi.internal.IpcStructBuilder.writeDictIndex;
 import static farm.query.vgi.internal.IpcStructBuilder.writeInt32;
 import static farm.query.vgi.internal.IpcStructBuilder.writeMap;
 import static farm.query.vgi.internal.IpcStructBuilder.writeNullableBool;
@@ -43,32 +39,33 @@ final class FunctionInfoSerializer {
 
     private FunctionInfoSerializer() {}
 
-    private static final long DICT_FUNCTION_TYPE = 1;
-    private static final long DICT_STABILITY = 2;
-    private static final long DICT_NULL_HANDLING = 3;
-    private static final long DICT_ORDER_PRESERVATION = 4;
-    private static final long DICT_ORDER_DEPENDENT = 5;
-    private static final long DICT_DISTINCT_DEPENDENT = 6;
+    private static final EnumDict FUNCTION_TYPE = new EnumDict("function_type", 1,
+            List.of("scalar", "table", "aggregate"));
+    private static final EnumDict STABILITY = new EnumDict("stability", 2,
+            List.of("CONSISTENT", "VOLATILE", "CONSISTENT_WITHIN_QUERY"));
+    private static final EnumDict NULL_HANDLING = new EnumDict("null_handling", 3,
+            List.of("DEFAULT", "SPECIAL"));
+    private static final EnumDict ORDER_PRESERVATION = new EnumDict("order_preservation", 4,
+            List.of("NO_ORDER_PRESERVED", "INSERTION_ORDER", "FIXED_ORDER"));
+    private static final EnumDict ORDER_DEPENDENT = new EnumDict("order_dependent", 5,
+            List.of("NOT_ORDER_DEPENDENT", "ORDER_DEPENDENT"));
+    private static final EnumDict DISTINCT_DEPENDENT = new EnumDict("distinct_dependent", 6,
+            List.of("NOT_DISTINCT_DEPENDENT", "DISTINCT_DEPENDENT"));
 
-    private static final List<String> FUNCTION_TYPE_VALUES = List.of("scalar", "table", "aggregate");
-    private static final List<String> STABILITY_VALUES = List.of("CONSISTENT", "VOLATILE", "CONSISTENT_WITHIN_QUERY");
-    private static final List<String> NULL_HANDLING_VALUES = List.of("DEFAULT", "SPECIAL");
-    private static final List<String> ORDER_PRESERVATION_VALUES =
-            List.of("NO_ORDER_PRESERVED", "INSERTION_ORDER", "FIXED_ORDER");
-    private static final List<String> ORDER_DEPENDENT_VALUES = List.of("NOT_ORDER_DEPENDENT", "ORDER_DEPENDENT");
-    private static final List<String> DISTINCT_DEPENDENT_VALUES =
-            List.of("NOT_DISTINCT_DEPENDENT", "DISTINCT_DEPENDENT");
+    private static final List<EnumDict> DICTS = List.of(
+            FUNCTION_TYPE, STABILITY, NULL_HANDLING,
+            ORDER_PRESERVATION, ORDER_DEPENDENT, DISTINCT_DEPENDENT);
 
     private static final Schema SCHEMA = new Schema(List.of(
             nullable("comment", UTF8),
             mapUtf8Utf8("tags"),
             nonNull("name", UTF8),
             nonNull("schema_name", UTF8),
-            dict("function_type", DICT_FUNCTION_TYPE, false),
+            FUNCTION_TYPE.field(false),
             nonNull("arguments", BINARY),
             nonNull("output_schema", BINARY),
-            dict("stability", DICT_STABILITY, true),
-            dict("null_handling", DICT_NULL_HANDLING, true),
+            STABILITY.field(true),
+            NULL_HANDLING.field(true),
             nonNull("description", UTF8),
             listOf("examples", new Field("item",
                     new FieldType(true, new ArrowType.Struct(), null),
@@ -80,10 +77,10 @@ final class FunctionInfoSerializer {
             nullable("filter_pushdown", BOOL),
             nullable("sampling_pushdown", BOOL),
             listOfPrim("supported_expression_filters", UTF8),
-            dict("order_preservation", DICT_ORDER_PRESERVATION, true),
+            ORDER_PRESERVATION.field(true),
             nonNull("max_workers", I32),
-            dict("order_dependent", DICT_ORDER_DEPENDENT, false),
-            dict("distinct_dependent", DICT_DISTINCT_DEPENDENT, false),
+            ORDER_DEPENDENT.field(false),
+            DISTINCT_DEPENDENT.field(false),
             nonNull("supports_window", BOOL),
             nonNull("streaming_partitioned", BOOL),
             nonNull("has_finalize", BOOL),
@@ -96,23 +93,18 @@ final class FunctionInfoSerializer {
 
     static byte[] serialize(FunctionInfo info) {
         DictionaryProvider.MapDictionaryProvider provider = new DictionaryProvider.MapDictionaryProvider();
-        registerDict(provider, Allocators.root(), DICT_FUNCTION_TYPE, FUNCTION_TYPE_VALUES);
-        registerDict(provider, Allocators.root(), DICT_STABILITY, STABILITY_VALUES);
-        registerDict(provider, Allocators.root(), DICT_NULL_HANDLING, NULL_HANDLING_VALUES);
-        registerDict(provider, Allocators.root(), DICT_ORDER_PRESERVATION, ORDER_PRESERVATION_VALUES);
-        registerDict(provider, Allocators.root(), DICT_ORDER_DEPENDENT, ORDER_DEPENDENT_VALUES);
-        registerDict(provider, Allocators.root(), DICT_DISTINCT_DEPENDENT, DISTINCT_DEPENDENT_VALUES);
+        for (EnumDict d : DICTS) d.register(provider);
 
         return IpcStructBuilder.build(SCHEMA, provider, v -> {
             writeVarChar(v.get("comment"), info.comment());
             writeMap(v.get("tags"), info.tags());
             writeVarChar(v.get("name"), info.name());
             writeVarChar(v.get("schema_name"), info.schema_name());
-            writeDictIndex(v.get("function_type"), info.function_type(), FUNCTION_TYPE_VALUES, "function_type");
+            FUNCTION_TYPE.write(v.get("function_type"), info.function_type());
             writeVarBinarySafe(v.get("arguments"), info.arguments());
             writeVarBinarySafe(v.get("output_schema"), info.output_schema());
-            writeDictIndex(v.get("stability"), info.stability(), STABILITY_VALUES, "stability");
-            writeDictIndex(v.get("null_handling"), info.null_handling(), NULL_HANDLING_VALUES, "null_handling");
+            STABILITY.write(v.get("stability"), info.stability());
+            NULL_HANDLING.write(v.get("null_handling"), info.null_handling());
             writeVarChar(v.get("description"), info.description());
             writeStringList(v.get("examples"), List.of());
             writeStringList(v.get("categories"), info.categories());
@@ -120,10 +112,10 @@ final class FunctionInfoSerializer {
             writeNullableBool(v.get("filter_pushdown"), info.filter_pushdown());
             writeNullableBool(v.get("sampling_pushdown"), info.sampling_pushdown());
             writeStringList(v.get("supported_expression_filters"), info.supported_expression_filters());
-            writeDictIndex(v.get("order_preservation"), info.order_preservation(), ORDER_PRESERVATION_VALUES, "order_preservation");
+            ORDER_PRESERVATION.write(v.get("order_preservation"), info.order_preservation());
             writeInt32(v.get("max_workers"), info.max_workers());
-            writeDictIndex(v.get("order_dependent"), info.order_dependent(), ORDER_DEPENDENT_VALUES, "order_dependent");
-            writeDictIndex(v.get("distinct_dependent"), info.distinct_dependent(), DISTINCT_DEPENDENT_VALUES, "distinct_dependent");
+            ORDER_DEPENDENT.write(v.get("order_dependent"), info.order_dependent());
+            DISTINCT_DEPENDENT.write(v.get("distinct_dependent"), info.distinct_dependent());
             writeBool(v.get("supports_window"), info.supports_window());
             writeBool(v.get("streaming_partitioned"), info.streaming_partitioned());
             writeBool(v.get("has_finalize"), info.has_finalize());
