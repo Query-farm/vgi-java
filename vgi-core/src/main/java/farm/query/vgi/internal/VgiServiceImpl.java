@@ -895,41 +895,34 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private FunctionInfo toScalarFunctionInfo(ScalarFunction fn, String schemaName) {
-        FunctionMetadata md = fn.metadata();
         BindResponse r = fn.onBind(new ScalarBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return baseFunctionInfo(fn.name(), md, schemaName, "scalar",
-                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()),
-                r.output_schema() != null ? r.output_schema() : new byte[0]);
-    }
-
-    private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
-        FunctionMetadata md = fn.metadata();
-        byte[] outputSchemaIpc = SchemaUtil.serializeSchema(fn.outputSchema());
-        return baseFunctionInfo(fn.name(), md, schemaName, "aggregate",
-                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()),
-                outputSchemaIpc);
+        return baseFunctionInfo(fn, schemaName, "scalar", bindOutput(r), false);
     }
 
     private FunctionInfo toTableFunctionInfo(TableFunction fn, String schemaName) {
-        FunctionMetadata md = fn.metadata();
         BindResponse r = fn.onBind(new TableBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return baseFunctionInfo(fn.name(), md, schemaName, "table",
-                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()),
-                r.output_schema() != null ? r.output_schema() : new byte[0]);
+        return baseFunctionInfo(fn, schemaName, "table", bindOutput(r), false);
     }
 
     private FunctionInfo toTableInOutFunctionInfo(TableInOutFunction fn, String schemaName) {
-        FunctionMetadata md = fn.metadata();
         BindResponse r = fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return baseFunctionInfo(fn.name(), md, schemaName, "table",
-                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()),
-                r.output_schema() != null ? r.output_schema() : new byte[0],
-                fn.hasFinalize());
+        return baseFunctionInfo(fn, schemaName, "table", bindOutput(r), fn.hasFinalize());
     }
 
-    private FunctionInfo baseFunctionInfo(String name, FunctionMetadata md, String schemaName,
-                                           String type, byte[] arguments, byte[] outputSchema) {
-        return baseFunctionInfo(name, md, schemaName, type, arguments, outputSchema, false);
+    private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
+        return baseFunctionInfo(fn, schemaName, "aggregate",
+                SchemaUtil.serializeSchema(fn.outputSchema()), false);
+    }
+
+    private static byte[] bindOutput(BindResponse r) {
+        return r.output_schema() != null ? r.output_schema() : new byte[0];
+    }
+
+    private FunctionInfo baseFunctionInfo(farm.query.vgi.function.FunctionDescriptor fn,
+                                           String schemaName, String type,
+                                           byte[] outputSchema, boolean hasFinalize) {
+        return baseFunctionInfo(fn.name(), fn.metadata(), schemaName, type,
+                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), outputSchema, hasFinalize);
     }
 
     private FunctionInfo baseFunctionInfo(String name, FunctionMetadata md, String schemaName,

@@ -4,6 +4,7 @@
 package farm.query.vgi.aggregate;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.FunctionDescriptor;
 import farm.query.vgi.function.FunctionMetadata;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -20,7 +21,7 @@ import java.util.List;
  *
  * <p>Mirrors {@code vgi.AggregateFunction} in vgi-go.
  */
-public interface AggregateFunction<S> {
+public interface AggregateFunction<S> extends FunctionDescriptor {
 
     String name();
 

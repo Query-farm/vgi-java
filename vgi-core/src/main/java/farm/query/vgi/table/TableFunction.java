@@ -4,6 +4,7 @@
 package farm.query.vgi.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.FunctionDescriptor;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 
@@ -21,7 +22,7 @@ import java.util.List;
  *       until it signals {@code out.finish()} or emits no batch.</li>
  * </ol>
  */
-public interface TableFunction {
+public interface TableFunction extends FunctionDescriptor {
 
     String name();
 

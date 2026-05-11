@@ -4,6 +4,7 @@
 package farm.query.vgi.scalar;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.FunctionDescriptor;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import org.apache.arrow.memory.BufferAllocator;
@@ -16,7 +17,7 @@ import java.util.List;
  *
  * <p>Mirrors {@code vgi.ScalarFunction} in vgi-go.
  */
-public interface ScalarFunction {
+public interface ScalarFunction extends FunctionDescriptor {
 
     String name();
 
