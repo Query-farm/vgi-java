@@ -10,15 +10,13 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
+import org.apache.arrow.vector.util.TransferPair;
 
-import java.io.ByteArrayOutputStream;
-import java.nio.channels.Channels;
 import java.util.List;
 
 /**
@@ -28,8 +26,8 @@ import java.util.List;
  *
  * <p>{@code type} is an IPC-encoded schema with a single field "value" of the
  * spec's type (children included). {@code default_value} is an IPC-encoded
- * one-row record batch with that same schema, populated via
- * {@link AttachOptionValueCodec}.
+ * one-row record batch with that schema, populated by copying the spec's
+ * pre-materialised default vector via {@link TransferPair}.
  */
 public final class AttachOptionSpecSerializer {
 
@@ -46,14 +44,11 @@ public final class AttachOptionSpecSerializer {
                 new Field("type", new FieldType(false, BINARY, null), null),
                 new Field("default_value", new FieldType(true, BINARY, null), null)));
 
-        Field valueField = new Field("value",
-                new FieldType(true, spec.type(), null),
-                spec.children() == null ? List.of() : spec.children());
-        Schema typeSchema = new Schema(List.of(valueField));
+        Schema typeSchema = new Schema(List.of(spec.valueField()));
         byte[] typeBytes = SchemaUtil.serializeSchema(typeSchema);
-        byte[] defaultBytes = spec.defaultValue() == null
+        byte[] defaultBytes = spec.defaultVector() == null
                 ? null
-                : encodeDefault(typeSchema, spec.defaultValue(), alloc);
+                : encodeDefaultBatch(spec.defaultVector(), typeSchema, alloc);
 
         try (VectorSchemaRoot root = VectorSchemaRoot.create(specSchema, alloc)) {
             root.allocateNew();
@@ -68,23 +63,17 @@ public final class AttachOptionSpecSerializer {
         }
     }
 
-    /** Build a single-row IPC batch matching {@code typeSchema} with the
-     *  default value written into the "value" column at row 0. */
-    public static byte[] encodeDefault(Schema typeSchema, Object value, BufferAllocator alloc) {
+    /** Copy the default vector into a fresh one-row VSR (schema {value: type})
+     *  and IPC-encode it. */
+    private static byte[] encodeDefaultBatch(FieldVector defaultVec, Schema typeSchema,
+                                              BufferAllocator alloc) {
         try (VectorSchemaRoot root = VectorSchemaRoot.create(typeSchema, alloc)) {
             root.allocateNew();
-            FieldVector v = root.getVector("value");
-            AttachOptionValueCodec.writeValue(v, 0, value);
+            FieldVector target = root.getVector("value");
+            TransferPair tp = defaultVec.makeTransferPair(target);
+            tp.copyValueSafe(0, 0);
             root.setRowCount(1);
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            try (ArrowStreamWriter w = new ArrowStreamWriter(root, null, Channels.newChannel(baos))) {
-                w.start();
-                w.writeBatch();
-                w.end();
-            }
-            return baos.toByteArray();
-        } catch (Exception e) {
-            throw new RuntimeException("AttachOptionSpec default encode failed", e);
+            return BatchUtil.writeSingleBatch(root);
         }
     }
 }

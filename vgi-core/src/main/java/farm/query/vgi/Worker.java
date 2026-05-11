@@ -230,7 +230,7 @@ public final class Worker {
         return this;
     }
 
-    public List<AttachOptionSpec> attachOptionSpecs() { return attachOptions; }
+    public List<AttachOptionSpec> attachOptionSpecs() { return List.copyOf(attachOptions); }
 
     public Worker registerView(View v) {
         views.add(v);

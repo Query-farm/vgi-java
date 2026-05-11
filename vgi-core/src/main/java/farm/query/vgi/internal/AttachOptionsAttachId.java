@@ -13,7 +13,6 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.TransferPair;
 
-import java.io.ByteArrayOutputStream;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -27,7 +26,8 @@ import java.util.Map;
  * <p>Wire format: {@code uuid(16) || 0x00 || ipc(mergedBatch)}.
  * {@code mergedBatch} is a one-row record batch with one column per declared
  * spec (declaration order). User-supplied values override the spec's default;
- * missing values fall back to the default.
+ * missing values fall back to the default vector materialised at spec
+ * registration.
  */
 public final class AttachOptionsAttachId {
 
@@ -36,19 +36,21 @@ public final class AttachOptionsAttachId {
 
     private AttachOptionsAttachId() {}
 
-    public static byte[] encode(List<AttachOptionSpec> specs, byte[] userOptionsIpc, SecureRandom rng) {
+    public static byte[] encode(List<AttachOptionSpec> specs, byte[] userOptionsIpc,
+                                  SecureRandom rng) {
         BufferAllocator alloc = Allocators.root();
 
-        // Build the merged-batch schema: one column per spec, in declaration order.
+        // Merged-batch schema: one column per spec, in declaration order.
+        // The Field's name comes from the spec (not the spec's "value" field).
         List<Field> mergedFields = new ArrayList<>(specs.size());
         for (AttachOptionSpec spec : specs) {
             mergedFields.add(new Field(spec.name(),
                     new FieldType(true, spec.type(), null),
-                    spec.children() == null ? List.of() : spec.children()));
+                    spec.children()));
         }
         Schema mergedSchema = new Schema(mergedFields);
 
-        // Read user-supplied columns (if any) into a name → vector map.
+        // Index user-supplied columns by name.
         Map<String, FieldVector> userCols = new HashMap<>();
         VectorSchemaRoot userRoot = null;
         if (userOptionsIpc != null && userOptionsIpc.length > 0) {
@@ -64,16 +66,14 @@ public final class AttachOptionsAttachId {
             for (int i = 0; i < specs.size(); i++) {
                 AttachOptionSpec spec = specs.get(i);
                 FieldVector mergedVec = mergedRoot.getVector(i);
-                FieldVector userVec = userCols.get(spec.name());
-                if (userVec != null && userVec.getValueCount() > 0 && !userVec.isNull(0)) {
-                    // Copy user value at row 0 → merged at row 0.
-                    TransferPair tp = userVec.makeTransferPair(mergedVec);
-                    tp.copyValueSafe(0, 0);
-                } else if (spec.defaultValue() != null) {
-                    AttachOptionValueCodec.writeValue(mergedVec, 0, spec.defaultValue());
-                } else {
+                FieldVector source = pickSource(userCols.get(spec.name()), spec.defaultVector());
+                if (source == null) {
                     mergedVec.setNull(0);
+                    continue;
                 }
+                // Uniform copy: user value or default both flow through TransferPair.
+                TransferPair tp = source.makeTransferPair(mergedVec);
+                tp.copyValueSafe(0, 0);
             }
             mergedRoot.setRowCount(1);
             byte[] ipcBytes = BatchUtil.writeSingleBatch(mergedRoot);
@@ -88,6 +88,13 @@ public final class AttachOptionsAttachId {
         } finally {
             if (userRoot != null) userRoot.close();
         }
+    }
+
+    private static FieldVector pickSource(FieldVector userVec, FieldVector defaultVec) {
+        if (userVec != null && userVec.getValueCount() > 0 && !userVec.isNull(0)) {
+            return userVec;
+        }
+        return defaultVec;
     }
 
     /** Recover the merged one-row record batch IPC bytes from an attach_id. */

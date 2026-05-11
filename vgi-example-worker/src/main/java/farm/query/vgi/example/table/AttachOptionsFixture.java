@@ -48,39 +48,37 @@ public final class AttachOptionsFixture {
     private static final ArrowType FLOAT32 = new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
 
     public static List<AttachOptionSpec> declaredSpecs() {
-        // Days-since-epoch for 2026-04-24.
         int defaultDateDays = (int) LocalDate.of(2026, 4, 24).toEpochDay();
-        // Microseconds since midnight for 12:34:56.
         long defaultTimeUs = LocalTime.of(12, 34, 56).toNanoOfDay() / 1_000L;
         long defaultTsUs = LocalDateTime.of(2026, 4, 24, 12, 34, 56)
                 .toEpochSecond(ZoneOffset.UTC) * 1_000_000L;
         return List.of(
-                new AttachOptionSpec("opt_bool", "Boolean option", Schemas.BOOL, Boolean.TRUE),
-                new AttachOptionSpec("opt_int8", "int8", INT8, (byte) -8),
-                new AttachOptionSpec("opt_int16", "int16", INT16, (short) -16),
-                new AttachOptionSpec("opt_int32", "int32", INT32, -32),
-                new AttachOptionSpec("opt_int64", "int64", Schemas.INT64, -64L),
-                new AttachOptionSpec("opt_uint8", "uint8", UINT8, (byte) 8),
-                new AttachOptionSpec("opt_uint16", "uint16", UINT16, 16),
-                new AttachOptionSpec("opt_uint32", "uint32", UINT32, 32),
-                new AttachOptionSpec("opt_uint64", "uint64", UINT64, 64L),
-                new AttachOptionSpec("opt_float32", "float32", FLOAT32, 1.5f),
-                new AttachOptionSpec("opt_float64", "float64", Schemas.FLOAT64, 2.5d),
-                new AttachOptionSpec("opt_string", "UTF-8 string", Schemas.UTF8, "hello"),
-                new AttachOptionSpec("opt_blob", "Binary blob", new ArrowType.Binary(),
+                AttachOptionSpec.of("opt_bool", "Boolean option", Schemas.BOOL, Boolean.TRUE),
+                AttachOptionSpec.of("opt_int8", "int8", INT8, (byte) -8),
+                AttachOptionSpec.of("opt_int16", "int16", INT16, (short) -16),
+                AttachOptionSpec.of("opt_int32", "int32", INT32, -32),
+                AttachOptionSpec.of("opt_int64", "int64", Schemas.INT64, -64L),
+                AttachOptionSpec.of("opt_uint8", "uint8", UINT8, (byte) 8),
+                AttachOptionSpec.of("opt_uint16", "uint16", UINT16, 16),
+                AttachOptionSpec.of("opt_uint32", "uint32", UINT32, 32),
+                AttachOptionSpec.of("opt_uint64", "uint64", UINT64, 64L),
+                AttachOptionSpec.of("opt_float32", "float32", FLOAT32, 1.5f),
+                AttachOptionSpec.of("opt_float64", "float64", Schemas.FLOAT64, 2.5d),
+                AttachOptionSpec.of("opt_string", "UTF-8 string", Schemas.UTF8, "hello"),
+                AttachOptionSpec.of("opt_blob", "Binary blob", new ArrowType.Binary(),
                         new byte[] {0x00, 0x01, 0x02}),
-                new AttachOptionSpec("opt_date", "Date", DATE32, defaultDateDays),
-                new AttachOptionSpec("opt_time", "Time of day", TIME64_US, defaultTimeUs),
-                new AttachOptionSpec("opt_timestamp", "Naive timestamp", TIMESTAMP_US, defaultTsUs),
-                new AttachOptionSpec("opt_timestamp_tz", "Timestamp with UTC tz",
+                AttachOptionSpec.of("opt_date", "Date", DATE32, defaultDateDays),
+                AttachOptionSpec.of("opt_time", "Time of day", TIME64_US, defaultTimeUs),
+                AttachOptionSpec.of("opt_timestamp", "Naive timestamp", TIMESTAMP_US, defaultTsUs),
+                AttachOptionSpec.of("opt_timestamp_tz", "Timestamp with UTC tz",
                         TIMESTAMP_US_UTC, defaultTsUs),
-                new AttachOptionSpec("opt_decimal", "Decimal(18,4)", DECIMAL_18_4,
+                AttachOptionSpec.of("opt_decimal", "Decimal(18,4)", DECIMAL_18_4,
                         new BigDecimal("123.4500")),
-                new AttachOptionSpec("opt_list", "List of int64", LIST,
+                AttachOptionSpec.of("opt_list", "List of int64", LIST,
                         List.of(new Field("item",
                                 new FieldType(true, Schemas.INT64, null), null)),
                         List.of(1L, 2L, 3L)),
-                new AttachOptionSpec("opt_struct", "Struct", STRUCT,
+                AttachOptionSpec.of("opt_struct", "Struct", STRUCT,
                         List.of(
                                 new Field("a", new FieldType(true, Schemas.INT64, null), null),
                                 new Field("b", new FieldType(true, Schemas.UTF8, null), null)),
