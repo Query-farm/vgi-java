@@ -97,7 +97,7 @@ public final class MakeSeriesFunctions {
     /** {@code make_series(count BIGINT)} — 0..count-1. */
     public static final class Count implements TableFunction {
         @Override public String name() { return "make_series"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate 0..count-1"); }
+        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate integers from 0 to count-1"); }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(new ArgSpec("count", 0, Schemas.INT64, true));
         }
@@ -113,7 +113,7 @@ public final class MakeSeriesFunctions {
     /** {@code make_series(start BIGINT, stop BIGINT)} — start..stop-1. */
     public static final class Range implements TableFunction {
         @Override public String name() { return "make_series"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate start..stop-1"); }
+        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate integers from start to stop-1"); }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
                     new ArgSpec("start", 0, Schemas.INT64, true),
@@ -133,7 +133,7 @@ public final class MakeSeriesFunctions {
     /** {@code make_series(start BIGINT, stop BIGINT, step BIGINT)} — with step. */
     public static final class Step implements TableFunction {
         @Override public String name() { return "make_series"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate start..stop-1 with step"); }
+        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate integers from start to stop-1 with step"); }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
                     new ArgSpec("start", 0, Schemas.INT64, true),
@@ -174,7 +174,7 @@ public final class MakeSeriesFunctions {
     /** {@code make_series(step DOUBLE)} — 10 floats: 0, step, 2*step, ..., 9*step. */
     public static final class FloatStep implements TableFunction {
         @Override public String name() { return "make_series"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate 10 float values with given step"); }
+        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate 10 float values with given step size"); }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(new ArgSpec("step", 0, Schemas.FLOAT64, true));
         }

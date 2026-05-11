@@ -61,7 +61,7 @@ public final class MakePairsFunctions {
     public static final class IntVariant implements TableFunction {
         @Override public String name() { return "make_pairs"; }
         @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Emit (i, i*2) for i in start..stop-1");
+            return FunctionMetadata.describe("Generate integer pairs (i, i*2)");
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
@@ -79,7 +79,7 @@ public final class MakePairsFunctions {
     public static final class StrVariant implements TableFunction {
         @Override public String name() { return "make_pairs"; }
         @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Emit (prefix+i, suffix+i) for i in 0..4");
+            return FunctionMetadata.describe("Generate string pairs with prefix and suffix");
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
@@ -97,12 +97,12 @@ public final class MakePairsFunctions {
     public static final class MixedVariant implements TableFunction {
         @Override public String name() { return "make_pairs"; }
         @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Emit (start+i, suffix+i) for i in 0..4");
+            return FunctionMetadata.describe("Generate mixed int/string pairs");
         }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(
                     new ArgSpec("start", 0, Schemas.INT64, true),
-                    new ArgSpec("suffix", 1, Schemas.UTF8, true));
+                    new ArgSpec("label", 1, Schemas.UTF8, true));
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(MIXED_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {

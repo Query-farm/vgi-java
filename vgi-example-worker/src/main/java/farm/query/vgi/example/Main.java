@@ -88,9 +88,122 @@ public final class Main {
         return m;
     }
 
+    /** Build a Field with optional {@code comment} and {@code default} metadata
+     *  (read by the C++ extension at vgi_catalog_api.cpp:2061-2078). */
+    private static org.apache.arrow.vector.types.pojo.Field col(String name,
+                                                                  org.apache.arrow.vector.types.pojo.ArrowType type,
+                                                                  boolean nullable,
+                                                                  String comment, String defaultExpr) {
+        java.util.LinkedHashMap<String, String> md = new java.util.LinkedHashMap<>();
+        if (comment != null) md.put("comment", comment);
+        if (defaultExpr != null) md.put("default", defaultExpr);
+        return new org.apache.arrow.vector.types.pojo.Field(name,
+                new org.apache.arrow.vector.types.pojo.FieldType(nullable, type, null,
+                        md.isEmpty() ? null : md),
+                null);
+    }
+
+    /** Composite-struct row_id field for rowid_struct table. */
+    private static org.apache.arrow.vector.types.pojo.Field rowidStructField() {
+        return new org.apache.arrow.vector.types.pojo.Field("row_id",
+                new org.apache.arrow.vector.types.pojo.FieldType(false,
+                        new org.apache.arrow.vector.types.pojo.ArrowType.Struct(),
+                        null,
+                        java.util.Map.of("is_row_id", "true")),
+                java.util.List.of(
+                        new org.apache.arrow.vector.types.pojo.Field("a",
+                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
+                        new org.apache.arrow.vector.types.pojo.Field("b",
+                                new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null), null)));
+    }
+
+    /** Build a Field with the {@code is_row_id} metadata key, marking it as
+     *  DuckDB's virtual {@code rowid} for this table (see C++ catalog
+     *  binding at vgi_catalog_api.cpp:1684). */
+    private static org.apache.arrow.vector.types.pojo.Field rowIdCol(String name,
+                                                                       org.apache.arrow.vector.types.pojo.ArrowType type) {
+        return new org.apache.arrow.vector.types.pojo.Field(name,
+                new org.apache.arrow.vector.types.pojo.FieldType(false, type, null,
+                        java.util.Map.of("is_row_id", "true")),
+                null);
+    }
+
+    /** Build a Field with a generated_expression metadata key. */
+    private static org.apache.arrow.vector.types.pojo.Field genCol(String name,
+                                                                     org.apache.arrow.vector.types.pojo.ArrowType type,
+                                                                     boolean nullable,
+                                                                     String expr) {
+        return new org.apache.arrow.vector.types.pojo.Field(name,
+                new org.apache.arrow.vector.types.pojo.FieldType(nullable, type, null,
+                        java.util.Map.of("generated_expression", expr)),
+                null);
+    }
+
+    /** Serialize a list of fields as a TableInfo.columns IPC blob. */
+    private static byte[] cols(org.apache.arrow.vector.types.pojo.Field... fields) {
+        return farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(fields)));
+    }
+
+    /** Build a CatalogTable backed by the {@code _table_data} canned-data
+     *  fixture if it knows about {@code name}; otherwise metadata-only (SELECT
+     *  fails cleanly rather than crashing on a column-count mismatch).
+     */
+    private static Worker.CatalogTable stubTable(String schema, String name, String comment,
+                                                  org.apache.arrow.vector.types.pojo.Field... fields) {
+        boolean hasData = farm.query.vgi.example.table.CannedDataFunction.has(name);
+        if (hasData) {
+            return new Worker.CatalogTable(
+                    schema, name, cols(fields), comment, java.util.Map.of(),
+                    "_table_data", java.util.List.of((Object) name), java.util.Map.of(),
+                    null, null, false, /*inlineScanFunction=*/true);
+        }
+        return new Worker.CatalogTable(
+                schema, name, cols(fields), comment, java.util.Map.of(),
+                null, java.util.List.of(), java.util.Map.of(),
+                null, null, false, false);
+    }
+
+    private static org.apache.arrow.vector.types.pojo.Schema vgiExampleSecretSchema() {
+        var redact = java.util.Map.of("redact", "true");
+        return new org.apache.arrow.vector.types.pojo.Schema(java.util.List.of(
+                new org.apache.arrow.vector.types.pojo.Field("secret_string",
+                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null, redact), null),
+                new org.apache.arrow.vector.types.pojo.Field("api_key",
+                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null, redact), null),
+                new org.apache.arrow.vector.types.pojo.Field("port",
+                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
+                new org.apache.arrow.vector.types.pojo.Field("use_ssl",
+                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.BOOL, null), null),
+                new org.apache.arrow.vector.types.pojo.Field("timeout",
+                        new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.FLOAT64, null), null)));
+    }
+
     public static void main(String[] args) {
+        // Capture stderr early — the launcher dup2's /dev/null over fd 2,
+        // but System.setErr swaps Java's PrintStream wrapper to point at our
+        // own file. Set VGI_WORKER_STDERR to inspect launcher-mode crashes.
+        String stderrPath = System.getenv("VGI_WORKER_STDERR");
+        if (stderrPath != null && !stderrPath.isEmpty()) {
+            try {
+                java.io.PrintStream ps = new java.io.PrintStream(
+                        new java.io.FileOutputStream(stderrPath, true), true);
+                System.setErr(ps);
+            } catch (Exception ignore) {}
+        }
+        // Allow the test runner to override the catalog name + advertised
+        // versions via env vars. Different VGI_*_WORKER binaries are
+        // expected to advertise different catalog names; in this single-
+        // binary build we let an env var swap the metadata.
+        String catalogNameOverride = System.getenv("VGI_WORKER_CATALOG_NAME");
+        String catalogName = catalogNameOverride != null && !catalogNameOverride.isEmpty()
+                ? catalogNameOverride : "example";
+        String implVer = System.getenv("VGI_WORKER_IMPLEMENTATION_VERSION");
+        String dataSpec = System.getenv("VGI_WORKER_DATA_VERSION_SPEC");
         Worker w = Worker.builder()
-                .catalogName("example")
+                .catalogName(catalogName)
+                .implementationVersion(implVer)
+                .dataVersionSpec(dataSpec)
                 .catalogComment("Example VGI catalog for testing")
                 .catalogTags(Map.of(
                         "source", "vgi-fixture-worker",
@@ -113,6 +226,11 @@ public final class Main {
                                                 new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.INT64, null), null),
                                         new org.apache.arrow.vector.types.pojo.Field("label",
                                                 new org.apache.arrow.vector.types.pojo.FieldType(true, Schemas.UTF8, null), null))))
+                .secretTypes(
+                        new farm.query.vgi.SecretTypeSpec(
+                                "vgi_example",
+                                "Example secret for VGI integration tests",
+                                vgiExampleSecretSchema()))
                 .registerScalar(new AddValuesFunction())
                 .registerScalar(new ConditionalMessageFunction())
                 .registerScalar(new DoubleFunction())
@@ -153,6 +271,23 @@ public final class Main {
                 .registerScalar(new ReturnSecretValueFunction())
                 .registerScalar(new UnnestTensorFunction())
                 .registerTable(new SequenceFunction())
+                .registerTable(new farm.query.vgi.example.table.SecretDemoFunction())
+                .registerTable(new farm.query.vgi.example.table.ScopedSecretDemoFunction())
+                .registerTable(new farm.query.vgi.example.table.CannedDataFunction())
+                .registerTable(new farm.query.vgi.example.table.ConstantColumnsFunction())
+                .registerTable(new farm.query.vgi.example.table.RowIdSequenceFunction())
+                .registerTable(new farm.query.vgi.example.table.ProjReproFullSchemaFunction())
+                .registerTable(new farm.query.vgi.example.table.ProjReproFullSchemaFunction.Chunked())
+                .registerTable(new farm.query.vgi.example.table.ProjReproFullSchemaFunction.MultiWorker())
+                .registerTable(new farm.query.vgi.example.table.ProjReproFullSchemaFunction.Strict())
+                .registerTable(new farm.query.vgi.example.table.StubFunctions.ExpressionFilterTest())
+                .registerTable(new farm.query.vgi.example.table.StubFunctions.SpatialFilterExample())
+                .registerTable(new farm.query.vgi.example.table.StubFunctions.VersionedDataScan())
+                .registerTable(new farm.query.vgi.example.table.StubFunctions.ColorsScan())
+                .registerTable(new farm.query.vgi.example.table.StubFunctions.DepartmentsScan())
+                .registerTable(new farm.query.vgi.example.table.StubFunctions.EmployeesScan())
+                .registerTable(new farm.query.vgi.example.table.StubFunctions.ProductsScan())
+                .registerTable(new farm.query.vgi.example.table.StubFunctions.ProjectsScan())
                 .registerTable(new DoubleSequenceFunction())
                 .registerTable(new DynamicFilterEchoFunction())
                 .registerTable(new NamedParamsEchoFunction())
@@ -263,6 +398,182 @@ public final class Main {
                                 "Function-backed table with inlined cardinality (10000 rows)",
                                 "ten_thousand")
                         .withCardinality(10000L, 10000L))
+                .registerCatalogTable(stubTable("data", "products",
+                        "Product table with column defaults",
+                        col("id", Schemas.INT64, false, "Unique product identifier", null),
+                        col("name", Schemas.UTF8, true, "Product display name", "'unknown'"),
+                        col("price", Schemas.FLOAT64, true, "Unit price in USD", "9.99"),
+                        col("quantity", Schemas.INT64, true, null, "0"))
+                        .withConstraints(
+                                java.util.List.of(java.util.List.of(0)),               // PK: id
+                                java.util.List.of(),
+                                java.util.List.of(),
+                                java.util.List.of()))
+                .registerCatalogTable(stubTable("data", "departments",
+                        "Department reference table",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("name", Schemas.UTF8, false, null, null),
+                        col("budget", Schemas.FLOAT64, true, null, "0"))
+                        .withConstraints(
+                                java.util.List.of(java.util.List.of(0)),               // PK: id
+                                java.util.List.of(java.util.List.of(1)),               // UNIQUE: name
+                                java.util.List.of("budget >= 0"),                      // CHECK
+                                java.util.List.of()))
+                .registerCatalogTable(stubTable("data", "employees",
+                        "Employee table with FK to departments",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("name", Schemas.UTF8, false, null, null),
+                        col("email", Schemas.UTF8, false, null, null),
+                        col("department_id", Schemas.INT64, true, null, null))
+                        .withConstraints(
+                                java.util.List.of(java.util.List.of(0)),               // PK: id
+                                java.util.List.of(java.util.List.of(2)),               // UNIQUE: email
+                                java.util.List.of(),
+                                java.util.List.of(new Worker.CatalogTable.ForeignKey(
+                                        java.util.List.of("department_id"),
+                                        java.util.List.of("id"),
+                                        "data", "departments"))))
+                .registerCatalogTable(stubTable("data", "colors",
+                        "Colors table with ENUM-derived statistics",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("color", Schemas.UTF8, false, null, null),
+                        col("hex_code", Schemas.UTF8, false, null, null)))
+                .registerCatalogTable(stubTable("data", "funny_numbers",
+                        "123456 integers; stats served by the sequence function, not the table",
+                        col("n", Schemas.INT64, true, null, null)))
+                .registerCatalogTable(stubTable("data", "volatile_numbers",
+                        "Numbers with volatile stats (TTL=0, always re-fetched)",
+                        col("value", Schemas.INT64, true, null, null)))
+                .registerCatalogTable(stubTable("data", "generated_sequence",
+                        "Table with generated columns backed by sequence(10)",
+                        col("n", Schemas.INT64, true, null, null),
+                        genCol("doubled", Schemas.INT64, true, "n * 2"),
+                        genCol("label", Schemas.UTF8, true, "'item_' || n::VARCHAR")))
+                .registerCatalogTable(stubTable("data", "projects",
+                        "Projects with composite PK and FK to departments",
+                        col("department_id", Schemas.INT64, false, null, null),
+                        col("project_code", Schemas.UTF8, false, null, null),
+                        col("title", Schemas.UTF8, false, null, null))
+                        .withConstraints(
+                                java.util.List.of(java.util.List.of(0, 1)),            // PK: (department_id, project_code)
+                                java.util.List.of(),
+                                java.util.List.of(),
+                                java.util.List.of(new Worker.CatalogTable.ForeignKey(
+                                        java.util.List.of("department_id"),
+                                        java.util.List.of("id"),
+                                        "data", "departments"))))
+                .registerCatalogTable(stubTable("data", "rowid_first",
+                        "Table with row_id at column index 0",
+                        rowIdCol("row_id", Schemas.INT64),
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("value", Schemas.UTF8, true, null, null)))
+                .registerCatalogTable(stubTable("data", "rowid_middle",
+                        "Table with row_id at column index 1",
+                        col("name", Schemas.UTF8, true, null, null),
+                        rowIdCol("row_id", Schemas.INT64),
+                        col("value", Schemas.UTF8, true, null, null)))
+                .registerCatalogTable(stubTable("data", "rowid_last",
+                        "Table with row_id at column index 2",
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("value", Schemas.UTF8, true, null, null),
+                        rowIdCol("row_id", Schemas.INT64)))
+                .registerCatalogTable(stubTable("data", "rowid_string",
+                        "Table with string row_id",
+                        rowIdCol("row_id", Schemas.UTF8),
+                        col("payload", Schemas.UTF8, true, null, null)))
+                .registerCatalogTable(new Worker.CatalogTable(
+                        "data", "rowid_struct",
+                        cols(rowidStructField(),
+                                col("payload", Schemas.UTF8, true, null, null)),
+                        "Table with struct row_id", java.util.Map.of(),
+                        "_table_data", java.util.List.of((Object) "rowid_struct"),
+                        java.util.Map.of(), null, null, false, true))
+                .registerCatalogTable(stubTable("data", "versioned_data",
+                        "Versioned data table demonstrating time travel with schema evolution",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("score", Schemas.FLOAT64, true, null, null)))
+                .registerCatalogTable(stubTable("data", "versioned_data_v1",
+                        "Versioned data — version 1 (id only)",
+                        col("id", Schemas.INT64, false, null, null)))
+                .registerCatalogTable(stubTable("data", "versioned_data_v2",
+                        "Versioned data — version 2 (id, name, score, active)",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("score", Schemas.FLOAT64, true, null, null),
+                        col("active", Schemas.BOOL, true, null, null)))
+                .registerCatalogTable(stubTable("data", "versioned_data_v3",
+                        "Versioned data — version 3 (id, score)",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("score", Schemas.FLOAT64, true, null, null)))
+                .registerCatalogTable(stubTable("data", "versioned_constraints",
+                        "Table with constraints that evolve across versions",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("name", Schemas.UTF8, false, null, null),
+                        col("email", Schemas.UTF8, true, null, null),
+                        col("department_id", Schemas.INT64, true, null, null))
+                        .withConstraints(
+                                java.util.List.of(java.util.List.of(0)),               // PK: id
+                                java.util.List.of(java.util.List.of(2)),               // UNIQUE: email
+                                java.util.List.of(),
+                                java.util.List.of(new Worker.CatalogTable.ForeignKey(
+                                        java.util.List.of("department_id"),
+                                        java.util.List.of("id"),
+                                        "data", "departments"))))
+                .registerCatalogTable(stubTable("data", "versioned_constraints_v1",
+                        "v1 (id, name)",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("name", Schemas.UTF8, true, null, null)))
+                .registerCatalogTable(stubTable("data", "versioned_constraints_v2",
+                        "v2 (id, name, email)",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("name", Schemas.UTF8, false, null, null),
+                        col("email", Schemas.UTF8, false, null, null)))
+                .registerCatalogTable(stubTable("data", "versioned_constraints_v3",
+                        "v3 (id, name, email, department_id)",
+                        col("id", Schemas.INT64, false, null, null),
+                        col("name", Schemas.UTF8, false, null, null),
+                        col("email", Schemas.UTF8, false, null, null),
+                        col("department_id", Schemas.INT64, true, null, null)))
+                // Animals table for the "versioned_tables" worker — only
+                // visible when that catalog is loaded. Schema evolves
+                // across data versions (color column appears at 1.1.0).
+                .registerCatalogTable(stubTable("main", "animals",
+                        "Animals table (versioned)",
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("legs", Schemas.INT64, true, null, null),
+                        col("sound", Schemas.UTF8, true, null, null)))
+                .registerCatalogTable(stubTable("main", "animals_v_1_0_0",
+                        "Animals v1.0.0",
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("legs", Schemas.INT64, true, null, null),
+                        col("sound", Schemas.UTF8, true, null, null)))
+                .registerCatalogTable(stubTable("main", "animals_v_1_1_0",
+                        "Animals v1.1.0 — adds color",
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("legs", Schemas.INT64, true, null, null),
+                        col("sound", Schemas.UTF8, true, null, null),
+                        col("color", Schemas.UTF8, true, null, null)))
+                .registerCatalogTable(stubTable("main", "animals_v_2_0_0",
+                        "Animals v2.0.0",
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("legs", Schemas.INT64, true, null, null),
+                        col("sound", Schemas.UTF8, true, null, null),
+                        col("color", Schemas.UTF8, true, null, null)))
+                .registerCatalogTable(stubTable("main", "plants",
+                        "Plants table (versioned, appears at 2.0.0)",
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("kind", Schemas.UTF8, true, null, null),
+                        col("height_m", Schemas.FLOAT64, true, null, null)))
+                .registerCatalogTable(stubTable("main", "plants_v_2_0_0",
+                        "Plants v2.0.0",
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("kind", Schemas.UTF8, true, null, null),
+                        col("height_m", Schemas.FLOAT64, true, null, null)))
+                .registerCatalogTable(stubTable("main", "plants_v_3_0_0",
+                        "Plants v3.0.0",
+                        col("name", Schemas.UTF8, true, null, null),
+                        col("kind", Schemas.UTF8, true, null, null),
+                        col("height_m", Schemas.FLOAT64, true, null, null)))
                 .registerMacro(new Worker.Macro(
                         "main", "vgi_multiply", Worker.MacroType.SCALAR,
                         java.util.List.of("x", "y"), "x * y", "Multiply two values"))

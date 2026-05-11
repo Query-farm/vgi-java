@@ -51,14 +51,26 @@ public final class EchoFunction implements TableInOutFunction {
     public static final class EchoState extends TableInOutExchangeState {
         public EchoState() {}
         @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-            // Pass the input root through directly. Earlier versions of this
-            // function copied via TransferPair.splitAndTransfer to dodge a
-            // multi-tick truncation bug with nested types, but that path
-            // doesn't carry dictionary providers across — dict-encoded
-            // columns (DuckDB ENUMs) round-tripped as zero rows. Direct
-            // passthrough is wire-correct for both shapes; the multi-tick
-            // truncation has a different fix upstream.
-            out.emit(input.root());
+            // Transfer the input batch's vectors into a fresh VSR so the
+            // framework can close() the emitted root after writing without
+            // releasing the inputReader's buffers. Naive emit(input.root())
+            // works for one tick but invalidates the reader on the second
+            // tick — observed as multi-batch truncation in nested-type
+            // round-trips. TransferPair preserves dict-encoded children
+            // because the dictionary provider lives on the IpcStreamReader
+            // (passed through by flushCollector), not on the vectors.
+            org.apache.arrow.vector.VectorSchemaRoot in = input.root();
+            int rows = in.getRowCount();
+            java.util.List<org.apache.arrow.vector.FieldVector> outVectors = new java.util.ArrayList<>();
+            for (org.apache.arrow.vector.FieldVector v : in.getFieldVectors()) {
+                org.apache.arrow.vector.util.TransferPair tp = v.getTransferPair(farm.query.vgirpc.wire.Allocators.root());
+                tp.transfer();
+                outVectors.add((org.apache.arrow.vector.FieldVector) tp.getTo());
+            }
+            org.apache.arrow.vector.VectorSchemaRoot copy =
+                    new org.apache.arrow.vector.VectorSchemaRoot(outVectors);
+            copy.setRowCount(rows);
+            out.emit(copy);
         }
     }
 }

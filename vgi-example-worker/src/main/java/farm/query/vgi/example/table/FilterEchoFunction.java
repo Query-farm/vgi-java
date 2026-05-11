@@ -105,18 +105,43 @@ public final class FilterEchoFunction implements TableFunction {
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
+            emitOneBatch(out, filterStr, filterBytes);
+        }
+
+        @Override public void produceTick(farm.query.vgirpc.AnnotatedBatch input,
+                                            OutputCollector out, CallContext ctx) {
+            // DuckDB pushes dynamic filter updates (e.g. join-key IN filters
+            // synthesized by the planner) as per-tick custom_metadata under
+            // `vgi_pushdown_filters` (base64). Decode and let it shadow the
+            // init-time filter for this batch.
+            String fs = filterStr;
+            byte[] fb = filterBytes;
+            if (input != null) {
+                java.util.Map<String, String> meta = input.customMetadata();
+                String encoded = meta == null ? null : meta.get("vgi_pushdown_filters");
+                if (encoded != null && !encoded.isEmpty()) {
+                    try {
+                        byte[] bytes = java.util.Base64.getDecoder().decode(encoded);
+                        PushdownFilters pf = PushdownFiltersDecoder.decode(
+                                bytes, joinKeysIpc == null ? List.of() : joinKeysIpc);
+                        fs = pf.formatInline();
+                        fb = bytes;
+                    } catch (Exception ignore) { /* keep init-time filter */ }
+                }
+            }
+            emitOneBatch(out, fs, fb);
+        }
+
+        private void emitOneBatch(OutputCollector out, String fs, byte[] fb) {
             if (batch.done()) { out.finish(); return; }
             int n = batch.nextBatchSize();
             long start = batch.index();
-            // We always need to know n at filter-eval time, so build a working
-            // batch with the *full* schema, then filter, then project to the
-            // requested output schema.
             VectorSchemaRoot work = VectorSchemaRoot.create(OUTPUT_SCHEMA, Allocators.root());
             work.allocateNew();
             BigIntVector nv = (BigIntVector) work.getVector("n");
             VarCharVector sv = (VarCharVector) work.getVector("s");
             VarCharVector pv = (VarCharVector) work.getVector("pushed_filters");
-            Text filterText = new Text(filterStr);
+            Text filterText = new Text(fs);
             for (int i = 0; i < n; i++) {
                 long row = start + i;
                 nv.setSafe(i, row);
@@ -124,8 +149,8 @@ public final class FilterEchoFunction implements TableFunction {
                 pv.setSafe(i, filterText);
             }
             work.setRowCount(n);
-            if (filterBytes != null) {
-                PushdownFilters pf = PushdownFiltersDecoder.decode(filterBytes,
+            if (fb != null) {
+                PushdownFilters pf = PushdownFiltersDecoder.decode(fb,
                         joinKeysIpc == null ? List.of() : joinKeysIpc);
                 boolean[] mask = pf.evaluate(work);
                 work = compact(work, mask);

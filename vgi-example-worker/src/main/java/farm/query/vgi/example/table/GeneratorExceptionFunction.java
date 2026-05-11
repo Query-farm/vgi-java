@@ -32,7 +32,7 @@ public final class GeneratorExceptionFunction implements TableFunction {
     @Override public String name() { return "generator_exception"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Raises an exception after N batches for testing");
+        return FunctionMetadata.describe("Raises an exception after N batches for testing").withCategories("testing");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {

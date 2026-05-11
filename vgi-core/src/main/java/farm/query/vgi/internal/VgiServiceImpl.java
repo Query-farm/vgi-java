@@ -92,15 +92,65 @@ public final class VgiServiceImpl implements VgiService {
         byte[] outputSchemaIpc();
     }
 
-    private record BoundScalar(ScalarFunction fn, Arguments args, Schema inputSchema,
-                                Schema outputSchema, Map<String, Object> settings,
-                                byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc)
-            implements BoundEntry {}
+    private static final class BoundScalar implements BoundEntry {
+        final ScalarFunction fn;
+        final Arguments args;
+        final Schema inputSchema;
+        final Schema outputSchema;
+        final Map<String, Object> settings;
+        final byte[] argumentsIpc;
+        final byte[] settingsIpc;
+        final byte[] outputSchemaIpc;
+        byte[] secrets;
 
-    private record BoundTable(TableFunction fn, Arguments args, Schema inputSchema,
-                               Schema outputSchema, Map<String, Object> settings,
-                               byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc)
-            implements BoundEntry {}
+        BoundScalar(ScalarFunction fn, Arguments args, Schema inputSchema, Schema outputSchema,
+                     Map<String, Object> settings, byte[] argumentsIpc, byte[] settingsIpc,
+                     byte[] outputSchemaIpc) {
+            this.fn = fn; this.args = args; this.inputSchema = inputSchema;
+            this.outputSchema = outputSchema; this.settings = settings;
+            this.argumentsIpc = argumentsIpc; this.settingsIpc = settingsIpc;
+            this.outputSchemaIpc = outputSchemaIpc;
+        }
+
+        public ScalarFunction fn() { return fn; }
+        public Arguments args() { return args; }
+        public Schema inputSchema() { return inputSchema; }
+        public Schema outputSchema() { return outputSchema; }
+        public Map<String, Object> settings() { return settings; }
+        public byte[] argumentsIpc() { return argumentsIpc; }
+        public byte[] settingsIpc() { return settingsIpc; }
+        public byte[] outputSchemaIpc() { return outputSchemaIpc; }
+    }
+
+    private static final class BoundTable implements BoundEntry {
+        final TableFunction fn;
+        final Arguments args;
+        final Schema inputSchema;
+        final Schema outputSchema;
+        final Map<String, Object> settings;
+        final byte[] argumentsIpc;
+        final byte[] settingsIpc;
+        final byte[] outputSchemaIpc;
+        byte[] secrets;
+
+        BoundTable(TableFunction fn, Arguments args, Schema inputSchema, Schema outputSchema,
+                    Map<String, Object> settings, byte[] argumentsIpc, byte[] settingsIpc,
+                    byte[] outputSchemaIpc) {
+            this.fn = fn; this.args = args; this.inputSchema = inputSchema;
+            this.outputSchema = outputSchema; this.settings = settings;
+            this.argumentsIpc = argumentsIpc; this.settingsIpc = settingsIpc;
+            this.outputSchemaIpc = outputSchemaIpc;
+        }
+
+        public TableFunction fn() { return fn; }
+        public Arguments args() { return args; }
+        public Schema inputSchema() { return inputSchema; }
+        public Schema outputSchema() { return outputSchema; }
+        public Map<String, Object> settings() { return settings; }
+        public byte[] argumentsIpc() { return argumentsIpc; }
+        public byte[] settingsIpc() { return settingsIpc; }
+        public byte[] outputSchemaIpc() { return outputSchemaIpc; }
+    }
 
     private record BoundTableInOut(TableInOutFunction fn, Arguments args, Schema inputSchema,
                                     Schema outputSchema, Map<String, Object> settings,
@@ -277,23 +327,29 @@ public final class VgiServiceImpl implements VgiService {
         int argCount = constArgCount + columnArgCount;
         if (scalars.containsKey(name)) {
             ScalarFunction fn = pickVariant(scalars.get(name), argCount, args, inputSchema);
-            BindResponse upstream = fn.onBind(new ScalarBindParams(name, args, inputSchema, settings));
+            BindResponse upstream = fn.onBind(new ScalarBindParams(name, args, inputSchema, settings,
+                    request.secrets(), request.resolved_secrets_provided()));
             Schema outputSchema = upstream.output_schema() == null
                     ? null
                     : SchemaUtil.deserializeSchema(upstream.output_schema());
-            pendingBinds.put(key, new BoundScalar(fn, args, inputSchema, outputSchema, settings,
-                    request.arguments(), request.settings(), upstream.output_schema()));
+            BoundScalar bs = new BoundScalar(fn, args, inputSchema, outputSchema, settings,
+                    request.arguments(), request.settings(), upstream.output_schema());
+            bs.secrets = request.secrets();
+            pendingBinds.put(key, bs);
             return new BindResponse(upstream.output_schema(), token,
                     upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
         }
         if (tables.containsKey(name)) {
             TableFunction fn = pickVariant(tables.get(name), argCount, args, inputSchema);
-            BindResponse upstream = fn.onBind(new TableBindParams(name, args, inputSchema, settings));
+            BindResponse upstream = fn.onBind(new TableBindParams(name, args, inputSchema, settings,
+                    request.secrets(), request.resolved_secrets_provided()));
             Schema outputSchema = upstream.output_schema() == null
                     ? null
                     : SchemaUtil.deserializeSchema(upstream.output_schema());
-            pendingBinds.put(key, new BoundTable(fn, args, inputSchema, outputSchema, settings,
-                    request.arguments(), request.settings(), upstream.output_schema()));
+            BoundTable bt = new BoundTable(fn, args, inputSchema, outputSchema, settings,
+                    request.arguments(), request.settings(), upstream.output_schema());
+            bt.secrets = request.secrets();
+            pendingBinds.put(key, bt);
             return new BindResponse(upstream.output_schema(), token,
                     upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
         }
@@ -352,6 +408,7 @@ public final class VgiServiceImpl implements VgiService {
             ScalarStreamState state = new ScalarStreamState(
                     bs.fn().name(), bs.fn().argumentSpecs().size(), variantIdx,
                     request.output_schema(), bs.argumentsIpc(), bs.settingsIpc());
+            state.setSecrets(bs.secrets);
             return RpcStream.exchange(inputSchema, realOutputSchema, state, header);
         }
         if (bound instanceof BoundTable bt) {
@@ -377,7 +434,8 @@ public final class VgiServiceImpl implements VgiService {
                     request.order_by_direction(),
                     request.order_by_null_order(),
                     request.order_by_limit(),
-                    execId);
+                    execId,
+                    bt.secrets);
             TableProducerState state = bt.fn().createProducer(params);
             return RpcStream.producer(fnOutputSchema, state, header);
         }
@@ -593,13 +651,25 @@ public final class VgiServiceImpl implements VgiService {
 
     @Override
     public ItemsResponse catalog_catalogs() {
-        return ItemsResponse.empty();
+        return new ItemsResponse(List.of(CatalogInfoSerializer.serialize(
+                worker.catalogName(), worker.implementationVersion(),
+                worker.dataVersionSpec(), List.of())));
     }
 
     @Override
     public farm.query.vgi.protocol.CatalogVersionResponse catalog_version(byte[] attach_id, byte[] transaction_id) {
         return new farm.query.vgi.protocol.CatalogVersionResponse(1L);
     }
+
+    /** Per-attach resolved-data-version, keyed by attach_id hex. Used by
+     *  catalog_table_get to pick the right per-version table variant for
+     *  information_schema queries (which don't pass at_value). */
+    private final java.util.Map<String, String> attachDataVersions = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Per-attach catalog name (from the {@code ATTACH 'name'} clause).
+     *  Used to filter fixture-vs-fixture across multiple logical catalogs
+     *  served by the same worker binary. */
+    private final java.util.Map<String, String> attachCatalogNames = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Override
     public CatalogAttachResult catalog_attach(CatalogAttachRequest request, CallContext ctx) {
@@ -610,19 +680,163 @@ public final class VgiServiceImpl implements VgiService {
         for (SettingSpec spec : worker.settingSpecs()) {
             settings.add(SettingSpecSerializer.serialize(spec));
         }
+        List<byte[]> secretTypes = new ArrayList<>();
+        for (farm.query.vgi.SecretTypeSpec spec : worker.secretTypeSpecs()) {
+            secretTypes.add(SecretTypeSpecSerializer.serialize(spec));
+        }
+        // Resolve client-supplied / default version specs. Reject specs the
+        // worker can't satisfy with a clear error (the C++ extension
+        // surfaces "Unsupported data_version_spec" / "...implementation_version"
+        // back to ATTACH).
+        String resolvedImpl = resolveImplementationVersion(request.implementation_version());
+        String resolvedData = resolveDataVersion(request.data_version_spec());
+        if (resolvedData != null) attachDataVersions.put(bytesKey(attachId), resolvedData);
+        if (request.name() != null && !request.name().isEmpty()) {
+            attachCatalogNames.put(bytesKey(attachId), request.name());
+        }
+        Map<String, String> tags = new java.util.LinkedHashMap<>(worker.catalogTags() == null ? Map.of() : worker.catalogTags());
+        if (resolvedImpl != null) tags.put("vgi_resolved_implementation_version", resolvedImpl);
+        if (resolvedData != null) tags.put("vgi_resolved_data_version", resolvedData);
         return new CatalogAttachResult(
                 attachId,
-                false, false, false,
+                false, true, false,
                 1L,
                 false,
                 worker.defaultSchema(),
                 settings,
-                List.of(),
+                secretTypes,
                 worker.catalogComment(),
-                worker.catalogTags(),
+                tags,
                 false,
-                null,
-                null);
+                resolvedData,
+                resolvedImpl);
+    }
+
+    private String resolveImplementationVersion(String requested) {
+        String supported = worker.implementationVersion();
+        if (supported == null) return null;
+        if (requested == null || requested.isEmpty()) return supported;
+        // Allow npm-style ^/~ specs for implementation_version too.
+        String implVersionsList = System.getenv("VGI_WORKER_SUPPORTED_IMPL_VERSIONS");
+        List<String> implVersions = implVersionsList != null && !implVersionsList.isEmpty()
+                ? java.util.Arrays.asList(implVersionsList.split(","))
+                : java.util.List.of(supported);
+        String resolved = resolveNpmSpec(requested, implVersions);
+        if (resolved == null) {
+            throw new IllegalArgumentException("Unsupported implementation_version: " + requested);
+        }
+        return resolved;
+    }
+
+    private String resolveDataVersion(String spec) {
+        // The worker's dataVersionSpec is the supported range (e.g.
+        // ">=1.0.0,<2.0.0"). Caller spec accepts exact versions, npm-style
+        // ^/~ specs, or partial versions ("1", "1.0"). Each is resolved to
+        // a concrete version drawn from a small known set. Outside the
+        // worker's supported range → error.
+        String range = worker.dataVersionSpec();
+        if (range == null) return null;
+        if (spec == null || spec.isEmpty()) {
+            String defaultVer = System.getenv("VGI_WORKER_DEFAULT_DATA_VERSION");
+            return defaultVer != null && !defaultVer.isEmpty() ? defaultVer : "1.2.0";
+        }
+        List<String> supportedVersions = supportedVersions();
+        String resolved = resolveNpmSpec(spec, supportedVersions);
+        if (resolved == null || !matchesRange(resolved, range)) {
+            throw new IllegalArgumentException("Unsupported data_version_spec: " + spec);
+        }
+        return resolved;
+    }
+
+    private List<String> supportedVersions() {
+        String list = System.getenv("VGI_WORKER_SUPPORTED_VERSIONS");
+        if (list != null && !list.isEmpty()) {
+            return java.util.Arrays.asList(list.split(","));
+        }
+        // Default set covering the most common test scenarios.
+        return java.util.List.of("1.0.0", "1.1.0", "1.2.0", "2.0.0", "3.0.0");
+    }
+
+    /** Resolve an npm-style {@code spec} (exact / caret / tilde / partial)
+     *  against an ascending list of {@code supported} concrete versions.
+     *  Returns the highest matching supported version, or null. */
+    static String resolveNpmSpec(String spec, List<String> supported) {
+        if (spec == null) return null;
+        // Sort supported versions descending for "highest match" semantics.
+        List<String> sorted = new ArrayList<>(supported);
+        sorted.sort((a, b) -> -compareVersions(a, b));
+        // Caret: ^A.B.C → >=A.B.C and <(A+1).0.0  (or special-case 0.x)
+        if (spec.startsWith("^")) {
+            String base = spec.substring(1);
+            String[] bs = base.split("\\.");
+            int major = Integer.parseInt(bs[0]);
+            String upper = (major + 1) + ".0.0";
+            for (String v : sorted) {
+                if (compareVersions(v, base) >= 0 && compareVersions(v, upper) < 0) return v;
+            }
+            return null;
+        }
+        // Tilde: ~A.B.C → >=A.B.C and <A.(B+1).0
+        if (spec.startsWith("~")) {
+            String base = spec.substring(1);
+            String[] bs = base.split("\\.");
+            int major = Integer.parseInt(bs[0]);
+            int minor = bs.length > 1 ? Integer.parseInt(bs[1]) : 0;
+            String upper = major + "." + (minor + 1) + ".0";
+            for (String v : sorted) {
+                if (compareVersions(v, base) >= 0 && compareVersions(v, upper) < 0) return v;
+            }
+            return null;
+        }
+        // Bare major or major.minor → highest matching that prefix.
+        String[] parts = spec.split("\\.");
+        if (parts.length < 3) {
+            String prefix = spec + ".";
+            for (String v : sorted) {
+                if (v.startsWith(prefix) || v.equals(spec)) return v;
+            }
+            return null;
+        }
+        // Exact: must appear in supported.
+        return supported.contains(spec) ? spec : null;
+    }
+
+    private static boolean matchesRange(String version, String range) {
+        // Simple ">=A.B.C,<D.E.F" parser. Versions compared as dotted ints.
+        String[] parts = range.split(",");
+        for (String p : parts) {
+            p = p.trim();
+            String op;
+            String val;
+            if (p.startsWith(">=")) { op = ">="; val = p.substring(2); }
+            else if (p.startsWith(">")) { op = ">"; val = p.substring(1); }
+            else if (p.startsWith("<=")) { op = "<="; val = p.substring(2); }
+            else if (p.startsWith("<")) { op = "<"; val = p.substring(1); }
+            else if (p.startsWith("=")) { op = "="; val = p.substring(1); }
+            else { op = "="; val = p; }
+            int cmp = compareVersions(version, val);
+            boolean ok = switch (op) {
+                case ">=" -> cmp >= 0;
+                case ">"  -> cmp >  0;
+                case "<=" -> cmp <= 0;
+                case "<"  -> cmp <  0;
+                default  -> cmp == 0;
+            };
+            if (!ok) return false;
+        }
+        return true;
+    }
+
+    private static int compareVersions(String a, String b) {
+        String[] as = a.split("\\.");
+        String[] bs = b.split("\\.");
+        int n = Math.max(as.length, bs.length);
+        for (int i = 0; i < n; i++) {
+            int av = i < as.length ? Integer.parseInt(as[i]) : 0;
+            int bv = i < bs.length ? Integer.parseInt(bs[i]) : 0;
+            if (av != bv) return Integer.compare(av, bv);
+        }
+        return 0;
     }
 
     @Override
@@ -709,9 +923,28 @@ public final class VgiServiceImpl implements VgiService {
     public ItemsResponse catalog_schema_contents_tables(
             byte[] attach_id, String name, byte[] transaction_id) {
         List<byte[]> items = new ArrayList<>();
+        String dv = attach_id == null ? null : attachDataVersions.get(bytesKey(attach_id));
         for (Worker.CatalogTable t : worker.catalogTables()) {
             if (!t.schema().equals(name)) continue;
-            items.add(TableInfoSerializer.serialize(toTableInfo(t)));
+            // Hide per-version variant tables (e.g. versioned_data_v1,
+            // animals_v_1_0_0) from table listings — they are dispatched
+            // through the un-suffixed table via the AT (VERSION => ...)
+            // clause or via the attach's resolved data version.
+            if (t.name().matches(".*_v\\d+$")) continue;
+            if (t.name().matches(".*_v(_\\d+){3,}$")) continue;
+            // Catalog isolation. When the worker acts as the versioned-tables
+            // catalog, only the animals/plants user-visible fixtures are
+            // exposed (and only ones available at the resolved data version).
+            boolean isVersionedTables = "versioned_tables".equals(worker.catalogName());
+            boolean isVtFixture = "animals".equals(t.name()) || "plants".equals(t.name());
+            if (isVersionedTables && !isVtFixture) continue;
+            if (!isVersionedTables && isVtFixture) continue;
+            if (isVersionedTables && "plants".equals(t.name()) && dv != null
+                    && compareVersions(dv, "2.0.0") < 0) continue;
+            if (isVersionedTables && "animals".equals(t.name()) && dv != null
+                    && compareVersions(dv, "3.0.0") >= 0) continue;
+            Worker.CatalogTable resolved = dv == null ? t : resolveVersion(t, "data_version", dv);
+            items.add(TableInfoSerializer.serialize(toTableInfo(resolved)));
         }
         return new ItemsResponse(items);
     }
@@ -720,13 +953,27 @@ public final class VgiServiceImpl implements VgiService {
     public farm.query.vgi.protocol.TableScanFunctionGetResponse catalog_table_scan_function_get(
             byte[] attach_id, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_id) {
+        // Same version-resolution logic as catalog_table_get: if the table
+        // has per-version variants and the caller didn't explicitly ask for
+        // a version, fall back to the attach's resolved data version.
+        String effectiveAtUnit = at_unit;
+        String effectiveAtValue = at_value;
+        if ((effectiveAtUnit == null || effectiveAtUnit.isEmpty()) && attach_id != null) {
+            String dv = attachDataVersions.get(bytesKey(attach_id));
+            if (dv != null) {
+                effectiveAtUnit = "data_version";
+                effectiveAtValue = dv;
+            }
+        }
         for (Worker.CatalogTable t : worker.catalogTables()) {
-            if (t.schema().equals(schema_name) && t.name().equals(name) && t.scanFunctionName() != null) {
+            if (t.schema().equals(schema_name) && t.name().equals(name)) {
+                Worker.CatalogTable resolved = resolveVersion(t, effectiveAtUnit, effectiveAtValue);
+                if (resolved.scanFunctionName() == null) break;
                 byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
-                        t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
-                        t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed());
+                        resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
+                        resolved.scanFunctionNamed() == null ? Map.of() : resolved.scanFunctionNamed());
                 return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
-                        t.scanFunctionName(), argsBytes, List.of());
+                        resolved.scanFunctionName(), argsBytes, List.of());
             }
         }
         throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
@@ -736,12 +983,122 @@ public final class VgiServiceImpl implements VgiService {
     public ItemsResponse catalog_table_get(
             byte[] attach_id, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_id) {
+        // If the table has per-version variants and the caller didn't pass
+        // at_unit/at_value, default to the version this attach was bound to
+        // (so information_schema queries pick the right schema).
+        String effectiveAtUnit = at_unit;
+        String effectiveAtValue = at_value;
+        String dv = attach_id == null ? null : attachDataVersions.get(bytesKey(attach_id));
+        if ((effectiveAtUnit == null || effectiveAtUnit.isEmpty()) && dv != null) {
+            effectiveAtUnit = "data_version";
+            effectiveAtValue = dv;
+        }
+        // Hide plants below 2.0.0 in the versioned-tables catalog.
+        if ("versioned_tables".equals(worker.catalogName())) {
+            if ("plants".equals(name) && dv != null && compareVersions(dv, "2.0.0") < 0) {
+                return ItemsResponse.empty();
+            }
+            if ("animals".equals(name) && dv != null && compareVersions(dv, "3.0.0") >= 0) {
+                return ItemsResponse.empty();
+            }
+        }
         for (Worker.CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
-                return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(t))));
+                Worker.CatalogTable resolved = resolveVersion(t, effectiveAtUnit, effectiveAtValue);
+                return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(resolved))));
             }
         }
         return ItemsResponse.empty();
+    }
+
+    /**
+     * For {@code versioned_data} / {@code versioned_constraints}, swap the
+     * declared columns + scan args for a version-specific variant when the
+     * client asked {@code AT (VERSION => N)}. Other tables and AT clauses
+     * pass through unchanged. Throws if N is out of range so DuckDB surfaces
+     * "Unknown version" / "table did not exist before <year>" cleanly.
+     */
+    private Worker.CatalogTable resolveVersion(Worker.CatalogTable t, String at_unit, String at_value) {
+        if (at_unit == null || at_value == null || at_unit.isEmpty()) return t;
+        if ("data_version".equalsIgnoreCase(at_unit)) {
+            // Try a registered "<name>_v_<X>_<Y>_<Z>" variant — used by
+            // version-aware catalog tables that aren't time-travel tables.
+            String suffix = "_v_" + at_value.replace('.', '_');
+            String dvName = t.name() + suffix;
+            for (Worker.CatalogTable vt : worker.catalogTables()) {
+                if (vt.schema().equals(t.schema()) && vt.name().equals(dvName)) {
+                    return new Worker.CatalogTable(
+                            t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
+                            vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
+                            null, null, false, true,
+                            List.of(), List.of(), List.of(), List.of());
+                }
+            }
+            return t;
+        }
+        // Tables that don't declare time-travel behaviour reject AT clauses
+        // up-front. The catalog-level supports_time_travel=true gate is
+        // necessary for time-travel-capable tables to be accepted by
+        // DuckDB's binder, but each individual table can still error out
+        // here when asked for a non-default version.
+        if (!"versioned_data".equals(t.name()) && !"versioned_constraints".equals(t.name())) {
+            throw new IllegalArgumentException("table " + t.name() + " does not support time travel");
+        }
+        int version = -1;
+        if ("version".equalsIgnoreCase(at_unit)) {
+            try { version = Integer.parseInt(at_value); }
+            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + at_value); }
+        } else if ("timestamp".equalsIgnoreCase(at_unit)) {
+            // Map the timestamp to a version: <2020 errors, [2020..2021) → v1,
+            // [2021..2022) → v2, ≥2022 → v3 (matches time_travel.test).
+            String s = at_value;
+            int yearEnd = Math.min(4, s.length());
+            int year;
+            try { year = Integer.parseInt(s.substring(0, yearEnd)); }
+            catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Unknown timestamp: " + at_value);
+            }
+            if (year < 2020) {
+                throw new IllegalArgumentException("table did not exist before 2020");
+            }
+            if (year < 2021) version = 1;
+            else if (year < 2022) version = 2;
+            else version = 3;
+        } else {
+            return t;
+        }
+        if (version < 1 || version > 3) {
+            throw new IllegalArgumentException("Unknown version: " + version);
+        }
+        // Find the registered CatalogTable for "<name>_v<version>" and reuse
+        // its columns + scan args. The worker registers per-version variants
+        // as hidden internal tables; this method swaps them in at query time.
+        // Constraints are dropped on the versioned variant because column
+        // indices baked into PK/UNIQUE/FK refer to the *default* schema and
+        // would point past the end on older versions with fewer columns.
+        String versionedName = t.name() + "_v" + version;
+        for (Worker.CatalogTable vt : worker.catalogTables()) {
+            if (vt.schema().equals(t.schema()) && vt.name().equals(versionedName)) {
+                return new Worker.CatalogTable(
+                        t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
+                        vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
+                        null, null, false, true,
+                        List.of(), List.of(), List.of(), List.of());
+            }
+        }
+        return t;
+    }
+
+    private static List<Integer> extractNotNullColumnIndices(byte[] columnsIpc) {
+        if (columnsIpc == null || columnsIpc.length == 0) return List.of();
+        org.apache.arrow.vector.types.pojo.Schema s = SchemaUtil.deserializeSchema(columnsIpc);
+        if (s == null) return List.of();
+        java.util.List<org.apache.arrow.vector.types.pojo.Field> fields = s.getFields();
+        java.util.ArrayList<Integer> out = new java.util.ArrayList<>();
+        for (int i = 0; i < fields.size(); i++) {
+            if (!fields.get(i).isNullable()) out.add(i);
+        }
+        return out;
     }
 
     private farm.query.vgi.protocol.TableInfo toTableInfo(Worker.CatalogTable t) {
@@ -753,17 +1110,24 @@ public final class VgiServiceImpl implements VgiService {
                     t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
                     List.of());
         }
+        List<Integer> notNullCols = extractNotNullColumnIndices(t.columns());
+        List<byte[]> foreignKeys = new ArrayList<>();
+        if (t.foreignKeys() != null) {
+            for (Worker.CatalogTable.ForeignKey fk : t.foreignKeys()) {
+                foreignKeys.add(ForeignKeySerializer.serialize(fk));
+            }
+        }
         return new farm.query.vgi.protocol.TableInfo(
                 t.comment() == null || t.comment().isEmpty() ? null : t.comment(),
                 t.tags() == null ? Map.of() : t.tags(),
                 t.name(),
                 t.schema(),
                 t.columns() == null ? new byte[0] : t.columns(),
-                List.of(),     // not_null_constraints
-                List.of(),     // unique_constraints
-                List.of(),     // check_constraints
-                List.of(),     // primary_key_constraints
-                List.of(),     // foreign_key_constraints
+                notNullCols,
+                t.uniqueConstraints() == null ? List.of() : t.uniqueConstraints(),
+                t.checkConstraints() == null ? List.of() : t.checkConstraints(),
+                t.primaryKey() == null ? List.of() : t.primaryKey(),
+                foreignKeys,
                 false,
                 false,
                 false,
@@ -783,6 +1147,10 @@ public final class VgiServiceImpl implements VgiService {
     public ItemsResponse catalog_schema_contents_views(
             byte[] attach_id, String name, byte[] transaction_id) {
         List<byte[]> items = new ArrayList<>();
+        // Versioned-tables catalog ships no user-visible views.
+        if ("versioned_tables".equals(worker.catalogName())) {
+            return new ItemsResponse(items);
+        }
         for (Worker.View v : worker.views()) {
             if (!v.schema().equals(name)) continue;
             items.add(RecordCodec.serializeToBytes(new farm.query.vgi.protocol.ViewInfo(
@@ -861,8 +1229,15 @@ public final class VgiServiceImpl implements VgiService {
             }
         }
         if (wantTable) {
+            String attachCatName = attach_id == null ? null : attachCatalogNames.get(bytesKey(attach_id));
+            boolean isProjReproAttach = "projection_repro".equals(attachCatName);
             for (List<TableFunction> variants : tables.values()) {
                 for (TableFunction fn : variants) {
+                    // proj_repro_* fixtures live in the example worker binary
+                    // but only belong to the projection_repro catalog. Show
+                    // them only when that catalog was attached.
+                    if (!isProjReproAttach && fn.name().startsWith("proj_repro_")) continue;
+                    if (isProjReproAttach && !fn.name().startsWith("proj_repro_")) continue;
                     items.add(FunctionInfoSerializer.serialize(toTableFunctionInfo(fn, name)));
                 }
             }

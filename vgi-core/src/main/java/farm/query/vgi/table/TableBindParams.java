@@ -12,5 +12,12 @@ public record TableBindParams(
         String functionName,
         Arguments arguments,
         Schema inputSchema,
-        Map<String, Object> settings) {
+        Map<String, Object> settings,
+        byte[] secrets,
+        boolean resolvedSecretsProvided) {
+
+    public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
+                            Map<String, Object> settings) {
+        this(functionName, arguments, inputSchema, settings, null, false);
+    }
 }

@@ -3,9 +3,7 @@
 
 package farm.query.vgi.internal;
 
-import farm.query.vgirpc.wire.Allocators;
-import org.apache.arrow.vector.dictionary.DictionaryProvider;
-import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.IpcOption;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
@@ -19,10 +17,12 @@ import java.nio.channels.Channels;
  * Arrow IPC schema (de)serialisation helpers. VGI ships schemas as standalone
  * IPC streams (schema message + EOS) embedded as binary fields in wire DTOs.
  *
- * <p>Schema-only serialisation goes via {@link MessageSerializer} so we don't
- * have to instantiate a {@link org.apache.arrow.vector.VectorSchemaRoot} —
- * dictionary-encoded fields, struct types, etc. all work without forcing the
- * caller to also provide vectors and a {@link DictionaryProvider}.
+ * <p>Both directions go via {@link MessageSerializer} directly — using
+ * {@code ArrowStreamReader} on the read side would convert dict-encoded
+ * fields into <em>memory format</em> (type=indexType + DictionaryEncoding),
+ * which is not what the wire protocol carries. DuckDB and other consumers
+ * expect <em>wire format</em> (type=valueType + DictionaryEncoding); echoing
+ * memory format back makes ENUM columns look like raw integers.
  */
 public final class SchemaUtil {
 
@@ -43,9 +43,9 @@ public final class SchemaUtil {
 
     public static Schema deserializeSchema(byte[] bytes) {
         if (bytes == null || bytes.length == 0) return null;
-        try (ByteArrayInputStream in = new ByteArrayInputStream(bytes);
-             ArrowStreamReader reader = new ArrowStreamReader(in, Allocators.root())) {
-            return reader.getVectorSchemaRoot().getSchema();
+        try (ByteArrayInputStream in = new ByteArrayInputStream(bytes)) {
+            ReadChannel rc = new ReadChannel(Channels.newChannel(in));
+            return MessageSerializer.deserializeSchema(rc);
         } catch (Exception e) {
             throw new RuntimeException("deserializeSchema failed", e);
         }

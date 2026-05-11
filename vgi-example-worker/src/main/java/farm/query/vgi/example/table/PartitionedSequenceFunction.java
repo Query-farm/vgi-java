@@ -61,7 +61,7 @@ public final class PartitionedSequenceFunction implements TableFunction {
 
     @Override public String name() { return "partitioned_sequence"; }
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Generates a partitioned sequence using a shared work queue");
+        return FunctionMetadata.describe("Generates a partitioned sequence for multi-worker execution");
     }
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(

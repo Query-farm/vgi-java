@@ -64,7 +64,7 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
 
     @Override public FunctionMetadata metadata() {
         return FunctionMetadata.describe(
-                "Echoes pushed-down filter predicates across multiple parallel workers")
+                "Multi-worker partitioned sequence that echoes pushed-down filters")
                 .withPushdown(/*projection=*/true, /*filter=*/true, /*autoApply=*/true);
     }
 

@@ -72,9 +72,11 @@ public interface VgiService {
         return new farm.query.vgi.protocol.CardinalityResponse(null, null);
     }
 
-    /** Same wrapper shape as {@link #table_function_cardinality}. */
+    /** Same wrapper shape as {@link #table_function_cardinality}.
+     *  Default returns empty bytes: the C++ extension interprets that as
+     *  "no statistics available" and falls through to non-optimized scan. */
     default byte[] table_function_statistics(byte[] request) {
-        throw new UnsupportedOperationException("table_function_statistics");
+        return new byte[0];
     }
 
     /**
@@ -129,6 +131,39 @@ public interface VgiService {
 
     default void catalog_transaction_commit(byte[] attach_id, byte[] transaction_id) {}
     default void catalog_transaction_rollback(byte[] attach_id, byte[] transaction_id) {}
+
+    // -----------------------------------------------------------------------
+    // Catalog: DDL (read-only stubs)
+    // The read-only example catalog rejects every DDL call with a clear
+    // "catalog is read-only" error. These method signatures pin the wire
+    // contract that the C++ extension sends — adding new params here without
+    // matching the C++ schema would surface as "Outgoing request batch does
+    // not match the wire contract".
+    // -----------------------------------------------------------------------
+
+    default void catalog_schema_create(byte[] attach_id, String name,
+                                          @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String on_conflict,
+                                          @Nullable String comment,
+                                          java.util.Map<String, String> tags,
+                                          @Nullable byte[] transaction_id) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_schema_create not supported");
+    }
+
+    default void catalog_table_column_add(byte[] attach_id, String schema_name, String name,
+                                              byte[] column_definition,
+                                              boolean ignore_not_found,
+                                              boolean if_column_not_exists,
+                                              @Nullable byte[] transaction_id) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_add not supported");
+    }
+
+    default void catalog_table_column_drop(byte[] attach_id, String schema_name, String name,
+                                               String column_name,
+                                               boolean ignore_not_found,
+                                               boolean if_column_exists,
+                                               @Nullable byte[] transaction_id) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_drop not supported");
+    }
 
     // -----------------------------------------------------------------------
     // Catalog: schemas

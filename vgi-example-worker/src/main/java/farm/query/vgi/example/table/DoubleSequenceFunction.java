@@ -33,7 +33,7 @@ public final class DoubleSequenceFunction implements TableFunction {
     @Override public String name() { return "double_sequence"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Generates a sequence of doubles from 0.0 to (count-1)*increment");
+        return FunctionMetadata.describe("Generates a sequence of floating-point numbers from 0 to n-1");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {

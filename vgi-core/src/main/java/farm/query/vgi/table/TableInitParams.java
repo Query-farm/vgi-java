@@ -34,7 +34,22 @@ public record TableInitParams(
         String orderByDirection,
         String orderByNullOrder,
         Long orderByLimit,
-        byte[] executionId) {
+        byte[] executionId,
+        byte[] secrets) {
+
+    /** All-fields excl. secrets — compat ctor for older call sites. */
+    public TableInitParams(String functionName, Arguments arguments, Schema outputSchema,
+                            Map<String, Object> settings, BufferAllocator allocator,
+                            byte[] pushdownFilters, List<Integer> projectionIds,
+                            List<byte[]> joinKeys, Double tablesamplePercentage,
+                            Long tablesampleSeed, String orderByColumnName,
+                            String orderByDirection, String orderByNullOrder,
+                            Long orderByLimit, byte[] executionId) {
+        this(functionName, arguments, outputSchema, settings, allocator,
+                pushdownFilters, projectionIds, joinKeys, tablesamplePercentage,
+                tablesampleSeed, orderByColumnName, orderByDirection,
+                orderByNullOrder, orderByLimit, executionId, null);
+    }
 
     /** Convenience ctor for callers that don't supply pushdown info. */
     public TableInitParams(String functionName, Arguments arguments, Schema outputSchema,

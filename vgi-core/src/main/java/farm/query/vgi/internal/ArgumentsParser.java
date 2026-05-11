@@ -142,6 +142,26 @@ public final class ArgumentsParser {
             }
             return out;
         }
+        if (v instanceof org.apache.arrow.vector.complex.ListVector lv) {
+            int start = lv.getOffsetBuffer().getInt(row * 4L);
+            int end = lv.getOffsetBuffer().getInt((row + 1) * 4L);
+            FieldVector inner = lv.getDataVector();
+            List<Object> out = new ArrayList<>(end - start);
+            for (int i = start; i < end; i++) {
+                out.add(readScalarAt(inner, i));
+            }
+            return out;
+        }
+        if (v instanceof org.apache.arrow.vector.complex.FixedSizeListVector fl) {
+            int width = fl.getListSize();
+            int start = row * width;
+            FieldVector inner = fl.getDataVector();
+            List<Object> out = new ArrayList<>(width);
+            for (int i = 0; i < width; i++) {
+                out.add(readScalarAt(inner, start + i));
+            }
+            return out;
+        }
         // Fallback: leave as the vector itself for callers that need column-level access.
         return v;
     }

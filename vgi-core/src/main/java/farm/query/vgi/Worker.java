@@ -33,11 +33,14 @@ public final class Worker {
     private String catalogComment = "";
     private final Map<String, String> catalogTags = new LinkedHashMap<>();
     private String defaultSchema = "main";
+    private String implementationVersion;
+    private String dataVersionSpec;
     private final List<ScalarFunction> scalars = new ArrayList<>();
     private final List<TableFunction> tables = new ArrayList<>();
     private final List<TableInOutFunction> tableInOuts = new ArrayList<>();
     private final List<AggregateFunction<?>> aggregates = new ArrayList<>();
     private final List<SettingSpec> settings = new ArrayList<>();
+    private final List<SecretTypeSpec> secretTypes = new ArrayList<>();
     private final List<View> views = new ArrayList<>();
 
     /**
@@ -103,7 +106,31 @@ public final class Worker {
             Long cardinalityEstimate,
             Long cardinalityMax,
             boolean inlineCardinality,
-            boolean inlineScanFunction) {
+            boolean inlineScanFunction,
+            List<List<Integer>> primaryKey,
+            List<List<Integer>> uniqueConstraints,
+            List<String> checkConstraints,
+            List<ForeignKey> foreignKeys) {
+
+        /** Foreign-key constraint declaration. Wire shape uses column NAMES
+         *  (not indices) for both sides — matches the vgi-go fkSchema. */
+        public record ForeignKey(
+                List<String> fkColumns,
+                List<String> pkColumns,
+                String referencedSchema,
+                String referencedTable) {}
+
+        /** Backward-compat ctor — no constraints. */
+        public CatalogTable(String schema, String name, byte[] columns, String comment,
+                              Map<String, String> tags, String scanFunctionName,
+                              List<Object> scanFunctionPositional, Map<String, Object> scanFunctionNamed,
+                              Long cardinalityEstimate, Long cardinalityMax,
+                              boolean inlineCardinality, boolean inlineScanFunction) {
+            this(schema, name, columns, comment, tags, scanFunctionName, scanFunctionPositional,
+                    scanFunctionNamed, cardinalityEstimate, cardinalityMax,
+                    inlineCardinality, inlineScanFunction,
+                    List.of(), List.of(), List.of(), List.of());
+        }
 
         public static CatalogTable functionBacked(
                 String schema, String name, byte[] columns, String comment,
@@ -115,7 +142,8 @@ public final class Worker {
         public CatalogTable withCardinality(long estimate, long max) {
             return new CatalogTable(schema, name, columns, comment, tags,
                     scanFunctionName, scanFunctionPositional, scanFunctionNamed,
-                    estimate, max, true, inlineScanFunction);
+                    estimate, max, true, inlineScanFunction,
+                    primaryKey, uniqueConstraints, checkConstraints, foreignKeys);
         }
 
         /** Same backing function but skip the {@code TableInfo.scan_function}
@@ -123,7 +151,22 @@ public final class Worker {
         public CatalogTable withRpcScanFunction() {
             return new CatalogTable(schema, name, columns, comment, tags,
                     scanFunctionName, scanFunctionPositional, scanFunctionNamed,
-                    cardinalityEstimate, cardinalityMax, inlineCardinality, false);
+                    cardinalityEstimate, cardinalityMax, inlineCardinality, false,
+                    primaryKey, uniqueConstraints, checkConstraints, foreignKeys);
+        }
+
+        /** Attach PK/UNIQUE/CHECK/FK constraints to this table. */
+        public CatalogTable withConstraints(List<List<Integer>> pk,
+                                              List<List<Integer>> unique,
+                                              List<String> check,
+                                              List<ForeignKey> fks) {
+            return new CatalogTable(schema, name, columns, comment, tags,
+                    scanFunctionName, scanFunctionPositional, scanFunctionNamed,
+                    cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
+                    pk == null ? List.of() : pk,
+                    unique == null ? List.of() : unique,
+                    check == null ? List.of() : check,
+                    fks == null ? List.of() : fks);
         }
     }
 
@@ -143,6 +186,10 @@ public final class Worker {
     public Worker catalogName(String name) { this.catalogName = name; return this; }
     public Worker catalogComment(String comment) { this.catalogComment = comment; return this; }
     public Worker catalogTags(Map<String, String> tags) { this.catalogTags.putAll(tags); return this; }
+    public Worker implementationVersion(String v) { this.implementationVersion = v; return this; }
+    public Worker dataVersionSpec(String v) { this.dataVersionSpec = v; return this; }
+    public String implementationVersion() { return implementationVersion; }
+    public String dataVersionSpec() { return dataVersionSpec; }
     public Worker defaultSchema(String schema) { this.defaultSchema = schema; return this; }
 
     public Worker registerScalar(ScalarFunction fn) {
@@ -169,6 +216,13 @@ public final class Worker {
         for (SettingSpec s : specs) settings.add(s);
         return this;
     }
+
+    public Worker secretTypes(SecretTypeSpec... specs) {
+        for (SecretTypeSpec s : specs) secretTypes.add(s);
+        return this;
+    }
+
+    public List<SecretTypeSpec> secretTypeSpecs() { return secretTypes; }
 
     public Worker registerView(View v) {
         views.add(v);

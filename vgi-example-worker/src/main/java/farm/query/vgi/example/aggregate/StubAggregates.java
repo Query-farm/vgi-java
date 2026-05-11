@@ -64,38 +64,154 @@ public final class StubAggregates {
         }
     }
 
-    /** {@code nest_tensor(value ANY) -> ANY} — tensor-shaping placeholder. */
+    /** {@code nest_tensor(value ANY, axes STRUCT) -> struct<tensor, axes>} —
+     *  tensor-shaping aggregate. State accumulates (value, axes-tuple) pairs;
+     *  finalize sorts by axes and builds a (possibly nested) list. Supports
+     *  1D and 2D tensors over BIGINT values + BIGINT axes.
+     */
     public static final class NestTensor implements AggregateFunction<NestTensor.State> {
         public static final class State implements Serializable {
             private static final long serialVersionUID = 1L;
-            ArrayList<Double> values = new ArrayList<>();
+            ArrayList<Long> values = new ArrayList<>();
+            ArrayList<long[]> axes = new ArrayList<>();
+            int axisCount = -1;
+            ArrayList<String> axisNames = new ArrayList<>();
         }
         @Override public String name() { return "nest_tensor"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Nest values into a tensor (stub)"); }
+        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Nest values into a tensor"); }
         @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(ArgSpec.any("value", 0, List.of()));
+            return List.of(
+                    ArgSpec.any("value", 0, List.of()),
+                    ArgSpec.any("axes", 1, List.of()));
         }
         @Override public Schema outputSchema() {
             return new Schema(List.of(new Field("result",
                     new FieldType(true, new ArrowType.Null(), null, Map.of("vgi_type", "any")), null)));
         }
         @Override public Schema bindOutputSchema(Schema inputSchema) {
-            if (inputSchema == null || inputSchema.getFields().isEmpty()) return outputSchema();
-            return new Schema(List.of(new Field("result",
-                    new FieldType(true, inputSchema.getFields().get(0).getType(), null), null)));
+            if (inputSchema == null || inputSchema.getFields().size() < 2) return outputSchema();
+            Field valField = inputSchema.getFields().get(0);
+            Field axesField = inputSchema.getFields().get(1);
+            int dims = axesField.getChildren().size();
+            // tensor type: nested list of valField's type, dims deep.
+            ArrowType inner = valField.getType();
+            List<Field> nested = null;
+            for (int d = 0; d < dims; d++) {
+                Field child = new Field("item", new FieldType(true, inner, null), nested);
+                nested = List.of(child);
+                inner = new ArrowType.List();
+            }
+            Field tensorField = new Field("tensor",
+                    new FieldType(true, inner, null), nested);
+            // axes child: struct of (axis_name: list<axis_type>)
+            List<Field> axesChildren = new ArrayList<>();
+            for (Field f : axesField.getChildren()) {
+                axesChildren.add(new Field(f.getName(),
+                        new FieldType(true, new ArrowType.List(), null),
+                        List.of(new Field("item", new FieldType(true, f.getType(), null), null))));
+            }
+            Field axesOutField = new Field("axes",
+                    new FieldType(true, new ArrowType.Struct(), null), axesChildren);
+            Field resultField = new Field("result",
+                    new FieldType(true, new ArrowType.Struct(), null),
+                    List.of(tensorField, axesOutField));
+            return new Schema(List.of(resultField));
         }
         @Override public State newState() { return new State(); }
         @Override public void update(Map<Long, State> states, long[] groupIds, VectorSchemaRoot input) {
-            FieldVector v = input.getFieldVectors().get(0);
+            FieldVector vv = input.getVector(0);
+            FieldVector av = input.getVector(1);
             int rows = input.getRowCount();
+            org.apache.arrow.vector.complex.StructVector axes = av instanceof org.apache.arrow.vector.complex.StructVector
+                    ? (org.apache.arrow.vector.complex.StructVector) av : null;
             for (int i = 0; i < rows; i++) {
                 State s = states.computeIfAbsent(groupIds[i], k -> new State());
-                if (!v.isNull(i)) s.values.add(farm.query.vgi.types.ScalarHelpers.toDouble(v, i));
+                if (vv.isNull(i)) continue;
+                s.values.add(farm.query.vgi.types.ScalarHelpers.toLong(vv, i));
+                if (axes != null) {
+                    if (s.axisCount < 0) {
+                        s.axisCount = axes.getField().getChildren().size();
+                        for (Field cf : axes.getField().getChildren()) s.axisNames.add(cf.getName());
+                    }
+                    long[] coords = new long[s.axisCount];
+                    for (int a = 0; a < s.axisCount; a++) {
+                        FieldVector cv = axes.getChild(s.axisNames.get(a));
+                        coords[a] = cv == null || cv.isNull(i) ? 0
+                                : farm.query.vgi.types.ScalarHelpers.toLong(cv, i);
+                    }
+                    s.axes.add(coords);
+                }
             }
         }
-        @Override public void combine(State target, State source) { target.values.addAll(source.values); }
+        @Override public void combine(State target, State source) {
+            target.values.addAll(source.values);
+            target.axes.addAll(source.axes);
+            if (target.axisCount < 0) {
+                target.axisCount = source.axisCount;
+                target.axisNames = source.axisNames;
+            }
+        }
         @Override public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-            output.getVector("result").setNull(rowIndex);
+            org.apache.arrow.vector.FieldVector result = output.getVector("result");
+            if (!(result instanceof org.apache.arrow.vector.complex.StructVector outerSv)) {
+                result.setNull(rowIndex);
+                return;
+            }
+            // Sort by axes lex order so the tensor + axes are deterministic
+            // regardless of input order.
+            Integer[] order = new Integer[state.values.size()];
+            for (int i = 0; i < order.length; i++) order[i] = i;
+            java.util.Arrays.sort(order, (a, b) -> {
+                if (state.axes.isEmpty()) return Integer.compare(a, b);
+                long[] ax = state.axes.get(a);
+                long[] bx = state.axes.get(b);
+                for (int d = 0; d < ax.length; d++) {
+                    int cmp = Long.compare(ax[d], bx[d]);
+                    if (cmp != 0) return cmp;
+                }
+                return 0;
+            });
+            org.apache.arrow.vector.complex.StructVector sv =
+                    (org.apache.arrow.vector.complex.StructVector) result;
+            org.apache.arrow.vector.complex.impl.NullableStructWriter w = sv.getWriter();
+            w.setPosition(rowIndex);
+            w.start();
+            org.apache.arrow.vector.complex.writer.BaseWriter.ListWriter tensorW = w.list("tensor");
+            tensorW.startList();
+            if (state.axisCount <= 1) {
+                for (Integer idx : order) {
+                    tensorW.bigInt().writeBigInt(state.values.get(idx));
+                }
+            } else {
+                org.apache.arrow.vector.complex.writer.BaseWriter.ListWriter inner = tensorW.list();
+                long currentX = order.length == 0 ? 0 : state.axes.get(order[0])[0];
+                inner.startList();
+                for (Integer idx : order) {
+                    long ax = state.axes.get(idx)[0];
+                    if (ax != currentX) {
+                        inner.endList();
+                        currentX = ax;
+                        inner.startList();
+                    }
+                    inner.bigInt().writeBigInt(state.values.get(idx));
+                }
+                inner.endList();
+            }
+            tensorW.endList();
+            org.apache.arrow.vector.complex.writer.BaseWriter.StructWriter axesW = w.struct("axes");
+            axesW.start();
+            for (int axIdx = 0; axIdx < state.axisCount; axIdx++) {
+                java.util.TreeSet<Long> uniq = new java.util.TreeSet<>();
+                for (long[] coord : state.axes) uniq.add(coord[axIdx]);
+                org.apache.arrow.vector.complex.writer.BaseWriter.ListWriter lw =
+                        axesW.list(state.axisNames.get(axIdx));
+                lw.startList();
+                for (Long v : uniq) lw.bigInt().writeBigInt(v);
+                lw.endList();
+            }
+            axesW.end();
+            w.end();
+            sv.setIndexDefined(rowIndex);
         }
     }
 

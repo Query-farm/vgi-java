@@ -42,7 +42,7 @@ public final class NamedParamsEchoFunction implements TableFunction {
     @Override public String name() { return "named_params_echo"; }
 
     @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Echoes named parameter values per row");
+        return FunctionMetadata.describe("Echoes named parameter values in output columns");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {

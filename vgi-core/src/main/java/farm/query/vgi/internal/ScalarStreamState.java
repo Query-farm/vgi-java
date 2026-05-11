@@ -35,6 +35,7 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
     private byte[] outputSchemaIpc;
     private byte[] argumentsIpc;
     private byte[] settingsIpc;
+    private byte[] secrets;
 
     private transient Schema cachedOutputSchema;
     private transient Arguments cachedArguments;
@@ -58,6 +59,8 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
         this.settingsIpc = settingsIpc;
     }
 
+    public void setSecrets(byte[] secrets) { this.secrets = secrets; }
+
     @Override
     public void exchange(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
         ScalarFunction fn = ServiceLocator.current().scalarAt(functionName, variantIndex);
@@ -65,7 +68,7 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
         if (cachedArguments == null) cachedArguments = ArgumentsParser.parse(argumentsIpc);
         if (cachedSettings == null) cachedSettings = SettingsParser.parse(settingsIpc);
         ScalarProcessParams params = new ScalarProcessParams(
-                functionName, cachedArguments, cachedOutputSchema, cachedSettings);
+                functionName, cachedArguments, cachedOutputSchema, cachedSettings, secrets);
         VectorSchemaRoot result = fn.process(params, input.root(), Allocators.root());
         out.emit(result);
     }
