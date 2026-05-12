@@ -157,8 +157,14 @@ for what was tried):
   empty join_keys at init for the JOIN-driven dynamic filter. Per-tick
   metadata updates target TIO functions; pure TableFunctions don't get the
   refreshed filter. C++ side suspected.
-- `attach/versioned_tables_impl.test:231` — `vgi_worker_pool` diagnostic
-  rows zero out under our launcher (C++ pool tracking).
+- `attach/versioned_tables_impl.test:231` — `vgi_worker_pool` returns 0
+  rows because `vgi_unary_rpc.cpp:141` short-circuits the pool for
+  `launch:` transport ("the long-lived worker behind the socket is
+  itself the pool"). Confirmed: switching VGI_VERSIONED_TABLES_WORKER
+  off `launch:` fixes this test but breaks 2 other versioned_tables
+  tests that need the launcher's data-version env propagation. Not
+  Java-fixable; needs either a C++ extension patch to report launcher-
+  mode entries or a per-test transport override.
 - ~~`table/database_tags.test:40`~~ → PASSES via `Worker.schemaComment(...)`.
 
 ## Statistics RPC
