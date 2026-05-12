@@ -199,15 +199,29 @@ public final class Worker {
 
     /** HTTP variant that accepts a fully-built config (prefix, authenticator,
      *  TLS, byte limits, …). Used by workers that wire OAuth/JWT or other
-     *  production knobs from environment variables. */
+     *  production knobs from environment variables.
+     *
+     *  <p>On SIGTERM the shutdown hook fires, calling {@link HttpServer#stop()}.
+     *  Jetty awaits in-flight requests up to its configured stop timeout
+     *  (15 s by default; see {@code HttpServer}'s {@code setStopTimeout}) and
+     *  then forcibly closes any stragglers. */
     public void runHttp(HttpServer.Config config) throws Exception {
+        org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(Worker.class);
         HttpServer http = new HttpServer(buildServer(), config);
         http.start();
         System.out.println("PORT:" + http.port());
         System.out.flush();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try { http.stop(); } catch (Exception ignore) {}
-        }));
+            log.info("SIGTERM received — stopping HTTP server (graceful, up to 15s)");
+            long t0 = System.currentTimeMillis();
+            try {
+                http.stop();
+                log.info("HTTP server stopped after {} ms", System.currentTimeMillis() - t0);
+            } catch (Exception e) {
+                log.warn("HTTP server stop failed after {} ms: {}",
+                        System.currentTimeMillis() - t0, e.toString());
+            }
+        }, "vgi-http-shutdown"));
         http.join();
     }
 }
