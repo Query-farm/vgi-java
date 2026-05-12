@@ -231,7 +231,9 @@ public final class Main {
                 .catalogComment("Example VGI catalog for testing")
                 .catalogTags(Map.of(
                         "source", "vgi-fixture-worker",
-                        "version", "1"));
+                        "version", "1"))
+                .schemaComment("main", "Example functions for testing VGI")
+                .schemaComment("data", "Example tables backed by functions");
         registerSettings(w);
         registerSecretTypes(w);
         registerScalars(w);

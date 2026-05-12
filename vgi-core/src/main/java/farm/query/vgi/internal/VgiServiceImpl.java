@@ -623,8 +623,10 @@ public final class VgiServiceImpl implements VgiService {
      */
     private List<SchemaDesc> workerSchemas() {
         List<SchemaDesc> result = new ArrayList<>();
+        Map<String, String> comments = worker.schemaComments();
         String defaultSchema = worker.defaultSchema();
-        result.add(new SchemaDesc(defaultSchema, "Default schema"));
+        result.add(new SchemaDesc(defaultSchema,
+                comments.getOrDefault(defaultSchema, "Default schema")));
         java.util.LinkedHashSet<String> extras = new java.util.LinkedHashSet<>();
         for (var t : worker.catalogTables()) {
             if (!defaultSchema.equals(t.schema())) extras.add(t.schema());
@@ -635,7 +637,7 @@ public final class VgiServiceImpl implements VgiService {
         for (var m : worker.macros()) {
             if (!defaultSchema.equals(m.schema())) extras.add(m.schema());
         }
-        for (String s : extras) result.add(new SchemaDesc(s, ""));
+        for (String s : extras) result.add(new SchemaDesc(s, comments.getOrDefault(s, "")));
         return result;
     }
 

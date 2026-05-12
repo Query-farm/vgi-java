@@ -36,6 +36,7 @@ public final class Worker {
     private String catalogComment = "";
     private final Map<String, String> catalogTags = new LinkedHashMap<>();
     private String defaultSchema = "main";
+    private final Map<String, String> schemaComments = new LinkedHashMap<>();
     private String implementationVersion;
     private String dataVersionSpec;
     private final List<ScalarFunction> scalars = new ArrayList<>();
@@ -77,6 +78,17 @@ public final class Worker {
     public String implementationVersion() { return implementationVersion; }
     public String dataVersionSpec() { return dataVersionSpec; }
     public Worker defaultSchema(String schema) { this.defaultSchema = schema; return this; }
+
+    /** Per-schema comment surfaced via {@code catalog_schemas} /
+     *  {@code catalog_schema_get}. Default comment for the default schema is
+     *  "Default schema"; any auxiliary schema without an entry gets an empty
+     *  comment. */
+    public Worker schemaComment(String schema, String comment) {
+        schemaComments.put(schema, comment == null ? "" : comment);
+        return this;
+    }
+
+    public Map<String, String> schemaComments() { return schemaComments; }
 
     public Worker registerScalar(ScalarFunction fn) {
         scalars.add(fn);
