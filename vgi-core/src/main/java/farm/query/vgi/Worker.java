@@ -194,7 +194,14 @@ public final class Worker {
     }
 
     public void runHttp(String host, int port) throws Exception {
-        HttpServer http = new HttpServer(buildServer(), HttpServer.Config.builder().host(host).port(port).build());
+        runHttp(HttpServer.Config.builder().host(host).port(port).build());
+    }
+
+    /** HTTP variant that accepts a fully-built config (prefix, authenticator,
+     *  TLS, byte limits, …). Used by workers that wire OAuth/JWT or other
+     *  production knobs from environment variables. */
+    public void runHttp(HttpServer.Config config) throws Exception {
+        HttpServer http = new HttpServer(buildServer(), config);
         http.start();
         System.out.println("PORT:" + http.port());
         System.out.flush();
