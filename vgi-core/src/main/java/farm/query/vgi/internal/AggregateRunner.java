@@ -143,33 +143,37 @@ public final class AggregateRunner {
             for (Map.Entry<Long, byte[]> e : raw.entrySet()) {
                 states.put(e.getKey(), fn.deserializeState(e.getValue()));
             }
-            LinkedHashSet<Long> toDelete = new LinkedHashSet<>();
+            // Window-segment-tree combines may reference the same source
+            // multiple times (a leaf state combined into several output rows),
+            // so we cannot delete the source after combining. The destructor
+            // RPC is what eventually frees the leaf state. Mirrors the Python
+            // worker's aggregate_combine semantics.
+            LinkedHashSet<Long> touchedTargets = new LinkedHashSet<>();
             for (int i = 0; i < n; i++) {
                 long src = srcs[i];
                 long tgt = tgts[i];
                 Object srcState = states.get(src);
                 Object tgtState = states.get(tgt);
-                if (srcState == null) continue;
-                if (tgtState == null) {
-                    states.put(tgt, srcState);
-                    states.remove(src);
-                    toDelete.add(src);
-                } else {
-                    fn.combine(tgtState, srcState);
-                    states.remove(src);
-                    toDelete.add(src);
+                if (srcState == null && tgtState == null) continue;
+                if (srcState == null) {
+                    touchedTargets.add(tgt);
+                    continue;
                 }
+                if (tgtState == null) {
+                    tgtState = fn.newState();
+                    states.put(tgt, tgtState);
+                }
+                fn.combine(tgtState, srcState);
+                touchedTargets.add(tgt);
             }
-            // Persist remaining states + delete consumed sources.
+            // Persist only the touched targets — sources retain whatever they
+            // had on disk so subsequent combines / finalizes can reread them.
             Map<Long, byte[]> dirty = new LinkedHashMap<>();
-            for (Map.Entry<Long, Object> e : states.entrySet()) {
-                dirty.put(e.getKey(), fn.serializeState(e.getValue()));
+            for (Long t : touchedTargets) {
+                Object s = states.get(t);
+                if (s != null) dirty.put(t, fn.serializeState(s));
             }
             store.saveStates(executionId, functionName, dirty);
-            if (!toDelete.isEmpty()) {
-                store.deleteStates(executionId, functionName,
-                        toDelete.stream().mapToLong(Long::longValue).toArray());
-            }
             return null;
         });
     }
