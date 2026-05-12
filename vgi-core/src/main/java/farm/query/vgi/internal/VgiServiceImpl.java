@@ -579,10 +579,30 @@ public final class VgiServiceImpl implements VgiService {
     /** Schema descriptors registered with the worker (default + auxiliary). */
     private record SchemaDesc(String name, String comment) {}
 
+    /**
+     * Schemas advertised to DuckDB. Always includes {@link
+     * Worker#defaultSchema()}; auxiliary schemas are added only if at least
+     * one registered catalog table, view, or macro lives in them. This avoids
+     * surfacing phantom empty schemas for workers that don't use them
+     * (e.g. our example worker uses "data" for its catalog tables; a custom
+     * worker with only "main" tables shouldn't expose "data" at all).
+     */
     private List<SchemaDesc> workerSchemas() {
-        return List.of(
-                new SchemaDesc(worker.defaultSchema(), "Example functions for testing VGI"),
-                new SchemaDesc("data", "Example tables backed by functions"));
+        List<SchemaDesc> result = new ArrayList<>();
+        String defaultSchema = worker.defaultSchema();
+        result.add(new SchemaDesc(defaultSchema, "Default schema"));
+        java.util.LinkedHashSet<String> extras = new java.util.LinkedHashSet<>();
+        for (var t : worker.catalogTables()) {
+            if (!defaultSchema.equals(t.schema())) extras.add(t.schema());
+        }
+        for (var v : worker.views()) {
+            if (!defaultSchema.equals(v.schema())) extras.add(v.schema());
+        }
+        for (var m : worker.macros()) {
+            if (!defaultSchema.equals(m.schema())) extras.add(m.schema());
+        }
+        for (String s : extras) result.add(new SchemaDesc(s, ""));
+        return result;
     }
 
     /**
