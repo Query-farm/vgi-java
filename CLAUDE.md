@@ -91,12 +91,14 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 
 ## State of play (as of 2026-05-12)
 
-**Passing: 116/128** (the `nested_type_combinations.test` segfault is
+**Passing: 117/128** (the `nested_type_combinations.test` segfault is
 filtered out; see warning below). Recent progression: 112 → 114 (dict-
 encoded fixes in `vgi-rpc-java` commits `880a5e4` / `bdccadc` /
 `5cd91f0`); 114 → 116 (constant_columns + HUGEINT routing through
-argField); now 116 → 117 with statistics RPC support (table_function_-
-statistics passes; column_statistics 136/137 — only GEOMETRY remains).
+argField); 116 → 117 with statistics RPC support (table_function_-
+statistics passes; column_statistics 136/137 — only GEOMETRY remains);
+117 with `Worker.schemaComment(...)` threading per-schema comments
+through `database_tags.test`.
 
 ⚠️ **`table_in_out/echo/nested_type_combinations.test` SEGFAULTS the
 C++ harness mid-run.** Filter it out of integration runs:
@@ -127,7 +129,7 @@ lossless-tagged inputs (probably needs to detect sparse_union
 children of list/struct and re-collapse them to their declared
 type before emit).
 
-Remaining 12 failures (excluding the segfault), briefly (see `git log`
+Remaining 11 failures (excluding the segfault), briefly (see `git log`
 for what was tried):
 
 - `aggregate/nest_tensor.test`, `scalar/unnest_tensor.test`,
@@ -142,13 +144,19 @@ for what was tried):
   assertions pass.
 - ~~`table/table_function_statistics.test`~~ → PASSES (statistics RPC).
 - `table/{filter_echo_partitioned,order_preservation_modes,partitioned_sequence}.test`
-  — parallelism / partitioning semantics.
-- `schema_reconcile.test` — writable INSERT path.
-- `aggregate/window.test:267` — window aggregate edge case.
-- `table/join_keys_pushdown.test` — C++ side suspected.
-- `attach/versioned_tables_impl.test:231` — `vgi_worker_pool` diagnostic.
-- `table/database_tags.test:40` — schema comments (`data`,`main`) not
-  threaded through the Worker config; we hardcode "Default schema".
+  — DuckDB's async init in the C++ extension reads `max_workers` *after*
+  scheduling has decided on threads. Passes under `VGI_SYNC_INIT_GLOBAL=1`;
+  not Java-side fixable.
+- `schema_reconcile.test` — writable INSERT path (out of scope).
+- `aggregate/window.test:267` — window aggregate edge case under load;
+  needs `supports_window=true` + a new `window_aggregate` RPC.
+- `table/join_keys_pushdown.test` — DuckDB sends 0-byte pushdown_filters /
+  empty join_keys at init for the JOIN-driven dynamic filter. Per-tick
+  metadata updates target TIO functions; pure TableFunctions don't get the
+  refreshed filter. C++ side suspected.
+- `attach/versioned_tables_impl.test:231` — `vgi_worker_pool` diagnostic
+  rows zero out under our launcher (C++ pool tracking).
+- ~~`table/database_tags.test:40`~~ → PASSES via `Worker.schemaComment(...)`.
 
 ## Statistics RPC
 
