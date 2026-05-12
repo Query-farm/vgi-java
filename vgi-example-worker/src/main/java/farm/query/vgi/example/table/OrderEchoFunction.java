@@ -54,7 +54,7 @@ public final class OrderEchoFunction implements TableFunction {
     }
     @Override public List<ArgSpec> argumentSpecs() {
         return List.of(
-                ArgSpec.positionalWithDefault("count", 0, Schemas.INT64, "10"),
+                ArgSpec.positional("count", 0, Schemas.INT64),
                 ArgSpec.named("batch_size", Schemas.INT64, "2048"));
     }
     @Override public BindResponse onBind(TableBindParams params) {

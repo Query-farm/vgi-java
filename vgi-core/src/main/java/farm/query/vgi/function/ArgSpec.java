@@ -36,6 +36,20 @@ public record ArgSpec(
         boolean tableInput,
         List<Field> children) {
 
+    /** Canonical constructor: rejects positional + hasDefault. DuckDB's binder
+     *  does not apply per-positional defaults — declaring one is dead metadata
+     *  at the SQL call site. Use {@link #named(String, ArrowType, String)} for
+     *  defaultable arguments (kwarg-style {@code arg => value}). */
+    public ArgSpec {
+        if (position >= 0 && hasDefault) {
+            throw new IllegalArgumentException(
+                    "ArgSpec '" + name + "' at position " + position
+                            + " cannot have hasDefault=true: DuckDB's binder does not apply"
+                            + " positional defaults. Use a named-only ArgSpec (position=-1)"
+                            + " if you need a default value.");
+        }
+    }
+
     public ArgSpec(String name, int position, ArrowType arrowType, String doc,
                     boolean isConst, boolean hasDefault, String defaultValue,
                     List<TypeBoundPredicate> typeBound,
@@ -82,14 +96,6 @@ public record ArgSpec(
     /** Plain positional const argument with no default value. */
     public static ArgSpec positional(String name, int position, ArrowType type) {
         return new ArgSpec(name, position, type, "", true, false, "",
-                List.of(), false, false, false);
-    }
-
-    /** Positional const argument with a default value (used by fixtures
-     *  where the positional slot may be omitted at the call site). */
-    public static ArgSpec positionalWithDefault(String name, int position, ArrowType type,
-                                                  String defaultValue) {
-        return new ArgSpec(name, position, type, "", true, true, defaultValue,
                 List.of(), false, false, false);
     }
 
