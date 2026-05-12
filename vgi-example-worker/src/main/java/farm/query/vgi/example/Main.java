@@ -30,7 +30,7 @@ import farm.query.vgi.example.scalar.ReturnSecretValueFunction;
 import farm.query.vgi.example.scalar.RandomIntFunction;
 import farm.query.vgi.example.scalar.SumValuesFunction;
 import farm.query.vgi.example.scalar.TypeInfoFunctions;
-import farm.query.vgi.example.scalar.UnnestTensorFunction;
+import farm.query.vgi.example.tensor.UnnestTensorFunction;
 import farm.query.vgi.example.scalar.UpperCaseFunction;
 import farm.query.vgi.example.scalar.WhoAmIFunction;
 import farm.query.vgi.example.table.DoubleSequenceFunction;
@@ -68,7 +68,7 @@ import farm.query.vgi.example.tableinout.EchoFunction;
 import farm.query.vgi.example.tableinout.BufferInputFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
 import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
-import farm.query.vgi.example.tableinout.UnnestTensorRowsFunction;
+import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
 import farm.query.vgi.example.tableinout.DistributedSumFunction;
 import farm.query.vgi.example.tableinout.ExceptionFinalizeFunction;
 import farm.query.vgi.example.tableinout.ExceptionProcessFunction;
@@ -378,7 +378,7 @@ public final class Main {
                 new GenericSumFunction(),
                 new PercentileFunction(),
                 new StubAggregates.StreamingSum(),
-                new StubAggregates.NestTensor(),
+                new farm.query.vgi.example.tensor.NestTensorFunction(),
                 new StubAggregates.WindowSum(),
                 new StubAggregates.WindowSumBatch(),
                 new StubAggregates.WindowMedian(),
