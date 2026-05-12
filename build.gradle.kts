@@ -13,6 +13,15 @@ allprojects {
 
 subprojects {
     apply(plugin = "java")
+    apply(plugin = "maven-publish")
+
+    extensions.configure<PublishingExtension> {
+        publications {
+            create<MavenPublication>("maven") {
+                from(components["java"])
+            }
+        }
+    }
 
     extensions.configure<JavaPluginExtension> {
         toolchain {
