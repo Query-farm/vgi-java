@@ -345,6 +345,40 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     @Override
+    public byte[] table_function_statistics(byte[] request) {
+        Map<String, byte[]> fields = IpcUnpacker.unpack(request, "bind_call", "bind_opaque_data");
+        if (fields == null) return new byte[0];
+        byte[] bindCall = fields.get("bind_call");
+        byte[] bindOpaque = fields.get("bind_opaque_data");
+        TableFunction fn = null;
+        TableBindParams params = null;
+        if (bindOpaque != null) {
+            BoundEntry e = pendingBinds.get(bytesKey(bindOpaque));
+            if (e instanceof BoundTable bt) {
+                fn = bt.fn();
+                params = new TableBindParams(fn.name(), bt.args(), bt.inputSchema(), bt.settings());
+            }
+        }
+        if (fn == null && bindCall != null && bindCall.length > 0) {
+            BindRequest embedded = RecordCodec.deserializeFromBytes(bindCall, BindRequest.class);
+            if (tables.containsKey(embedded.function_name())) {
+                Schema inputSchema = SchemaUtil.deserializeSchema(embedded.input_schema());
+                Arguments args = ArgumentsParser.parse(embedded.arguments());
+                Map<String, Object> settings = SettingsParser.parse(embedded.settings());
+                int constN = args.positional().size();
+                int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
+                fn = OverloadResolver.pick(tables.get(embedded.function_name()),
+                        constN + colN, args, inputSchema);
+                params = new TableBindParams(embedded.function_name(), args, inputSchema, settings);
+            }
+        }
+        if (fn == null || params == null) return new byte[0];
+        java.util.List<farm.query.vgi.catalog.ColumnStatistics> stats = fn.statistics(params);
+        if (stats == null || stats.isEmpty()) return new byte[0];
+        return ColumnStatisticsSerializer.serialize(stats);
+    }
+
+    @Override
     public farm.query.vgi.protocol.DynamicToStringResponse table_function_dynamic_to_string(byte[] request) {
         Map<String, byte[]> fields = IpcUnpacker.unpack(request,
                 "bind_call", "bind_opaque_data", "global_execution_id");
@@ -500,7 +534,7 @@ public final class VgiServiceImpl implements VgiService {
                 secretTypes,
                 worker.catalogComment(),
                 tags,
-                false,
+                true,
                 resolvedData,
                 resolvedImpl);
     }
@@ -709,6 +743,19 @@ public final class VgiServiceImpl implements VgiService {
         return ItemsResponse.empty();
     }
 
+    @Override
+    public byte[] catalog_table_column_statistics_get(
+            byte[] attach_id, String schema_name, String name, byte[] transaction_id) {
+        if (catalogRegistry.isHiddenInVersionedTables(name, attach_id)) return new byte[0];
+        for (CatalogTable t : worker.catalogTables()) {
+            if (t.schema().equals(schema_name) && t.name().equals(name)) {
+                if (t.statistics() == null || t.statistics().isEmpty()) return new byte[0];
+                return ColumnStatisticsSerializer.serialize(t.statistics());
+            }
+        }
+        return new byte[0];
+    }
+
     private static List<Integer> extractNotNullColumnIndices(byte[] columnsIpc) {
         if (columnsIpc == null || columnsIpc.length == 0) return List.of();
         org.apache.arrow.vector.types.pojo.Schema s = SchemaUtil.deserializeSchema(columnsIpc);
@@ -737,6 +784,9 @@ public final class VgiServiceImpl implements VgiService {
                 foreignKeys.add(ForeignKeySerializer.serialize(fk));
             }
         }
+        boolean hasStats = t.statistics() != null && !t.statistics().isEmpty();
+        byte[] inlineStats = hasStats
+                ? ColumnStatisticsSerializer.serialize(t.statistics()) : null;
         return new farm.query.vgi.protocol.TableInfo(
                 t.comment() == null || t.comment().isEmpty() ? null : t.comment(),
                 t.tags() == null ? Map.of() : t.tags(),
@@ -752,14 +802,14 @@ public final class VgiServiceImpl implements VgiService {
                 false,
                 false,
                 false,
-                false,
+                hasStats,
                 scanFn,
                 null,
                 null,
                 null,
                 t.inlineCardinality() ? t.cardinalityEstimate() : null,
                 t.inlineCardinality() ? t.cardinalityMax() : null,
-                null,
+                inlineStats,
                 null);
     }
 

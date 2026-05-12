@@ -107,6 +107,16 @@ public final class MakeSeriesFunctions {
             for (int i = 0; i < values.length; i++) values[i] = i;
             return new IntState(values);
         }
+        @Override
+        public List<farm.query.vgi.catalog.ColumnStatistics> statistics(TableBindParams p) {
+            Object countObj = p.arguments().positional().isEmpty()
+                    ? null : p.arguments().positionalAt(0);
+            if (!(countObj instanceof Number cn)) return null;
+            long count = cn.longValue();
+            if (count <= 0) return null;
+            return List.of(farm.query.vgi.catalog.ColumnStatistics.ofInt64(
+                    "value", 0L, count - 1, false, count));
+        }
     }
 
     /** {@code make_series(start BIGINT, stop BIGINT)} — start..stop-1. */

@@ -63,4 +63,14 @@ public interface TableFunction extends FunctionDescriptor {
     default java.util.LinkedHashMap<String, String> dynamicToString(byte[] globalExecutionId) {
         return new java.util.LinkedHashMap<>();
     }
+
+    /**
+     * Per-output-column statistics surfaced via the
+     * {@code table_function_statistics} RPC. Used by DuckDB's optimiser for
+     * filter elimination. Return {@code null} or an empty list when stats are
+     * unknown.
+     */
+    default java.util.List<farm.query.vgi.catalog.ColumnStatistics> statistics(TableBindParams params) {
+        return null;
+    }
 }

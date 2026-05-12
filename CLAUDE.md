@@ -89,13 +89,14 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
   javadoc). Don't close after emit.
 - **No comments** unless the *why* is non-obvious. Don't restate code.
 
-## State of play (as of 2026-05-11)
+## State of play (as of 2026-05-12)
 
-**Passing: 114/129** (was 112/129 before commits `880a5e4` /
-`bdccadc` / `5cd91f0` in `vgi-rpc-java`, which fixed three layered
-dict-encoded bugs: cast-rejects-memory-format, WriteChannel-position-
-desync, and missing dict-batch emission between schema and record
-batch).
+**Passing: 116/128** (the `nested_type_combinations.test` segfault is
+filtered out; see warning below). Recent progression: 112 → 114 (dict-
+encoded fixes in `vgi-rpc-java` commits `880a5e4` / `bdccadc` /
+`5cd91f0`); 114 → 116 (constant_columns + HUGEINT routing through
+argField); now 116 → 117 with statistics RPC support (table_function_-
+statistics passes; column_statistics 136/137 — only GEOMETRY remains).
 
 ⚠️ **`table_in_out/echo/nested_type_combinations.test` SEGFAULTS the
 C++ harness mid-run.** Filter it out of integration runs:
@@ -126,7 +127,7 @@ lossless-tagged inputs (probably needs to detect sparse_union
 children of list/struct and re-collapse them to their declared
 type before emit).
 
-Remaining 14 failures (excluding the segfault), briefly (see `git log`
+Remaining 12 failures (excluding the segfault), briefly (see `git log`
 for what was tried):
 
 - `aggregate/nest_tensor.test`, `scalar/unnest_tensor.test`,
@@ -136,16 +137,41 @@ for what was tried):
   `filter_pushdown/enums.test` — dict-encoded round-trip in echo TIO~~
   → all_types + enums PASS; nested_type_combinations now segfaults
   (see warning above).
-- `table/{column,table_function}_statistics.test` — sparse-union encoding
-  for statistics RPC.
+- `table/column_statistics.test:449` — GEOMETRY column stats remain
+  unimplemented (BOX bounding-box VARCHAR-typed min/max). 136/137
+  assertions pass.
+- ~~`table/table_function_statistics.test`~~ → PASSES (statistics RPC).
 - `table/{filter_echo_partitioned,order_preservation_modes,partitioned_sequence}.test`
   — parallelism / partitioning semantics.
 - `schema_reconcile.test` — writable INSERT path.
-- `table/constant_columns.test` (MAP type via `ConstantColumnsFunction`),
-  `constant_columns_types.test` (HUGEINT).
 - `aggregate/window.test:267` — window aggregate edge case.
 - `table/join_keys_pushdown.test` — C++ side suspected.
 - `attach/versioned_tables_impl.test:231` — `vgi_worker_pool` diagnostic.
+- `table/database_tags.test:40` — schema comments (`data`,`main`) not
+  threaded through the Worker config; we hardcode "Default schema".
+
+## Statistics RPC
+
+Per-column stats flow through three coordinated channels — all three
+required for DuckDB's optimizer to see the stats:
+
+1. **`CatalogAttachResult.supports_column_statistics = true`** — without
+   this the catalog-level capability flag, `VgiTableEntry::GetStatistics`
+   short-circuits to `nullptr` regardless of per-table data.
+2. **`CatalogTable.withStatistics(List<ColumnStatistics>)`** — per-table
+   inline stats encoded into `TableInfo.column_statistics` via
+   `ColumnStatisticsSerializer`. C++ deserializes via
+   `PopulateStatsCacheFromInline` (no separate RPC).
+3. **`TableFunction.statistics(TableBindParams)`** — for function-only
+   bindings (e.g. `example.sequence(N)` directly), DuckDB calls the
+   `table_function_statistics` RPC. Java resolves the function via
+   `OverloadResolver` and serializes `ColumnStatistics` back through the
+   same sparse-union wire shape.
+
+The sparse-union encoding for `min`/`max` in the stats batch is built
+manually in `ColumnStatisticsSerializer` (Arrow Java has no high-level
+sparse-union writer); per-row type codes are written directly into
+`UnionVector.getTypeBuffer()` after VSR allocation.
 
 ## File bookmarks
 

@@ -411,6 +411,15 @@ public final class Main {
                         "Numbers less than 10"));
     }
 
+    /** Mirror the stats list to {@link farm.query.vgi.example.table.CannedDataFunction#putStats}
+     *  so {@code _table_data}'s {@code statistics()} can serve them too. */
+    private static List<farm.query.vgi.catalog.ColumnStatistics> tableStats(
+            String tableName, farm.query.vgi.catalog.ColumnStatistics... stats) {
+        List<farm.query.vgi.catalog.ColumnStatistics> list = List.of(stats);
+        farm.query.vgi.example.table.CannedDataFunction.putStats(tableName, list);
+        return list;
+    }
+
     private static void registerCatalogTables(Worker w) {
         w.registerCatalogTable(CatalogTable.functionBacked(
                         "data", "ten_thousand_table",
@@ -429,7 +438,10 @@ public final class Main {
                         "make_series",
                         List.of((Object) 100L),
                         Map.of(),
-                        100L, 100L, true, /*inlineScanFunction=*/false))
+                        100L, 100L, true, /*inlineScanFunction=*/false)
+                        .withStatistics(List.of(
+                farm.query.vgi.catalog.ColumnStatistics.ofInt64(
+                "value", 0L, 99L, false, 100L))))
                 .registerCatalogTable(new CatalogTable(
                         "data", "large_sequence",
                         SchemaUtil.serializeSchema(
@@ -459,7 +471,16 @@ public final class Main {
                 List.of(List.of(0)),               // PK: id
                 List.of(),
                 List.of(),
-                List.of()))
+                List.of())
+                        .withStatistics(tableStats("products",
+                farm.query.vgi.catalog.ColumnStatistics.ofInt64(
+                "id", 1L, 100L, false, 100L),
+                farm.query.vgi.catalog.ColumnStatistics.ofUtf8(
+                "name", "Anvil", "Zebra Tape", false, 100L, false, 30L),
+                farm.query.vgi.catalog.ColumnStatistics.ofInt64(
+                "quantity", 0L, 10000L, true, null),
+                farm.query.vgi.catalog.ColumnStatistics.ofFloat64(
+                "price", 0.99d, 999.99d, false, null))))
                 .registerCatalogTable(stubTable("data", "departments",
                         "Department reference table",
                         col("id", Schemas.INT64, false),
@@ -469,7 +490,14 @@ public final class Main {
                 List.of(List.of(0)),               // PK: id
                 List.of(List.of(1)),               // UNIQUE: name
                 List.of("budget >= 0"),                      // CHECK
-                List.of()))
+                List.of())
+                        .withStatistics(tableStats("departments",
+                farm.query.vgi.catalog.ColumnStatistics.ofInt64(
+                "id", 1L, 10L, false, 10L),
+                farm.query.vgi.catalog.ColumnStatistics.ofUtf8(
+                "name", "Accounting", "Sales", false, 10L, false, 20L),
+                farm.query.vgi.catalog.ColumnStatistics.ofFloat64(
+                "budget", 50000.0d, 500000.0d, false, 10L))))
                 .registerCatalogTable(stubTable("data", "employees",
                         "Employee table with FK to departments",
                         col("id", Schemas.INT64, false),
@@ -488,13 +516,29 @@ public final class Main {
                         "Colors table with ENUM-derived statistics",
                         col("id", Schemas.INT64, false),
                         col("color", Schemas.UTF8, false),
-                        col("hex_code", Schemas.UTF8, false)))
-                .registerCatalogTable(stubTable("data", "funny_numbers",
+                        col("hex_code", Schemas.UTF8, false))
+                        .withStatistics(tableStats("colors",
+                farm.query.vgi.catalog.ColumnStatistics.ofInt64(
+                "id", 1L, 3L, false, 3L),
+                farm.query.vgi.catalog.ColumnStatistics.ofUtf8(
+                "color", "blue", "red", false, 3L, false, 5L),
+                farm.query.vgi.catalog.ColumnStatistics.ofUtf8(
+                "hex_code", "#0000FF", "#FF0000", false, 3L, false, 7L))))
+                .registerCatalogTable(new CatalogTable(
+                        "data", "funny_numbers",
+                        cols(col("n", Schemas.INT64, true)),
                         "123456 integers; stats served by the sequence function, not the table",
-                        col("n", Schemas.INT64, true)))
+                        Map.of(),
+                        "sequence",
+                        List.of((Object) 123456L),
+                        Map.of(),
+                        null, null, false, /*inlineScanFunction=*/true))
                 .registerCatalogTable(stubTable("data", "volatile_numbers",
                         "Numbers with volatile stats (TTL=0, always re-fetched)",
-                        col("value", Schemas.INT64, true)))
+                        col("value", Schemas.INT64, true))
+                        .withStatistics(tableStats("volatile_numbers",
+                farm.query.vgi.catalog.ColumnStatistics.ofInt64(
+                "value", 0L, 99L, false, 100L))))
                 .registerCatalogTable(stubTable("data", "generated_sequence",
                         "Table with generated columns backed by sequence(10)",
                         col("n", Schemas.INT64, true),

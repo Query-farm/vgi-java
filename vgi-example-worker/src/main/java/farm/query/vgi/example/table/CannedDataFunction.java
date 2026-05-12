@@ -80,6 +80,20 @@ public final class CannedDataFunction implements TableFunction {
         return rows == null ? -1 : rows.length;
     }
 
+    @Override
+    public List<farm.query.vgi.catalog.ColumnStatistics> statistics(TableBindParams p) {
+        Object tnObj = p.arguments().positional().isEmpty()
+                ? null : p.arguments().positionalAt(0);
+        if (!(tnObj instanceof String tn)) return null;
+        return STATS.get(tn);
+    }
+
+    /** Register per-column statistics for {@code tableName}; consulted by both
+     *  {@code _table_data.statistics()} and the catalog-stats RPC. */
+    public static void putStats(String tableName, List<farm.query.vgi.catalog.ColumnStatistics> stats) {
+        if (stats != null && !stats.isEmpty()) STATS.put(tableName, stats);
+    }
+
     @Override public TableProducerState createProducer(TableInitParams params) {
         String tn = (String) params.arguments().positionalAt(0);
         return new State(tn, params.projectionIds());
@@ -89,6 +103,8 @@ public final class CannedDataFunction implements TableFunction {
     private static final Map<String, Schema> SCHEMAS = new HashMap<>();
     /** Rows per table name. Each Object[] maps to one row, indexed by field order. */
     private static final Map<String, Object[][]> ROWS = new HashMap<>();
+    /** Per-column stats for the table (used by both the function and the catalog RPC). */
+    private static final Map<String, List<farm.query.vgi.catalog.ColumnStatistics>> STATS = new HashMap<>();
 
     private static Field f(String name, ArrowType type, boolean nullable) {
         return new Field(name, new FieldType(nullable, type, null), null);
