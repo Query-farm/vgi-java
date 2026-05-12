@@ -91,16 +91,17 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 
 ## State of play (as of 2026-05-12)
 
-**Passing: 118/128** (the `nested_type_combinations.test` segfault is
+**Passing: 121/128** (the `nested_type_combinations.test` segfault is
 filtered out; see warning below). Recent progression: 112 → 114 (dict-
 encoded fixes in `vgi-rpc-java` commits `880a5e4` / `bdccadc` /
 `5cd91f0`); 114 → 116 (constant_columns + HUGEINT routing through
 argField); 116 → 117 with statistics RPC support (table_function_-
 statistics passes; column_statistics 136/137 — only GEOMETRY remains);
 117 → 118 via `Worker.schemaComment(...)` (database_tags) and
-AggregateRunner preserving source states in combine
-(window.test:267 — DuckDB's segment-tree reuses leaf states across
-multiple targets).
+AggregateRunner preserving source states in combine (window.test:267 —
+DuckDB's segment-tree reuses leaf states across multiple targets);
+118 → 121 with real nest_tensor / unnest_tensor (scalar) /
+unnest_tensor_rows (TIO) implementations under `example/tensor/`.
 
 ⚠️ **`table_in_out/echo/nested_type_combinations.test` SEGFAULTS the
 C++ harness mid-run.** Filter it out of integration runs:
@@ -131,12 +132,12 @@ lossless-tagged inputs (probably needs to detect sparse_union
 children of list/struct and re-collapse them to their declared
 type before emit).
 
-Remaining 10 failures (excluding the segfault), briefly (see `git log`
+Remaining 7 failures (excluding the segfault), briefly (see `git log`
 for what was tried):
 
-- `aggregate/nest_tensor.test`, `scalar/unnest_tensor.test`,
-  `table_in_out/unnest_tensor_rows.test` — nested struct+list writer
-  offsets in TIO/aggregate paths.
+- ~~`aggregate/nest_tensor.test`, `scalar/unnest_tensor.test`,
+  `table_in_out/unnest_tensor_rows.test`~~ → PASS (real
+  implementations under `example/tensor/`).
 - ~~`table_in_out/echo/{all_types,nested_type_combinations}.test`,
   `filter_pushdown/enums.test` — dict-encoded round-trip in echo TIO~~
   → all_types + enums PASS; nested_type_combinations now segfaults
