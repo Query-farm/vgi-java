@@ -6,10 +6,8 @@ package farm.query.vgi.table;
 import farm.query.vgi.function.Arguments;
 import farm.query.vgi.pushdown.FilterApplier;
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -53,20 +51,21 @@ public record TableInitParams(
     }
 
     /**
-     * Return the subset of {@link #outputSchema} that DuckDB actually asked
-     * for via {@link #projectionIds}. When no projection-pushdown is in play
-     * (null/empty {@code projectionIds}), returns {@code outputSchema}
-     * unchanged. Use this to allocate the destination root when honouring
-     * projection pushdown.
+     * Alias for {@link #outputSchema()} — kept for symmetry with
+     * {@link #projectionIds()} and to document the projection contract:
+     * the framework ({@code VgiServiceImpl.initTable}) already narrowed
+     * {@code outputSchema} down to the columns DuckDB requested
+     * <em>before</em> handing the params to the fixture, so the schema
+     * delivered here matches the batches the fixture must emit. Use
+     * {@code outputSchema()} directly in new code; this method exists for
+     * pre-fix callers who expected to do the projection themselves.
+     *
+     * @deprecated Use {@link #outputSchema()}. The previous implementation
+     *     re-projected over the already-projected wire schema and produced
+     *     an empty result for {@code count(*)}-style queries.
      */
+    @Deprecated
     public Schema projectedOutputSchema() {
-        if (outputSchema == null) return null;
-        if (projectionIds == null || projectionIds.isEmpty()) return outputSchema;
-        List<Field> fields = outputSchema.getFields();
-        List<Field> picked = new ArrayList<>(projectionIds.size());
-        for (Integer i : projectionIds) {
-            if (i != null && i >= 0 && i < fields.size()) picked.add(fields.get(i));
-        }
-        return new Schema(picked, outputSchema.getCustomMetadata());
+        return outputSchema;
     }
 }

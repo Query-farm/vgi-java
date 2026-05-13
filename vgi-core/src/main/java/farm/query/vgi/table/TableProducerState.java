@@ -47,9 +47,12 @@ public abstract class TableProducerState extends ProducerState {
      *  constructor. */
     protected final FilterApplier filters;
 
-    /** Output schema after projection pushdown is applied (or the full
-     *  declared schema when no projection was pushed). {@code null} when the
-     *  state was created via the no-arg constructor. */
+    /** The output schema DuckDB asked the fixture to emit on this call. The
+     *  framework ({@code VgiServiceImpl.initTable}) already narrowed this
+     *  down to the projected columns before we got here, so this is the
+     *  exact shape that {@code out.emit(root)} must produce — no further
+     *  projection is needed. {@code null} when the state was created via the
+     *  no-arg constructor. */
     protected final Schema outputSchema;
 
     protected TableProducerState() {
@@ -59,7 +62,7 @@ public abstract class TableProducerState extends ProducerState {
 
     protected TableProducerState(TableInitParams params) {
         this.filters = params.filters();
-        this.outputSchema = params.projectedOutputSchema();
+        this.outputSchema = params.outputSchema();
     }
 
     @Override
