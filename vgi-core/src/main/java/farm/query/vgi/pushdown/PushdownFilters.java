@@ -132,6 +132,44 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
     }
 
     /**
+     * Return the top-level filters that directly target column {@code name}.
+     * "Top-level" means an entry in {@link #filters()} — does not descend into
+     * nested {@code And}/{@code Or}/{@code Struct}, since those don't admit a
+     * simple per-column extraction. Useful for fixtures that want to know
+     * "what bounds did DuckDB push down on column X?" without re-implementing
+     * the AST walk.
+     */
+    public List<PushdownFilter> filtersForColumn(String name) {
+        if (name == null) return List.of();
+        List<PushdownFilter> out = new ArrayList<>();
+        for (PushdownFilter f : filters) {
+            if (f instanceof PushdownFilter.And || f instanceof PushdownFilter.Or) continue;
+            if (name.equals(f.columnName())) out.add(f);
+        }
+        return out;
+    }
+
+    /**
+     * Extract the set of values that {@code name} is *definitely* constrained
+     * to equal at the top level: collects {@code eq}-Constant values and
+     * {@code In} value lists. Returns an empty list when no such constraint
+     * exists; callers can treat that as "no direct equality push-down".
+     */
+    public List<Object> directEqualityValues(String name) {
+        List<Object> out = new ArrayList<>();
+        for (PushdownFilter f : filtersForColumn(name)) {
+            switch (f) {
+                case PushdownFilter.Constant c -> {
+                    if ("eq".equals(c.op())) out.add(c.value());
+                }
+                case PushdownFilter.In in -> out.addAll(in.values());
+                default -> { }
+            }
+        }
+        return out;
+    }
+
+    /**
      * Evaluate every filter against {@code root} and return a boolean mask
      * (one entry per row) — {@code true} means the row passes all filters
      * (top-level AND). The mask is a {@code boolean[]} so callers can drive

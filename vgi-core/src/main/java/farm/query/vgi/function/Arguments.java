@@ -81,4 +81,28 @@ public record Arguments(List<Object> positional, Map<String, Object> named,
         Object v = named.get(name);
         return v == null ? defaultValue : v.toString();
     }
+
+    /** Typed accessor for a positional string argument with a default. */
+    public String positionalString(int index, String defaultValue) {
+        Object v = positionalAt(index);
+        return v == null ? defaultValue : v.toString();
+    }
+
+    /** Typed accessor for a positional long argument with a default. */
+    public long positionalLong(int index, long defaultValue) {
+        Object v = positionalAt(index);
+        return v == null ? defaultValue : ((Number) v).longValue();
+    }
+
+    /** Typed accessor for a positional double argument with a default. */
+    public double positionalDouble(int index, double defaultValue) {
+        Object v = positionalAt(index);
+        return v == null ? defaultValue : ((Number) v).doubleValue();
+    }
+
+    /** Typed accessor for a positional boolean argument with a default. */
+    public boolean positionalBool(int index, boolean defaultValue) {
+        Object v = positionalAt(index);
+        return v == null ? defaultValue : (Boolean) v;
+    }
 }

@@ -44,6 +44,22 @@ public final class Schemas {
         return new Schema(List.of(fields));
     }
 
+    /** Microsecond-precision timestamp type, optionally with a timezone
+     *  ({@code null} or empty for naive timestamps). */
+    public static ArrowType timestampMicros(String tz) {
+        return new ArrowType.Timestamp(
+                org.apache.arrow.vector.types.TimeUnit.MICROSECOND,
+                tz == null || tz.isEmpty() ? null : tz);
+    }
+
+    /** {@code list<item>} {@link Field} with a child field literally named
+     *  {@code "item"} (Arrow convention). {@code nullable} applies to the list
+     *  itself; the item is always nullable. */
+    public static Field list(String name, ArrowType item, boolean nullable) {
+        Field child = new Field("item", new FieldType(true, item, null), null);
+        return new Field(name, new FieldType(nullable, new ArrowType.List(), null), List.of(child));
+    }
+
     /** Single-column nullable {@code result} schema. */
     public static Schema singleResult(ArrowType t) {
         return new Schema(List.of(new Field("result", new FieldType(true, t, null), null)));

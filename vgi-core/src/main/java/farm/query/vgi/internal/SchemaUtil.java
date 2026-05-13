@@ -7,11 +7,17 @@ import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.IpcOption;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.channels.Channels;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Arrow IPC schema (de)serialisation helpers. VGI ships schemas as standalone
@@ -39,6 +45,34 @@ public final class SchemaUtil {
         } catch (Exception e) {
             throw new RuntimeException("serializeSchema failed", e);
         }
+    }
+
+    /**
+     * Return a copy of {@code schema} where each named column's
+     * {@link FieldType} metadata is merged with the entries in
+     * {@code perColumn}. Columns not present in {@code perColumn} pass
+     * through unchanged. Use to inject DuckDB-recognised tags like
+     * {@code ARROW:extension:name=geoarrow.wkb} or VGI's per-column
+     * {@code comment} attribute without rebuilding the schema by hand.
+     */
+    public static Schema withColumnMetadata(Schema schema, Map<String, Map<String, String>> perColumn) {
+        if (perColumn == null || perColumn.isEmpty()) return schema;
+        List<Field> rebuilt = new ArrayList<>(schema.getFields().size());
+        for (Field f : schema.getFields()) {
+            Map<String, String> add = perColumn.get(f.getName());
+            if (add == null || add.isEmpty()) {
+                rebuilt.add(f);
+                continue;
+            }
+            Map<String, String> merged = new LinkedHashMap<>();
+            if (f.getMetadata() != null) merged.putAll(f.getMetadata());
+            merged.putAll(add);
+            FieldType ft = f.getFieldType();
+            rebuilt.add(new Field(f.getName(),
+                    new FieldType(ft.isNullable(), ft.getType(), ft.getDictionary(), merged),
+                    f.getChildren()));
+        }
+        return new Schema(rebuilt, schema.getCustomMetadata());
     }
 
     public static Schema deserializeSchema(byte[] bytes) {

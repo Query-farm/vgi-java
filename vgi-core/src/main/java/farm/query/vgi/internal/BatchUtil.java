@@ -90,6 +90,44 @@ public final class BatchUtil {
         void fill(VectorSchemaRoot root, int rowCount, long startRowIndex);
     }
 
+    /**
+     * Producer-tick helper for {@link org.apache.arrow.vector.ipc.ArrowReader}-
+     * backed scans (JDBC-Arrow, Parquet, HTTP-Arrow streams).
+     *
+     * <p>On each call: load the next batch from {@code reader}, slice it so the
+     * batch's buffers detach from the reader's lifecycle, optionally
+     * {@linkplain VectorProjector#relabel relabel} to {@code target} when the
+     * reader's schema differs only in column names, apply any pushdown
+     * {@code filters}, and emit. Returns {@code true} when a batch was
+     * emitted; {@code false} when the reader is exhausted (and {@code finish}
+     * has been called on the collector). Producers typically close the reader
+     * after a {@code false} return.
+     *
+     * @param reader  open Arrow reader; not closed by this helper
+     * @param target  desired output schema for the emitted root, or
+     *                {@code null} to emit the reader's native schema unchanged
+     * @param filters optional pushdown filter applier; {@code null} for none
+     * @param out     collector to emit into
+     */
+    public static boolean pumpArrowReader(org.apache.arrow.vector.ipc.ArrowReader reader,
+                                            Schema target, FilterApplier filters,
+                                            OutputCollector out) {
+        try {
+            if (!reader.loadNextBatch()) {
+                out.finish();
+                return false;
+            }
+            VectorSchemaRoot src = reader.getVectorSchemaRoot();
+            VectorSchemaRoot detached = src.slice(0, src.getRowCount());
+            VectorSchemaRoot dst = target == null ? detached : VectorProjector.relabel(detached, target);
+            if (filters != null) dst = filters.apply(dst);
+            out.emit(dst);
+            return true;
+        } catch (Exception e) {
+            throw new RuntimeException("BatchUtil.pumpArrowReader failed", e);
+        }
+    }
+
     /** Encode a single batch into IPC stream bytes. */
     public static byte[] writeSingleBatch(VectorSchemaRoot root) {
         try {

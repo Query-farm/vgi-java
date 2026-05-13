@@ -55,6 +55,11 @@ public final class Worker {
         return this;
     }
 
+    public Worker registerMacros(Iterable<? extends Macro> ms) {
+        for (Macro m : ms) macros.add(m);
+        return this;
+    }
+
     public List<Macro> macros() { return macros; }
 
     private final List<CatalogTable> catalogTables = new ArrayList<>();
@@ -154,7 +159,17 @@ public final class Worker {
         return this;
     }
 
+    public Worker registerViews(Iterable<? extends View> vs) {
+        for (View v : vs) views.add(v);
+        return this;
+    }
+
     public List<View> views() { return views; }
+
+    public Worker registerCatalogTables(Iterable<? extends CatalogTable> ts) {
+        for (CatalogTable t : ts) catalogTables.add(t);
+        return this;
+    }
 
     public String catalogName() { return catalogName; }
     public String catalogComment() { return catalogComment; }
@@ -207,6 +222,74 @@ public final class Worker {
 
     public void runHttp(String host, int port) throws Exception {
         runHttp(HttpServer.Config.builder().host(host).port(port).build());
+    }
+
+    /**
+     * Canonical CLI dispatcher used by worker {@code main} methods. Parses
+     * the four flags every VGI worker accepts and runs the matching transport:
+     * <ul>
+     *   <li>{@code --unix <path>}: AF_UNIX socket (launcher protocol)
+     *   <li>{@code --http} with optional {@code --host}, {@code --port}: HTTP
+     *   <li>{@code --idle-timeout <seconds>}: passed to {@code runUnixSocket}
+     *   <li>(default): stdio
+     * </ul>
+     * Also honours {@code VGI_WORKER_STDERR}: redirects {@link System#err} to
+     * the named file (in append mode) before any other work, so
+     * launcher-mode crashes — where the launcher dup2's {@code /dev/null}
+     * over fd 2 — remain inspectable.
+     *
+     * <p>Unknown args exit with status 2; transport-run failures with 1.
+     *
+     * @param args  argv as received by {@code main}
+     * @param httpCustomizer  applied to the {@code HttpServer.Config.Builder}
+     *        seeded with {@code host} and {@code port}; use {@code b -> b}
+     *        for defaults, or to layer in JWT / TLS / byte-limit config
+     */
+    public void runFromArgs(String[] args,
+                             java.util.function.UnaryOperator<HttpServer.Config.Builder> httpCustomizer) {
+        String stderrPath = System.getenv("VGI_WORKER_STDERR");
+        if (stderrPath != null && !stderrPath.isEmpty()) {
+            try {
+                System.setErr(new java.io.PrintStream(
+                        new java.io.FileOutputStream(stderrPath, true), true));
+            } catch (Exception ignore) {}
+        }
+        boolean http = false;
+        String host = "127.0.0.1";
+        int port = 0;
+        String unixSocket = null;
+        long idleTimeoutMs = 0;
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--http" -> http = true;
+                case "--host" -> host = args[++i];
+                case "--port" -> port = Integer.parseInt(args[++i]);
+                case "--unix" -> unixSocket = args[++i];
+                case "--idle-timeout" -> idleTimeoutMs =
+                        (long) (Double.parseDouble(args[++i]) * 1000.0);
+                default -> { System.err.println("unknown arg: " + args[i]); System.exit(2); }
+            }
+        }
+        try {
+            if (unixSocket != null) {
+                runUnixSocket(Path.of(unixSocket), idleTimeoutMs);
+            } else if (http) {
+                HttpServer.Config.Builder b = HttpServer.Config.builder().host(host).port(port);
+                if (httpCustomizer != null) b = httpCustomizer.apply(b);
+                runHttp(b.build());
+            } else {
+                runStdio();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
+    /** Convenience overload — equivalent to
+     *  {@code runFromArgs(args, b -> b)}. */
+    public void runFromArgs(String[] args) {
+        runFromArgs(args, b -> b);
     }
 
     /** HTTP variant that accepts a fully-built config (prefix, authenticator,
