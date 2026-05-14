@@ -990,6 +990,8 @@ public final class VgiServiceImpl implements VgiService {
                 List.of(),
                 md.orderPreservation() == null ? null : md.orderPreservation().name(),
                 maxWorkers,
+                false,                  // supports_batch_index — default
+                "NOT_PARTITIONED",      // partition_kind — default
                 "NOT_ORDER_DEPENDENT",
                 "NOT_DISTINCT_DEPENDENT",
                 false,

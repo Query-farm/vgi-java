@@ -24,6 +24,7 @@ final class DictionaryIds {
     static final long ORDER_PRESERVATION = 4;
     static final long ORDER_DEPENDENT = 5;
     static final long DISTINCT_DEPENDENT = 6;
+    static final long PARTITION_KIND = 8;
 
     // MacroInfoSerializer
     static final long MACRO_TYPE = 7;

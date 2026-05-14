@@ -36,6 +36,8 @@ public record FunctionInfo(
         List<String> supported_expression_filters,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String order_preservation,
         @ArrowField(ArrowFieldType.INT32) int max_workers,
+        boolean supports_batch_index,
+        @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String partition_kind,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String order_dependent,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String distinct_dependent,
         boolean supports_window,

@@ -52,10 +52,13 @@ final class FunctionInfoSerializer {
             DictionaryIds.ORDER_DEPENDENT, List.of("NOT_ORDER_DEPENDENT", "ORDER_DEPENDENT"));
     private static final EnumDict DISTINCT_DEPENDENT = new EnumDict("distinct_dependent",
             DictionaryIds.DISTINCT_DEPENDENT, List.of("NOT_DISTINCT_DEPENDENT", "DISTINCT_DEPENDENT"));
+    private static final EnumDict PARTITION_KIND = new EnumDict("partition_kind",
+            DictionaryIds.PARTITION_KIND,
+            List.of("NOT_PARTITIONED", "SINGLE_VALUE_PARTITIONS", "OVERLAPPING_PARTITIONS"));
 
     private static final List<EnumDict> DICTS = List.of(
             FUNCTION_TYPE, STABILITY, NULL_HANDLING,
-            ORDER_PRESERVATION, ORDER_DEPENDENT, DISTINCT_DEPENDENT);
+            ORDER_PRESERVATION, ORDER_DEPENDENT, DISTINCT_DEPENDENT, PARTITION_KIND);
 
     private static final Schema SCHEMA = new Schema(List.of(
             nullable("comment", UTF8),
@@ -80,6 +83,14 @@ final class FunctionInfoSerializer {
             listOfPrim("supported_expression_filters", UTF8),
             ORDER_PRESERVATION.field(true),
             nonNull("max_workers", I32),
+            // supports_batch_index / partition_kind landed in the C++
+            // extension's FunctionInfoSchema between max_workers and
+            // order_dependent. Older Java workers omitted them and HTTP-mode
+            // catalog enumeration fails on field-count mismatch (stdio is
+            // lenient and still parses). Safe defaults are false /
+            // NOT_PARTITIONED — see vgi_catalog_api.cpp.
+            nonNull("supports_batch_index", BOOL),
+            PARTITION_KIND.field(false),
             ORDER_DEPENDENT.field(false),
             DISTINCT_DEPENDENT.field(false),
             nonNull("supports_window", BOOL),
@@ -115,6 +126,8 @@ final class FunctionInfoSerializer {
             writeStringList(v.get("supported_expression_filters"), info.supported_expression_filters());
             ORDER_PRESERVATION.write(v.get("order_preservation"), info.order_preservation());
             writeInt32(v.get("max_workers"), info.max_workers());
+            writeBool(v.get("supports_batch_index"), info.supports_batch_index());
+            PARTITION_KIND.write(v.get("partition_kind"), info.partition_kind());
             ORDER_DEPENDENT.write(v.get("order_dependent"), info.order_dependent());
             DISTINCT_DEPENDENT.write(v.get("distinct_dependent"), info.distinct_dependent());
             writeBool(v.get("supports_window"), info.supports_window());
