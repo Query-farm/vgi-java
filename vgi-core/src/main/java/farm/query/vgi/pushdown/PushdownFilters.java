@@ -54,7 +54,7 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
     private static String formatOneRepr(PushdownFilter f) {
         return switch (f) {
             case PushdownFilter.Constant c -> "ConstantFilter(" + c.columnName() + " "
-                    + symbol(c.op()) + " " + sqlLiteral(c.value()) + ")";
+                    + c.op().symbol() + " " + sqlLiteral(c.value()) + ")";
             case PushdownFilter.IsNull n -> "IsNullFilter(" + n.columnName() + " IS NULL)";
             case PushdownFilter.IsNotNull n -> "IsNotNullFilter(" + n.columnName() + " IS NOT NULL)";
             case PushdownFilter.In in -> {
@@ -85,7 +85,7 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
 
     private static String formatOne(PushdownFilter f) {
         return switch (f) {
-            case PushdownFilter.Constant c -> c.columnName() + " " + symbol(c.op()) + " " + sqlLiteral(c.value());
+            case PushdownFilter.Constant c -> c.columnName() + " " + c.op().symbol() + " " + sqlLiteral(c.value());
             case PushdownFilter.IsNull n -> n.columnName() + " IS NULL";
             case PushdownFilter.IsNotNull n -> n.columnName() + " IS NOT NULL";
             case PushdownFilter.In in -> {
@@ -109,18 +109,6 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
             }
             case PushdownFilter.Struct s -> s.columnName() + "." + s.childName() + " " +
                     (s.childFilter() == null ? "<unfiltered>" : formatOne(s.childFilter()));
-        };
-    }
-
-    private static String symbol(String op) {
-        return switch (op) {
-            case "eq" -> "=";
-            case "ne" -> "!=";
-            case "gt" -> ">";
-            case "ge" -> ">=";
-            case "lt" -> "<";
-            case "le" -> "<=";
-            default -> op;
         };
     }
 
@@ -160,7 +148,7 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
         for (PushdownFilter f : filtersForColumn(name)) {
             switch (f) {
                 case PushdownFilter.Constant c -> {
-                    if ("eq".equals(c.op())) out.add(c.value());
+                    if (c.op() == ComparisonOperator.EQ) out.add(c.value());
                 }
                 case PushdownFilter.In in -> out.addAll(in.values());
                 default -> { }
@@ -208,7 +196,7 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
                 FieldVector v = vec(root, in.columnName(), in.columnIndex());
                 if (v == null || v.isNull(row)) yield false;
                 Object cell = v.getObject(row);
-                for (Object x : in.values()) if (compare("eq", cell, x)) yield true;
+                for (Object x : in.values()) if (compare(ComparisonOperator.EQ, cell, x)) yield true;
                 yield false;
             }
             case PushdownFilter.And a -> {
@@ -243,7 +231,7 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
             case PushdownFilter.In in -> {
                 if (child.isNull(row)) yield false;
                 Object cell = child.getObject(row);
-                for (Object x : in.values()) if (compare("eq", cell, x)) yield true;
+                for (Object x : in.values()) if (compare(ComparisonOperator.EQ, cell, x)) yield true;
                 yield false;
             }
             case PushdownFilter.And a -> {
@@ -275,7 +263,7 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
         return null;
     }
 
-    private static boolean compare(String op, Object a, Object b) {
+    private static boolean compare(ComparisonOperator op, Object a, Object b) {
         if (a == null || b == null) return false;
         // Normalise byte[] (Arrow VarBinary/VarChar) to string for comparison.
         if (a instanceof byte[] ab) a = new String(ab, java.nio.charset.StandardCharsets.UTF_8);
@@ -284,30 +272,13 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
         a = a instanceof org.apache.arrow.vector.util.Text t ? t.toString() : a;
         b = b instanceof org.apache.arrow.vector.util.Text t ? t.toString() : b;
         if (a instanceof Number na && b instanceof Number nb) {
-            int cmp = Double.compare(na.doubleValue(), nb.doubleValue());
-            return applyCmp(op, cmp);
+            return op.test(Double.compare(na.doubleValue(), nb.doubleValue()));
         }
         if (a instanceof Comparable && a.getClass() == b.getClass()) {
             @SuppressWarnings({"unchecked", "rawtypes"})
             int cmp = ((Comparable) a).compareTo(b);
-            return applyCmp(op, cmp);
+            return op.test(cmp);
         }
-        return switch (op) {
-            case "eq" -> Objects.equals(a, b);
-            case "ne" -> !Objects.equals(a, b);
-            default -> false;
-        };
-    }
-
-    private static boolean applyCmp(String op, int cmp) {
-        return switch (op) {
-            case "eq" -> cmp == 0;
-            case "ne" -> cmp != 0;
-            case "gt" -> cmp > 0;
-            case "ge" -> cmp >= 0;
-            case "lt" -> cmp < 0;
-            case "le" -> cmp <= 0;
-            default -> false;
-        };
+        return op.testEquality(Objects.equals(a, b));
     }
 }

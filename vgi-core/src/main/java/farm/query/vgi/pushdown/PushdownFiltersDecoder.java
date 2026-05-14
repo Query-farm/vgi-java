@@ -95,41 +95,41 @@ public final class PushdownFiltersDecoder {
 
     private static PushdownFilter parseSpec(JsonNode spec, VectorSchemaRoot root,
                                               java.util.Map<String, List<Object>> joinKeys) {
-        String type = spec.path("type").asText("");
+        PushdownFilterType type = PushdownFilterType.fromWire(spec.path("type").asText(""));
+        if (type == null) return null;
         String colName = spec.path("column_name").asText("");
         int colIdx = spec.path("column_index").asInt(-1);
         return switch (type) {
-            case "constant" -> {
+            case CONSTANT -> {
                 // value_ref N points to column N+1 (column 0 holds the JSON specs).
                 int valueRef = spec.path("value_ref").asInt(-1);
-                String op = spec.path("op").asText("");
+                ComparisonOperator op = ComparisonOperator.fromWire(spec.path("op").asText(""));
                 Object value = readScalarAt(root, valueRef + 1, 0);
                 yield new PushdownFilter.Constant(colName, colIdx, op, value);
             }
-            case "is_null" -> new PushdownFilter.IsNull(colName, colIdx);
-            case "is_not_null" -> new PushdownFilter.IsNotNull(colName, colIdx);
-            case "in" -> {
+            case IS_NULL -> new PushdownFilter.IsNull(colName, colIdx);
+            case IS_NOT_NULL -> new PushdownFilter.IsNotNull(colName, colIdx);
+            case IN -> {
                 int valueRef = spec.path("value_ref").asInt(-1);
                 List<Object> values = readListAt(root, valueRef + 1, 0);
                 yield new PushdownFilter.In(colName, colIdx, values);
             }
-            case "join_keys" -> {
+            case JOIN_KEYS -> {
                 // Resolve via joinKeysMap: the actual values are provided
                 // out-of-band in InitRequest.join_keys.
                 String keysCol = spec.path("keys_column").asText("");
                 List<Object> values = joinKeys.getOrDefault(keysCol, List.of());
                 yield new PushdownFilter.In(colName, colIdx, values);
             }
-            case "and" -> new PushdownFilter.And(colName, colIdx, parseChildren(spec, root, joinKeys));
-            case "or" -> new PushdownFilter.Or(colName, colIdx, parseChildren(spec, root, joinKeys));
-            case "struct" -> {
+            case AND -> new PushdownFilter.And(colName, colIdx, parseChildren(spec, root, joinKeys));
+            case OR -> new PushdownFilter.Or(colName, colIdx, parseChildren(spec, root, joinKeys));
+            case STRUCT -> {
                 int childIdx = spec.path("child_index").asInt(0);
                 String childName = spec.path("child_name").asText("");
                 JsonNode childSpec = spec.get("child_filter");
                 PushdownFilter child = childSpec == null ? null : parseSpec(childSpec, root, joinKeys);
                 yield new PushdownFilter.Struct(colName, colIdx, childIdx, childName, child);
             }
-            default -> null;
         };
     }
 

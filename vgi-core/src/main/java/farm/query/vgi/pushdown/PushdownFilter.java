@@ -27,7 +27,7 @@ public sealed interface PushdownFilter permits
     String columnName();
 
     /** {@code column_name OP value} — six comparison operators. */
-    record Constant(String columnName, int columnIndex, String op, Object value)
+    record Constant(String columnName, int columnIndex, ComparisonOperator op, Object value)
             implements PushdownFilter {}
 
     record IsNull(String columnName, int columnIndex) implements PushdownFilter {}
