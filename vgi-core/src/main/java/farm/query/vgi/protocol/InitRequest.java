@@ -22,4 +22,5 @@ public record InitRequest(
         String order_by_null_order,
         Long order_by_limit,
         Double tablesample_percentage,
-        Long tablesample_seed) implements ArrowSerializableRecord {}
+        Long tablesample_seed,
+        byte[] finalize_state_id) implements ArrowSerializableRecord {}

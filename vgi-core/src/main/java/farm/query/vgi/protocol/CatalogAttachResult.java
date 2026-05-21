@@ -14,12 +14,12 @@ import java.util.Map;
  * {@code vgi.CatalogAttachResultWire} in vgi-go.
  */
 public record CatalogAttachResult(
-        byte[] attach_id,
+        byte[] attach_opaque_data,
         boolean supports_transactions,
         boolean supports_time_travel,
         boolean catalog_version_frozen,
         long catalog_version,
-        boolean attach_id_required,
+        boolean attach_opaque_data_required,
         String default_schema,
         List<byte[]> settings,
         List<byte[]> secret_types,

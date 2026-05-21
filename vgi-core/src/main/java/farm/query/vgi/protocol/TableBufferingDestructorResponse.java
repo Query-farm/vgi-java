@@ -4,7 +4,6 @@
 package farm.query.vgi.protocol;
 
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
-import farm.query.vgirpc.schema.Nullable;
 
-public record TransactionBeginResponse(
-        @Nullable byte[] transaction_opaque_data) implements ArrowSerializableRecord {}
+/** Empty ack for {@code table_buffering_destructor}. */
+public record TableBufferingDestructorResponse() implements ArrowSerializableRecord {}

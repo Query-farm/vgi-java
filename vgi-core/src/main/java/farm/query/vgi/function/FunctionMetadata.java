@@ -15,7 +15,9 @@ public record FunctionMetadata(
         boolean filterPushdown,
         boolean samplingPushdown,
         List<String> categories,
-        OrderPreservation orderPreservation) {
+        OrderPreservation orderPreservation,
+        boolean supportsBatchIndex,
+        PartitionKind partitionKind) {
 
     /**
      * Wire enum for {@code FunctionInfo.order_preservation}. Mirrors the
@@ -33,6 +35,27 @@ public record FunctionMetadata(
      * </ul>
      */
     public enum OrderPreservation { NO_ORDER_PRESERVED, INSERTION_ORDER, FIXED_ORDER }
+
+    /**
+     * Wire enum for {@code FunctionInfo.partition_kind} — the partition shape
+     * a table function declares over its {@code vgi.partition_column}-annotated
+     * output-schema fields. Mirrors vgi-python's {@code PartitionKind}. DuckDB
+     * consumes only {@link #SINGLE_VALUE_PARTITIONS} today (plans
+     * {@code PhysicalPartitionedAggregate}); the others are wire-declarable and
+     * fall back to {@code HASH_GROUP_BY}.
+     */
+    public enum PartitionKind {
+        NOT_PARTITIONED, SINGLE_VALUE_PARTITIONS, OVERLAPPING_PARTITIONS, DISJOINT_PARTITIONS
+    }
+
+    public FunctionMetadata(String description, Stability stability, NullHandling nullHandling,
+                              boolean autoApplyFilters, boolean projectionPushdown,
+                              boolean filterPushdown, boolean samplingPushdown,
+                              List<String> categories, OrderPreservation orderPreservation) {
+        this(description, stability, nullHandling, autoApplyFilters, projectionPushdown,
+                filterPushdown, samplingPushdown, categories, orderPreservation,
+                false, PartitionKind.NOT_PARTITIONED);
+    }
 
     public FunctionMetadata(String description, Stability stability, NullHandling nullHandling,
                               boolean autoApplyFilters, boolean projectionPushdown,
@@ -56,21 +79,40 @@ public record FunctionMetadata(
     /** Builder convenience: same description, opt into filter+projection pushdown. */
     public FunctionMetadata withPushdown(boolean projection, boolean filter, boolean autoApply) {
         return new FunctionMetadata(description, stability, nullHandling, autoApply, projection, filter,
-                samplingPushdown, categories, orderPreservation);
+                samplingPushdown, categories, orderPreservation, supportsBatchIndex, partitionKind);
     }
 
     public FunctionMetadata withSamplingPushdown() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
-                projectionPushdown, filterPushdown, true, categories, orderPreservation);
+                projectionPushdown, filterPushdown, true, categories, orderPreservation,
+                supportsBatchIndex, partitionKind);
     }
 
     public FunctionMetadata withCategories(String... cats) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
-                projectionPushdown, filterPushdown, samplingPushdown, List.of(cats), orderPreservation);
+                projectionPushdown, filterPushdown, samplingPushdown, List.of(cats), orderPreservation,
+                supportsBatchIndex, partitionKind);
     }
 
     public FunctionMetadata withOrderPreservation(OrderPreservation op) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
-                projectionPushdown, filterPushdown, samplingPushdown, categories, op);
+                projectionPushdown, filterPushdown, samplingPushdown, categories, op,
+                supportsBatchIndex, partitionKind);
+    }
+
+    /** Opt into {@code supports_batch_index}: every emitted batch must carry a
+     *  {@code vgi_batch_index} tag (see {@code EmitMetadata#batchIndex}). */
+    public FunctionMetadata withBatchIndex() {
+        return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
+                projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
+                true, partitionKind);
+    }
+
+    /** Declare a non-default {@link PartitionKind} over the output schema's
+     *  {@code vgi.partition_column}-annotated fields. */
+    public FunctionMetadata withPartitionKind(PartitionKind kind) {
+        return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
+                projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
+                supportsBatchIndex, kind);
     }
 }

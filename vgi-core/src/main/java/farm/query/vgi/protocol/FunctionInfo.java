@@ -43,6 +43,9 @@ public record FunctionInfo(
         boolean supports_window,
         boolean streaming_partitioned,
         boolean has_finalize,
+        boolean source_order_dependent,
+        boolean sink_order_dependent,
+        boolean requires_input_batch_index,
         List<String> required_settings,
         List<FunctionRequiredSecret> required_secrets) implements ArrowSerializableRecord {
 }

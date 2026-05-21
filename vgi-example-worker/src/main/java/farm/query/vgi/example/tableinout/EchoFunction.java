@@ -24,7 +24,12 @@ public final class EchoFunction extends PassthroughTIOFunction {
     @Override public String name() { return "echo"; }
 
     @Override public FunctionMetadata metadata() {
+        // Projection pushdown: DuckDB sends projection_ids, the framework
+        // narrows the output schema, and we emit only the requested columns
+        // (no narrowing PROJECTION node above the operator). Filter pushdown
+        // stays off — the InOut path always runs filters via a FILTER node.
         return FunctionMetadata.describe("Passthrough function that emits each input batch unchanged")
+                .withPushdown(true, false, false)
                 .withCategories("utility", "debug");
     }
 
@@ -33,11 +38,15 @@ public final class EchoFunction extends PassthroughTIOFunction {
     }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-        return new EchoState();
+        return new EchoState(params.outputSchema());
     }
 
     public static final class EchoState extends TableInOutExchangeState {
-        public EchoState() {}
+        private final org.apache.arrow.vector.types.pojo.Schema outputSchema;
+        public EchoState() { this.outputSchema = null; }
+        public EchoState(org.apache.arrow.vector.types.pojo.Schema outputSchema) {
+            this.outputSchema = outputSchema;
+        }
         @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
             // Transfer the input batch's vectors into a fresh VSR so the
             // framework can close() the emitted root after writing without
@@ -50,7 +59,18 @@ public final class EchoFunction extends PassthroughTIOFunction {
             org.apache.arrow.vector.VectorSchemaRoot in = input.root();
             int rows = in.getRowCount();
             java.util.List<org.apache.arrow.vector.FieldVector> outVectors = new java.util.ArrayList<>();
-            for (org.apache.arrow.vector.FieldVector v : in.getFieldVectors()) {
+            // Select the (already projection-narrowed) output columns by name;
+            // falls back to all input columns when no schema was captured.
+            java.util.List<org.apache.arrow.vector.FieldVector> sources;
+            if (outputSchema == null) {
+                sources = in.getFieldVectors();
+            } else {
+                sources = new java.util.ArrayList<>();
+                for (org.apache.arrow.vector.types.pojo.Field f : outputSchema.getFields()) {
+                    sources.add((org.apache.arrow.vector.FieldVector) in.getVector(f.getName()));
+                }
+            }
+            for (org.apache.arrow.vector.FieldVector v : sources) {
                 org.apache.arrow.vector.util.TransferPair tp = v.getTransferPair(farm.query.vgirpc.wire.Allocators.root());
                 tp.transfer();
                 outVectors.add((org.apache.arrow.vector.FieldVector) tp.getTo());

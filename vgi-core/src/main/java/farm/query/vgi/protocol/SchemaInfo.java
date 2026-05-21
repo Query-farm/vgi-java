@@ -20,12 +20,12 @@ import java.util.Map;
 public record SchemaInfo(
         @Nullable String comment,
         Map<String, String> tags,
-        byte[] attach_id,
+        byte[] attach_opaque_data,
         String name,
         @Nullable Map<String, Long> estimated_object_count) implements ArrowSerializableRecord {
 
     /** Convenience: no estimated_object_count map (eager-load gating disabled). */
-    public SchemaInfo(String comment, Map<String, String> tags, byte[] attach_id, String name) {
-        this(comment, tags, attach_id, name, null);
+    public SchemaInfo(String comment, Map<String, String> tags, byte[] attach_opaque_data, String name) {
+        this(comment, tags, attach_opaque_data, name, null);
     }
 }

@@ -2,7 +2,8 @@
 
 Java port of the VGI protocol (DuckDB extension that lets external workers
 serve catalog data over Arrow IPC). Driven by passing the integration suite
-at `~/Development/vgi/test/sql/integration/`. Currently **112/129 passing**.
+at `~/Development/vgi/test/sql/integration/`. Currently **161/163 passing**
+(the 2 failures are out of scope — see "State of play").
 
 ## Canonical references
 
@@ -54,6 +55,20 @@ a minimal worker that registers only `echo_attach_options`. Other catalog
 names get the full example fixture set. The wrappers must stay in sync if
 their env contract changes — they're not generated.
 
+> **Wrapper drift (fixed 2026-05-20):** the canonical `versioned_tables`
+> fixture moved its version sets, so `/tmp/vgi-worker-versioned-tables` had
+> to be updated to match `vgi-python/_test_fixtures/versioned_tables.py`:
+> `SUPPORTED_VERSIONS=1.0.0,1.1.0,2.0.0,3.0.0`, `DATA_VERSION_SPEC=>=1.0.0,<4.0.0`,
+> `DEFAULT_DATA_VERSION=3.0.0`, `IMPLEMENTATION_VERSION=11.0.0` (default impl),
+> `SUPPORTED_IMPL_VERSIONS=10.0.0,10.1.0,11.0.0`. The `/tmp/vgi-worker-versioned`
+> wrapper still matches the unchanged `versioned` fixture and was left as-is.
+
+> **Real test driver:** `/tmp/run_test.sh` points at a stale April `unittest`
+> binary (`duckdb/build/...`). The current binary is
+> `~/Development/vgi/build/release/test/unittest` and registers tests by
+> path **relative to `~/Development/vgi`** — run it from that cwd with the
+> four `VGI_*_WORKER` env vars exported (see `/tmp/run_test.sh` for the set).
+
 ## The `launch:` prefix matters
 
 Workers are slow to cold-start (~2–5 s JVM). The C++ extension supports a
@@ -89,19 +104,118 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
   javadoc). Don't close after emit.
 - **No comments** unless the *why* is non-obvious. Don't restate code.
 
-## State of play (as of 2026-05-12)
+## State of play (as of 2026-05-20)
 
-**Passing: 121/128** (the `nested_type_combinations.test` segfault is
-filtered out; see warning below). Recent progression: 112 → 114 (dict-
-encoded fixes in `vgi-rpc-java` commits `880a5e4` / `bdccadc` /
-`5cd91f0`); 114 → 116 (constant_columns + HUGEINT routing through
-argField); 116 → 117 with statistics RPC support (table_function_-
-statistics passes; column_statistics 136/137 — only GEOMETRY remains);
-117 → 118 via `Worker.schemaComment(...)` (database_tags) and
-AggregateRunner preserving source states in combine (window.test:267 —
-DuckDB's segment-tree reuses leaf states across multiple targets);
-118 → 121 with real nest_tensor / unnest_tensor (scalar) /
-unnest_tensor_rows (TIO) implementations under `example/tensor/`.
+**Passing: 161/163** (excluding the filtered-out `nested_type_combinations.test`
+segfault). The only two failures are both out of scope:
+`attach/versioned_tables_impl.test` (not Java-fixable — launcher-pool C++
+short-circuit, see below) and `schema_reconcile.test` (writable INSERT,
+deferred). The whole new-feature batch below is green.
+
+**2026-05-20 — ported a batch of new vgi-python / C++ features.** Done and
+verified against the live suite:
+
+- **protocol_version** — `Worker.VGI_PROTOCOL_VERSION = "1.0.0"` →
+  `RpcServer.setProtocolVersion` in `buildServer`. (No suite test yet;
+  vgi-rpc-java only feeds it to the access log.)
+- **catalog releases + source_url** — `CatalogInfo` wire schema grew to 6
+  fields (`releases: list<struct<version, released_at, summary, notes_url>>`,
+  `source_url: utf8?`). New `CatalogDataVersionRelease` record;
+  `CatalogInfoSerializer` rewritten; `Worker.releases(...)/.sourceUrl(...)`;
+  versioned_tables catalog populates the canonical manifest. Greened
+  `versioning.test` + `versioned_tables.test` (were failing on the 4-field
+  schema). Also fixed the stale `/tmp/vgi-worker-versioned-tables` env →
+  greened `versioned_tables_resolved/_spec`.
+- **projection pushdown for table-in-out** — `initTableInOut` now narrows the
+  output schema by `projection_ids` when the fn opts into pushdown (mirrors
+  `initTable`). New `EchoWitnessFunction` (`echo_witness`). Greened
+  `pushdown_witness.test`.
+- **multi-branch scan** — `ScanBranch` model + `ScanBranchesResultSerializer`
+  (matches C++ `ScanBranchSchema`/`ScanBranchesResultSchema`);
+  `VgiService.catalog_table_scan_branches_get` + impl. **The C++ branches
+  capability is cached per-attach, not per-table**, so the impl returns a
+  valid result for *every* scannable table (1-branch wrap for regular tables,
+  N-branch for multi-branch). `Worker.registerMultiBranchTable(stub, branches)`
+  side-registry; 7 fixtures in `Main.registerMultiBranch`. `numbers` switched
+  from `make_series` → `sequence` to match canonical (VGI maps scan output to
+  declared columns positionally, so column `value` is preserved). Greened all
+  10 `catalog/multi_branch_*.test` + `comments.test`.
+- **filter_pushdown subtypes** — all 12 `filter_pushdown/*.test` already pass;
+  no work needed.
+- **echo projection pushdown** — `EchoFunction` now opts into projection
+  pushdown and selects the (framework-narrowed) output columns by name in
+  `onInputBatch`, so no narrowing PROJECTION node sits above INOUT_FUNCTION.
+  Greened `echo/projection_filters.test`.
+- **table buffering (Sink+Source)** — full new execution subsystem.
+  - Wire: `InitRequest` gained `finalize_state_id`; new packed DTOs
+    `TableBuffering{Process,Combine,Destructor}{Request,Response}`
+    (`protocol/`) matching the C++ inner schemas.
+  - Service: `VgiService.table_buffering_{process,combine,destructor}`
+    (process/combine take `CallContext` for `ctx.clientLog(...)`); dispatch +
+    a `BoundBuffering` bind path + an `initBuffering` that handles phase
+    `TABLE_BUFFERING` (Sink — mints execution_id, header-only stream) and
+    `TABLE_BUFFERING_FINALIZE` (Source — one producer per finalize_state_id,
+    reusing `RpcStream.producer` + projection-narrowing).
+  - API (`buffering/` package): `TableBufferingFunction` (process → state_id,
+    combine → finalize_state_ids, createFinalizeProducer), `BufferingStore`
+    (in-process append-log keyed by `execution_id` — sufficient because the
+    launcher runs a single long-lived worker), `BufferingStorage` view,
+    `BufferingFinalizeProducer` (narrows full buffered batches to the projected
+    schema by name + applies pushdown filters). Ordering knobs
+    (`sourceOrderDependent`/`sinkOrderDependent`/`requiresInputBatchIndex`)
+    ride on the interface and are re-stamped onto the wire `FunctionInfo`.
+    `FunctionInfoSerializer` FUNCTION_TYPE dict gained `"table_buffering"`.
+  - Fixtures (`example/buffering/`): `buffer_input`, `sum_all_columns`,
+    `echo_buffering`, `ordered_buffer_input`, `batch_index_buffer_input`,
+    `large_state`, `ordered_source`, `slow_cancellable_buffering`, and the four
+    `crash_on_{process,combine,finalize}`/`hang_on_process` injectors.
+    `buffer_input` and `sum_all_columns` moved from table-in-out to buffering to
+    match canonical (the TIO `SumAllColumnsFunction` class stays for
+    `DistributedSumFunction`/`ExceptionProcessFunction` to extend, just
+    unregistered as `sum_all_columns`).
+  - Greened all 15 `table_in_out/table_buffering_*.test` (incl. the
+    crash/pool/worker_crash variants), `table_in_out/sum_all_columns.test`,
+    `table_in_out/logging.test`, and `table/function_registration.test` (79
+    example table functions).
+  - Go has **no** buffering impl — Python (`vgi/table_buffering_function.py`,
+    `_test_fixtures/table_in_out.py`) is the only reference.
+
+---
+
+Prior state (132/134): re-greened after vgi-python /
+vgi C++ landed the `attach_id`→`attach_opaque_data` rename plus
+batch_index v1, partition_columns v2, transaction storage, and AEAD.
+Work that closed the gap:
+
+- **`attach_id`/`transaction_id` → `*_opaque_data` rename** across every
+  wire DTO and `VgiService` method (C++ `082104c` / Python `6a8d97c`).
+- **batch_index v1** — `FunctionMetadata.withBatchIndex()` +
+  `EmitMetadata.batchIndex(...)` emit the `vgi_batch_index` per-batch
+  tag. Fixtures `partitioned_batch_index{,_marked}` +
+  `broken_{missing_batch_index_tag,non_monotone_batch_index,batch_index_overflow}`.
+- **partition_columns v2** — `FunctionMetadata.withPartitionKind(...)` +
+  `EmitMetadata.partitionField(...)` / `partitionValues(...)` emit
+  `vgi_partition_values#b64`. Fixtures `country_partitioned_sales`,
+  `region_year_partitioned`, `partitioned_with_explicit_override`,
+  `disjoint_range_partitioned`, plus four `broken_partition_*` fixtures
+  (two raise worker-side in `EmitMetadata`, two reach the C++
+  `InstallBatch` defense-in-depth check).
+- **transaction storage** — `TransactionStore` + `TransactionStorage`
+  view threaded through `TableBindParams`; `catalog_transaction_begin/
+  commit/rollback` wired; `supports_transactions=true` on the attach
+  result. Fixture `tx_cached_value` ships its resolved value
+  bind→producer via `BindResponse.opaque_data` /
+  `TableInitParams.bindOpaqueData`.
+- **GEOMETRY stats** — `geo_points` catalog table (`geoarrow.wkb`-typed
+  `geom` column) + `ColumnStatistics.ofGeometry(...)` (WKB corner-point
+  min/max); `ColumnStatisticsSerializer` now handles `binary` union
+  children. `column_statistics.test` fully green.
+- **AEAD opaque-data sealing** — `OpaqueDataSealer` (ChaCha20-Poly1305,
+  AAD-bound to `(domain, principal)`; transaction envelope additionally
+  binds its parent attach) wired into `VgiServiceImpl`. **HTTP-transport
+  only**: stdio / AF_UNIX construct it disabled, so it is pure
+  passthrough for the integration suite — `Worker.buildServer(boolean)`
+  passes `true` only from `runHttp`. Unit-tested in `OpaqueDataSealerTest`.
 
 ⚠️ **`table_in_out/echo/nested_type_combinations.test` SEGFAULTS the
 C++ harness mid-run.** Filter it out of integration runs:
@@ -132,31 +246,11 @@ lossless-tagged inputs (probably needs to detect sparse_union
 children of list/struct and re-collapse them to their declared
 type before emit).
 
-Remaining 7 failures (excluding the segfault), briefly (see `git log`
-for what was tried):
+Remaining 2 failures (excluding the segfault) — both out of scope /
+not Java-fixable:
 
-- ~~`aggregate/nest_tensor.test`, `scalar/unnest_tensor.test`,
-  `table_in_out/unnest_tensor_rows.test`~~ → PASS (real
-  implementations under `example/tensor/`).
-- ~~`table_in_out/echo/{all_types,nested_type_combinations}.test`,
-  `filter_pushdown/enums.test` — dict-encoded round-trip in echo TIO~~
-  → all_types + enums PASS; nested_type_combinations now segfaults
-  (see warning above).
-- `table/column_statistics.test:449` — GEOMETRY column stats remain
-  unimplemented (BOX bounding-box VARCHAR-typed min/max). 136/137
-  assertions pass.
-- ~~`table/table_function_statistics.test`~~ → PASSES (statistics RPC).
-- `table/{filter_echo_partitioned,order_preservation_modes,partitioned_sequence}.test`
-  — DuckDB's async init in the C++ extension reads `max_workers` *after*
-  scheduling has decided on threads. Passes under `VGI_SYNC_INIT_GLOBAL=1`;
-  not Java-side fixable.
-- `schema_reconcile.test` — writable INSERT path (out of scope).
-- ~~`aggregate/window.test:267`~~ → PASSES (combine no longer deletes
-  source states; segment-tree leaves are reused across targets).
-- `table/join_keys_pushdown.test` — DuckDB sends 0-byte pushdown_filters /
-  empty join_keys at init for the JOIN-driven dynamic filter. Per-tick
-  metadata updates target TIO functions; pure TableFunctions don't get the
-  refreshed filter. C++ side suspected.
+- `schema_reconcile.test` — writable INSERT path (out of scope; `writable/`
+  is deferred indefinitely).
 - `attach/versioned_tables_impl.test:231` — `vgi_worker_pool` returns 0
   rows because `vgi_unary_rpc.cpp:141` short-circuits the pool for
   `launch:` transport ("the long-lived worker behind the socket is
@@ -165,7 +259,12 @@ for what was tried):
   tests that need the launcher's data-version env propagation. Not
   Java-fixable; needs either a C++ extension patch to report launcher-
   mode entries or a per-test transport override.
-- ~~`table/database_tags.test:40`~~ → PASSES via `Worker.schemaComment(...)`.
+
+> **Launcher gotcha:** `launch:` workers are long-lived and reused across
+> the whole suite via flock. After rebuilding the worker, `pkill -f
+> farm.query.vgi.example.Main` before re-running or the launcher serves
+> the stale binary (symptom: "function does not exist" for new fixtures,
+> or duplicated rows from a half-killed pool).
 
 ## Statistics RPC
 

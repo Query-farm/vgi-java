@@ -12,6 +12,6 @@ public record BindRequest(
         byte[] input_schema,
         byte[] settings,
         byte[] secrets,
-        byte[] attach_id,
-        byte[] transaction_id,
+        byte[] attach_opaque_data,
+        byte[] transaction_opaque_data,
         boolean resolved_secrets_provided) implements ArrowSerializableRecord {}

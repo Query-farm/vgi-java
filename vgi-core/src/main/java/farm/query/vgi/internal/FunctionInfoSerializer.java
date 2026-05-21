@@ -40,7 +40,7 @@ final class FunctionInfoSerializer {
     private FunctionInfoSerializer() {}
 
     private static final EnumDict FUNCTION_TYPE = new EnumDict("function_type",
-            DictionaryIds.FUNCTION_TYPE, List.of("scalar", "table", "aggregate"));
+            DictionaryIds.FUNCTION_TYPE, List.of("scalar", "table", "aggregate", "table_buffering"));
     private static final EnumDict STABILITY = new EnumDict("stability",
             DictionaryIds.STABILITY, List.of("CONSISTENT", "VOLATILE", "CONSISTENT_WITHIN_QUERY"));
     private static final EnumDict NULL_HANDLING = new EnumDict("null_handling",
@@ -54,7 +54,8 @@ final class FunctionInfoSerializer {
             DictionaryIds.DISTINCT_DEPENDENT, List.of("NOT_DISTINCT_DEPENDENT", "DISTINCT_DEPENDENT"));
     private static final EnumDict PARTITION_KIND = new EnumDict("partition_kind",
             DictionaryIds.PARTITION_KIND,
-            List.of("NOT_PARTITIONED", "SINGLE_VALUE_PARTITIONS", "OVERLAPPING_PARTITIONS"));
+            List.of("NOT_PARTITIONED", "SINGLE_VALUE_PARTITIONS",
+                    "OVERLAPPING_PARTITIONS", "DISJOINT_PARTITIONS"));
 
     private static final List<EnumDict> DICTS = List.of(
             FUNCTION_TYPE, STABILITY, NULL_HANDLING,
@@ -96,6 +97,14 @@ final class FunctionInfoSerializer {
             nonNull("supports_window", BOOL),
             nonNull("streaming_partitioned", BOOL),
             nonNull("has_finalize", BOOL),
+            // source_order_dependent / sink_order_dependent /
+            // requires_input_batch_index landed in the C++ FunctionInfoSchema
+            // between has_finalize and required_settings (vgi_catalog_api.cpp).
+            // Only meaningful for TableBuffering functions; default false for
+            // every other function_type — matches the C++ side's value_or.
+            nonNull("source_order_dependent", BOOL),
+            nonNull("sink_order_dependent", BOOL),
+            nonNull("requires_input_batch_index", BOOL),
             listOfPrim("required_settings", UTF8),
             listOf("required_secrets", new Field("item",
                     new FieldType(true, new ArrowType.Struct(), null),
@@ -133,6 +142,9 @@ final class FunctionInfoSerializer {
             writeBool(v.get("supports_window"), info.supports_window());
             writeBool(v.get("streaming_partitioned"), info.streaming_partitioned());
             writeBool(v.get("has_finalize"), info.has_finalize());
+            writeBool(v.get("source_order_dependent"), info.source_order_dependent());
+            writeBool(v.get("sink_order_dependent"), info.sink_order_dependent());
+            writeBool(v.get("requires_input_batch_index"), info.requires_input_batch_index());
             writeStringList(v.get("required_settings"), info.required_settings());
             writeStringList(v.get("required_secrets"), List.of());
         });

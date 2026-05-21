@@ -177,6 +177,8 @@ public final class ColumnStatisticsSerializer {
         } else if (v instanceof VarCharVector vc) {
             byte[] bytes = ((String) value).getBytes(StandardCharsets.UTF_8);
             vc.setSafe(row, bytes);
+        } else if (v instanceof org.apache.arrow.vector.VarBinaryVector vb) {
+            vb.setSafe(row, (byte[]) value);
         } else if (v instanceof BitVector b) {
             b.setSafe(row, ((Boolean) value) ? 1 : 0);
         } else {

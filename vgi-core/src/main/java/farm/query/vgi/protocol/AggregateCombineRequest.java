@@ -9,4 +9,4 @@ public record AggregateCombineRequest(
         String function_name,
         byte[] execution_id,
         byte[] merge_batch,
-        byte[] attach_id) implements ArrowSerializableRecord {}
+        byte[] attach_opaque_data) implements ArrowSerializableRecord {}

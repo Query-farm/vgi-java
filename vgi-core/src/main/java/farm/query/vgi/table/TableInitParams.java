@@ -37,7 +37,11 @@ public record TableInitParams(
         Long orderByLimit,
         byte[] executionId,
         byte[] secrets,
-        byte[] attachId) {
+        byte[] attachId,
+        /** The {@code BindResponse.opaque_data} the fixture's {@code onBind}
+         *  returned — ships bind-time state through to the producer. Empty
+         *  {@code byte[0]} when the fixture returned none. */
+        byte[] bindOpaqueData) {
 
     /**
      * Wrap the raw {@link #pushdownFilters} / {@link #joinKeys} bytes into a

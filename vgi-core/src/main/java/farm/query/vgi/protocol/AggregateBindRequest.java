@@ -11,4 +11,4 @@ public record AggregateBindRequest(
         byte[] input_schema,
         byte[] settings,
         byte[] secrets,
-        byte[] attach_id) implements ArrowSerializableRecord {}
+        byte[] attach_opaque_data) implements ArrowSerializableRecord {}

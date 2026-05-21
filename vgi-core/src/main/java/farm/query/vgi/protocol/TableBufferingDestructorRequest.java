@@ -5,9 +5,9 @@ package farm.query.vgi.protocol;
 
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
 
-public record AggregateFinalizeRequest(
+/** Best-effort cleanup request for {@code table_buffering_destructor}. */
+public record TableBufferingDestructorRequest(
         String function_name,
         byte[] execution_id,
-        byte[] group_ids_batch,
-        byte[] output_schema,
-        byte[] attach_opaque_data) implements ArrowSerializableRecord {}
+        byte[] attach_opaque_data,
+        byte[] transaction_id) implements ArrowSerializableRecord {}

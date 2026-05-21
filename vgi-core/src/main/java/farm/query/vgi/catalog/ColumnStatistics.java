@@ -46,4 +46,16 @@ public record ColumnStatistics(
         return new ColumnStatistics(name, new ArrowType.Utf8(), min, max, hasNull, true,
                 distinctCount, containsUnicode, maxStringLength);
     }
+
+    /**
+     * Geometry-column stats: {@code min}/{@code max} are WKB-encoded corner-point
+     * geometries (the spatial bounding box). Sent as plain {@code binary} on the
+     * sparse-union wire — the C++ extension correlates {@code name} with the
+     * table's {@code geoarrow.wkb}-typed column and rebuilds the spatial extent.
+     */
+    public static ColumnStatistics ofGeometry(String name, byte[] min, byte[] max, boolean hasNull,
+                                                 Long distinctCount) {
+        return new ColumnStatistics(name, new ArrowType.Binary(), min, max, hasNull, true,
+                distinctCount, null, null);
+    }
 }

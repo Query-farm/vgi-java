@@ -110,6 +110,25 @@ public interface VgiService {
     }
 
     // -----------------------------------------------------------------------
+    // Table buffering (Sink+Source) lifecycle. Packed requests; flat responses.
+    // -----------------------------------------------------------------------
+
+    default farm.query.vgi.protocol.TableBufferingProcessResponse table_buffering_process(
+            farm.query.vgi.protocol.TableBufferingProcessRequest request, CallContext ctx) {
+        throw new UnsupportedOperationException("table_buffering_process");
+    }
+
+    default farm.query.vgi.protocol.TableBufferingCombineResponse table_buffering_combine(
+            farm.query.vgi.protocol.TableBufferingCombineRequest request, CallContext ctx) {
+        throw new UnsupportedOperationException("table_buffering_combine");
+    }
+
+    default farm.query.vgi.protocol.TableBufferingDestructorResponse table_buffering_destructor(
+            farm.query.vgi.protocol.TableBufferingDestructorRequest request) {
+        return new farm.query.vgi.protocol.TableBufferingDestructorResponse();
+    }
+
+    // -----------------------------------------------------------------------
     // Catalog: attach / detach / version / transactions
     // -----------------------------------------------------------------------
 
@@ -119,18 +138,20 @@ public interface VgiService {
     CatalogAttachResult catalog_attach(CatalogAttachRequest request, CallContext ctx);
 
     /** Flat. */
-    void catalog_detach(byte[] attach_id);
+    void catalog_detach(byte[] attach_opaque_data);
 
-    default CatalogVersionResponse catalog_version(byte[] attach_id, @Nullable byte[] transaction_id) {
+    default CatalogVersionResponse catalog_version(byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data) {
         return new CatalogVersionResponse(0L);
     }
 
-    default TransactionBeginResponse catalog_transaction_begin(byte[] attach_id) {
+    default TransactionBeginResponse catalog_transaction_begin(byte[] attach_opaque_data, CallContext ctx) {
         return new TransactionBeginResponse(null);
     }
 
-    default void catalog_transaction_commit(byte[] attach_id, byte[] transaction_id) {}
-    default void catalog_transaction_rollback(byte[] attach_id, byte[] transaction_id) {}
+    default void catalog_transaction_commit(byte[] attach_opaque_data, byte[] transaction_opaque_data,
+                                              CallContext ctx) {}
+    default void catalog_transaction_rollback(byte[] attach_opaque_data, byte[] transaction_opaque_data,
+                                                CallContext ctx) {}
 
     // -----------------------------------------------------------------------
     // Catalog: DDL (read-only stubs)
@@ -141,27 +162,27 @@ public interface VgiService {
     // not match the wire contract".
     // -----------------------------------------------------------------------
 
-    default void catalog_schema_create(byte[] attach_id, String name,
+    default void catalog_schema_create(byte[] attach_opaque_data, String name,
                                           @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String on_conflict,
                                           @Nullable String comment,
                                           java.util.Map<String, String> tags,
-                                          @Nullable byte[] transaction_id) {
+                                          @Nullable byte[] transaction_opaque_data) {
         throw new UnsupportedOperationException("catalog is read-only: catalog_schema_create not supported");
     }
 
-    default void catalog_table_column_add(byte[] attach_id, String schema_name, String name,
+    default void catalog_table_column_add(byte[] attach_opaque_data, String schema_name, String name,
                                               byte[] column_definition,
                                               boolean ignore_not_found,
                                               boolean if_column_not_exists,
-                                              @Nullable byte[] transaction_id) {
+                                              @Nullable byte[] transaction_opaque_data) {
         throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_add not supported");
     }
 
-    default void catalog_table_column_drop(byte[] attach_id, String schema_name, String name,
+    default void catalog_table_column_drop(byte[] attach_opaque_data, String schema_name, String name,
                                                String column_name,
                                                boolean ignore_not_found,
                                                boolean if_column_exists,
-                                               @Nullable byte[] transaction_id) {
+                                               @Nullable byte[] transaction_opaque_data) {
         throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_drop not supported");
     }
 
@@ -169,21 +190,22 @@ public interface VgiService {
     // Catalog: schemas
     // -----------------------------------------------------------------------
 
-    ItemsResponse catalog_schemas(byte[] attach_id, @Nullable byte[] transaction_id);
+    ItemsResponse catalog_schemas(byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data);
 
-    ItemsResponse catalog_schema_get(byte[] attach_id, String name, @Nullable byte[] transaction_id);
+    ItemsResponse catalog_schema_get(byte[] attach_opaque_data, String name, @Nullable byte[] transaction_opaque_data);
 
     // -----------------------------------------------------------------------
     // Catalog: schema contents
     // -----------------------------------------------------------------------
 
     default ItemsResponse catalog_schema_contents_tables(
-            byte[] attach_id, String name, @Nullable byte[] transaction_id) {
+            byte[] attach_opaque_data, String name, @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
         return ItemsResponse.empty();
     }
 
     default ItemsResponse catalog_schema_contents_views(
-            byte[] attach_id, String name, @Nullable byte[] transaction_id) {
+            byte[] attach_opaque_data, String name, @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
     }
 
@@ -193,21 +215,22 @@ public interface VgiService {
      * the underlying string transparently.
      */
     ItemsResponse catalog_schema_contents_functions(
-            byte[] attach_id,
+            byte[] attach_opaque_data,
             String name,
             @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String type,
-            @Nullable byte[] transaction_id);
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx);
 
     default ItemsResponse catalog_schema_contents_macros(
-            byte[] attach_id,
+            byte[] attach_opaque_data,
             String name,
             @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String type,
-            @Nullable byte[] transaction_id) {
+            @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
     }
 
     default ItemsResponse catalog_schema_contents_indexes(
-            byte[] attach_id, String name, @Nullable byte[] transaction_id) {
+            byte[] attach_opaque_data, String name, @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
     }
 
@@ -216,34 +239,51 @@ public interface VgiService {
     // -----------------------------------------------------------------------
 
     default ItemsResponse catalog_table_get(
-            byte[] attach_id, String schema_name, String name,
+            byte[] attach_opaque_data, String schema_name, String name,
             @Nullable String at_unit, @Nullable String at_value,
-            @Nullable byte[] transaction_id) {
+            @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
     }
 
     default TableScanFunctionGetResponse catalog_table_scan_function_get(
-            byte[] attach_id, String schema_name, String name,
+            byte[] attach_opaque_data, String schema_name, String name,
             @Nullable String at_unit, @Nullable String at_value,
-            @Nullable byte[] transaction_id) {
+            @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         throw new UnsupportedOperationException("catalog_table_scan_function_get");
     }
 
+    /**
+     * Multi-branch scan plan. Returns a serialised {@code ScanBranchesResult}
+     * ({@code {branches: list<binary>, required_extensions: list<utf8>}}).
+     * Additive successor to {@link #catalog_table_scan_function_get}: the C++
+     * extension caches a per-attach capability and falls back to the legacy
+     * single-function RPC only when the worker raises method-not-implemented.
+     * Because that capability is cached per-attach (not per-table), a worker
+     * that implements this must return a valid (possibly one-branch) result
+     * for <em>every</em> scannable table, not just multi-branch ones.
+     */
+    default byte[] catalog_table_scan_branches_get(
+            byte[] attach_opaque_data, String schema_name, String name,
+            @Nullable String at_unit, @Nullable String at_value,
+            @Nullable byte[] transaction_opaque_data, CallContext ctx) {
+        throw new UnsupportedOperationException("catalog_table_scan_branches_get");
+    }
+
     default byte[] catalog_table_column_statistics_get(
-            byte[] attach_id, String schema_name, String name,
-            @Nullable byte[] transaction_id) {
+            byte[] attach_opaque_data, String schema_name, String name,
+            @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return new byte[0];
     }
 
     default ItemsResponse catalog_view_get(
-            byte[] attach_id, String schema_name, String name,
-            @Nullable byte[] transaction_id) {
+            byte[] attach_opaque_data, String schema_name, String name,
+            @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
     }
 
     default ItemsResponse catalog_macro_get(
-            byte[] attach_id, String schema_name, String name,
-            @Nullable byte[] transaction_id) {
+            byte[] attach_opaque_data, String schema_name, String name,
+            @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
     }
 }

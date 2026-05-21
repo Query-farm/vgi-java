@@ -32,6 +32,10 @@ import java.util.Map;
  */
 public final class Worker {
 
+    /** VGI protocol surface version. Mirrors vgi-python {@code protocol_version.txt}.
+     *  Emitted as the {@code vgi_rpc.protocol_version} per-request metadata key. */
+    public static final String VGI_PROTOCOL_VERSION = "1.0.0";
+
     private String catalogName = "vgi";
     private String catalogComment = "";
     private final Map<String, String> catalogTags = new LinkedHashMap<>();
@@ -39,9 +43,12 @@ public final class Worker {
     private final Map<String, String> schemaComments = new LinkedHashMap<>();
     private String implementationVersion;
     private String dataVersionSpec;
+    private final List<CatalogDataVersionRelease> releases = new ArrayList<>();
+    private String sourceUrl;
     private final List<ScalarFunction> scalars = new ArrayList<>();
     private final List<TableFunction> tables = new ArrayList<>();
     private final List<TableInOutFunction> tableInOuts = new ArrayList<>();
+    private final List<farm.query.vgi.buffering.TableBufferingFunction> bufferingFns = new ArrayList<>();
     private final List<AggregateFunction<?>> aggregates = new ArrayList<>();
     private final List<SettingSpec> settings = new ArrayList<>();
     private final List<SecretTypeSpec> secretTypes = new ArrayList<>();
@@ -63,6 +70,8 @@ public final class Worker {
     public List<Macro> macros() { return macros; }
 
     private final List<CatalogTable> catalogTables = new ArrayList<>();
+    private final Map<String, List<farm.query.vgi.catalog.ScanBranch>> multiBranchTables =
+            new LinkedHashMap<>();
 
     public Worker registerCatalogTable(CatalogTable t) {
         catalogTables.add(t);
@@ -70,6 +79,30 @@ public final class Worker {
     }
 
     public List<CatalogTable> catalogTables() { return catalogTables; }
+
+    /**
+     * Register a multi-branch table: a catalog table whose scan is the
+     * {@code UNION_ALL} of {@code branches}. The table is enumerated normally;
+     * its scan resolves through {@code catalog_table_scan_branches_get}. Pass
+     * an empty branch list to exercise the C++ loud-fail path. The stub's
+     * inline scan-function (if any) is dropped so the branches RPC drives.
+     */
+    public Worker registerMultiBranchTable(CatalogTable stub,
+            List<farm.query.vgi.catalog.ScanBranch> branches) {
+        catalogTables.add(stub.withRpcScanFunction());
+        multiBranchTables.put(stub.schema() + "." + stub.name(),
+                branches == null ? List.of() : List.copyOf(branches));
+        return this;
+    }
+
+    /** Branches for a multi-branch table, or {@code null} if not multi-branch. */
+    public List<farm.query.vgi.catalog.ScanBranch> multiBranchTable(String schema, String name) {
+        return multiBranchTables.get(schema + "." + name);
+    }
+
+    public Map<String, List<farm.query.vgi.catalog.ScanBranch>> multiBranchTables() {
+        return multiBranchTables;
+    }
 
     private Worker() {}
 
@@ -82,6 +115,16 @@ public final class Worker {
     public Worker dataVersionSpec(String v) { this.dataVersionSpec = v; return this; }
     public String implementationVersion() { return implementationVersion; }
     public String dataVersionSpec() { return dataVersionSpec; }
+
+    /** Published data-version releases, surfaced through {@code catalog_catalogs()}.
+     *  Pass newest-first. */
+    public Worker releases(CatalogDataVersionRelease... rs) {
+        for (CatalogDataVersionRelease r : rs) releases.add(r);
+        return this;
+    }
+    public List<CatalogDataVersionRelease> releases() { return List.copyOf(releases); }
+    public Worker sourceUrl(String url) { this.sourceUrl = url; return this; }
+    public String sourceUrl() { return sourceUrl; }
     public Worker defaultSchema(String schema) { this.defaultSchema = schema; return this; }
 
     /** Per-schema comment surfaced via {@code catalog_schemas} /
@@ -128,6 +171,20 @@ public final class Worker {
     public Worker registerAggregates(Iterable<? extends AggregateFunction<?>> fns) {
         for (AggregateFunction<?> f : fns) aggregates.add(f);
         return this;
+    }
+
+    public Worker registerTableBuffering(farm.query.vgi.buffering.TableBufferingFunction fn) {
+        bufferingFns.add(fn);
+        return this;
+    }
+
+    public Worker registerTableBufferings(Iterable<? extends farm.query.vgi.buffering.TableBufferingFunction> fns) {
+        for (var f : fns) bufferingFns.add(f);
+        return this;
+    }
+
+    public List<farm.query.vgi.buffering.TableBufferingFunction> bufferingFunctions() {
+        return bufferingFns;
     }
 
     public Worker registerTableInOuts(Iterable<? extends TableInOutFunction> fns) {
@@ -177,15 +234,22 @@ public final class Worker {
     public String defaultSchema() { return defaultSchema; }
     public List<SettingSpec> settingSpecs() { return settings; }
 
-    private RpcServer buildServer() {
-        return new RpcServer(VgiService.class,
-                new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates));
+    /**
+     * @param sealOpaqueData HTTP-only AEAD sealing of attach / transaction
+     *        opaque data. Disabled for stdio / AF_UNIX, where OS process
+     *        ownership already enforces caller identity.
+     */
+    private RpcServer buildServer(boolean sealOpaqueData) {
+        RpcServer server = new RpcServer(VgiService.class,
+                new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates, sealOpaqueData));
+        server.setProtocolVersion(VGI_PROTOCOL_VERSION);
+        return server;
     }
 
     /** Block on stdin/stdout serving requests until the transport closes. */
     public void runStdio() {
         try (StdioTransport t = new StdioTransport()) {
-            buildServer().serve(t);
+            buildServer(false).serve(t);
         }
     }
 
@@ -217,7 +281,7 @@ public final class Worker {
         // requires accept-loop instrumentation (track active connection
         // count, treat "zero for N seconds" as the trigger) — TODO once
         // long-running deployments need it.
-        UnixSocketTransport.serveForever(socketPath, buildServer());
+        UnixSocketTransport.serveForever(socketPath, buildServer(false));
     }
 
     public void runHttp(String host, int port) throws Exception {
@@ -302,7 +366,7 @@ public final class Worker {
      *  then forcibly closes any stragglers. */
     public void runHttp(HttpServer.Config config) throws Exception {
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(Worker.class);
-        HttpServer http = new HttpServer(buildServer(), config);
+        HttpServer http = new HttpServer(buildServer(true), config);
         http.start();
         System.out.println("PORT:" + http.port());
         System.out.flush();

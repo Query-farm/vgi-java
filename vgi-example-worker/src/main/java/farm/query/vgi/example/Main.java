@@ -64,8 +64,9 @@ import farm.query.vgi.example.aggregate.StubAggregates;
 import farm.query.vgi.example.aggregate.SumAllFunction;
 import farm.query.vgi.example.aggregate.SumFunction;
 import farm.query.vgi.example.aggregate.WeightedSumFunction;
+import farm.query.vgi.CatalogDataVersionRelease;
 import farm.query.vgi.example.tableinout.EchoFunction;
-import farm.query.vgi.example.tableinout.BufferInputFunction;
+import farm.query.vgi.example.tableinout.EchoWitnessFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
 import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
 import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
@@ -83,6 +84,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import java.util.List;
 import java.util.Map;
 import farm.query.vgi.catalog.CatalogTable;
+import farm.query.vgi.catalog.ScanBranch;
 import farm.query.vgi.catalog.Macro;
 import farm.query.vgi.catalog.MacroType;
 import farm.query.vgi.catalog.View;
@@ -141,6 +143,25 @@ public final class Main {
                 new FieldType(false, type, null,
                         Map.of("is_row_id", "true")),
                 null);
+    }
+
+    /** Build a {@code geoarrow.wkb}-typed binary Field — the C++ extension maps
+     *  the {@code ARROW:extension:name=geoarrow.wkb} tag to DuckDB's GEOMETRY. */
+    private static Field geomCol(String name) {
+        return new Field(name,
+                new FieldType(true, new ArrowType.Binary(), null,
+                        Map.of("ARROW:extension:name", "geoarrow.wkb",
+                                "ARROW:extension:metadata", "{}")),
+                null);
+    }
+
+    /** Decode a hex string to bytes (WKB literals for geometry statistics). */
+    private static byte[] wkb(String hex) {
+        byte[] out = new byte[hex.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
     }
 
     /** Build a Field with a generated_expression metadata key. */
@@ -240,9 +261,32 @@ public final class Main {
         registerTables(w);
         registerAggregates(w);
         registerTableInOuts(w);
+        registerBuffering(w);
         registerViews(w);
         registerCatalogTables(w);
+        registerMultiBranch(w);
         registerMacros(w);
+
+        if ("versioned_tables".equals(catalogName)) {
+            // Release manifest + source_url, mirroring the canonical
+            // vgi-python versioned_tables fixture (newest-first).
+            w.sourceUrl("https://github.com/Query-farm/vgi-python")
+             .releases(
+                new CatalogDataVersionRelease("3.0.0",
+                        java.time.Instant.parse("2026-04-15T00:00:00Z"),
+                        "Removed deprecated 'animals' table; 'plants' is now the only table.",
+                        "https://github.com/Query-farm/vgi-python/releases/tag/data-v3.0.0"),
+                new CatalogDataVersionRelease("2.0.0",
+                        java.time.Instant.parse("2026-02-01T00:00:00Z"),
+                        "Added 'plants' table alongside 'animals'.",
+                        "https://github.com/Query-farm/vgi-python/releases/tag/data-v2.0.0"),
+                new CatalogDataVersionRelease("1.1.0",
+                        java.time.Instant.parse("2026-01-10T00:00:00Z"),
+                        "Added 'sound' column to 'animals'.", null),
+                new CatalogDataVersionRelease("1.0.0",
+                        java.time.Instant.parse("2026-01-01T00:00:00Z"),
+                        "Initial release.", null));
+        }
 
         runWorker(w, args);
     }
@@ -364,7 +408,21 @@ public final class Main {
                 new MakePairsFunctions.StrVariant(),
                 new MakePairsFunctions.MixedVariant(),
                 new StructSettingsFunction(),
-                new SettingsAwareFunction()));
+                new SettingsAwareFunction(),
+                new farm.query.vgi.example.table.BatchIndexFunctions.PartitionedBatchIndex(),
+                new farm.query.vgi.example.table.BatchIndexFunctions.PartitionedBatchIndexMarked(),
+                new farm.query.vgi.example.table.BrokenBatchIndexFunctions.MissingBatchIndexTag(),
+                new farm.query.vgi.example.table.BrokenBatchIndexFunctions.NonMonotoneBatchIndex(),
+                new farm.query.vgi.example.table.BrokenBatchIndexFunctions.BatchIndexOverflow(),
+                new farm.query.vgi.example.table.PartitionColumnsFunctions.CountryPartitionedSales(),
+                new farm.query.vgi.example.table.PartitionColumnsFunctions.RegionYearPartitioned(),
+                new farm.query.vgi.example.table.PartitionColumnsFunctions.PartitionedWithExplicitOverride(),
+                new farm.query.vgi.example.table.PartitionColumnsFunctions.DisjointRangePartitioned(),
+                new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenMissingPartitionValues(),
+                new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenPartitionMinNeqMax(),
+                new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenPartitionValuesNoAnnotation(),
+                new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenPartitionColumnAbsentFromBatch(),
+                new farm.query.vgi.example.table.TxCachedValueFunction()));
     }
 
     private static void registerAggregates(Worker w) {
@@ -388,12 +446,13 @@ public final class Main {
     private static void registerTableInOuts(Worker w) {
         w.registerTableInOuts(List.of(
                 new EchoFunction(),
+                new EchoWitnessFunction(),
+                // buffer_input is a TABLE_BUFFERING function (see registerBuffering),
+                // matching the canonical fixture's Sink+Source semantics.
                 new RepeatInputsFunction(),
                 new ExceptionFinalizeFunction(),
                 new ExceptionProcessFunction(),
-                new SumAllColumnsFunction(),
                 new DistributedSumFunction(),
-                new BufferInputFunction(),
                 new FilterBySettingFunction(),
                 new SlowCancellableInoutFunction(),
                 new UnnestTensorRowsFunction()));
@@ -437,7 +496,7 @@ public final class Main {
                 Schemas.nullable("value", Schemas.INT64)))),
                         "First 100 integers (demonstrates explicit columns)",
                         Map.of(),
-                        "make_series",
+                        "sequence",
                         List.of((Object) 100L),
                         Map.of(),
                         100L, 100L, true, /*inlineScanFunction=*/false)
@@ -526,6 +585,18 @@ public final class Main {
                 "color", "blue", "red", false, 3L, false, 5L),
                 farm.query.vgi.catalog.ColumnStatistics.ofUtf8(
                 "hex_code", "#0000FF", "#FF0000", false, 3L, false, 7L))))
+                .registerCatalogTable(stubTable("data", "geo_points",
+                        "5x5 grid of points with spatial bounding-box statistics",
+                        col("id", Schemas.INT64, true),
+                        geomCol("geom"))
+                        .withStatistics(tableStats("geo_points",
+                farm.query.vgi.catalog.ColumnStatistics.ofInt64(
+                "id", 1L, 25L, false, 25L),
+                farm.query.vgi.catalog.ColumnStatistics.ofGeometry(
+                "geom",
+                wkb("010100000000000000000000000000000000000000"),   // POINT(0 0)
+                wkb("010100000000000000000010400000000000001040"),   // POINT(4 4)
+                false, 25L))))
                 .registerCatalogTable(new CatalogTable(
                         "data", "funny_numbers",
                         cols(col("n", Schemas.INT64, true)),
@@ -671,6 +742,81 @@ public final class Main {
                         col("name", Schemas.UTF8, true),
                         col("kind", Schemas.UTF8, true),
                         col("height_m", Schemas.FLOAT64, true)));
+    }
+
+    /**
+     * Multi-branch fixtures mirroring vgi-python's ExampleCatalog. Each table's
+     * scan is the UNION_ALL of its declared branches, resolved through
+     * {@code catalog_table_scan_branches_get}.
+     */
+    private static void registerBuffering(Worker w) {
+        w.registerTableBufferings(List.of(
+                new farm.query.vgi.example.buffering.BufferInputFunction(),
+                new farm.query.vgi.example.buffering.SumAllColumnsBufferingFunction(),
+                new farm.query.vgi.example.buffering.EchoBufferingFunction(),
+                new farm.query.vgi.example.buffering.OrderedBufferInputFunction(),
+                new farm.query.vgi.example.buffering.BatchIndexBufferInputFunction(),
+                new farm.query.vgi.example.buffering.LargeStateFunction(),
+                new farm.query.vgi.example.buffering.OrderedSourceFunction(),
+                new farm.query.vgi.example.buffering.SlowCancellableBufferingFunction(),
+                new farm.query.vgi.example.buffering.CrashFunctions.CrashOnProcess(),
+                new farm.query.vgi.example.buffering.CrashFunctions.CrashOnCombine(),
+                new farm.query.vgi.example.buffering.CrashFunctions.CrashOnFinalize(),
+                new farm.query.vgi.example.buffering.CrashFunctions.HangOnProcess()));
+    }
+
+    private static void registerMultiBranch(Worker w) {
+        byte[] colN = cols(Schemas.nullable("n", Schemas.INT64));
+        byte[] colAB = cols(Schemas.nullable("a", Schemas.INT64),
+                Schemas.nullable("b", Schemas.INT64));
+
+        // Two arms, each sequence(50). Union = 100 rows.
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_numbers", colN)
+                        .comment("Multi-branch: UNION of sequence(50) + sequence(50) — used by multi_branch_scan.test").build(),
+                List.of(ScanBranch.of("sequence", 50L), ScanBranch.of("sequence", 50L)));
+
+        // Two arms sequence(100) with complementary branch_filters.
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_filtered_numbers", colN)
+                        .comment("Multi-branch with complementary branch_filters — exercises pruning").build(),
+                List.of(ScanBranch.filtered("sequence", "n < 50", 100L),
+                        ScanBranch.filtered("sequence", "n >= 50", 100L)));
+
+        // VGI sequence(50) + native read_parquet (test creates the file).
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_hetero", colN)
+                        .comment("Multi-branch: sequence(50) + read_parquet — used by multi_branch_heterogeneous.test").build(),
+                List.of(ScanBranch.of("sequence", 50L),
+                        ScanBranch.of("read_parquet", "/tmp/vgi_hetero_branch.parquet")));
+
+        // VGI sequence(50) + read_csv_auto (read_csv has no filter pushdown).
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_nopushdown", colN)
+                        .comment("Multi-branch: VGI + read_csv — used by multi_branch_pushdown_incapable.test").build(),
+                List.of(ScanBranch.of("sequence", 50L),
+                        ScanBranch.of("read_csv_auto", "/tmp/vgi_nopushdown_branch.csv")));
+
+        // Three read_parquet arms with mismatched columns — by-name reconcile.
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_recon", colAB)
+                        .comment("Multi-branch: column reconciliation — used by multi_branch_reconciliation.test").build(),
+                List.of(ScanBranch.of("read_parquet", "/tmp/vgi_recon_a_b.parquet"),
+                        ScanBranch.of("read_parquet", "/tmp/vgi_recon_b_a.parquet"),
+                        ScanBranch.of("read_parquet", "/tmp/vgi_recon_a_only.parquet")));
+
+        // Empty branch list — exercises the C++ loud-fail at the wire layer.
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_empty", colN)
+                        .comment("Multi-branch: worker returns empty branches list — used by multi_branch_empty_branches.test").build(),
+                List.of());
+
+        // Two writable arms — C++ rejects (single-writable-catalog rule).
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_two_writable", colN)
+                        .comment("Multi-branch with two writable=True arms — used by multi_branch_two_writable.test").build(),
+                List.of(ScanBranch.writable("sequence", 10L),
+                        ScanBranch.writable("sequence", 10L)));
     }
 
     private static void registerMacros(Worker w) {
