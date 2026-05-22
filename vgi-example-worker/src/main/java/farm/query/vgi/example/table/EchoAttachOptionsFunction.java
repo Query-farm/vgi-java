@@ -3,8 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.AttachOptionsAttachId;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
@@ -47,14 +47,12 @@ public final class EchoAttachOptionsFunction implements TableFunction {
         this.outputSchemaIpc = SchemaUtil.serializeSchema(outputSchema);
     }
 
-    @Override public String name() { return "echo_attach_options"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("echo_attach_options")
+            .metadata(FunctionMetadata.describe("Echo the attach-time option values carried in attach_id")
+                    .withCategories("generator", "testing"))
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Echo the attach-time option values carried in attach_id")
-                .withCategories("generator", "testing");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() { return List.of(); }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams params) {
         return BindResponse.forSchema(outputSchemaIpc);

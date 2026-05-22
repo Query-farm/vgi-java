@@ -3,9 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -81,13 +80,12 @@ public class ProjReproFullSchemaFunction implements TableFunction {
         OUTPUT_SCHEMA_IPC = SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
     }
 
-    @Override public String name() { return "proj_repro_full_schema"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Projection-pushdown reproducer (emits full FIXED_SCHEMA)");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.positional("n", 0, Schemas.INT64));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("proj_repro_full_schema")
+            .description("Projection-pushdown reproducer (emits full FIXED_SCHEMA)")
+            .constArg("n", Schemas.INT64)
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
     @Override public long cardinality(TableBindParams p) {
         Object c = p.arguments().positionalAt(0);

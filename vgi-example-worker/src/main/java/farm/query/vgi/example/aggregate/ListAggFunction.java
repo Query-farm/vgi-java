@@ -4,8 +4,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.FieldVector;
@@ -30,13 +29,12 @@ public final class ListAggFunction implements AggregateFunction<ListAggFunction.
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("result", Schemas.UTF8)));
 
-    @Override public String name() { return "vgi_listagg"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Concatenate strings with comma separator");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("value", 0, Schemas.UTF8));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("vgi_listagg")
+            .description("Concatenate strings with comma separator")
+            .arg("value", Schemas.UTF8)
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public Schema outputSchema() { return OUTPUT_SCHEMA; }
     @Override public State newState() { return new State(); }
 

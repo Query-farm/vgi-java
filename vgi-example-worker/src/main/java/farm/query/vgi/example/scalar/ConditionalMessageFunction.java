@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -14,8 +13,6 @@ import farm.query.vgi.types.Schemas;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-
-import java.util.List;
 
 /**
  * {@code conditional_message(repeat_count BIGINT [const], message VARCHAR
@@ -31,18 +28,14 @@ public final class ConditionalMessageFunction implements ScalarFunction {
 
     private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.UTF8);
 
-    @Override public String name() { return "conditional_message"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("conditional_message")
+            .description("Returns repeated message when condition is true")
+            .constArg("repeat_count", Schemas.INT64)
+            .constArg("message", Schemas.UTF8)
+            .arg("condition", Schemas.BOOL)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Returns repeated message when condition is true");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("repeat_count", 0, Schemas.INT64),
-                ArgSpec.positional("message", 1, Schemas.UTF8),
-                new ArgSpec("condition", 2, Schemas.BOOL));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

@@ -3,9 +3,9 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionMetadata.OrderPreservation;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.EmitMetadata;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.internal.SchemaUtil;
@@ -63,20 +63,17 @@ public final class BatchIndexFunctions {
         private static final Schema OUTPUT = Schemas.of(Schemas.nullable("n", Schemas.INT64));
         private static final byte[] OUTPUT_IPC = SchemaUtil.serializeSchema(OUTPUT);
 
-        @Override public String name() { return "partitioned_batch_index"; }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("partitioned_batch_index")
+                .metadata(FunctionMetadata.describe(
+                        "Multi-worker partitioned sequence with per-batch batch_index tagging; parallel scan + ordered sink reassembly.")
+                        .withPushdown(true, false, false)
+                        .withCategories("generator", "utility")
+                        .withOrderPreservation(OrderPreservation.FIXED_ORDER)
+                        .withBatchIndex())
+                .constArg("count", Schemas.INT64)
+                .build();
 
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe(
-                    "Multi-worker partitioned sequence with per-batch batch_index tagging")
-                    .withPushdown(true, false, false)
-                    .withCategories("generator", "utility")
-                    .withOrderPreservation(OrderPreservation.FIXED_ORDER)
-                    .withBatchIndex();
-        }
-
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(ArgSpec.positional("count", 0, Schemas.INT64));
-        }
+        @Override public FunctionSpec spec() { return SPEC; }
 
         @Override public BindResponse onBind(TableBindParams p) {
             return BindResponse.forSchema(OUTPUT_IPC);
@@ -149,22 +146,18 @@ public final class BatchIndexFunctions {
                 Schemas.nullable("seq", Schemas.INT64));
         private static final byte[] OUTPUT_IPC = SchemaUtil.serializeSchema(OUTPUT);
 
-        @Override public String name() { return "partitioned_batch_index_marked"; }
+        // projection_pushdown stays OFF so partition_id survives SELECT seq.
+        private static final FunctionSpec SPEC = FunctionSpec.builder("partitioned_batch_index_marked")
+                .metadata(FunctionMetadata.describe(
+                        "Two-column batch_index demo: rows are (partition_id, seq). Tests assert that DuckDB's ordered sinks reassemble output in partition_id order under parallel execution.")
+                        .withCategories("generator", "utility", "testing")
+                        .withOrderPreservation(OrderPreservation.FIXED_ORDER)
+                        .withBatchIndex())
+                .constArg("count", Schemas.INT64)
+                .named("chunk_size", Schemas.INT64, "1000")
+                .build();
 
-        @Override public FunctionMetadata metadata() {
-            // projection_pushdown stays OFF so partition_id survives SELECT seq.
-            return FunctionMetadata.describe(
-                    "Two-column batch_index demo: rows are (partition_id, seq)")
-                    .withCategories("generator", "utility", "testing")
-                    .withOrderPreservation(OrderPreservation.FIXED_ORDER)
-                    .withBatchIndex();
-        }
-
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("count", 0, Schemas.INT64),
-                    ArgSpec.named("chunk_size", Schemas.INT64, "1000"));
-        }
+        @Override public FunctionSpec spec() { return SPEC; }
 
         @Override public BindResponse onBind(TableBindParams p) {
             return BindResponse.forSchema(OUTPUT_IPC);

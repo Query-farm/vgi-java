@@ -4,12 +4,13 @@
 package farm.query.vgi.example.tensor;
 
 import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
 import farm.query.vgi.scalar.ScalarProcessParams;
+import farm.query.vgi.types.Schemas;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -32,25 +33,23 @@ import java.util.Map;
  */
 public final class UnnestTensorFunction implements ScalarFunction {
 
-    @Override public String name() { return "unnest_tensor"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("unnest_tensor")
+            .description("Invert nest_tensor: list of {value, axes} structs per cell")
+            .arg(new ArgSpec("tensor", 0, new ArrowType.Null(), "", false, false, "",
+                    List.of(), false, true))
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Invert nest_tensor: list of {value, axes} structs per cell");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("value", 0, new ArrowType.Null(), "", false, false, "",
-                List.of(), false, true));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams p) {
         Schema input = p.inputSchema();
         if (input == null || input.getFields().isEmpty()) {
-            // Catalog enumeration with no concrete arg — return placeholder.
-            return BindResponse.forSchema(SchemaUtil.serializeSchema(new Schema(List.of(
-                    new Field("result",
-                            new org.apache.arrow.vector.types.pojo.FieldType(true, new ArrowType.Null(), null),
-                            null)))));
+            // Catalog enumeration with no concrete arg — return the canonical
+            // ANY-typed placeholder. The vgi_type=any metadata on the field
+            // is what DuckDB's catalog-enumeration path reads to render the
+            // return type as ANY in duckdb_functions(); a bare ArrowType.Null
+            // without that metadata gets shown as NULL instead.
+            return BindResponse.forSchema(Schemas.singleResultAnyIpc());
         }
         Field inputField = input.getFields().get(0);
         Schema out = TensorCodec.unnestScalarOutput(inputField);

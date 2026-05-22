@@ -3,9 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -58,15 +57,13 @@ public final class MakePairsFunctions {
             SchemaUtil.serializeSchema(MIXED_SCHEMA);
 
     public static final class IntVariant implements TableFunction {
-        @Override public String name() { return "make_pairs"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Generate integer pairs (i, i*2)");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("start", 0, Schemas.INT64),
-                    ArgSpec.positional("stop", 1, Schemas.INT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("make_pairs")
+                .description("Generate integer pairs (i, i*2)")
+                .constArg("start", Schemas.INT64)
+                .constArg("stop", Schemas.INT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
             long start = ((Number) p.arguments().positionalAt(0)).longValue();
@@ -76,15 +73,13 @@ public final class MakePairsFunctions {
     }
 
     public static final class StrVariant implements TableFunction {
-        @Override public String name() { return "make_pairs"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Generate string pairs with prefix and suffix");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("prefix", 0, Schemas.UTF8),
-                    ArgSpec.positional("suffix", 1, Schemas.UTF8));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("make_pairs")
+                .description("Generate string pairs with prefix and suffix")
+                .constArg("prefix", Schemas.UTF8)
+                .constArg("suffix", Schemas.UTF8)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(STR_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
             String prefix = (String) p.arguments().positionalAt(0);
@@ -94,15 +89,13 @@ public final class MakePairsFunctions {
     }
 
     public static final class MixedVariant implements TableFunction {
-        @Override public String name() { return "make_pairs"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Generate mixed int/string pairs");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("start", 0, Schemas.INT64),
-                    ArgSpec.positional("label", 1, Schemas.UTF8));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("make_pairs")
+                .description("Generate mixed int/string pairs")
+                .constArg("start", Schemas.INT64)
+                .constArg("label", Schemas.UTF8)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(MIXED_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
             long start = ((Number) p.arguments().positionalAt(0)).longValue();

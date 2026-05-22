@@ -3,10 +3,9 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.BatchState;
 import farm.query.vgi.table.TableBindParams;
@@ -30,11 +29,11 @@ public final class TenThousandFunction implements TableFunction {
     private static final byte[] OUTPUT_SCHEMA_IPC =
             SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
-    @Override public String name() { return "ten_thousand"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Generates 10000 integers from 0 to 9999");
-    }
-    @Override public List<ArgSpec> argumentSpecs() { return List.of(); }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("ten_thousand")
+            .description("Generates 10000 integers from 0 to 9999")
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public BindResponse onBind(TableBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
     }

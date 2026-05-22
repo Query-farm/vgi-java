@@ -4,8 +4,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -26,11 +25,11 @@ public final class CountFunction implements AggregateFunction<CountFunction.Stat
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("result", Schemas.INT64)));
 
-    @Override public String name() { return "vgi_count"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Count rows per group");
-    }
-    @Override public List<ArgSpec> argumentSpecs() { return List.of(); }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("vgi_count")
+            .description("Count rows")
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public Schema outputSchema() { return OUTPUT_SCHEMA; }
     @Override public State newState() { return new State(); }
 

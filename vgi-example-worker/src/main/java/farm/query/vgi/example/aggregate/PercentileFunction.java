@@ -4,8 +4,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.FieldVector;
@@ -34,15 +33,13 @@ public final class PercentileFunction implements AggregateFunction<PercentileFun
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("result", Schemas.FLOAT64)));
 
-    @Override public String name() { return "vgi_percentile"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Approximate percentile using collected samples");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                new ArgSpec("value", 0, Schemas.FLOAT64),
-                ArgSpec.positional("p", 1, Schemas.FLOAT64));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("vgi_percentile")
+            .description("Approximate percentile (demonstrates ConstParam)")
+            .arg("value", Schemas.FLOAT64)
+            .constArg("percentile", Schemas.FLOAT64)
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public Schema outputSchema() { return OUTPUT_SCHEMA; }
     @Override public State newState() { return new State(); }
 

@@ -3,8 +3,8 @@
 
 package farm.query.vgi.example.tableinout;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.TableInOutInitParams;
@@ -32,18 +32,15 @@ import java.util.List;
  */
 public final class EchoWitnessFunction extends PassthroughTIOFunction {
 
-    @Override public String name() { return "echo_witness"; }
+    // projection pushdown ON, filter pushdown OFF — probes projection only.
+    private static final FunctionSpec SPEC = FunctionSpec.builder("echo_witness")
+            .metadata(FunctionMetadata.describe("Emits len(observed_output_schema) per column — projection probe")
+                    .withPushdown(true, false, false)
+                    .withCategories("debug"))
+            .table("data")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        // projection pushdown ON, filter pushdown OFF — probes projection only.
-        return FunctionMetadata.describe("Echo that emits the observed (narrowed) column count per cell")
-                .withPushdown(true, false, false)
-                .withCategories("debug");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.table("data", 0));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
         return new WitnessState(params.outputSchema());

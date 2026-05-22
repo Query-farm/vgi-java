@@ -3,10 +3,9 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.BatchState;
 import farm.query.vgi.table.TableBindParams;
@@ -39,20 +38,16 @@ public final class NamedParamsEchoFunction implements TableFunction {
     private static final byte[] OUTPUT_SCHEMA_IPC =
             SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
-    @Override public String name() { return "named_params_echo"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("named_params_echo")
+            .description("Echoes named parameter values in output columns")
+            .constArg("count", Schemas.INT64)
+            .named("scale", Schemas.FLOAT64, "1.0")
+            .named("multiplier", Schemas.INT64, "1")
+            .named("greeting", Schemas.UTF8, "hello")
+            .named("enabled", Schemas.BOOL, "true")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Echoes named parameter values in output columns");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("count", 0, Schemas.INT64),
-                ArgSpec.named("greeting", Schemas.UTF8, "hello"),
-                ArgSpec.named("multiplier", Schemas.INT64, "1"),
-                ArgSpec.named("scale", Schemas.FLOAT64, "1.0"),
-                ArgSpec.named("enabled", Schemas.BOOL, "true"));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

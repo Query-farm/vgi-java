@@ -61,25 +61,29 @@ public final class StubFunctions {
         @Override public void produceTick(OutputCollector out, CallContext ctx) { out.finish(); }
     }
 
-    /** {@code expression_filter_test(count BIGINT)} — sequence-shaped stub. */
+    /** {@code expression_filter_test(count BIGINT [, batch_size := 1024])} — sequence-shaped stub. */
     public static final class ExpressionFilterTest extends Stub {
         public ExpressionFilterTest() {
             super("expression_filter_test",
-                    "Filter pushdown reproducer with expression filters",
+                    "Generates rows for non-spatial expression filter testing",
                     new Schema(List.of(Schemas.nullable("n", Schemas.INT64))),
-                    List.of(ArgSpec.positional("count", 0, Schemas.INT64)));
+                    List.of(
+                            ArgSpec.positional("count", 0, Schemas.INT64),
+                            ArgSpec.named("batch_size", Schemas.INT64, "1024")));
         }
     }
 
-    /** {@code spatial_filter_example(count BIGINT)} — spatial filter reproducer stub. */
+    /** {@code spatial_filter_example(count BIGINT [, batch_size := 1024])} — spatial filter reproducer stub. */
     public static final class SpatialFilterExample extends Stub {
         public SpatialFilterExample() {
             super("spatial_filter_example",
-                    "Spatial filter pushdown reproducer",
+                    "Generates points on a grid with geometry for spatial filter testing",
                     new Schema(List.of(
                             Schemas.nullable("id", Schemas.INT64),
                             new Field("geom", new FieldType(true, new org.apache.arrow.vector.types.pojo.ArrowType.Binary(), null), null))),
-                    List.of(ArgSpec.positional("count", 0, Schemas.INT64)));
+                    List.of(
+                            ArgSpec.positional("count", 0, Schemas.INT64),
+                            ArgSpec.named("batch_size", Schemas.INT64, "1024")));
         }
     }
 
@@ -87,7 +91,7 @@ public final class StubFunctions {
     public static final class VersionedDataScan extends Stub {
         public VersionedDataScan() {
             super("versioned_data_scan",
-                    "Versioned data scan function",
+                    "Returns versioned data with schema evolution",
                     new Schema(List.of(
                             Schemas.nullable("id", Schemas.INT64),
                             Schemas.nullable("value", Schemas.UTF8))),
@@ -99,7 +103,7 @@ public final class StubFunctions {
     public static final class ColorsScan extends Stub {
         public ColorsScan() {
             super("colors_scan",
-                    "Colors table scan function",
+                    "Scan colors table (ENUM column)",
                     new Schema(List.of(
                             Schemas.nullable("id", Schemas.INT64),
                             Schemas.nullable("color", Schemas.UTF8),
@@ -112,7 +116,7 @@ public final class StubFunctions {
     public static final class DepartmentsScan extends Stub {
         public DepartmentsScan() {
             super("departments_scan",
-                    "Departments table scan function",
+                    "Scan departments table",
                     new Schema(List.of(
                             Schemas.nullable("id", Schemas.INT64),
                             Schemas.nullable("name", Schemas.UTF8),
@@ -125,7 +129,7 @@ public final class StubFunctions {
     public static final class EmployeesScan extends Stub {
         public EmployeesScan() {
             super("employees_scan",
-                    "Employees table scan function",
+                    "Scan employees table",
                     new Schema(List.of(
                             Schemas.nullable("id", Schemas.INT64),
                             Schemas.nullable("name", Schemas.UTF8),
@@ -139,7 +143,7 @@ public final class StubFunctions {
     public static final class ProductsScan extends Stub {
         public ProductsScan() {
             super("products_scan",
-                    "Products table scan function",
+                    "Scan products table",
                     new Schema(List.of(
                             Schemas.nullable("id", Schemas.INT64),
                             Schemas.nullable("name", Schemas.UTF8),
@@ -153,7 +157,7 @@ public final class StubFunctions {
     public static final class ProjectsScan extends Stub {
         public ProjectsScan() {
             super("projects_scan",
-                    "Projects table scan function",
+                    "Scan projects table",
                     new Schema(List.of(
                             Schemas.nullable("department_id", Schemas.INT64),
                             Schemas.nullable("project_code", Schemas.UTF8),

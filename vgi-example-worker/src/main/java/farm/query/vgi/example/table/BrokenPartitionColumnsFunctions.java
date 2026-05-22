@@ -57,7 +57,7 @@ public final class BrokenPartitionColumnsFunctions {
         @Override public String name() { return "broken_missing_partition_values"; }
         @Override public FunctionMetadata metadata() {
             return FunctionMetadata.describe(
-                    "DELIBERATELY BROKEN: partition column declared but emits batch without metadata")
+                    "DELIBERATELY BROKEN: declares partition_kind + partition-annotated field but emits a data batch without vgi_partition_values#b64 metadata. C++ extension's contract check raises.")
                     .withCategories("testing", "broken")
                     .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS);
         }
@@ -94,7 +94,7 @@ public final class BrokenPartitionColumnsFunctions {
         @Override public String name() { return "broken_partition_min_neq_max"; }
         @Override public FunctionMetadata metadata() {
             return FunctionMetadata.describe(
-                    "DELIBERATELY BROKEN: SINGLE_VALUE_PARTITIONS with explicit min != max")
+                    "DELIBERATELY BROKEN: declares SINGLE_VALUE_PARTITIONS but supplies an explicit partition_values override with min != max. The framework's wrapper validation doesn't compare min vs max for SINGLE_VALUE; the C++ extension's defense-in-depth check in InstallBatch raises.")
                     .withCategories("testing", "broken")
                     .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS);
         }
@@ -134,7 +134,7 @@ public final class BrokenPartitionColumnsFunctions {
         @Override public String name() { return "broken_partition_values_no_annotation"; }
         @Override public FunctionMetadata metadata() {
             return FunctionMetadata.describe(
-                    "DELIBERATELY BROKEN: no partition annotation but worker passes partition_values")
+                    "DELIBERATELY BROKEN: no field carries vgi.partition_column metadata (and partition_kind defaults to NOT_PARTITIONED), but the worker passes partition_values= on out.emit. The framework rejects with RuntimeError before the wire.")
                     .withCategories("testing", "broken");
         }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_IPC); }
@@ -175,7 +175,7 @@ public final class BrokenPartitionColumnsFunctions {
         @Override public String name() { return "broken_partition_column_absent_from_batch"; }
         @Override public FunctionMetadata metadata() {
             return FunctionMetadata.describe(
-                    "DELIBERATELY BROKEN: partition column declared but absent from emitted batch")
+                    "DELIBERATELY BROKEN: declares partition_kind on 'category' but emits a batch without 'category' AND doesn't supply an explicit partition_values override. The framework's auto-extract fails with RuntimeError before the wire.")
                     .withCategories("testing", "broken")
                     .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS);
         }

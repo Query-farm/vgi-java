@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -13,8 +12,6 @@ import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
-
-import java.util.List;
 
 /**
  * {@code hash_seed(seed: int64 [const]) -> int64}: generates {@code seed + row_index}
@@ -25,15 +22,12 @@ public final class HashSeedFunction implements ScalarFunction {
 
     private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.INT64);
 
-    @Override public String name() { return "hash_seed"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("hash_seed")
+            .description("Generate deterministic integers from a constant seed")
+            .constArg("seed", Schemas.INT64)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Generate deterministic integers from a constant seed");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.positional("seed", 0, Schemas.INT64));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

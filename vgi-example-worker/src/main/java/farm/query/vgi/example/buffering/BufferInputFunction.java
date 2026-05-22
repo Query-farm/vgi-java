@@ -4,6 +4,7 @@
 package farm.query.vgi.example.buffering;
 
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 
 /**
  * {@code buffer_input(data TABLE) -> *} — collects every input batch in the
@@ -13,10 +14,11 @@ import farm.query.vgi.function.FunctionMetadata;
  */
 public final class BufferInputFunction extends AbstractBufferAndDrain {
 
-    @Override public String name() { return "buffer_input"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("buffer_input")
+            .metadata(FunctionMetadata.describe("Collects all input batches and emits during finalization")
+                    .withCategories("utility", "buffer"))
+            .table("data")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Collects all input batches and emits during finalization")
-                .withCategories("utility", "buffer");
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 }

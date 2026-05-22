@@ -3,9 +3,9 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -28,15 +28,12 @@ public final class GeneratorExceptionFunction implements TableFunction {
     private static final byte[] OUTPUT_SCHEMA_IPC =
             SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
-    @Override public String name() { return "generator_exception"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("generator_exception")
+            .metadata(FunctionMetadata.describe("Raises an exception after N batches for testing").withCategories("testing"))
+            .constArg("fail_after", Schemas.INT64)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Raises an exception after N batches for testing").withCategories("testing");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.positional("fail_after", 0, Schemas.INT64));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

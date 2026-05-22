@@ -3,7 +3,7 @@
 
 package farm.query.vgi.example.tableinout;
 
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.TableInOutInitParams;
@@ -21,19 +21,13 @@ import java.util.Map;
  */
 public final class ExceptionProcessFunction extends SumAllColumnsFunction {
 
-    @Override public String name() { return "exception_process"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("exception_process")
+            .description("Test function that raises exception during process")
+            .table("data")
+            .named("logging", farm.query.vgi.types.Schemas.BOOL, "false")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Test function that raises exception during process");
-    }
-
-    @Override public java.util.List<farm.query.vgi.function.ArgSpec> argumentSpecs() {
-        return java.util.List.of(
-                farm.query.vgi.function.ArgSpec.table("data", 0),
-                new farm.query.vgi.function.ArgSpec("logging", -1, farm.query.vgi.types.Schemas.BOOL,
-                        "", /*isConst=*/true, /*hasDefault=*/true, "false",
-                        java.util.List.of(), false, false));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override
     public java.util.List<org.apache.arrow.vector.VectorSchemaRoot> finalizeBatches(

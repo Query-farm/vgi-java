@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -15,20 +14,16 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.ListVector;
 
-import java.util.List;
-
 /** {@code geo_distance_list(p1 LIST<DOUBLE>, p2 LIST<DOUBLE>) -> DOUBLE}. */
 public final class GeoDistanceListFunction implements ScalarFunction {
 
-    @Override public String name() { return "geo_distance_list"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Euclidean distance between two list points");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.nested("p1", 0, GeoTypes.listArgType(), GeoTypes.doubleElementChildren(), false),
-                ArgSpec.nested("p2", 1, GeoTypes.listArgType(), GeoTypes.doubleElementChildren(), false));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("geo_distance_list")
+            .description("Euclidean distance between two list points")
+            .nested("p1", GeoTypes.listArgType(), GeoTypes.doubleElementChildren())
+            .nested("p2", GeoTypes.listArgType(), GeoTypes.doubleElementChildren())
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(Schemas.singleResultIpc(Schemas.FLOAT64));
     }

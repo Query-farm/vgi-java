@@ -8,9 +8,9 @@ import farm.query.vgi.buffering.TableBufferingCombineParams;
 import farm.query.vgi.buffering.TableBufferingFinalizeParams;
 import farm.query.vgi.buffering.TableBufferingFunction;
 import farm.query.vgi.buffering.TableBufferingProcessParams;
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.Arguments;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableProducerState;
@@ -36,21 +36,17 @@ public final class SlowCancellableBufferingFunction implements TableBufferingFun
 
     private static final Schema OUTPUT = Schemas.of(Schemas.nullable("n", Schemas.INT64));
 
-    @Override public String name() { return "slow_cancellable_buffering"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("slow_cancellable_buffering")
+            .metadata(FunctionMetadata.describe(
+                    "Slow buffered table function with an on_cancel file probe (test fixture)")
+                    .withCategories("test"))
+            .constArg("probe_path", Schemas.UTF8)
+            .table("data")
+            .named("count", Schemas.INT64, "1000")
+            .named("sleep_ms", Schemas.INT64, "20")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe(
-                "Slow buffered table function with an on_cancel file probe (test fixture)")
-                .withCategories("test");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("probe_path", 0, Schemas.UTF8),
-                ArgSpec.table("data", 1),
-                ArgSpec.named("sleep_ms", Schemas.INT64, "20"),
-                ArgSpec.named("count", Schemas.INT64, "1000"));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {
         return BindResponse.forSchema(SchemaUtil.serializeSchema(OUTPUT));

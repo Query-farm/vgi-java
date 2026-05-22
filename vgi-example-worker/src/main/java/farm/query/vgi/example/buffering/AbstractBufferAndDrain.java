@@ -9,7 +9,6 @@ import farm.query.vgi.buffering.TableBufferingCombineParams;
 import farm.query.vgi.buffering.TableBufferingFinalizeParams;
 import farm.query.vgi.buffering.TableBufferingFunction;
 import farm.query.vgi.buffering.TableBufferingProcessParams;
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
@@ -35,10 +34,6 @@ public abstract class AbstractBufferAndDrain implements TableBufferingFunction {
 
     static final byte[] NS_BUF = "buf".getBytes(StandardCharsets.UTF_8);
     static final byte[] KEY = new byte[0];
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.table("data", 0));
-    }
 
     /** Passthrough: output schema = input schema. */
     @Override public BindResponse onBind(TableInOutBindParams params) {

@@ -3,8 +3,8 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.NullHandling;
 import farm.query.vgi.function.Stability;
 import farm.query.vgi.protocol.BindResponse;
@@ -16,7 +16,6 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /** {@code bernoulli() -> BOOLEAN}, VOLATILE — emits a random bit per row. */
@@ -27,9 +26,11 @@ public final class BernoulliFunction implements ScalarFunction {
             "Generate random booleans (demonstrates VOLATILE stability)",
             Stability.VOLATILE, NullHandling.DEFAULT, false, false, false, false);
 
-    @Override public String name() { return "bernoulli"; }
-    @Override public FunctionMetadata metadata() { return META; }
-    @Override public List<ArgSpec> argumentSpecs() { return List.of(); }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("bernoulli")
+            .metadata(META)
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public BindResponse onBind(ScalarBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
     @Override
     public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {

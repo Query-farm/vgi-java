@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -17,8 +16,6 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.util.Text;
 
-import java.util.List;
-
 /**
  * {@code any_mixed(a, b)} — two overloads where {@code a} accepts any Arrow
  * type and {@code b} is dispatched on type ({@code int64} vs {@code utf8}).
@@ -30,15 +27,13 @@ public final class AnyMixedFunctions {
     private static final byte[] OUT = Schemas.singleResultIpc(Schemas.UTF8);
 
     public static final class IntVariant implements ScalarFunction {
-        @Override public String name() { return "any_mixed"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Any+int dispatch");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.any("a", 0, List.of()),
-                    new ArgSpec("b", 1, Schemas.INT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("any_mixed")
+                .description("Any+int dispatch")
+                .any("a")
+                .arg("b", Schemas.INT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(ScalarBindParams p) { return BindResponse.forSchema(OUT); }
         @Override public VectorSchemaRoot process(ScalarProcessParams p, VectorSchemaRoot input,
                                                     BufferAllocator alloc) {
@@ -58,15 +53,13 @@ public final class AnyMixedFunctions {
     }
 
     public static final class StrVariant implements ScalarFunction {
-        @Override public String name() { return "any_mixed"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Any+str dispatch");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.any("a", 0, List.of()),
-                    new ArgSpec("b", 1, Schemas.UTF8));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("any_mixed")
+                .description("Any+str dispatch")
+                .any("a")
+                .arg("b", Schemas.UTF8)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(ScalarBindParams p) { return BindResponse.forSchema(OUT); }
         @Override public VectorSchemaRoot process(ScalarProcessParams p, VectorSchemaRoot input,
                                                     BufferAllocator alloc) {
@@ -89,15 +82,13 @@ public final class AnyMixedFunctions {
     }
 
     public static final class SmartFormatInt implements ScalarFunction {
-        @Override public String name() { return "smart_format"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Format double with width prefix");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("width", 0, Schemas.INT64),
-                    new ArgSpec("value", 1, Schemas.FLOAT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("smart_format")
+                .description("Right-align value in field of given width")
+                .constArg("width", Schemas.INT64)
+                .arg("value", Schemas.FLOAT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(ScalarBindParams p) { return BindResponse.forSchema(OUT); }
         @Override public VectorSchemaRoot process(ScalarProcessParams p, VectorSchemaRoot input,
                                                     BufferAllocator alloc) {
@@ -117,15 +108,13 @@ public final class AnyMixedFunctions {
     }
 
     public static final class SmartFormatStr implements ScalarFunction {
-        @Override public String name() { return "smart_format"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Format double with string prefix");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("prefix", 0, Schemas.UTF8),
-                    new ArgSpec("value", 1, Schemas.FLOAT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("smart_format")
+                .description("Prepend prefix to formatted value")
+                .constArg("prefix", Schemas.UTF8)
+                .arg("value", Schemas.FLOAT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(ScalarBindParams p) { return BindResponse.forSchema(OUT); }
         @Override public VectorSchemaRoot process(ScalarProcessParams p, VectorSchemaRoot input,
                                                     BufferAllocator alloc) {

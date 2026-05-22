@@ -4,8 +4,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.TypeBoundPredicate;
 import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
@@ -41,13 +40,12 @@ public final class GenericSumFunction implements AggregateFunction<GenericSumFun
     private static final Schema FALLBACK_SCHEMA = new Schema(List.of(
             Schemas.nullable("result", Schemas.FLOAT64)));
 
-    @Override public String name() { return "vgi_generic_sum"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Sum that resolves return type from input at bind time");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.any("value", 0, List.of(TypeBoundPredicate.IS_ADDABLE)));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("vgi_generic_sum")
+            .description("Sum any numeric type")
+            .any("value", TypeBoundPredicate.IS_ADDABLE)
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     /**
      * Catalog enumeration uses this; the actual emit type is decided at
      * aggregate_bind from the input schema. The framework wires the output

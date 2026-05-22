@@ -3,8 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -44,18 +44,15 @@ import java.util.Map;
  */
 public final class CannedDataFunction implements TableFunction {
 
-    @Override public String name() { return "_table_data"; }
+    // Virtual columns (DuckDB's rowid mapping onto an is_row_id field)
+    // require projection pushdown to be advertised on the function.
+    private static final FunctionSpec SPEC = FunctionSpec.builder("_table_data")
+            .metadata(FunctionMetadata.describe("Canned data fixture (test scaffolding)")
+                    .withPushdown(/*projection=*/true, /*filter=*/false, /*autoApply=*/false))
+            .constArg("table_name", Schemas.UTF8)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        // Virtual columns (DuckDB's rowid mapping onto an is_row_id field)
-        // require projection pushdown to be advertised on the function.
-        return FunctionMetadata.describe("Canned data fixture (test scaffolding)")
-                .withPushdown(/*projection=*/true, /*filter=*/false, /*autoApply=*/false);
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.positional("table_name", 0, Schemas.UTF8));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams p) {
         Object tnObj = p.arguments().positional().isEmpty()

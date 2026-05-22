@@ -3,9 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -37,15 +36,12 @@ public final class ScopedSecretDemoFunction implements TableFunction {
     private static final byte[] OUTPUT_SCHEMA_IPC =
             SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
-    @Override public String name() { return "scoped_secret_demo"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("scoped_secret_demo")
+            .description("Demo: resolves scoped secret based on argument")
+            .constArg("path", Schemas.UTF8)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Two-phase bind with scoped secret lookup");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.positional("path", 0, Schemas.UTF8));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams p) {
         Object pathObj = p.arguments().positional().isEmpty()

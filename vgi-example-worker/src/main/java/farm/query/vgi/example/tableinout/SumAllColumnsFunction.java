@@ -3,8 +3,8 @@
 
 package farm.query.vgi.example.tableinout;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.tableinout.TableInOutBindParams;
@@ -39,18 +39,14 @@ import java.util.Map;
  */
 public class SumAllColumnsFunction implements TableInOutFunction {
 
-    @Override public String name() { return "sum_all_columns"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("sum_all_columns")
+            .metadata(FunctionMetadata.describe("Computes column-wise sums across all batches")
+                    .withCategories("aggregation", "numeric"))
+            .table("data")
+            .named("logging", Schemas.BOOL, "false")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Computes column-wise sums across all batches")
-                .withCategories("aggregation", "numeric");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.table("data", 0),
-                ArgSpec.named("logging", Schemas.BOOL, "false"));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {
         Schema in = params.inputSchema();

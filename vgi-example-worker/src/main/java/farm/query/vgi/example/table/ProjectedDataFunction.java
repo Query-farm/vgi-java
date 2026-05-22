@@ -3,10 +3,10 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.BatchState;
 import farm.query.vgi.table.TableBindParams;
@@ -44,16 +44,13 @@ public final class ProjectedDataFunction implements TableFunction {
     private static final byte[] FULL_SCHEMA_IPC =
             SchemaUtil.serializeSchema(FULL_SCHEMA);
 
-    @Override public String name() { return "projected_data"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("projected_data")
+            .metadata(FunctionMetadata.describe("Generates data with 4 columns, supporting projection pushdown")
+                    .withPushdown(/*projection=*/true, /*filter=*/false, /*autoApply=*/false))
+            .constArg("count", Schemas.INT64)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Generates data with 4 columns, supporting projection pushdown")
-                .withPushdown(/*projection=*/true, /*filter=*/false, /*autoApply=*/false);
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.positional("count", 0, Schemas.INT64));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams params) {
         return BindResponse.forSchema(FULL_SCHEMA_IPC);

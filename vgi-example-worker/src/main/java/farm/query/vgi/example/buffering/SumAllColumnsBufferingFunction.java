@@ -7,8 +7,8 @@ import farm.query.vgi.buffering.BufferingFinalizeProducer;
 import farm.query.vgi.buffering.BufferingStore;
 import farm.query.vgi.buffering.TableBufferingFinalizeParams;
 import farm.query.vgi.buffering.TableBufferingProcessParams;
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
@@ -45,18 +45,14 @@ public final class SumAllColumnsBufferingFunction extends AbstractBufferAndDrain
 
     private static final byte[] NS_RAW = "raw".getBytes(StandardCharsets.UTF_8);
 
-    @Override public String name() { return "sum_all_columns"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("sum_all_columns")
+            .metadata(FunctionMetadata.describe("Computes column-wise sums across all batches")
+                    .withCategories("aggregation", "numeric"))
+            .table("data")
+            .named("logging", Schemas.BOOL, "false")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Computes column-wise sums across all batches")
-                .withCategories("aggregation", "numeric");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.table("data", 0),
-                ArgSpec.named("logging", Schemas.BOOL, "false"));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {
         Schema in = params.inputSchema();

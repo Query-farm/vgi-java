@@ -4,6 +4,7 @@
 package farm.query.vgi.example.buffering;
 
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 
 /**
  * {@code echo_buffering(data TABLE) -> *} — buffered passthrough with projection
@@ -13,11 +14,12 @@ import farm.query.vgi.function.FunctionMetadata;
  */
 public final class EchoBufferingFunction extends AbstractBufferAndDrain {
 
-    @Override public String name() { return "echo_buffering"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("echo_buffering")
+            .metadata(FunctionMetadata.describe("Buffered passthrough with projection + filter pushdown")
+                    .withPushdown(true, true, true)
+                    .withCategories("test", "buffer", "pushdown"))
+            .table("data")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Buffered passthrough with projection + filter pushdown")
-                .withPushdown(true, true, true)
-                .withCategories("test", "buffer", "pushdown");
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 }

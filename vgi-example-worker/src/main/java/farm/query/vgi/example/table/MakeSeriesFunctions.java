@@ -3,9 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -95,11 +94,12 @@ public final class MakeSeriesFunctions {
 
     /** {@code make_series(count BIGINT)} — 0..count-1. */
     public static final class Count implements TableFunction {
-        @Override public String name() { return "make_series"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate integers from 0 to count-1"); }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(ArgSpec.positional("count", 0, Schemas.INT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("make_series")
+                .description("Generate integers from 0 to count-1")
+                .constArg("count", Schemas.INT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
             long count = ((Number) p.arguments().positionalAt(0)).longValue();
@@ -121,13 +121,13 @@ public final class MakeSeriesFunctions {
 
     /** {@code make_series(start BIGINT, stop BIGINT)} — start..stop-1. */
     public static final class Range implements TableFunction {
-        @Override public String name() { return "make_series"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate integers from start to stop-1"); }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("start", 0, Schemas.INT64),
-                    ArgSpec.positional("stop", 1, Schemas.INT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("make_series")
+                .description("Generate integers from start to stop-1")
+                .constArg("start", Schemas.INT64)
+                .constArg("stop", Schemas.INT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
             long start = ((Number) p.arguments().positionalAt(0)).longValue();
@@ -141,14 +141,14 @@ public final class MakeSeriesFunctions {
 
     /** {@code make_series(start BIGINT, stop BIGINT, step BIGINT)} — with step. */
     public static final class Step implements TableFunction {
-        @Override public String name() { return "make_series"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate integers from start to stop-1 with step"); }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("start", 0, Schemas.INT64),
-                    ArgSpec.positional("stop", 1, Schemas.INT64),
-                    ArgSpec.positional("step", 2, Schemas.INT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("make_series")
+                .description("Generate integers from start to stop-1 with step")
+                .constArg("start", Schemas.INT64)
+                .constArg("stop", Schemas.INT64)
+                .constArg("step", Schemas.INT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
             long start = ((Number) p.arguments().positionalAt(0)).longValue();
@@ -165,11 +165,12 @@ public final class MakeSeriesFunctions {
 
     /** {@code make_series(csv VARCHAR)} — parsed comma-separated integers. */
     public static final class Csv implements TableFunction {
-        @Override public String name() { return "make_series"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Parse comma-separated integers into rows"); }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(ArgSpec.positional("values", 0, Schemas.UTF8));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("make_series")
+                .description("Parse comma-separated integers into rows")
+                .constArg("values", Schemas.UTF8)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
             String csv = (String) p.arguments().positionalAt(0);
@@ -182,11 +183,12 @@ public final class MakeSeriesFunctions {
 
     /** {@code make_series(step DOUBLE)} — 10 floats: 0, step, 2*step, ..., 9*step. */
     public static final class FloatStep implements TableFunction {
-        @Override public String name() { return "make_series"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Generate 10 float values with given step size"); }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(ArgSpec.positional("step", 0, Schemas.FLOAT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("make_series")
+                .description("Generate 10 float values with given step size")
+                .constArg("step", Schemas.FLOAT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(FLOAT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
             double step = ((Number) p.arguments().positionalAt(0)).doubleValue();

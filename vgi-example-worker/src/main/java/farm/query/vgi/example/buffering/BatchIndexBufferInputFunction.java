@@ -7,6 +7,7 @@ import farm.query.vgi.buffering.BufferingStore;
 import farm.query.vgi.buffering.TableBufferingCombineParams;
 import farm.query.vgi.buffering.TableBufferingProcessParams;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.BatchUtil;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
@@ -27,12 +28,13 @@ public final class BatchIndexBufferInputFunction extends AbstractBufferAndDrain 
 
     private static final byte[] NS_UNSORTED = "unsorted".getBytes(StandardCharsets.UTF_8);
 
-    @Override public String name() { return "batch_index_buffer_input"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("batch_index_buffer_input")
+            .metadata(FunctionMetadata.describe("buffer_input variant using batch_index to reconstruct order")
+                    .withCategories("test", "ordering"))
+            .table("data")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("buffer_input variant using batch_index to reconstruct order")
-                .withCategories("test", "ordering");
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public boolean requiresInputBatchIndex() { return true; }
 

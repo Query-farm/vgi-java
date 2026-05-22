@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.tableinout;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.PassthroughTIOFunction;
@@ -29,11 +28,12 @@ import java.util.List;
  */
 public final class BufferInputFunction extends PassthroughTIOFunction {
 
-    @Override public String name() { return "buffer_input"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Collects all input batches and emits during finalization");
-    }
-    @Override public List<ArgSpec> argumentSpecs() { return List.of(ArgSpec.table("data", 0)); }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("buffer_input")
+            .description("Collects all input batches and emits during finalization")
+            .table("data")
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
         return new BufferState(SchemaUtil.serializeSchema(params.inputSchema()));

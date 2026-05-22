@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -15,22 +14,17 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
-import java.util.List;
-
 /** {@code upper_case(value: utf8) -> utf8}. */
 public final class UpperCaseFunction implements ScalarFunction {
 
     private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.UTF8);
 
-    @Override public String name() { return "upper_case"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("upper_case")
+            .description("Converts string values to uppercase")
+            .arg("value", Schemas.UTF8)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Converts string values to uppercase");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("value", 0, Schemas.UTF8));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

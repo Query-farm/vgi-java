@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -15,20 +14,16 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.StructVector;
 
-import java.util.List;
-
 /** {@code geo_distance_struct(p1 STRUCT(lat,lon), p2 STRUCT(lat,lon)) -> DOUBLE}. */
 public final class GeoDistanceStructFunction implements ScalarFunction {
 
-    @Override public String name() { return "geo_distance_struct"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Euclidean distance between two struct points");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.nested("p1", 0, GeoTypes.structArgType(), GeoTypes.structPointChildren(), false),
-                ArgSpec.nested("p2", 1, GeoTypes.structArgType(), GeoTypes.structPointChildren(), false));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("geo_distance_struct")
+            .description("Euclidean distance between two struct points")
+            .nested("p1", GeoTypes.structArgType(), GeoTypes.structPointChildren())
+            .nested("p2", GeoTypes.structArgType(), GeoTypes.structPointChildren())
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(Schemas.singleResultIpc(Schemas.FLOAT64));
     }

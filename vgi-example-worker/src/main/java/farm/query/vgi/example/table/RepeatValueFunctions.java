@@ -5,7 +5,7 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -58,16 +58,14 @@ public final class RepeatValueFunctions {
     }
 
     public static final class IntVariant implements TableFunction {
-        @Override public String name() { return "repeat_value"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Repeat integer values across N rows");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("count", 0, Schemas.INT64),
-                    new ArgSpec("values", 1, Schemas.INT64, "", true, false, "",
-                            List.of(), /*varargs=*/true, /*anyType=*/false));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("repeat_value")
+                .description("Repeat integer values for N rows")
+                .constArg("count", Schemas.INT64)
+                .arg(new ArgSpec("values", 1, Schemas.INT64, "", true, false, "",
+                        List.of(), /*varargs=*/true, /*anyType=*/false))
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) {
             int n = Math.max(0, p.arguments().positional().size() - 1);
             return BindResponse.forSchema(schemaIpc(n, Schemas.INT64));
@@ -84,16 +82,14 @@ public final class RepeatValueFunctions {
     }
 
     public static final class StrVariant implements TableFunction {
-        @Override public String name() { return "repeat_value"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Repeat string values across N rows");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("count", 0, Schemas.INT64),
-                    new ArgSpec("values", 1, Schemas.UTF8, "", true, false, "",
-                            List.of(), /*varargs=*/true, /*anyType=*/false));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("repeat_value")
+                .description("Repeat string values for N rows")
+                .constArg("count", Schemas.INT64)
+                .arg(new ArgSpec("values", 1, Schemas.UTF8, "", true, false, "",
+                        List.of(), /*varargs=*/true, /*anyType=*/false))
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) {
             int n = Math.max(0, p.arguments().positional().size() - 1);
             return BindResponse.forSchema(schemaIpc(n, Schemas.UTF8));

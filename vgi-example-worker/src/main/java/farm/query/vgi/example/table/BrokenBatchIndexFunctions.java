@@ -69,7 +69,7 @@ public final class BrokenBatchIndexFunctions {
     public static final class MissingBatchIndexTag extends BrokenBase {
         @Override public String name() { return "broken_missing_batch_index_tag"; }
         @Override public FunctionMetadata metadata() {
-            return brokenMeta("DELIBERATELY BROKEN: opts into batch_index but emits an untagged batch");
+            return brokenMeta("DELIBERATELY BROKEN: declares supports_batch_index=True but emits a data batch with no vgi_batch_index metadata. C++ extension's contract check raises.");
         }
         @Override public TableProducerState createProducer(TableInitParams p) {
             return new OneShotState(((Number) p.arguments().positionalAt(0)).longValue());
@@ -91,7 +91,7 @@ public final class BrokenBatchIndexFunctions {
     public static final class NonMonotoneBatchIndex extends BrokenBase {
         @Override public String name() { return "broken_non_monotone_batch_index"; }
         @Override public FunctionMetadata metadata() {
-            return brokenMeta("DELIBERATELY BROKEN: emits strictly decreasing batch_index");
+            return brokenMeta("DELIBERATELY BROKEN: emits batches with strictly decreasing partition_id on one stream. C++ extension's monotonicity check raises (DuckDB's debug-only assertion is not relied upon).");
         }
         @Override public TableProducerState createProducer(TableInitParams p) {
             return new TwoStepState(((Number) p.arguments().positionalAt(0)).longValue());
@@ -119,7 +119,7 @@ public final class BrokenBatchIndexFunctions {
     public static final class BatchIndexOverflow extends BrokenBase {
         @Override public String name() { return "broken_batch_index_overflow"; }
         @Override public FunctionMetadata metadata() {
-            return brokenMeta("DELIBERATELY BROKEN: emits a batch_index above DuckDB's per-pipeline cap");
+            return brokenMeta("DELIBERATELY BROKEN: emits a batch tagged with a partition_id well above DuckDB's BATCH_INCREMENT=10^13 per-pipeline cap. C++ extension rejects at parse time.");
         }
         @Override public TableProducerState createProducer(TableInitParams p) {
             return new OverflowState(((Number) p.arguments().positionalAt(0)).longValue());

@@ -3,9 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -42,13 +41,11 @@ public final class SecretDemoFunction implements TableFunction {
     private static final byte[] OUTPUT_SCHEMA_IPC =
             SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
-    @Override public String name() { return "secret_demo"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("secret_demo")
+            .description("Outputs secret contents as key-value rows")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Outputs secret key-value pairs as rows");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() { return List.of(); }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams p) {
         // Two-phase bind: if DuckDB hasn't supplied the resolved secret, ask

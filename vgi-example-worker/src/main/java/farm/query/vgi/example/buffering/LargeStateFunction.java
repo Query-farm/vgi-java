@@ -8,6 +8,7 @@ import farm.query.vgi.buffering.BufferingStore;
 import farm.query.vgi.buffering.TableBufferingFinalizeParams;
 import farm.query.vgi.buffering.TableBufferingProcessParams;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
@@ -32,12 +33,13 @@ public final class LargeStateFunction extends AbstractBufferAndDrain {
     private static final byte[] NS_LARGE = "large".getBytes(StandardCharsets.UTF_8);
     private static final int CHUNK = 1024 * 1024;
 
-    @Override public String name() { return "large_state"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("large_state")
+            .metadata(FunctionMetadata.describe("Buffers ~1 MB per input batch into state (IPC test)")
+                    .withCategories("test", "memory"))
+            .table("data")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Buffers ~1 MB per input batch into state (IPC test)")
-                .withCategories("test", "memory");
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public byte[] process(VectorSchemaRoot batch, TableBufferingProcessParams params) {
         params.storage().stateAppend(NS_LARGE, KEY, new byte[CHUNK]);

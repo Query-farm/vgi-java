@@ -41,7 +41,11 @@ public final class StubAggregates {
             long sum;
         }
         @Override public String name() { return "vgi_streaming_sum"; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe("Streaming sum (stub)"); }
+        @Override public FunctionMetadata metadata() {
+            return FunctionMetadata.describe(
+                    "Running sum across PARTITION BY keys via the streaming-partitioned "
+                            + "protocol. Each input row emits the cumulative sum at its position.");
+        }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(new ArgSpec("value", 0, Schemas.INT64));
         }
@@ -73,11 +77,16 @@ public final class StubAggregates {
         }
         private final String name;
         private final ArrowType outType;
+        private final String description;
 
-        WindowStub(String name, ArrowType outType) { this.name = name; this.outType = outType; }
+        WindowStub(String name, ArrowType outType, String description) {
+            this.name = name;
+            this.outType = outType;
+            this.description = description;
+        }
 
         @Override public String name() { return name; }
-        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe(name + " (stub)"); }
+        @Override public FunctionMetadata metadata() { return FunctionMetadata.describe(description); }
         @Override public List<ArgSpec> argumentSpecs() {
             return List.of(new ArgSpec("value", 0, outType instanceof ArrowType.Utf8 ? Schemas.UTF8
                     : (outType instanceof ArrowType.FloatingPoint ? Schemas.FLOAT64 : Schemas.INT64)));
@@ -118,15 +127,27 @@ public final class StubAggregates {
     }
 
     public static final class WindowSum extends WindowStub {
-        public WindowSum() { super("vgi_window_sum", Schemas.INT64); }
+        public WindowSum() {
+            super("vgi_window_sum", Schemas.INT64,
+                    "Windowed sum that uses the per-partition window() callback");
+        }
     }
     public static final class WindowSumBatch extends WindowStub {
-        public WindowSumBatch() { super("vgi_window_sum_batch", Schemas.INT64); }
+        public WindowSumBatch() {
+            super("vgi_window_sum_batch", Schemas.INT64,
+                    "Windowed sum demonstrating window_batch returning pa.Array");
+        }
     }
     public static final class WindowMedian extends WindowStub {
-        public WindowMedian() { super("vgi_window_median", Schemas.FLOAT64); }
+        public WindowMedian() {
+            super("vgi_window_median", Schemas.FLOAT64,
+                    "Windowed median (window() callback demonstrates non-incremental aggregates)");
+        }
     }
     public static final class WindowListagg extends WindowStub {
-        public WindowListagg() { super("vgi_window_listagg", Schemas.UTF8); }
+        public WindowListagg() {
+            super("vgi_window_listagg", Schemas.UTF8,
+                    "Windowed string concat (ORDER_DEPENDENT; tests fallback handoff)");
+        }
     }
 }

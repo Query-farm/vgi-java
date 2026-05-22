@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -16,8 +15,6 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.util.Text;
-
-import java.util.List;
 
 /**
  * {@code format_number} — three overloads:
@@ -40,13 +37,12 @@ public final class FormatNumberFunctions {
 
     /** {@code format_number(value)} — default precision 0. */
     public static final class Default implements ScalarFunction {
-        @Override public String name() { return "format_number"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Format number with default precision (0 decimals)");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(new ArgSpec("value", 0, Schemas.FLOAT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("format_number")
+                .description("Format number with default precision (0 decimals)")
+                .arg("value", Schemas.FLOAT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(ScalarBindParams params) {
             return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
         }
@@ -58,15 +54,13 @@ public final class FormatNumberFunctions {
 
     /** {@code format_number(precision, value)}. */
     public static final class WithPrecision implements ScalarFunction {
-        @Override public String name() { return "format_number"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Format number with specified precision");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("precision", 0, Schemas.INT64),
-                    new ArgSpec("value", 1, Schemas.FLOAT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("format_number")
+                .description("Format number with specified precision")
+                .constArg("precision", Schemas.INT64)
+                .arg("value", Schemas.FLOAT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(ScalarBindParams params) {
             return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
         }
@@ -79,16 +73,14 @@ public final class FormatNumberFunctions {
 
     /** {@code format_number(precision, prefix, value)}. */
     public static final class Full implements ScalarFunction {
-        @Override public String name() { return "format_number"; }
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Format number with precision and prefix");
-        }
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("precision", 0, Schemas.INT64),
-                    ArgSpec.positional("prefix", 1, Schemas.UTF8),
-                    new ArgSpec("value", 2, Schemas.FLOAT64));
-        }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("format_number")
+                .description("Format number with precision and prefix")
+                .constArg("precision", Schemas.INT64)
+                .constArg("prefix", Schemas.UTF8)
+                .arg("value", Schemas.FLOAT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(ScalarBindParams params) {
             return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
         }

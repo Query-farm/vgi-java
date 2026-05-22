@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.tableinout;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
@@ -23,19 +22,13 @@ import java.util.List;
  */
 public final class ExceptionFinalizeFunction extends PassthroughTIOFunction {
 
-    @Override public String name() { return "exception_finalize"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("exception_finalize")
+            .description("Test function that raises exception during finalize")
+            .table("data")
+            .named("logging", farm.query.vgi.types.Schemas.BOOL, "false")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Test function that raises exception during finalize");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.table("data", 0),
-                new ArgSpec("logging", -1, farm.query.vgi.types.Schemas.BOOL, "",
-                        /*isConst=*/true, /*hasDefault=*/true, "false",
-                        List.of(), false, false));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
         return new State();

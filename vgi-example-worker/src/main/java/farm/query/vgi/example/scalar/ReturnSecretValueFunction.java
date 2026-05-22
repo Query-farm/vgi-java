@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -34,11 +33,12 @@ public final class ReturnSecretValueFunction implements ScalarFunction {
     private static final java.util.Set<String> PROTOCOL_FIELDS =
             java.util.Set.of("name", "type", "provider");
 
-    @Override public String name() { return "return_secret_value"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Return a secret's value");
-    }
-    @Override public List<ArgSpec> argumentSpecs() { return List.of(); }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("return_secret_value")
+            .description("Return a secret's value")
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
+
     @Override public BindResponse onBind(ScalarBindParams p) {
         if (!p.resolvedSecretsProvided()) {
             return new BindResponse(OUTPUT_SCHEMA_IPC, new byte[0],

@@ -3,8 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.VectorProjector;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.internal.SchemaUtil;
@@ -57,17 +57,14 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
 
     private static String key(byte[] executionId) { return HexId.encode(executionId); }
 
-    @Override public String name() { return "filter_echo_partitioned"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("filter_echo_partitioned")
+            .metadata(FunctionMetadata.describe(
+                    "Multi-worker partitioned sequence that echoes pushed-down filters")
+                    .withPushdown(/*projection=*/true, /*filter=*/true, /*autoApply=*/true))
+            .constArg("count", Schemas.INT64)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe(
-                "Multi-worker partitioned sequence that echoes pushed-down filters")
-                .withPushdown(/*projection=*/true, /*filter=*/true, /*autoApply=*/true);
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.positional("count", 0, Schemas.INT64));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams params) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
 

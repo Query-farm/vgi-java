@@ -4,7 +4,7 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -22,14 +22,13 @@ import java.util.List;
 /** {@code geo_centroid_list(points LIST<DOUBLE>...) -> STRUCT(lat,lon)} (varargs). */
 public final class GeoCentroidListFunction implements ScalarFunction {
 
-    @Override public String name() { return "geo_centroid_list"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Centroid of N list points");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.nested(
-                "points", 0, GeoTypes.listArgType(), GeoTypes.doubleElementChildren(), /*varargs=*/true));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("geo_centroid_list")
+            .description("Centroid of N list points")
+            .arg(ArgSpec.nested(
+                    "points", 0, GeoTypes.listArgType(), GeoTypes.doubleElementChildren(), /*varargs=*/true))
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(GeoTypes.CENTROID_OUTPUT_SCHEMA_IPC);
     }

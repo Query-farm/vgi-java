@@ -5,7 +5,7 @@ package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
 import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.TypeBoundPredicate;
 import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
@@ -29,16 +29,15 @@ public final class SumAllFunction implements AggregateFunction<SumAllFunction.St
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("result", Schemas.FLOAT64)));
 
-    @Override public String name() { return "vgi_sum_all"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Sum all numeric inputs (variadic)");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec(
+    private static final FunctionSpec SPEC = FunctionSpec.builder("vgi_sum_all")
+            .description("Sum all numeric columns")
+            .arg(new ArgSpec(
                 "values", 0, Schemas.FLOAT64, "", false, false, "",
                 List.of(TypeBoundPredicate.IS_ADDABLE), /*varargs=*/true,
-                /*anyType=*/false, /*tableInput=*/false));
-    }
+                /*anyType=*/true, /*tableInput=*/false))
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public Schema outputSchema() { return OUTPUT_SCHEMA; }
     @Override public State newState() { return new State(); }
 

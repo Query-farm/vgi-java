@@ -63,18 +63,20 @@ public final class PartitionedOrderModeFunctions {
 
     private abstract static class Base implements TableFunction {
         private final String name;
+        private final String description;
         private final OrderPreservation order;
         private final long maxWorkers;
 
-        Base(String name, OrderPreservation order, long maxWorkers) {
+        Base(String name, String description, OrderPreservation order, long maxWorkers) {
             this.name = name;
+            this.description = description;
             this.order = order;
             this.maxWorkers = maxWorkers;
         }
 
         @Override public String name() { return name; }
         @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Partitioned sequence with " + order.name() + " ordering")
+            return FunctionMetadata.describe(description)
                     .withOrderPreservation(order);
         }
         @Override public List<ArgSpec> argumentSpecs() {
@@ -95,15 +97,24 @@ public final class PartitionedOrderModeFunctions {
     }
 
     public static final class FixedOrder extends Base {
-        public FixedOrder() { super("partitioned_fixed_order", OrderPreservation.FIXED_ORDER, 1L); }
+        public FixedOrder() { super(
+                "partitioned_fixed_order",
+                "Multi-worker partitioned sequence; preserves_order=FIXED_ORDER (DuckDB serializes the pipeline so a single worker produces all rows).",
+                OrderPreservation.FIXED_ORDER, 1L); }
     }
 
     public static final class PreservesOrder extends Base {
-        public PreservesOrder() { super("partitioned_preserves_order", OrderPreservation.INSERTION_ORDER, 8L); }
+        public PreservesOrder() { super(
+                "partitioned_preserves_order",
+                "Multi-worker partitioned sequence; preserves_order=PRESERVES_ORDER (maps to DuckDB INSERTION_ORDER).",
+                OrderPreservation.INSERTION_ORDER, 8L); }
     }
 
     public static final class NoOrderGuarantee extends Base {
-        public NoOrderGuarantee() { super("partitioned_no_order_guarantee", OrderPreservation.NO_ORDER_PRESERVED, 8L); }
+        public NoOrderGuarantee() { super(
+                "partitioned_no_order_guarantee",
+                "Multi-worker partitioned sequence; preserves_order=NO_ORDER_GUARANTEE (maps to DuckDB NO_ORDER).",
+                OrderPreservation.NO_ORDER_PRESERVED, 8L); }
     }
 
     public static final class State extends TableProducerState implements Serializable {

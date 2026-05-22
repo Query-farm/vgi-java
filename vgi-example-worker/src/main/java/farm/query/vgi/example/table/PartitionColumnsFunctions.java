@@ -3,9 +3,9 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionMetadata.PartitionKind;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.EmitMetadata;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.internal.SchemaUtil;
@@ -70,18 +70,15 @@ public final class PartitionColumnsFunctions {
                 Schemas.nullable("sales", Schemas.INT64));
         private static final byte[] OUTPUT_IPC = SchemaUtil.serializeSchema(OUTPUT);
 
-        @Override public String name() { return "country_partitioned_sales"; }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("country_partitioned_sales")
+                .metadata(FunctionMetadata.describe(
+                        "Per-country sales rows, one Arrow batch per country. Declares country as a SINGLE_VALUE partition column.")
+                        .withCategories("generator", "partitioning")
+                        .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS))
+                .constArg("rows_per_country", Schemas.INT64)
+                .build();
 
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe(
-                    "Per-country sales rows; declares country as a SINGLE_VALUE partition column")
-                    .withCategories("generator", "partitioning")
-                    .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS);
-        }
-
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(ArgSpec.positional("rows_per_country", 0, Schemas.INT64));
-        }
+        @Override public FunctionSpec spec() { return SPEC; }
 
         @Override public BindResponse onBind(TableBindParams p) {
             return BindResponse.forSchema(OUTPUT_IPC);
@@ -146,18 +143,15 @@ public final class PartitionColumnsFunctions {
                 Schemas.nullable("value", Schemas.FLOAT64));
         private static final byte[] OUTPUT_IPC = SchemaUtil.serializeSchema(OUTPUT);
 
-        @Override public String name() { return "region_year_partitioned"; }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("region_year_partitioned")
+                .metadata(FunctionMetadata.describe(
+                        "Per-(region, year) value rows. Declares both region and year as SINGLE_VALUE partition columns; GROUP BY region, year plans as PARTITIONED_AGGREGATE.")
+                        .withCategories("generator", "partitioning")
+                        .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS))
+                .constArg("rows_per_partition", Schemas.INT64)
+                .build();
 
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe(
-                    "Per-(region, year) value rows; declares both as SINGLE_VALUE partition columns")
-                    .withCategories("generator", "partitioning")
-                    .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS);
-        }
-
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(ArgSpec.positional("rows_per_partition", 0, Schemas.INT64));
-        }
+        @Override public FunctionSpec spec() { return SPEC; }
 
         @Override public BindResponse onBind(TableBindParams p) {
             return BindResponse.forSchema(OUTPUT_IPC);
@@ -221,18 +215,15 @@ public final class PartitionColumnsFunctions {
                 Schemas.nullable("revenue", Schemas.INT64));
         private static final byte[] OUTPUT_IPC = SchemaUtil.serializeSchema(OUTPUT);
 
-        @Override public String name() { return "partitioned_with_explicit_override"; }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("partitioned_with_explicit_override")
+                .metadata(FunctionMetadata.describe(
+                        "Partition column ``category`` is in the bind schema and the emitted batches; worker uses the explicit ``partition_values=`` override on ``out.emit`` to exercise the override code path.")
+                        .withCategories("generator", "partitioning", "testing")
+                        .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS))
+                .constArg("rows_per_category", Schemas.INT64)
+                .build();
 
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe(
-                    "Uses the explicit partition_values override on out.emit")
-                    .withCategories("generator", "partitioning", "testing")
-                    .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS);
-        }
-
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(ArgSpec.positional("rows_per_category", 0, Schemas.INT64));
-        }
+        @Override public FunctionSpec spec() { return SPEC; }
 
         @Override public BindResponse onBind(TableBindParams p) {
             return BindResponse.forSchema(OUTPUT_IPC);
@@ -297,20 +288,16 @@ public final class PartitionColumnsFunctions {
                 Schemas.nullable("value", Schemas.INT64));
         private static final byte[] OUTPUT_IPC = SchemaUtil.serializeSchema(OUTPUT);
 
-        @Override public String name() { return "disjoint_range_partitioned"; }
+        private static final FunctionSpec SPEC = FunctionSpec.builder("disjoint_range_partitioned")
+                .metadata(FunctionMetadata.describe(
+                        "Disjoint per-chunk integer ranges on ``key``. Declares DISJOINT_PARTITIONS (wire-level only; DuckDB falls back to HASH_GROUP_BY for now).")
+                        .withCategories("generator", "partitioning", "testing")
+                        .withPartitionKind(PartitionKind.DISJOINT_PARTITIONS))
+                .constArg("partitions", Schemas.INT64)
+                .named("rows_per_partition", Schemas.INT64, "10")
+                .build();
 
-        @Override public FunctionMetadata metadata() {
-            return FunctionMetadata.describe(
-                    "Disjoint per-chunk integer ranges on key; declares DISJOINT_PARTITIONS")
-                    .withCategories("generator", "partitioning", "testing")
-                    .withPartitionKind(PartitionKind.DISJOINT_PARTITIONS);
-        }
-
-        @Override public List<ArgSpec> argumentSpecs() {
-            return List.of(
-                    ArgSpec.positional("partitions", 0, Schemas.INT64),
-                    ArgSpec.named("rows_per_partition", Schemas.INT64, "10"));
-        }
+        @Override public FunctionSpec spec() { return SPEC; }
 
         @Override public BindResponse onBind(TableBindParams p) {
             return BindResponse.forSchema(OUTPUT_IPC);

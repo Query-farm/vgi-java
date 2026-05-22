@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.tableinout;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
@@ -26,17 +25,13 @@ import java.util.List;
  */
 public final class RepeatInputsFunction extends PassthroughTIOFunction {
 
-    @Override public String name() { return "repeat_inputs"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("repeat_inputs")
+            .description("Duplicates each input batch N times")
+            .constArg("repeat_count", Schemas.INT64)
+            .table("data")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Duplicates each input batch N times");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("repeat_count", 0, Schemas.INT64),
-                ArgSpec.table("data", 1));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();

@@ -3,9 +3,9 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -43,19 +43,15 @@ public final class RowIdSequenceFunction implements TableFunction {
     private static final java.util.Set<String> ROW_ID_TYPES =
             java.util.Set.of("int64", "string", "struct");
 
-    @Override public String name() { return "rowid_sequence"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("rowid_sequence")
+            .metadata(FunctionMetadata.describe("Sequence with row_id column")
+                    .withPushdown(/*projection=*/true, /*filter=*/false, /*autoApply=*/false))
+            .constArg("count", Schemas.INT64)
+            .named("layout", Schemas.UTF8, "first")
+            .named("row_id_type", Schemas.UTF8, "int64")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Sequence with row_id column")
-                .withPushdown(/*projection=*/true, /*filter=*/false, /*autoApply=*/false);
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("count", 0, Schemas.INT64),
-                ArgSpec.named("layout", Schemas.UTF8, "first"),
-                ArgSpec.named("row_id_type", Schemas.UTF8, "int64"));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams p) {
         String layout = stringArg(p, "layout", "first");

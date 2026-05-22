@@ -4,8 +4,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.Schemas;
 import farm.query.vgi.types.ScalarHelpers;
 import org.apache.arrow.vector.FieldVector;
@@ -28,15 +27,13 @@ public final class WeightedSumFunction implements AggregateFunction<WeightedSumF
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("result", Schemas.FLOAT64)));
 
-    @Override public String name() { return "vgi_weighted_sum"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Weighted sum (value * weight)");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                new ArgSpec("value", 0, Schemas.FLOAT64),
-                new ArgSpec("weight", 1, Schemas.FLOAT64));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("vgi_weighted_sum")
+            .description("Weighted sum of values")
+            .arg("value", Schemas.FLOAT64)
+            .arg("weight", Schemas.FLOAT64)
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public Schema outputSchema() { return OUTPUT_SCHEMA; }
     @Override public State newState() { return new State(); }
 

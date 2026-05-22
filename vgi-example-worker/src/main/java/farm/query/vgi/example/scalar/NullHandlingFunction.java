@@ -3,8 +3,8 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.NullHandling;
 import farm.query.vgi.function.Stability;
 import farm.query.vgi.protocol.BindResponse;
@@ -16,8 +16,6 @@ import farm.query.vgi.types.Schemas;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-
-import java.util.List;
 
 /**
  * {@code null_handling(value: int64) -> int64}: returns the input value, or
@@ -32,12 +30,12 @@ public final class NullHandlingFunction implements ScalarFunction {
     private static final FunctionMetadata META = new FunctionMetadata(
             "Returns value or -5000 if null", Stability.CONSISTENT, NullHandling.SPECIAL, false, false, false, false);
 
-    @Override public String name() { return "null_handling"; }
-    @Override public FunctionMetadata metadata() { return META; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("null_handling")
+            .metadata(META)
+            .arg("value", Schemas.INT64)
+            .build();
 
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("value", 0, Schemas.INT64));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

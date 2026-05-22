@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.tensor;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.tableinout.TableInOutBindParams;
@@ -34,15 +33,12 @@ import java.util.List;
  */
 public final class UnnestTensorRowsFunction implements TableInOutFunction {
 
-    @Override public String name() { return "unnest_tensor_rows"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("unnest_tensor_rows")
+            .description("Invert nest_tensor, streaming one row per cell (LATERAL-friendly)")
+            .table("data")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Invert nest_tensor, streaming one row per cell (LATERAL-friendly)");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.table("data", 0));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {
         Schema in = params.inputSchema();

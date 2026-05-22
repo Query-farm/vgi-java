@@ -3,9 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -37,18 +36,14 @@ public final class SlowCancellableFunction implements TableFunction {
     private static final byte[] OUTPUT_SCHEMA_IPC =
             SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
-    @Override public String name() { return "slow_cancellable"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("slow_cancellable")
+            .description("Slow producer with an on_cancel file-writing probe (test fixture)")
+            .constArg("probe_path", Schemas.UTF8)
+            .named("sleep_ms", Schemas.INT64, "50")
+            .named("count", Schemas.INT64, "1000000")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Slow producer with an on_cancel file-writing probe (test fixture)");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("probe_path", 0, Schemas.UTF8),
-                ArgSpec.named("sleep_ms", Schemas.INT64, "50"),
-                ArgSpec.named("count", Schemas.INT64, "1000000"));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

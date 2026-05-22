@@ -3,8 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -49,19 +49,15 @@ public final class TxCachedValueFunction implements TableFunction {
         return ("vgi-fixture:tx_cached_value:" + userKey).getBytes(StandardCharsets.UTF_8);
     }
 
-    @Override public String name() { return "tx_cached_value"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("tx_cached_value")
+            .metadata(FunctionMetadata.describe(
+                    "Return a value cached per (transaction_opaque_data, key) via transaction_storage.")
+                    .withCategories("test", "transaction-storage"))
+            .constArg("key", Schemas.UTF8)
+            .constArg("seed", Schemas.INT64)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe(
-                "Return a value cached per (transaction_opaque_data, key) via transaction storage")
-                .withCategories("test", "transaction-storage");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("key", 0, Schemas.UTF8),
-                ArgSpec.positional("seed", 1, Schemas.INT64));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams params) {
         String key = params.arguments().positionalString(0, "");

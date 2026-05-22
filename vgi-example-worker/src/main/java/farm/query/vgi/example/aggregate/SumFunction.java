@@ -4,8 +4,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.FieldVector;
@@ -27,13 +26,12 @@ public final class SumFunction implements AggregateFunction<SumFunction.State> {
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("result", Schemas.INT64)));
 
-    @Override public String name() { return "vgi_sum"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Sum integer values");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("value", 0, Schemas.INT64));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("vgi_sum")
+            .description("Sum integer values")
+            .arg("value", Schemas.INT64)
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public Schema outputSchema() { return OUTPUT_SCHEMA; }
     @Override public State newState() { return new State(); }
 

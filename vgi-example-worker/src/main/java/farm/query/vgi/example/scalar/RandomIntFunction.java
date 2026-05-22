@@ -3,8 +3,8 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.NullHandling;
 import farm.query.vgi.function.Stability;
 import farm.query.vgi.protocol.BindResponse;
@@ -17,7 +17,6 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /** {@code random_int(min: int64, max: int64) -> int64}, VOLATILE. */
@@ -27,14 +26,13 @@ public final class RandomIntFunction implements ScalarFunction {
     private static final FunctionMetadata META = new FunctionMetadata(
             "Generate random integers (demonstrates VOLATILE stability)", Stability.VOLATILE, NullHandling.DEFAULT, false, false, false, false);
 
-    @Override public String name() { return "random_int"; }
-    @Override public FunctionMetadata metadata() { return META; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("random_int")
+            .metadata(META)
+            .arg("min_val", Schemas.INT64)
+            .arg("max_val", Schemas.INT64)
+            .build();
 
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                new ArgSpec("min_val", 0, Schemas.INT64),
-                new ArgSpec("max_val", 1, Schemas.INT64));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

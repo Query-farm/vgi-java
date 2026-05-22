@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.tableinout;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.tableinout.TableInOutBindParams;
@@ -29,11 +28,12 @@ import java.util.Map;
  */
 public final class FilterBySettingFunction implements TableInOutFunction {
 
-    @Override public String name() { return "filter_by_setting"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Filter rows where value column >= threshold setting");
-    }
-    @Override public List<ArgSpec> argumentSpecs() { return List.of(ArgSpec.table("data", 0)); }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("filter_by_setting")
+            .description("Filter rows where value column >= threshold setting")
+            .table("data")
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableInOutBindParams params) {
         Schema in = params.inputSchema();

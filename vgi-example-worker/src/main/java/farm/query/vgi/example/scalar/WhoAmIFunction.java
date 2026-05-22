@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -13,8 +12,6 @@ import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
-
-import java.util.List;
 
 /**
  * {@code whoami(x: int64) -> utf8}: returns the authenticated principal name,
@@ -28,15 +25,12 @@ public final class WhoAmIFunction implements ScalarFunction {
 
     private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.UTF8);
 
-    @Override public String name() { return "whoami"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("whoami")
+            .description("Return the authenticated principal name.")
+            .arg("x", Schemas.INT64)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Return the authenticated principal name");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec("x", 0, Schemas.INT64));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

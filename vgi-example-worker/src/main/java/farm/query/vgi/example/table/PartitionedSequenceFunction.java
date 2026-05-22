@@ -3,10 +3,9 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -53,15 +52,13 @@ public final class PartitionedSequenceFunction implements TableFunction {
 
     private static String key(byte[] executionId) { return HexId.encode(executionId); }
 
-    @Override public String name() { return "partitioned_sequence"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Generates a partitioned sequence for multi-worker execution");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("count", 0, Schemas.INT64),
-                ArgSpec.named("increment", Schemas.INT64, "1"));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("partitioned_sequence")
+            .description("Generates a partitioned sequence for multi-worker execution")
+            .constArg("count", Schemas.INT64)
+            .named("increment", Schemas.INT64, "1")
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
 
     @Override public long cardinality(TableBindParams p) {

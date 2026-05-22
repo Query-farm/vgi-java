@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -31,25 +30,17 @@ public final class BinaryPacketFunction implements ScalarFunction {
 
     private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.BINARY);
 
-    @Override public String name() { return "binary_packet"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("binary_packet")
+            .description("Build binary packets with header, payload, and config")
+            .constArg("header", Schemas.BINARY)
+            .arg("payload", Schemas.BINARY)
+            .nested("config", ArrowType.Struct.INSTANCE,
+                    List.of(
+                            new Field("label", new FieldType(true, Schemas.UTF8, null), null),
+                            new Field("version", new FieldType(true, Schemas.INT64, null), null)))
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Build binary packets with header, payload, and config");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        Field labelField = new Field("label",
-                new FieldType(true, Schemas.UTF8, null), null);
-        Field versionField = new Field("version",
-                new FieldType(true, Schemas.INT64, null), null);
-        return List.of(
-                ArgSpec.positional("header", 0, Schemas.BINARY),
-                new ArgSpec("payload", 1, Schemas.BINARY),
-                ArgSpec.nested("config", 2,
-                        ArrowType.Struct.INSTANCE,
-                        List.of(labelField, versionField),
-                        false));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);

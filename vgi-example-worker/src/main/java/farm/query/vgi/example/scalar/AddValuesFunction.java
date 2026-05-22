@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.TypeBoundPredicate;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
@@ -18,8 +17,6 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 
-import java.util.List;
-
 /**
  * {@code add_values(col1, col2)} — sum two numeric columns. Uses "any"-typed
  * arguments with the {@code IS_ADDABLE} type bound: DuckDB matches any numeric
@@ -28,17 +25,13 @@ import java.util.List;
  */
 public final class AddValuesFunction implements ScalarFunction {
 
-    @Override public String name() { return "add_values"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("add_values")
+            .description("Adds two numeric values")
+            .any("col1", TypeBoundPredicate.IS_ADDABLE)
+            .any("col2", TypeBoundPredicate.IS_ADDABLE)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Adds two numeric values");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.any("col1", 0, List.of(TypeBoundPredicate.IS_ADDABLE)),
-                ArgSpec.any("col2", 1, List.of(TypeBoundPredicate.IS_ADDABLE)));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         // Catalog enumeration calls onBind without an input_schema — emit

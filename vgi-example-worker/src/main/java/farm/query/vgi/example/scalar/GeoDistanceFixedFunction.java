@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -15,20 +14,16 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.FixedSizeListVector;
 
-import java.util.List;
-
 /** {@code geo_distance_fixed(p1 DOUBLE[2], p2 DOUBLE[2]) -> DOUBLE}. */
 public final class GeoDistanceFixedFunction implements ScalarFunction {
 
-    @Override public String name() { return "geo_distance_fixed"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Euclidean distance between two fixed-size list points");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.nested("p1", 0, GeoTypes.fixedListArgType(), GeoTypes.doubleElementChildren(), false),
-                ArgSpec.nested("p2", 1, GeoTypes.fixedListArgType(), GeoTypes.doubleElementChildren(), false));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("geo_distance_fixed")
+            .description("Euclidean distance between two fixed-size list points")
+            .nested("p1", GeoTypes.fixedListArgType(), GeoTypes.doubleElementChildren())
+            .nested("p2", GeoTypes.fixedListArgType(), GeoTypes.doubleElementChildren())
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
     @Override public BindResponse onBind(ScalarBindParams params) {
         return BindResponse.forSchema(Schemas.singleResultIpc(Schemas.FLOAT64));
     }

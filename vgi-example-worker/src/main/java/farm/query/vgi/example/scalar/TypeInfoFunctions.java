@@ -33,12 +33,18 @@ public final class TypeInfoFunctions {
     private static abstract class Base implements ScalarFunction {
         private final ArrowType inputType;
         private final String label;
+        private final String descriptionLabel;
 
-        Base(ArrowType inputType, String label) { this.inputType = inputType; this.label = label; }
+        Base(ArrowType inputType, String label) { this(inputType, label, label); }
+        Base(ArrowType inputType, String label, String descriptionLabel) {
+            this.inputType = inputType;
+            this.label = label;
+            this.descriptionLabel = descriptionLabel;
+        }
 
         @Override public final String name() { return "type_info"; }
         @Override public final FunctionMetadata metadata() {
-            return FunctionMetadata.describe("Return type name for " + label + " input");
+            return FunctionMetadata.describe("Return type name for " + descriptionLabel + " input");
         }
         @Override public final List<ArgSpec> argumentSpecs() {
             return List.of(new ArgSpec("v", 0, inputType));
@@ -65,5 +71,5 @@ public final class TypeInfoFunctions {
     public static final class Int64 extends Base { public Int64() { super(Schemas.INT64, "int64"); } }
     public static final class UInt32 extends Base { public UInt32() { super(Schemas.UINT32, "uint32"); } }
     public static final class UInt64 extends Base { public UInt64() { super(Schemas.UINT64, "uint64"); } }
-    public static final class Varchar extends Base { public Varchar() { super(Schemas.UTF8, "varchar"); } }
+    public static final class Varchar extends Base { public Varchar() { super(Schemas.UTF8, "varchar", "string"); } }
 }

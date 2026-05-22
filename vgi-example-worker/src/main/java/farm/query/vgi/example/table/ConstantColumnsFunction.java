@@ -5,7 +5,7 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -40,18 +40,14 @@ import java.util.List;
  */
 public final class ConstantColumnsFunction implements TableFunction {
 
-    @Override public String name() { return "constant_columns"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("constant_columns")
+            .description("Generates rows with constant values from varargs")
+            .constArg("count", Schemas.INT64)
+            .arg(new ArgSpec("values", 1, new ArrowType.Null(), "", true, false, "",
+                    List.of(), /*varargs=*/true, /*anyType=*/true))
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Generates rows with constant values from varargs");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("count", 0, Schemas.INT64),
-                new ArgSpec("values", 1, new ArrowType.Null(), "", true, false, "",
-                        List.of(), /*varargs=*/true, /*anyType=*/true));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams p) {
         List<Object> positionals = p.arguments().positional();

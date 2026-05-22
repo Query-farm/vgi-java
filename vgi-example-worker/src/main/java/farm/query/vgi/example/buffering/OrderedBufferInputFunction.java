@@ -4,6 +4,7 @@
 package farm.query.vgi.example.buffering;
 
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 
 /**
  * {@code ordered_buffer_input} — buffer_input variant with single-threaded
@@ -11,12 +12,13 @@ import farm.query.vgi.function.FunctionMetadata;
  */
 public final class OrderedBufferInputFunction extends AbstractBufferAndDrain {
 
-    @Override public String name() { return "ordered_buffer_input"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("ordered_buffer_input")
+            .metadata(FunctionMetadata.describe("buffer_input variant with sink_order_dependent=True")
+                    .withCategories("test", "ordering"))
+            .table("data")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("buffer_input variant with sink_order_dependent=True")
-                .withCategories("test", "ordering");
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public boolean sinkOrderDependent() { return true; }
 }

@@ -4,7 +4,7 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.TypeBoundPredicate;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
@@ -23,17 +23,14 @@ import java.util.List;
 /** {@code sum_values(values...)} — varargs numeric column sum, promoted output type. */
 public final class SumValuesFunction implements ScalarFunction {
 
-    @Override public String name() { return "sum_values"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("sum_values")
+            .description("Sum multiple numeric values")
+            .arg(new ArgSpec(
+                    "values", 0, new ArrowType.Null(), "", false, false, "",
+                    List.of(TypeBoundPredicate.IS_ADDABLE), /*varargs=*/true, /*anyType=*/true))
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Sum multiple numeric values");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(new ArgSpec(
-                "values", 0, new ArrowType.Null(), "", false, false, "",
-                List.of(TypeBoundPredicate.IS_ADDABLE), /*varargs=*/true, /*anyType=*/true));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         if (params.inputSchema() == null) {

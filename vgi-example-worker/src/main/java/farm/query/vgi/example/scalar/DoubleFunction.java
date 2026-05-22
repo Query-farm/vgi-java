@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.TypeBoundPredicate;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
@@ -28,23 +27,18 @@ import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.math.BigDecimal;
 
-import java.util.List;
-
 /**
  * {@code double(value)} — returns {@code value * 2}, promoted one width up
  * for integers (TINYINT→SMALLINT→INTEGER→BIGINT) and float-stable for floats.
  */
 public final class DoubleFunction implements ScalarFunction {
 
-    @Override public String name() { return "double"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("double")
+            .description("Doubles numeric values")
+            .any("value", TypeBoundPredicate.IS_ADDABLE)
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Doubles numeric values");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.any("value", 0, List.of(TypeBoundPredicate.IS_ADDABLE)));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(ScalarBindParams params) {
         if (params.inputSchema() == null || params.inputSchema().getFields().isEmpty()) {

@@ -3,8 +3,7 @@
 
 package farm.query.vgi.example.tableinout;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
@@ -17,26 +16,24 @@ import farm.query.vgirpc.OutputCollector;
 import java.util.List;
 
 /**
- * {@code slow_cancellable_inout(sleep_ms BIGINT [const], probe_path VARCHAR [const],
- * data TABLE)} — sleeps {@code sleep_ms} per input batch then emits unchanged.
+ * {@code slow_cancellable_inout(probe_path VARCHAR [const], data TABLE, sleep_ms := 50)}
+ * — sleeps {@code sleep_ms} per input batch then emits unchanged.
  * Used by table_in_out cancellation tests.
  */
 public final class SlowCancellableInoutFunction extends PassthroughTIOFunction {
 
-    @Override public String name() { return "slow_cancellable_inout"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Slow table-in-out with on_cancel probe (test fixture)");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("sleep_ms", 0, Schemas.INT64),
-                ArgSpec.positional("probe_path", 1, Schemas.UTF8),
-                ArgSpec.table("data", 2));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("slow_cancellable_inout")
+            .description("Slow table-in-out with on_cancel probe (test fixture)")
+            .constArg("probe_path", Schemas.UTF8)
+            .table("data")
+            .named("sleep_ms", Schemas.INT64, "50")
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-        long sleepMs = ((Number) params.arguments().positionalAt(0)).longValue();
-        String probePath = (String) params.arguments().positionalAt(1);
+        String probePath = (String) params.arguments().positionalAt(0);
+        long sleepMs = params.arguments().namedLong("sleep_ms", 50L);
         return new State(sleepMs, probePath);
     }
 

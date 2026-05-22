@@ -4,8 +4,7 @@
 package farm.query.vgi.example.tensor;
 
 import farm.query.vgi.aggregate.AggregateFunction;
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.VectorScalarCodec;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -51,17 +50,13 @@ public final class NestTensorFunction implements AggregateFunction<NestTensorFun
         ArrayList<String> axisNames;
     }
 
-    @Override public String name() { return "nest_tensor"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("nest_tensor")
+            .description("Collect rows into a dense N-D tensor plus per-axis coordinates")
+            .any("value")
+            .any("axes")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Collect rows into a dense N-D tensor plus per-axis coordinates");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.any("value", 0, List.of()),
-                ArgSpec.any("axes", 1, List.of()));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public Schema outputSchema() {
         return new Schema(List.of(new Field("result",

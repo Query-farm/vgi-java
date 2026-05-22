@@ -3,10 +3,10 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.table.BatchState;
@@ -46,19 +46,15 @@ public final class SampleEchoFunction implements TableFunction {
     private static final byte[] FULL_SCHEMA_IPC =
             SchemaUtil.serializeSchema(FULL_SCHEMA);
 
-    @Override public String name() { return "sample_echo"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("sample_echo")
+            .metadata(FunctionMetadata.describe("Echoes TABLESAMPLE pushdown hints in output")
+                    .withPushdown(/*projection=*/true, /*filter=*/true, /*autoApply=*/true)
+                    .withSamplingPushdown())
+            .constArg("count", Schemas.INT64)
+            .named("batch_size", Schemas.INT64, "2048")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Echoes TABLESAMPLE pushdown hints in output columns")
-                .withPushdown(/*projection=*/true, /*filter=*/true, /*autoApply=*/true)
-                .withSamplingPushdown();
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(
-                ArgSpec.positional("count", 0, Schemas.INT64),
-                ArgSpec.named("batch_size", Schemas.INT64, "2048"));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams params) {
         return BindResponse.forSchema(FULL_SCHEMA_IPC);

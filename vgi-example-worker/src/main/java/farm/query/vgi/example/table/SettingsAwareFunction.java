@@ -3,9 +3,8 @@
 
 package farm.query.vgi.example.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.internal.SchemaUtil;
-import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
 import farm.query.vgi.table.TableFunction;
@@ -35,13 +34,12 @@ import java.util.Map;
  */
 public final class SettingsAwareFunction implements TableFunction {
 
-    @Override public String name() { return "settings_aware"; }
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe("Generates data demonstrating settings are passed");
-    }
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.positional("count", 0, Schemas.INT64));
-    }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("settings_aware")
+            .description("Generates data demonstrating settings are passed")
+            .constArg("count", Schemas.INT64)
+            .build();
+
+    @Override public FunctionSpec spec() { return SPEC; }
 
     private static Schema buildSchema(boolean verbose) {
         List<Field> fields = new ArrayList<>();

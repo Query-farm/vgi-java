@@ -8,8 +8,8 @@ import farm.query.vgi.buffering.TableBufferingCombineParams;
 import farm.query.vgi.buffering.TableBufferingFinalizeParams;
 import farm.query.vgi.buffering.TableBufferingFunction;
 import farm.query.vgi.buffering.TableBufferingProcessParams;
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableProducerState;
@@ -37,17 +37,14 @@ public final class OrderedSourceFunction implements TableBufferingFunction {
     private static final int N_ROWS = 16;
     private static final Schema OUTPUT = Schemas.of(Schemas.nullable("v", Schemas.INT64));
 
-    @Override public String name() { return "ordered_source"; }
+    private static final FunctionSpec SPEC = FunctionSpec.builder("ordered_source")
+            .metadata(FunctionMetadata.describe(
+                    "Emits a fixed 0..15 sequence via source_order_dependent=True; input is ignored")
+                    .withCategories("test", "ordering"))
+            .table("data")
+            .build();
 
-    @Override public FunctionMetadata metadata() {
-        return FunctionMetadata.describe(
-                "Emits a fixed 0..15 sequence via source_order_dependent=True; input is ignored")
-                .withCategories("test", "ordering");
-    }
-
-    @Override public List<ArgSpec> argumentSpecs() {
-        return List.of(ArgSpec.table("data", 0));
-    }
+    @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public boolean sourceOrderDependent() { return true; }
 
