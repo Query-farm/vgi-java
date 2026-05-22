@@ -63,11 +63,15 @@ their env contract changes — they're not generated.
 > `SUPPORTED_IMPL_VERSIONS=10.0.0,10.1.0,11.0.0`. The `/tmp/vgi-worker-versioned`
 > wrapper still matches the unchanged `versioned` fixture and was left as-is.
 
-> **Real test driver:** `/tmp/run_test.sh` points at a stale April `unittest`
-> binary (`duckdb/build/...`). The current binary is
-> `~/Development/vgi/build/release/test/unittest` and registers tests by
-> path **relative to `~/Development/vgi`** — run it from that cwd with the
-> four `VGI_*_WORKER` env vars exported (see `/tmp/run_test.sh` for the set).
+> **Real test driver (fixed 2026-05-21):** `/tmp/run_test.sh` now `cd`s to
+> `~/Development/vgi` and execs `~/Development/vgi/build/release/test/unittest`,
+> so `/tmp/run_test.sh -f /tmp/intest.txt` works directly. The canonical binary
+> is **always** `~/Development/vgi/build/release/test/unittest` — *never*
+> `~/Development/vgi/duckdb/build/...` (that's a wrong path; `run_test.sh` used
+> to point there). The binary registers tests by path relative to
+> `~/Development/vgi` but accepts both relative and absolute `.test` paths, so
+> the absolute paths in `/tmp/intest.txt` are fine. After rebuilding the worker,
+> `pkill -f farm.query.vgi.example.Main` before re-running.
 
 ## The `launch:` prefix matters
 
@@ -104,13 +108,24 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
   javadoc). Don't close after emit.
 - **No comments** unless the *why* is non-obvious. Don't restate code.
 
-## State of play (as of 2026-05-20)
+## State of play (as of 2026-05-21)
 
-**Passing: 161/163** (excluding the filtered-out `nested_type_combinations.test`
-segfault). The only two failures are both out of scope:
-`attach/versioned_tables_impl.test` (not Java-fixable — launcher-pool C++
-short-circuit, see below) and `schema_reconcile.test` (writable INSERT,
-deferred). The whole new-feature batch below is green.
+**Passing: 163/164** (excluding the filtered-out `nested_type_combinations.test`
+segfault; 15 `require-env`/`require spatial` skips). The only failure is
+`schema_reconcile.test` (writable INSERT, deferred — out of scope). Re-verified
+against the current `~/Development/vgi/build/release/test/unittest` after the
+recent vgi (connection-string ATTACH, Windows transport, httpfs pin) and
+vgi-python (timestamp codegen, protocol_version surface, licensing) churn —
+nothing in that churn broke the read-only port.
+
+> **`attach/versioned_tables_impl.test` resolved upstream (2026-05-21):** the
+> previously not-Java-fixable launcher-pool failure is gone — vgi gated it
+> behind `require-env VGI_REQUIRE_LAUNCHER_TRANSPORT`, so it now *skips* under
+> `launch:` transport instead of failing on empty `vgi_worker_pool` rows. No
+> Java change was needed.
+
+**2026-05-20 — ported a batch of new vgi-python / C++ features.** Done and
+verified against the live suite:
 
 **2026-05-20 — ported a batch of new vgi-python / C++ features.** Done and
 verified against the live suite:
@@ -246,19 +261,20 @@ lossless-tagged inputs (probably needs to detect sparse_union
 children of list/struct and re-collapse them to their declared
 type before emit).
 
-Remaining 2 failures (excluding the segfault) — both out of scope /
-not Java-fixable:
+Remaining 1 failure (excluding the segfault) — out of scope:
 
 - `schema_reconcile.test` — writable INSERT path (out of scope; `writable/`
   is deferred indefinitely).
-- `attach/versioned_tables_impl.test:231` — `vgi_worker_pool` returns 0
-  rows because `vgi_unary_rpc.cpp:141` short-circuits the pool for
-  `launch:` transport ("the long-lived worker behind the socket is
-  itself the pool"). Confirmed: switching VGI_VERSIONED_TABLES_WORKER
-  off `launch:` fixes this test but breaks 2 other versioned_tables
-  tests that need the launcher's data-version env propagation. Not
-  Java-fixable; needs either a C++ extension patch to report launcher-
-  mode entries or a per-test transport override.
+
+> **Was 2 failures — `attach/versioned_tables_impl.test:231` resolved upstream
+> 2026-05-21.** It used to fail because `vgi_unary_rpc.cpp:141` short-circuits
+> the `vgi_worker_pool` for `launch:` transport ("the long-lived worker behind
+> the socket is itself the pool"), returning 0 rows. vgi now gates the test
+> behind `require-env VGI_REQUIRE_LAUNCHER_TRANSPORT`, so it *skips* under
+> `launch:` rather than failing — no Java change needed. (Switching
+> VGI_VERSIONED_TABLES_WORKER off `launch:` also fixed it but broke 2 other
+> versioned_tables tests needing launcher data-version env propagation, so the
+> upstream skip-guard is the right resolution.)
 
 > **Launcher gotcha:** `launch:` workers are long-lived and reused across
 > the whole suite via flock. After rebuilding the worker, `pkill -f
