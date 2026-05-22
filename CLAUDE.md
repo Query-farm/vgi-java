@@ -108,6 +108,57 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
   javadoc). Don't close after emit.
 - **No comments** unless the *why* is non-obvious. Don't restate code.
 
+## Scalar fixtures: use `ScalarFn`
+
+New scalar functions extend `farm.query.vgi.scalar.ScalarFn` and declare
+a single `compute()` method whose annotated parameters drive the entire
+spec + dispatch:
+
+```java
+public final class MultiplyFunction extends ScalarFn {
+    @Override public String name() { return "multiply"; }
+    @Override public String description() { return "Multiplies a value by a factor"; }
+
+    public void compute(@Vector BigIntVector value, @Const long factor, BigIntVector result) {
+        // loop
+    }
+}
+```
+
+Parameter rules:
+- `@Vector <ArrowVectorClass>` — per-row input column.
+- `@Vector(any=true) FieldVector` — accepts any Arrow type. Combine with
+  `typeBound = TypeBoundPredicate.IS_ADDABLE` for bind-time validation.
+- `@Vector(varargs=true) List<X>` — varargs of typed vectors.
+- `@Vector(any=true, varargs=true) List<FieldVector>` — varargs of any type.
+- `@Const <java type>` — bind-time positional const arg. Type mapping:
+  `long/int → INT64`, `double → FLOAT64`, `String → UTF8`, `boolean → BOOL`,
+  `byte[] → BINARY`.
+- `@Setting <java type>` — session setting; same type mapping. Optional
+  `default_ = "..."`.
+- `@OutputLength int` — injected batch row count, for functions with no
+  vector input.
+- Last unannotated Arrow-vector parameter = output, framework-allocated,
+  `void` return.
+
+Override hooks for the hard cases (used by `Double`, `AddValues`, the geo
+fixtures, `BinaryPacket`):
+- `outputType(Schema, Arguments)` — dynamic scalar output type.
+- `outputSchema(Schema, Arguments)` — non-flat outputs (STRUCT, LIST,
+  FixedSizeList) with explicit children.
+- `argumentSpecs()` — for nested Arrow types whose children can't be
+  inferred from the Java vector class.
+
+Type-bound violations are reported at bind time with a function-named,
+SQL-typed message (e.g. `add_values: col1 must be numeric (got VARCHAR)`).
+`ReturnSecretValueFunction` remains on the older `ScalarFunction` interface
+pending a secrets-accessor design.
+
+The table / table-in-out / buffering / aggregate kinds **still use the
+older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
+`ScalarFn` style hasn't been extended to those because their richer
+lifecycle methods + per-execution state don't translate one-for-one.
+
 ## State of play (as of 2026-05-21)
 
 **Passing: 163/164** (excluding the filtered-out `nested_type_combinations.test`
