@@ -7,6 +7,7 @@ import farm.query.vgi.aggregate.AggregateFunction;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
@@ -44,13 +45,13 @@ public final class CountFunction implements AggregateFunction<CountFunction.Stat
     public void combine(State target, State source) { target.count += source.count; }
 
     @Override
-    public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-        ((BigIntVector) output.getVector("result")).setSafe(rowIndex, state.count);
+    public void finalize(FieldVector result, int rowIndex, State state) {
+        ((BigIntVector) result).setSafe(rowIndex, state.count);
     }
 
     /** COUNT on empty input returns 0, not NULL. */
     @Override
-    public void finalizeEmpty(VectorSchemaRoot output, int rowIndex) {
-        ((BigIntVector) output.getVector("result")).setSafe(rowIndex, 0L);
+    public void finalizeEmpty(FieldVector result, int rowIndex) {
+        ((BigIntVector) result).setSafe(rowIndex, 0L);
     }
 }

@@ -60,11 +60,11 @@ public final class StubAggregates {
             }
         }
         @Override public void combine(State target, State source) { target.sum += source.sum; }
-        @Override public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-            ((BigIntVector) output.getVector("result")).setSafe(rowIndex, state.sum);
+        @Override public void finalize(FieldVector result, int rowIndex, State state) {
+            ((BigIntVector) result).setSafe(rowIndex, state.sum);
         }
-        @Override public void finalizeEmpty(VectorSchemaRoot output, int rowIndex) {
-            ((BigIntVector) output.getVector("result")).setSafe(rowIndex, 0);
+        @Override public void finalizeEmpty(FieldVector result, int rowIndex) {
+            ((BigIntVector) result).setSafe(rowIndex, 0);
         }
     }
     /** Window-flavoured stubs — registered to keep the function_registration count happy. */
@@ -113,14 +113,13 @@ public final class StubAggregates {
             target.dvals.addAll(source.dvals);
             target.svals.addAll(source.svals);
         }
-        @Override public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-            FieldVector r = output.getVector("result");
-            if (r instanceof BigIntVector bi) bi.setSafe(rowIndex, state.sum);
-            else if (r instanceof Float8Vector f) {
+        @Override public void finalize(FieldVector result, int rowIndex, State state) {
+            if (result instanceof BigIntVector bi) bi.setSafe(rowIndex, state.sum);
+            else if (result instanceof Float8Vector f) {
                 if (state.dvals.isEmpty()) f.setNull(rowIndex);
                 else { double s = 0; for (double d : state.dvals) s += d; f.setSafe(rowIndex, s / state.dvals.size()); }
             }
-            else if (r instanceof VarCharVector vc) {
+            else if (result instanceof VarCharVector vc) {
                 vc.setSafe(rowIndex, new Text(String.join(",", state.svals)));
             }
         }

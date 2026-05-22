@@ -78,17 +78,16 @@ public final class GenericSumFunction implements AggregateFunction<GenericSumFun
     public void combine(State target, State source) { target.total += source.total; }
 
     @Override
-    public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-        FieldVector v = output.getVector("result");
-        ArrowType t = v.getField().getType();
+    public void finalize(FieldVector result, int rowIndex, State state) {
+        ArrowType t = result.getField().getType();
         if (TypeRules.isFloating(t)) {
-            ((Float8Vector) v).setSafe(rowIndex, state.total);
-        } else if (v instanceof BigIntVector b) {
+            ((Float8Vector) result).setSafe(rowIndex, state.total);
+        } else if (result instanceof BigIntVector b) {
             b.setSafe(rowIndex, (long) state.total);
-        } else if (v instanceof IntVector i) {
+        } else if (result instanceof IntVector i) {
             i.setSafe(rowIndex, (int) state.total);
         } else {
-            v.setNull(rowIndex);
+            result.setNull(rowIndex);
         }
     }
 }

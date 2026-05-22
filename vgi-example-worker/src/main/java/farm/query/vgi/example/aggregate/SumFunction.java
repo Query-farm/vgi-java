@@ -52,7 +52,7 @@ public final class SumFunction implements AggregateFunction<SumFunction.State> {
     public void combine(State target, State source) { target.total += source.total; }
 
     @Override
-    public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-        ((BigIntVector) output.getVector("result")).setSafe(rowIndex, state.total);
+    public void finalize(FieldVector result, int rowIndex, State state) {
+        ((BigIntVector) result).setSafe(rowIndex, state.total);
     }
 }

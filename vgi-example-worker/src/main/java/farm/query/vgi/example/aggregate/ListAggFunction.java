@@ -56,8 +56,8 @@ public final class ListAggFunction implements AggregateFunction<ListAggFunction.
     }
 
     @Override
-    public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-        VarCharVector v = (VarCharVector) output.getVector("result");
+    public void finalize(FieldVector result, int rowIndex, State state) {
+        VarCharVector v = (VarCharVector) result;
         v.setSafe(rowIndex, new Text(String.join(",", state.items)));
     }
 }

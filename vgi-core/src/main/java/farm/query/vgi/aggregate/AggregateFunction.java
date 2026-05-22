@@ -4,6 +4,7 @@
 package farm.query.vgi.aggregate;
 
 import farm.query.vgi.function.FunctionDescriptor;
+import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
@@ -15,6 +16,12 @@ import org.apache.arrow.vector.types.pojo.Schema;
  *
  * <p>{@code <S>} is the per-group state type. Two {@link #combine combine} calls
  * produce a third {@code S}; the framework persists the bytes between calls.
+ *
+ * <p>Aggregates produce exactly one output column. {@link #outputSchema} is
+ * expected to be a single-field schema; the framework resolves that single
+ * {@link FieldVector} once per finalize batch and passes it into
+ * {@link #finalize} and {@link #finalizeEmpty} — implementations cast it to the
+ * concrete vector type they wrote in {@code outputSchema}.
  *
  * <p>Mirrors {@code vgi.AggregateFunction} in vgi-go.
  */
@@ -63,9 +70,9 @@ public interface AggregateFunction<S> extends FunctionDescriptor {
     }
 
     /** Variant that receives bind-time arguments. Default ignores them. */
-    default void finalize(VectorSchemaRoot output, int rowIndex, S state,
+    default void finalize(FieldVector result, int rowIndex, S state,
                             farm.query.vgi.function.Arguments args) {
-        finalize(output, rowIndex, state);
+        finalize(result, rowIndex, state);
     }
 
     /**
@@ -74,18 +81,16 @@ public interface AggregateFunction<S> extends FunctionDescriptor {
      */
     void combine(S target, S source);
 
-    /** Emit the finalized result for {@code state} into row {@code i} of {@code output}. */
-    void finalize(VectorSchemaRoot output, int rowIndex, S state);
+    /** Emit the finalized result for {@code state} into row {@code i} of {@code result}. */
+    void finalize(FieldVector result, int rowIndex, S state);
 
     /**
      * Emit a row when no state was accumulated for the group (empty input).
      * Default writes NULL — SUM/AVG/etc. behaviour. {@code count}-style
      * aggregates override to emit 0 instead.
      */
-    default void finalizeEmpty(VectorSchemaRoot output, int rowIndex) {
-        for (org.apache.arrow.vector.FieldVector v : output.getFieldVectors()) {
-            v.setNull(rowIndex);
-        }
+    default void finalizeEmpty(FieldVector result, int rowIndex) {
+        result.setNull(rowIndex);
     }
 
     /** Encode state to bytes for the wire. Default: Java serialization. */

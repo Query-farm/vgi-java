@@ -120,14 +120,14 @@ public final class PercentileFunction implements AggregateFunction<PercentileFun
     }
 
     @Override
-    public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-        finalize(output, rowIndex, state, farm.query.vgi.function.Arguments.empty());
+    public void finalize(FieldVector result, int rowIndex, State state) {
+        finalize(result, rowIndex, state, farm.query.vgi.function.Arguments.empty());
     }
 
     @Override
-    public void finalize(VectorSchemaRoot output, int rowIndex, State state,
+    public void finalize(FieldVector result, int rowIndex, State state,
                             farm.query.vgi.function.Arguments args) {
-        Float8Vector v = (Float8Vector) output.getVector("result");
+        Float8Vector v = (Float8Vector) result;
         if (state.values.isEmpty()) { v.setNull(rowIndex); return; }
         ArrayList<Double> sorted = new ArrayList<>(state.values);
         Collections.sort(sorted);

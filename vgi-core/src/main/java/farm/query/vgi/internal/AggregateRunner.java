@@ -192,14 +192,17 @@ public final class AggregateRunner {
                 : ArgumentsParser.parse(argsIpc);
         try (VectorSchemaRoot output = VectorSchemaRoot.create(outputSchema, alloc)) {
             output.allocateNew();
+            // Aggregates produce exactly one output column — resolve it once
+            // here so per-row finalize calls don't repeat the lookup/cast.
+            org.apache.arrow.vector.FieldVector result = output.getFieldVectors().get(0);
             Map<Long, byte[]> raw = store.loadStates(executionId, functionName, gids);
             for (int i = 0; i < gids.length; i++) {
                 byte[] bytes = raw.get(gids[i]);
                 if (bytes == null) {
-                    fn.finalizeEmpty(output, i);
+                    fn.finalizeEmpty(result, i);
                 } else {
                     Object state = fn.deserializeState(bytes);
-                    fn.finalize(output, i, state, bindArgs);
+                    fn.finalize(result, i, state, bindArgs);
                 }
             }
             output.setRowCount(gids.length);

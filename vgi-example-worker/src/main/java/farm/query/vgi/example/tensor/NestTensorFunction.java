@@ -151,10 +151,9 @@ public final class NestTensorFunction implements AggregateFunction<NestTensorFun
     }
 
     @Override
-    public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-        FieldVector resultVec = output.getVector("result");
-        if (!(resultVec instanceof StructVector outerSv)) {
-            resultVec.setNull(rowIndex);
+    public void finalize(FieldVector result, int rowIndex, State state) {
+        if (!(result instanceof StructVector outerSv)) {
+            result.setNull(rowIndex);
             return;
         }
         Field resultField = outerSv.getField();
@@ -269,9 +268,9 @@ public final class NestTensorFunction implements AggregateFunction<NestTensorFun
     }
 
     @Override
-    public void finalizeEmpty(VectorSchemaRoot output, int rowIndex) {
+    public void finalizeEmpty(FieldVector result, int rowIndex) {
         // Empty group → null result. The tests don't cover this explicitly but
         // it's the conservative default.
-        output.getVector("result").setNull(rowIndex);
+        result.setNull(rowIndex);
     }
 }

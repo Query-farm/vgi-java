@@ -57,8 +57,8 @@ public final class AvgFunction implements AggregateFunction<AvgFunction.State> {
     }
 
     @Override
-    public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-        Float8Vector v = (Float8Vector) output.getVector("result");
+    public void finalize(FieldVector result, int rowIndex, State state) {
+        Float8Vector v = (Float8Vector) result;
         if (state.count == 0) v.setNull(rowIndex);
         else v.setSafe(rowIndex, (double) state.total / state.count);
     }

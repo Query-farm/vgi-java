@@ -73,7 +73,7 @@ public final class SumAllFunction implements AggregateFunction<SumAllFunction.St
     public void combine(State target, State source) { target.total += source.total; }
 
     @Override
-    public void finalize(VectorSchemaRoot output, int rowIndex, State state) {
-        ((Float8Vector) output.getVector("result")).setSafe(rowIndex, state.total);
+    public void finalize(FieldVector result, int rowIndex, State state) {
+        ((Float8Vector) result).setSafe(rowIndex, state.total);
     }
 }
