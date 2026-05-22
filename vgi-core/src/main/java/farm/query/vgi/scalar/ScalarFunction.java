@@ -3,14 +3,11 @@
 
 package farm.query.vgi.scalar;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionDescriptor;
-import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
-import java.util.List;
 
 /**
  * A scalar VGI function: 1:1 row mapping. Output row count must equal input row count.
@@ -18,12 +15,6 @@ import java.util.List;
  * <p>Mirrors {@code vgi.ScalarFunction} in vgi-go.
  */
 public interface ScalarFunction extends FunctionDescriptor {
-
-    String name();
-
-    FunctionMetadata metadata();
-
-    List<ArgSpec> argumentSpecs();
 
     /** Resolve output schema from bound argument types. */
     BindResponse onBind(ScalarBindParams params);

@@ -3,12 +3,9 @@
 
 package farm.query.vgi.table;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionDescriptor;
-import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 
-import java.util.List;
 
 /**
  * A VGI table function: generates a stream of {@link org.apache.arrow.vector.VectorSchemaRoot}
@@ -23,12 +20,6 @@ import java.util.List;
  * </ol>
  */
 public interface TableFunction extends FunctionDescriptor {
-
-    String name();
-
-    FunctionMetadata metadata();
-
-    List<ArgSpec> argumentSpecs();
 
     BindResponse onBind(TableBindParams params);
 

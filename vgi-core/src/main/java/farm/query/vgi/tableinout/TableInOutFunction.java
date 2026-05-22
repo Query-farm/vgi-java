@@ -3,12 +3,9 @@
 
 package farm.query.vgi.tableinout;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionDescriptor;
-import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
 
-import java.util.List;
 
 /**
  * A VGI table-in-out function: receives input batches and emits output batches.
@@ -19,12 +16,6 @@ import java.util.List;
  * <p>Mirrors {@code vgi.TableInOutFunction} in vgi-go.
  */
 public interface TableInOutFunction extends FunctionDescriptor {
-
-    String name();
-
-    FunctionMetadata metadata();
-
-    List<ArgSpec> argumentSpecs();
 
     BindResponse onBind(TableInOutBindParams params);
 

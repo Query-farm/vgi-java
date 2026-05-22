@@ -3,7 +3,6 @@
 
 package farm.query.vgi.buffering;
 
-import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionDescriptor;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.BindResponse;
@@ -33,10 +32,6 @@ import java.util.List;
  * order, batch-index) ride on {@link FunctionMetadata}.</p>
  */
 public interface TableBufferingFunction extends FunctionDescriptor {
-
-    @Override String name();
-    @Override FunctionMetadata metadata();
-    @Override List<ArgSpec> argumentSpecs();
 
     /** Declare the output schema (default: passthrough = input schema). */
     BindResponse onBind(TableInOutBindParams params);
