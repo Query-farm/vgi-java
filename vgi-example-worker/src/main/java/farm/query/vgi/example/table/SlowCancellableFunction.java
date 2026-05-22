@@ -2,6 +2,7 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
@@ -49,10 +50,10 @@ public final class SlowCancellableFunction implements TableFunction {
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        String probePath = (String) params.arguments().positionalAt(0);
-        long sleepMs = params.arguments().namedLong("sleep_ms", 50L);
-        Object countObj = params.arguments().named().get("count");
-        long count = countObj == null ? 1_000_000L : ((Number) countObj).longValue();
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        String probePath = p.positional(0, "probe_path").asString().required();
+        long sleepMs = p.named("sleep_ms").asLong().orElse(50L);
+        long count = p.named("count").asLong().orElse(1_000_000L);
         return new State(probePath, sleepMs, count);
     }
 

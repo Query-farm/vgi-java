@@ -2,6 +2,7 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
@@ -91,7 +92,8 @@ public class ProjReproFullSchemaFunction implements TableFunction {
         return c instanceof Number n ? n.longValue() : -1L;
     }
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
+        long count = ParameterExtractor.of(params.arguments())
+                .positional(0, "count").asLong().required();
         return new State((int) count);
     }
 

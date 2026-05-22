@@ -2,6 +2,7 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
@@ -44,7 +45,8 @@ public final class StructSettingsFunction implements TableFunction {
     @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
+        long count = ParameterExtractor.of(params.arguments())
+                .positional(0, "count").asLong().required();
         Map<String, Object> settings = params.settings();
         Object cfgObj = settings == null ? null : settings.get("config");
         long start = 0L, step = 1L;

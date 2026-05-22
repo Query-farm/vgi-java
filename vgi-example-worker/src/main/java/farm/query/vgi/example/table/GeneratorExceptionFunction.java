@@ -2,6 +2,8 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ParameterExtractor;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
@@ -39,7 +41,8 @@ public final class GeneratorExceptionFunction implements TableFunction {
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long failAfter = ((Number) params.arguments().positionalAt(0)).longValue();
+        long failAfter = ParameterExtractor.of(params.arguments())
+                .positional(0, "fail_after").asLong().required();
         return new State(failAfter);
     }
 
@@ -56,12 +59,10 @@ public final class GeneratorExceptionFunction implements TableFunction {
             }
             long idx = batchCount;
             batchCount++;
-            VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT_SCHEMA, Allocators.root());
-            root.allocateNew();
-            BigIntVector v = (BigIntVector) root.getVector("n");
-            v.setSafe(0, idx);
-            root.setRowCount(1);
-            out.emit(root);
+            BatchUtil.emit(OUTPUT_SCHEMA, 1, out, (root, rows, start) -> {
+                BigIntVector v = (BigIntVector) root.getVector("n");
+                v.setSafe(0, idx);
+            });
         }
     }
 }

@@ -3,6 +3,7 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -91,7 +92,8 @@ public final class AnyMixedFunctions {
         @Override public BindResponse onBind(ScalarBindParams p) { return BindResponse.forSchema(OUT); }
         @Override public VectorSchemaRoot process(ScalarProcessParams p, VectorSchemaRoot input,
                                                     BufferAllocator alloc) {
-            int width = ((Number) p.arguments().positionalAt(0)).intValue();
+            int width = (int) ParameterExtractor.of(p.arguments())
+                    .positional(0, "width").asLong().required();
             int rows = input.getRowCount();
             FieldVector v = input.getFieldVectors().get(0);
             VectorSchemaRoot out = VectorSchemaRoot.create(p.outputSchema(), alloc);
@@ -117,7 +119,8 @@ public final class AnyMixedFunctions {
         @Override public BindResponse onBind(ScalarBindParams p) { return BindResponse.forSchema(OUT); }
         @Override public VectorSchemaRoot process(ScalarProcessParams p, VectorSchemaRoot input,
                                                     BufferAllocator alloc) {
-            String prefix = (String) p.arguments().positionalAt(0);
+            String prefix = ParameterExtractor.of(p.arguments())
+                    .positional(0, "prefix").asString().orElse(null);
             int rows = input.getRowCount();
             FieldVector v = input.getFieldVectors().get(0);
             VectorSchemaRoot out = VectorSchemaRoot.create(p.outputSchema(), alloc);

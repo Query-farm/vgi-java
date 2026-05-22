@@ -3,6 +3,7 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -65,7 +66,8 @@ public final class FormatNumberFunctions {
         }
         @Override
         public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-            int precision = ((Number) params.arguments().positionalAt(0)).intValue();
+            int precision = (int) ParameterExtractor.of(params.arguments())
+                    .positional(0, "precision").asLong().required();
             return mapFormat(params, input, alloc, precision, "");
         }
     }
@@ -85,9 +87,10 @@ public final class FormatNumberFunctions {
         }
         @Override
         public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-            int precision = ((Number) params.arguments().positionalAt(0)).intValue();
-            String prefix = (String) params.arguments().positionalAt(1);
-            return mapFormat(params, input, alloc, precision, prefix == null ? "" : prefix);
+            ParameterExtractor p = ParameterExtractor.of(params.arguments());
+            int precision = (int) p.positional(0, "precision").asLong().required();
+            String prefix = p.positional(1, "prefix").asString().orElse("");
+            return mapFormat(params, input, alloc, precision, prefix);
         }
     }
 

@@ -2,6 +2,7 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
@@ -56,7 +57,8 @@ public final class ProjectedDataFunction implements TableFunction {
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
+        long count = ParameterExtractor.of(params.arguments())
+                .positional(0, "count").asLong().required();
         return new State(new BatchState(count, 1000), new CachedSchema(params.outputSchema()));
     }
 

@@ -2,6 +2,7 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
@@ -101,7 +102,8 @@ public final class MakeSeriesFunctions {
         @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long count = ((Number) p.arguments().positionalAt(0)).longValue();
+            long count = ParameterExtractor.of(p.arguments())
+                    .positional(0, "count").asLong().required();
             long[] values = new long[(int) Math.max(0, count)];
             for (int i = 0; i < values.length; i++) values[i] = i;
             return new IntState(values);
@@ -129,8 +131,9 @@ public final class MakeSeriesFunctions {
         @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long start = ((Number) p.arguments().positionalAt(0)).longValue();
-            long stop = ((Number) p.arguments().positionalAt(1)).longValue();
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            long start = ex.positional(0, "start").asLong().required();
+            long stop = ex.positional(1, "stop").asLong().required();
             int n = (int) Math.max(0, stop - start);
             long[] values = new long[n];
             for (int i = 0; i < n; i++) values[i] = start + i;
@@ -150,10 +153,10 @@ public final class MakeSeriesFunctions {
         @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long start = ((Number) p.arguments().positionalAt(0)).longValue();
-            long stop = ((Number) p.arguments().positionalAt(1)).longValue();
-            long step = ((Number) p.arguments().positionalAt(2)).longValue();
-            if (step < 1) throw new IllegalArgumentException("step must be >= 1, got " + step);
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            long start = ex.positional(0, "start").asLong().required();
+            long stop = ex.positional(1, "stop").asLong().required();
+            long step = ex.positional(2, "step").asLong().ge(1).required();
             List<Long> tmp = new ArrayList<>();
             for (long v = start; v < stop; v += step) tmp.add(v);
             long[] values = new long[tmp.size()];
@@ -172,7 +175,8 @@ public final class MakeSeriesFunctions {
         @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            String csv = (String) p.arguments().positionalAt(0);
+            String csv = ParameterExtractor.of(p.arguments())
+                    .positional(0, "values").asString().required();
             String[] parts = csv.split(",");
             long[] values = new long[parts.length];
             for (int i = 0; i < parts.length; i++) values[i] = Long.parseLong(parts[i].trim());
@@ -190,7 +194,8 @@ public final class MakeSeriesFunctions {
         @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(FLOAT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            double step = ((Number) p.arguments().positionalAt(0)).doubleValue();
+            double step = ParameterExtractor.of(p.arguments())
+                    .positional(0, "step").asDouble().required();
             double[] values = new double[10];
             for (int i = 0; i < 10; i++) values[i] = i * step;
             return new FloatState(values);

@@ -3,6 +3,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.table.BatchState;
@@ -34,9 +35,10 @@ public final class DoubleSequenceFunction extends CountdownTableFunction {
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        long batchSize = params.arguments().namedLong("batch_size", 1000L);
-        double increment = params.arguments().namedDouble("increment", 1.0);
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        long count = p.positional(0, "count").asLong().required();
+        long batchSize = p.named("batch_size").asLong().orElse(1000L);
+        double increment = p.named("increment").asDouble().orElse(1.0);
         return new State(new BatchState(count, batchSize), increment);
     }
 
@@ -47,7 +49,8 @@ public final class DoubleSequenceFunction extends CountdownTableFunction {
                 ? null : params.arguments().positionalAt(0);
         if (!(countObj instanceof Number cn)) return null;
         long count = cn.longValue();
-        double increment = params.arguments().namedDouble("increment", 1.0);
+        double increment = ParameterExtractor.of(params.arguments())
+                .named("increment").asDouble().orElse(1.0);
         if (count <= 0) return null;
         double max = (count - 1) * increment;
         return java.util.List.of(

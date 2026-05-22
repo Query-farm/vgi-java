@@ -3,6 +3,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
@@ -89,7 +90,8 @@ public final class PartitionedOrderModeFunctions {
         @Override public long maxWorkers() { return maxWorkers; }
 
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long count = ((Number) p.arguments().positionalAt(0)).longValue();
+            long count = ParameterExtractor.of(p.arguments())
+                    .positional(0, "count").asLong().required();
             String execKey = key(p.executionId());
             return new State(queueFor(execKey, count), execKey);
         }

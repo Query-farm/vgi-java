@@ -3,6 +3,8 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.ParameterExtractor;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.pushdown.PushdownFilters;
 import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import farm.query.vgi.table.CountdownTableFunction;
@@ -48,8 +50,9 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
     @Override protected long defaultBatchSize() { return 100L; }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        long batchSize = params.arguments().namedLong("batch_size", 100L);
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        long count = p.positional(0, "count").asLong().required();
+        long batchSize = p.named("batch_size").asLong().orElse(100L);
         // Init-time filter — overridden each tick by the dynamic filter
         // payload arriving in custom_metadata. Use the Python-repr-style
         // representation so the dynamic_filter.test LIKE assertions match
@@ -104,18 +107,17 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
         private void emitNextBatch(OutputCollector out) {
             if (produced >= total) { out.finish(); return; }
             int n = Math.min(batchSize, total - produced);
-            VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT_SCHEMA, Allocators.root());
-            root.allocateNew();
-            BigIntVector nv = (BigIntVector) root.getVector("n");
-            VarCharVector pv = (VarCharVector) root.getVector("pushed_filters");
-            Text filterText = new Text(currentFilter);
-            for (int i = 0; i < n; i++) {
-                long row = total - 1 - (produced + i);
-                nv.setSafe(i, row);
-                pv.setSafe(i, filterText);
-            }
-            root.setRowCount(n);
-            out.emit(root);
+            int startProduced = produced;
+            BatchUtil.emit(OUTPUT_SCHEMA, n, out, (root, rows, start) -> {
+                BigIntVector nv = (BigIntVector) root.getVector("n");
+                VarCharVector pv = (VarCharVector) root.getVector("pushed_filters");
+                Text filterText = new Text(currentFilter);
+                for (int i = 0; i < rows; i++) {
+                    long row = total - 1 - (startProduced + i);
+                    nv.setSafe(i, row);
+                    pv.setSafe(i, filterText);
+                }
+            });
             produced += n;
         }
     }

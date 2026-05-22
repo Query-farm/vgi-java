@@ -5,6 +5,7 @@ package farm.query.vgi.example.table;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionMetadata.PartitionKind;
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.EmitMetadata;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.internal.SchemaUtil;
@@ -86,7 +87,8 @@ public final class PartitionColumnsFunctions {
         @Override public long maxWorkers() { return 8L; }
 
         @Override public TableProducerState createProducer(TableInitParams p) {
-            int rpc = (int) ((Number) p.arguments().positionalAt(0)).longValue();
+            int rpc = (int) ParameterExtractor.of(p.arguments())
+                    .positional(0, "rows_per_country").asLong().required();
             String key = HexId.encode(p.executionId());
             return new State(buildQueue(key, COUNTRIES.length), key, rpc);
         }
@@ -159,7 +161,8 @@ public final class PartitionColumnsFunctions {
         @Override public long maxWorkers() { return 8L; }
 
         @Override public TableProducerState createProducer(TableInitParams p) {
-            int rpp = (int) ((Number) p.arguments().positionalAt(0)).longValue();
+            int rpp = (int) ParameterExtractor.of(p.arguments())
+                    .positional(0, "rows_per_partition").asLong().required();
             String key = HexId.encode(p.executionId());
             return new State(buildQueue(key, REGIONS.length), key, rpp);
         }
@@ -231,7 +234,8 @@ public final class PartitionColumnsFunctions {
         @Override public long maxWorkers() { return 8L; }
 
         @Override public TableProducerState createProducer(TableInitParams p) {
-            int rpc = (int) ((Number) p.arguments().positionalAt(0)).longValue();
+            int rpc = (int) ParameterExtractor.of(p.arguments())
+                    .positional(0, "rows_per_category").asLong().required();
             String key = HexId.encode(p.executionId());
             return new State(buildQueue(key, CATEGORIES.length), key, rpc);
         }
@@ -305,8 +309,9 @@ public final class PartitionColumnsFunctions {
         @Override public long maxWorkers() { return 8L; }
 
         @Override public TableProducerState createProducer(TableInitParams p) {
-            int partitions = (int) ((Number) p.arguments().positionalAt(0)).longValue();
-            int rpp = (int) p.arguments().namedLong("rows_per_partition", 10L);
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            int partitions = (int) ex.positional(0, "partitions").asLong().required();
+            int rpp = (int) ex.named("rows_per_partition").asLong().orElse(10L);
             String key = HexId.encode(p.executionId());
             return new State(buildQueue(key, partitions), key, rpp);
         }

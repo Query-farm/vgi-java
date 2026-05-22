@@ -2,6 +2,8 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ParameterExtractor;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionSpec;
@@ -69,8 +71,9 @@ public final class PartitionedSequenceFunction implements TableFunction {
     @Override public long maxWorkers() { return 8L; }
 
     @Override public TableProducerState createProducer(TableInitParams p) {
-        long count = ((Number) p.arguments().positionalAt(0)).longValue();
-        long increment = p.arguments().namedLong("increment", 1L);
+        ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+        long count = ex.positional(0, "count").asLong().required();
+        long increment = ex.named("increment").asLong().orElse(1L);
         String execKey = key(p.executionId());
 
         ConcurrentLinkedQueue<long[]> queue = QUEUES.computeIfAbsent(execKey, k -> {
@@ -124,12 +127,11 @@ public final class PartitionedSequenceFunction implements TableFunction {
                 currentIdx = currentStart;
             }
             int n = (int) Math.min(2048L, currentEnd - currentIdx);
-            VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT_SCHEMA, Allocators.root());
-            root.allocateNew();
-            BigIntVector v = (BigIntVector) root.getVector("n");
-            for (int i = 0; i < n; i++) v.setSafe(i, (currentIdx + i) * increment);
-            root.setRowCount(n);
-            out.emit(root);
+            long startIdx = currentIdx;
+            BatchUtil.emit(OUTPUT_SCHEMA, n, out, (root, rows, start) -> {
+                BigIntVector v = (BigIntVector) root.getVector("n");
+                for (int i = 0; i < rows; i++) v.setSafe(i, (startIdx + i) * increment);
+            });
             currentIdx += n;
         }
     }

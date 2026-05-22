@@ -6,6 +6,7 @@ import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.table.BatchState;
@@ -60,8 +61,9 @@ public final class SampleEchoFunction implements TableFunction {
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        long batchSize = params.arguments().namedLong("batch_size", 2048L);
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        long count = p.positional(0, "count").asLong().required();
+        long batchSize = p.named("batch_size").asLong().orElse(2048L);
         double pct = params.tablesamplePercentage() == null ? -1.0 : params.tablesamplePercentage();
         long seed = params.tablesampleSeed() == null ? -1L : params.tablesampleSeed();
         return new State(new BatchState(count, batchSize), pct, seed,

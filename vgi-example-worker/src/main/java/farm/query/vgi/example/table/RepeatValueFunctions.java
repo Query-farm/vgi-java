@@ -97,13 +97,14 @@ public final class RepeatValueFunctions {
             return BindResponse.forSchema(schemaIpc(n, Schemas.UTF8));
         }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long count = ((Number) p.arguments().positionalAt(0)).longValue();
-            int n = p.arguments().positional().size() - 1;
-            String[] values = new String[n];
-            for (int i = 0; i < n; i++) {
-                values[i] = (String) p.arguments().positionalAt(i + 1);
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            long count = ex.positional(0, "count").asLong().required();
+            List<Object> tail = ex.varargsFrom(1);
+            String[] values = new String[tail.size()];
+            for (int i = 0; i < tail.size(); i++) {
+                values[i] = (String) tail.get(i);
             }
-            return new StrState((int) count, values, schema(n, Schemas.UTF8));
+            return new StrState((int) count, values, schema(tail.size(), Schemas.UTF8));
         }
     }
 
@@ -148,15 +149,13 @@ public final class RepeatValueFunctions {
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (remaining <= 0) { out.finish(); return; }
             int n = Math.min(remaining, 1024);
-            VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
-            root.allocateNew();
-            for (int c = 0; c < values.length; c++) {
-                VarCharVector v = (VarCharVector) root.getVector("v" + c);
-                Text t = new Text(values[c] == null ? "" : values[c]);
-                for (int i = 0; i < n; i++) v.setSafe(i, t);
-            }
-            root.setRowCount(n);
-            out.emit(root);
+            BatchUtil.emit(schema, n, out, (root, rows, start) -> {
+                for (int c = 0; c < values.length; c++) {
+                    VarCharVector v = (VarCharVector) root.getVector("v" + c);
+                    Text t = new Text(values[c] == null ? "" : values[c]);
+                    for (int i = 0; i < rows; i++) v.setSafe(i, t);
+                }
+            });
             remaining -= n;
         }
     }

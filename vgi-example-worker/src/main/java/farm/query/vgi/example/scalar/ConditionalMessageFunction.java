@@ -3,6 +3,7 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -42,8 +43,9 @@ public final class ConditionalMessageFunction implements ScalarFunction {
 
     @Override
     public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        long repeat = ((Number) params.arguments().positionalAt(0)).longValue();
-        String message = (String) params.arguments().positionalAt(1);
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        long repeat = p.positional(0, "repeat_count").asLong().required();
+        String message = p.positional(1, "message").asString().orElse(null);
         String repeated = (repeat <= 0 || message == null) ? "" : message.repeat((int) repeat);
 
         FieldVector condition = input.getFieldVectors().get(0);

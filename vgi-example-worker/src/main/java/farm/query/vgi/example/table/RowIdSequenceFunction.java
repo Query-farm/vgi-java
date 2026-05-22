@@ -2,6 +2,8 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ParameterExtractor;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
@@ -37,10 +39,8 @@ import java.util.Map;
  */
 public final class RowIdSequenceFunction implements TableFunction {
 
-    private static final java.util.Set<String> LAYOUTS =
-            java.util.Set.of("first", "middle", "last");
-    private static final java.util.Set<String> ROW_ID_TYPES =
-            java.util.Set.of("int64", "string", "struct");
+    private static final String[] LAYOUTS = {"first", "middle", "last"};
+    private static final String[] ROW_ID_TYPES = {"int64", "string", "struct"};
 
     private static final FunctionSpec SPEC = FunctionSpec.builder("rowid_sequence")
             .metadata(FunctionMetadata.describe("Sequence with row_id column")
@@ -53,14 +53,9 @@ public final class RowIdSequenceFunction implements TableFunction {
     @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams p) {
-        String layout = stringArg(p, "layout", "first");
-        String rowIdType = stringArg(p, "row_id_type", "int64");
-        if (!LAYOUTS.contains(layout)) {
-            throw new IllegalArgumentException("layout must be one of the allowed choices [first, middle, last], got '" + layout + "'");
-        }
-        if (!ROW_ID_TYPES.contains(rowIdType)) {
-            throw new IllegalArgumentException("row_id_type must be one of the allowed choices [int64, string, struct], got '" + rowIdType + "'");
-        }
+        ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+        String layout = ex.named("layout").asString().oneOf(LAYOUTS).orElse("first");
+        String rowIdType = ex.named("row_id_type").asString().oneOf(ROW_ID_TYPES).orElse("int64");
         return BindResponse.forSchema(SchemaUtil.serializeSchema(
                 buildSchema(layout, rowIdType)));
     }
@@ -71,21 +66,11 @@ public final class RowIdSequenceFunction implements TableFunction {
     }
 
     @Override public TableProducerState createProducer(TableInitParams p) {
-        long count = ((Number) p.arguments().positionalAt(0)).longValue();
-        String layout = namedString(p.arguments().named(), "layout", "first");
-        String rowIdType = namedString(p.arguments().named(), "row_id_type", "int64");
+        ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+        long count = ex.positional(0, "count").asLong().required();
+        String layout = ex.named("layout").asString().oneOf(LAYOUTS).orElse("first");
+        String rowIdType = ex.named("row_id_type").asString().oneOf(ROW_ID_TYPES).orElse("int64");
         return new State((int) count, layout, rowIdType);
-    }
-
-    private static String stringArg(TableBindParams p, String name, String defaultValue) {
-        Object v = p.arguments().named().get(name);
-        if (v == null) return defaultValue;
-        return v.toString();
-    }
-
-    private static String namedString(Map<String, Object> named, String name, String defaultValue) {
-        Object v = named.get(name);
-        return v == null ? defaultValue : v.toString();
     }
 
     private static Schema buildSchema(String layout, String rowIdType) {
@@ -129,21 +114,19 @@ public final class RowIdSequenceFunction implements TableFunction {
             done = true;
             if (total <= 0) { out.finish(); return; }
             Schema schema = buildSchema(layout, rowIdType);
-            VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
-            root.allocateNew();
-            for (Field f : schema.getFields()) {
-                if ("row_id".equals(f.getName())) {
-                    fillRowIds(root, f, rowIdType, total);
-                } else if ("name".equals(f.getName())) {
-                    VarCharVector v = (VarCharVector) root.getVector("name");
-                    for (int i = 0; i < total; i++) v.setSafe(i, new Text("item_" + i));
-                } else if ("value".equals(f.getName())) {
-                    VarCharVector v = (VarCharVector) root.getVector("value");
-                    for (int i = 0; i < total; i++) v.setSafe(i, new Text("val_" + i));
+            BatchUtil.emit(schema, total, out, (root, n, start) -> {
+                for (Field f : schema.getFields()) {
+                    if ("row_id".equals(f.getName())) {
+                        fillRowIds(root, f, rowIdType, n);
+                    } else if ("name".equals(f.getName())) {
+                        VarCharVector v = (VarCharVector) root.getVector("name");
+                        for (int i = 0; i < n; i++) v.setSafe(i, new Text("item_" + i));
+                    } else if ("value".equals(f.getName())) {
+                        VarCharVector v = (VarCharVector) root.getVector("value");
+                        for (int i = 0; i < n; i++) v.setSafe(i, new Text("val_" + i));
+                    }
                 }
-            }
-            root.setRowCount(total);
-            out.emit(root);
+            });
             out.finish();
         }
 

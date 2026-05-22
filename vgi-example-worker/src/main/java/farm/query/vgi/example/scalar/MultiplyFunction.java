@@ -3,6 +3,7 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -30,7 +31,8 @@ public final class MultiplyFunction implements ScalarFunction {
 
     @Override
     public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        long factor = ((Number) params.arguments().positionalAt(0)).longValue();
+        long factor = ParameterExtractor.of(params.arguments())
+                .positional(0, "factor").asLong().required();
         BigIntVector value = (BigIntVector) input.getFieldVectors().get(0);
         int rows = input.getRowCount();
         VectorSchemaRoot out = VectorSchemaRoot.create(params.outputSchema(), alloc);

@@ -4,6 +4,7 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.VectorProjector;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.internal.SchemaUtil;
@@ -75,7 +76,8 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
     @Override public long maxWorkers() { return 8L; }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
+        long count = ParameterExtractor.of(params.arguments())
+                .positional(0, "count").asLong().required();
         String execKey = key(params.executionId());
         ConcurrentLinkedQueue<long[]> queue = QUEUES.computeIfAbsent(execKey, k -> {
             ConcurrentLinkedQueue<long[]> q = new ConcurrentLinkedQueue<>();

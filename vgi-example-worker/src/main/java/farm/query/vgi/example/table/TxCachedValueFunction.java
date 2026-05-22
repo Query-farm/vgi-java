@@ -4,6 +4,8 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.table.TableBindParams;
@@ -59,8 +61,9 @@ public final class TxCachedValueFunction implements TableFunction {
     @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public BindResponse onBind(TableBindParams params) {
-        String key = params.arguments().positionalString(0, "");
-        long seed = params.arguments().positionalLong(1, 0L);
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        String key = p.positional(0, "key").asString().orElse("");
+        long seed = p.positional(1, "seed").asLong().orElse(0L);
         long value;
         TransactionStorage storage = params.transactionStorage();
         if (storage != null) {
@@ -98,12 +101,10 @@ public final class TxCachedValueFunction implements TableFunction {
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (emitted) { out.finish(); return; }
-            VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-            root.allocateNew();
-            BigIntVector v = (BigIntVector) root.getVector("v");
-            v.setSafe(0, value);
-            root.setRowCount(1);
-            out.emit(root);
+            BatchUtil.emit(OUTPUT, 1, out, (root, rows, start) -> {
+                BigIntVector v = (BigIntVector) root.getVector("v");
+                v.setSafe(0, value);
+            });
             emitted = true;
         }
     }

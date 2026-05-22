@@ -3,6 +3,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.table.BatchState;
@@ -56,9 +57,10 @@ public final class ProfilingDemoFunction extends CountdownTableFunction {
     }
 
     @Override public TableProducerState createProducer(TableInitParams p) {
-        long count = ((Number) p.arguments().positionalAt(0)).longValue();
-        long batchSize = p.arguments().namedLong("batch_size", 1024L);
-        long increment = p.arguments().namedLong("increment", 1L);
+        ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+        long count = ex.positional(0, "count").asLong().required();
+        long batchSize = ex.named("batch_size").asLong().orElse(1024L);
+        long increment = ex.named("increment").asLong().orElse(1L);
         String execKey = key(p.executionId());
         ExecutionStats stats = STATS.computeIfAbsent(execKey, k -> new ExecutionStats());
         return new State(new BatchState(count, batchSize), increment, execKey, stats);

@@ -108,13 +108,22 @@ public final class BatchUtil {
      * source), the framework owns cleanup.
      */
     public static void emit(Schema schema, int rowCount, OutputCollector out, ColumnFiller filler) {
+        emit(schema, rowCount, out, null, filler);
+    }
+
+    /** Same as {@link #emit(Schema, int, OutputCollector, ColumnFiller)} but
+     *  emits with custom batch metadata (e.g. {@code vgi_batch_index},
+     *  {@code vgi_partition_values}). {@code metadata} may be {@code null}. */
+    public static void emit(Schema schema, int rowCount, OutputCollector out,
+                              java.util.Map<String, String> metadata, ColumnFiller filler) {
         VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
         boolean emitted = false;
         try {
             root.allocateNew();
             filler.fill(root, rowCount, 0L);
             root.setRowCount(rowCount);
-            out.emit(root);
+            if (metadata == null) out.emit(root);
+            else out.emit(root, metadata);
             emitted = true;
         } finally {
             if (!emitted) root.close();

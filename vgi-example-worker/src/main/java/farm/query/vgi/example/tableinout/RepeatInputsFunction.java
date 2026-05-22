@@ -3,6 +3,7 @@
 package farm.query.vgi.example.tableinout;
 
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
@@ -33,7 +34,8 @@ public final class RepeatInputsFunction extends PassthroughTIOFunction {
     @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
+        long count = ParameterExtractor.of(params.arguments())
+                .positional(0, "repeat_count").asLong().required();
         return new RepeatState(Math.max(1L, count));
     }
 

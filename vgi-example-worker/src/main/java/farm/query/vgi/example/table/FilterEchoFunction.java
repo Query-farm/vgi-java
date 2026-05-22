@@ -3,6 +3,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.VectorProjector;
 import farm.query.vgi.pushdown.FilterApplier;
 import farm.query.vgi.pushdown.PushdownFilters;
@@ -52,8 +53,9 @@ public final class FilterEchoFunction extends CountdownTableFunction {
     @Override protected long defaultBatchSize() { return 2048L; }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        long batchSize = params.arguments().namedLong("batch_size", 2048L);
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        long count = p.positional(0, "count").asLong().required();
+        long batchSize = p.named("batch_size").asLong().orElse(2048L);
         byte[] pfBytes = params.pushdownFilters();
         PushdownFilters pf = pfBytes == null
                 ? PushdownFilters.empty()

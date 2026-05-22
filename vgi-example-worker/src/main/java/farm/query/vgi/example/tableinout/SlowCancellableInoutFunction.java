@@ -3,6 +3,7 @@
 package farm.query.vgi.example.tableinout;
 
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.PassthroughTIOFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
@@ -31,8 +32,9 @@ public final class SlowCancellableInoutFunction extends PassthroughTIOFunction {
     @Override public FunctionSpec spec() { return SPEC; }
 
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-        String probePath = (String) params.arguments().positionalAt(0);
-        long sleepMs = params.arguments().namedLong("sleep_ms", 50L);
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        String probePath = p.positional(0, "probe_path").asString().required();
+        long sleepMs = p.named("sleep_ms").asLong().orElse(50L);
         return new State(sleepMs, probePath);
     }
 

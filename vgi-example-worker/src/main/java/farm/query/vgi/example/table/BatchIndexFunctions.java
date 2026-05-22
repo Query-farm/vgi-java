@@ -5,6 +5,8 @@ package farm.query.vgi.example.table;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionMetadata.OrderPreservation;
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.EmitMetadata;
 import farm.query.vgi.internal.HexId;
 import farm.query.vgi.internal.SchemaUtil;
@@ -86,7 +88,8 @@ public final class BatchIndexFunctions {
         @Override public long maxWorkers() { return 8L; }
 
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long count = ((Number) p.arguments().positionalAt(0)).longValue();
+            long count = ParameterExtractor.of(p.arguments())
+                    .positional(0, "count").asLong().required();
             String key = HexId.encode(p.executionId());
             return new State(buildQueue(key, count, CHUNK_SIZE), key);
         }
@@ -121,12 +124,12 @@ public final class BatchIndexFunctions {
                     haveChunk = true;
                 }
                 int n = (int) Math.min(BATCH_SIZE, currentEnd - currentIdx);
-                VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-                root.allocateNew();
-                BigIntVector v = (BigIntVector) root.getVector("n");
-                for (int i = 0; i < n; i++) v.setSafe(i, currentIdx + i);
-                root.setRowCount(n);
-                out.emit(root, EmitMetadata.batchIndex(partitionId));
+                long startIdx = currentIdx;
+                BatchUtil.emit(OUTPUT, n, out, EmitMetadata.batchIndex(partitionId),
+                        (root, rows, start) -> {
+                    BigIntVector v = (BigIntVector) root.getVector("n");
+                    for (int i = 0; i < rows; i++) v.setSafe(i, startIdx + i);
+                });
                 currentIdx += n;
             }
         }
@@ -170,8 +173,9 @@ public final class BatchIndexFunctions {
         @Override public long maxWorkers() { return 8L; }
 
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long count = ((Number) p.arguments().positionalAt(0)).longValue();
-            long chunkSize = p.arguments().namedLong("chunk_size", 1000L);
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            long count = ex.positional(0, "count").asLong().required();
+            long chunkSize = ex.named("chunk_size").asLong().orElse(1000L);
             String key = HexId.encode(p.executionId()) + ":" + chunkSize;
             return new State(buildQueue(key, count, chunkSize), key);
         }
@@ -208,16 +212,18 @@ public final class BatchIndexFunctions {
                     haveChunk = true;
                 }
                 int n = (int) Math.min(BATCH_SIZE, currentEnd - currentIdx);
-                VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-                root.allocateNew();
-                BigIntVector pid = (BigIntVector) root.getVector("partition_id");
-                BigIntVector seq = (BigIntVector) root.getVector("seq");
-                for (int i = 0; i < n; i++) {
-                    pid.setSafe(i, partitionId);
-                    seq.setSafe(i, currentIdx - currentStart + i);
-                }
-                root.setRowCount(n);
-                out.emit(root, EmitMetadata.batchIndex(partitionId));
+                long startIdx = currentIdx;
+                long localStart = currentStart;
+                long pidVal = partitionId;
+                BatchUtil.emit(OUTPUT, n, out, EmitMetadata.batchIndex(partitionId),
+                        (root, rows, start) -> {
+                    BigIntVector pid = (BigIntVector) root.getVector("partition_id");
+                    BigIntVector seq = (BigIntVector) root.getVector("seq");
+                    for (int i = 0; i < rows; i++) {
+                        pid.setSafe(i, pidVal);
+                        seq.setSafe(i, startIdx - localStart + i);
+                    }
+                });
                 currentIdx += n;
             }
         }

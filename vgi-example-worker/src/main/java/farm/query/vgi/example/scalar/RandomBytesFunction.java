@@ -3,6 +3,7 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -39,9 +40,9 @@ public final class RandomBytesFunction implements ScalarFunction {
     }
     @Override
     public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        long seed = ((Number) params.arguments().positionalAt(0)).longValue();
-        long byteLen = ((Number) params.arguments().positionalAt(1)).longValue();
-        if (byteLen < 0) throw new IllegalArgumentException("byte_length must be >= 0");
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        long seed = p.positional(0, "seed").asLong().required();
+        long byteLen = p.positional(1, "byte_length").asLong().ge(0).required();
         Random rng = new Random(seed);
         int rows = input.getRowCount();
         VectorSchemaRoot out = VectorSchemaRoot.create(params.outputSchema(), alloc);

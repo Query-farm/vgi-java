@@ -3,6 +3,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.pushdown.FilterApplier;
@@ -67,9 +68,10 @@ public final class NestedSequenceFunction extends CountdownTableFunction {
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        long batchSize = params.arguments().namedLong("batch_size", 1000L);
-        long historySize = params.arguments().namedLong("history_size", 20L);
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        long count = p.positional(0, "count").asLong().required();
+        long batchSize = p.named("batch_size").asLong().orElse(1000L);
+        long historySize = p.named("history_size").asLong().orElse(20L);
         return new State(new BatchState(count, batchSize), historySize,
                 new CachedSchema(params.outputSchema()),
                 FilterApplier.from(params.pushdownFilters(), params.joinKeys()));

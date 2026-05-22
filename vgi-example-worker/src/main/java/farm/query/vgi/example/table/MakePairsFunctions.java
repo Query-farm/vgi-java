@@ -2,6 +2,8 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ParameterExtractor;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
@@ -65,8 +67,9 @@ public final class MakePairsFunctions {
         @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(INT_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long start = ((Number) p.arguments().positionalAt(0)).longValue();
-            long stop = ((Number) p.arguments().positionalAt(1)).longValue();
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            long start = ex.positional(0, "start").asLong().required();
+            long stop = ex.positional(1, "stop").asLong().required();
             return new IntState(start, stop);
         }
     }
@@ -81,8 +84,9 @@ public final class MakePairsFunctions {
         @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(STR_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            String prefix = (String) p.arguments().positionalAt(0);
-            String suffix = (String) p.arguments().positionalAt(1);
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            String prefix = ex.positional(0, "prefix").asString().required();
+            String suffix = ex.positional(1, "suffix").asString().required();
             return new StrState(prefix, suffix);
         }
     }
@@ -97,8 +101,9 @@ public final class MakePairsFunctions {
         @Override public FunctionSpec spec() { return SPEC; }
         @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(MIXED_SCHEMA_IPC); }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long start = ((Number) p.arguments().positionalAt(0)).longValue();
-            String suffix = (String) p.arguments().positionalAt(1);
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            long start = ex.positional(0, "start").asLong().required();
+            String suffix = ex.positional(1, "label").asString().required();
             return new MixedState(start, suffix);
         }
     }
@@ -116,17 +121,16 @@ public final class MakePairsFunctions {
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (done || pos >= stop) { out.finish(); done = true; return; }
             int n = (int) Math.min(1024L, stop - pos);
-            VectorSchemaRoot root = VectorSchemaRoot.create(INT_SCHEMA, Allocators.root());
-            root.allocateNew();
-            BigIntVector a = (BigIntVector) root.getVector("a");
-            BigIntVector b = (BigIntVector) root.getVector("b");
-            for (int i = 0; i < n; i++) {
-                long val = pos + i;
-                a.setSafe(i, val);
-                b.setSafe(i, val * 2);
-            }
-            root.setRowCount(n);
-            out.emit(root);
+            long startPos = pos;
+            BatchUtil.emit(INT_SCHEMA, n, out, (root, rows, start) -> {
+                BigIntVector a = (BigIntVector) root.getVector("a");
+                BigIntVector b = (BigIntVector) root.getVector("b");
+                for (int i = 0; i < rows; i++) {
+                    long val = startPos + i;
+                    a.setSafe(i, val);
+                    b.setSafe(i, val * 2);
+                }
+            });
             pos += n;
         }
     }
@@ -143,16 +147,14 @@ public final class MakePairsFunctions {
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (done) { out.finish(); return; }
-            VectorSchemaRoot root = VectorSchemaRoot.create(STR_SCHEMA, Allocators.root());
-            root.allocateNew();
-            VarCharVector a = (VarCharVector) root.getVector("a");
-            VarCharVector b = (VarCharVector) root.getVector("b");
-            for (int i = 0; i < 5; i++) {
-                a.setSafe(i, new Text(prefix + i));
-                b.setSafe(i, new Text(suffix + i));
-            }
-            root.setRowCount(5);
-            out.emit(root);
+            BatchUtil.emit(STR_SCHEMA, 5, out, (root, rows, start) -> {
+                VarCharVector a = (VarCharVector) root.getVector("a");
+                VarCharVector b = (VarCharVector) root.getVector("b");
+                for (int i = 0; i < rows; i++) {
+                    a.setSafe(i, new Text(prefix + i));
+                    b.setSafe(i, new Text(suffix + i));
+                }
+            });
             done = true;
         }
     }
@@ -169,16 +171,14 @@ public final class MakePairsFunctions {
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (done) { out.finish(); return; }
-            VectorSchemaRoot root = VectorSchemaRoot.create(MIXED_SCHEMA, Allocators.root());
-            root.allocateNew();
-            BigIntVector a = (BigIntVector) root.getVector("a");
-            VarCharVector b = (VarCharVector) root.getVector("b");
-            for (int i = 0; i < 5; i++) {
-                a.setSafe(i, start + i);
-                b.setSafe(i, new Text(suffix + i));
-            }
-            root.setRowCount(5);
-            out.emit(root);
+            BatchUtil.emit(MIXED_SCHEMA, 5, out, (root, rows, startIdx) -> {
+                BigIntVector a = (BigIntVector) root.getVector("a");
+                VarCharVector b = (VarCharVector) root.getVector("b");
+                for (int i = 0; i < rows; i++) {
+                    a.setSafe(i, start + i);
+                    b.setSafe(i, new Text(suffix + i));
+                }
+            });
             done = true;
         }
     }
