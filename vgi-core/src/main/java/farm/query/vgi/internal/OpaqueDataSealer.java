@@ -41,12 +41,39 @@ public final class OpaqueDataSealer {
     /** {@code null} ⇒ disabled (passthrough) — stdio / AF_UNIX transports. */
     private final byte[] key;
 
+    /**
+     * Random per-process key. Sealed blobs are only valid for the lifetime
+     * of this single worker process; clients must re-ATTACH against any
+     * other replica. For multi-replica deployments use
+     * {@link #OpaqueDataSealer(byte[])} with a key sourced from a shared
+     * secret so blobs decrypt across replicas.
+     */
     public OpaqueDataSealer(boolean enabled) {
         if (enabled) {
             this.key = new byte[32];
             new SecureRandom().nextBytes(this.key);
         } else {
             this.key = null;
+        }
+    }
+
+    /**
+     * Explicit-key form for multi-replica HTTP deployments. {@code key} must
+     * be exactly 32 bytes; {@code null} disables the sealer (same as
+     * {@code OpaqueDataSealer(false)}). When set, every replica that
+     * receives the same key can unseal blobs the others produced — so a
+     * load balancer rotating across replicas does not invalidate the
+     * client's {@code attach_opaque_data}.
+     */
+    public OpaqueDataSealer(byte[] key) {
+        if (key == null) {
+            this.key = null;
+        } else {
+            if (key.length != 32) {
+                throw new IllegalArgumentException(
+                        "OpaqueDataSealer key must be 32 bytes (got " + key.length + ")");
+            }
+            this.key = key.clone();
         }
     }
 

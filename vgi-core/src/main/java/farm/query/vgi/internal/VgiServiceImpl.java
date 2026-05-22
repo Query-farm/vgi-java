@@ -145,7 +145,21 @@ public final class VgiServiceImpl implements VgiService {
     public VgiServiceImpl(Worker worker, List<ScalarFunction> scalars, List<TableFunction> tables,
                            List<TableInOutFunction> tableInOuts, List<AggregateFunction<?>> aggregates,
                            boolean sealOpaqueData) {
-        this.sealer = new OpaqueDataSealer(sealOpaqueData);
+        this(worker, scalars, tables, tableInOuts, aggregates, sealOpaqueData, null);
+    }
+
+    /**
+     * Variant for HTTP deployments that need a shared opaque-data key
+     * across replicas. {@code opaqueDataKey} must be exactly 32 bytes when
+     * set; when {@code null}, falls back to the per-process random key
+     * (matches the single-replica contract).
+     */
+    public VgiServiceImpl(Worker worker, List<ScalarFunction> scalars, List<TableFunction> tables,
+                           List<TableInOutFunction> tableInOuts, List<AggregateFunction<?>> aggregates,
+                           boolean sealOpaqueData, byte[] opaqueDataKey) {
+        this.sealer = (sealOpaqueData && opaqueDataKey != null)
+                ? new OpaqueDataSealer(opaqueDataKey)
+                : new OpaqueDataSealer(sealOpaqueData);
         this.worker = worker;
         for (ScalarFunction f : scalars) this.scalars.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
         for (TableFunction f : tables) this.tables.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);

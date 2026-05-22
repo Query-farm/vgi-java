@@ -45,6 +45,10 @@ public final class Worker {
     private String dataVersionSpec;
     private final List<CatalogDataVersionRelease> releases = new ArrayList<>();
     private String sourceUrl;
+    /** Optional 32-byte ChaCha20-Poly1305 key for sealing attach / transaction
+     *  opaque data. {@code null} ⇒ per-process random (single-replica only).
+     *  See {@link #opaqueDataKey(byte[])}. */
+    private byte[] opaqueDataKey;
     private final List<ScalarFunction> scalars = new ArrayList<>();
     private final List<TableFunction> tables = new ArrayList<>();
     private final List<TableInOutFunction> tableInOuts = new ArrayList<>();
@@ -115,6 +119,27 @@ public final class Worker {
     public Worker dataVersionSpec(String v) { this.dataVersionSpec = v; return this; }
     public String implementationVersion() { return implementationVersion; }
     public String dataVersionSpec() { return dataVersionSpec; }
+
+    /**
+     * Provide a stable 32-byte key for sealing attach / transaction
+     * {@code opaque_data}. Required when running the same worker across
+     * multiple HTTP replicas: without it each replica generates its own
+     * random key, and a load balancer rotating across them will surface
+     * {@code AEADBadTagException} when one replica receives a blob another
+     * replica sealed.
+     *
+     * <p>{@code null} (the default) restores the per-process random-key
+     * behaviour, which is correct for single-replica HTTP and irrelevant
+     * for stdio / AF_UNIX (where the sealer is disabled entirely).
+     */
+    public Worker opaqueDataKey(byte[] key) {
+        if (key != null && key.length != 32) {
+            throw new IllegalArgumentException(
+                    "opaqueDataKey must be 32 bytes (got " + key.length + ")");
+        }
+        this.opaqueDataKey = key != null ? key.clone() : null;
+        return this;
+    }
 
     /** Published data-version releases, surfaced through {@code catalog_catalogs()}.
      *  Pass newest-first. */
@@ -237,11 +262,14 @@ public final class Worker {
     /**
      * @param sealOpaqueData HTTP-only AEAD sealing of attach / transaction
      *        opaque data. Disabled for stdio / AF_UNIX, where OS process
-     *        ownership already enforces caller identity.
+     *        ownership already enforces caller identity. When the caller
+     *        configured {@link #opaqueDataKey(byte[])}, that key is also
+     *        passed down so multi-replica deployments share a key.
      */
     private RpcServer buildServer(boolean sealOpaqueData) {
         RpcServer server = new RpcServer(VgiService.class,
-                new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates, sealOpaqueData));
+                new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates,
+                        sealOpaqueData, sealOpaqueData ? opaqueDataKey : null));
         server.setProtocolVersion(VGI_PROTOCOL_VERSION);
         return server;
     }
