@@ -2,53 +2,40 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.FunctionSpec;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.scalar.ScalarBindParams;
-import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
-import farm.query.vgi.types.Schemas;
-import org.apache.arrow.memory.BufferAllocator;
+import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.scalar.ScalarFn;
+import farm.query.vgi.scalar.Vector;
 import org.apache.arrow.vector.Float8Vector;
-import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.StructVector;
 
+import java.util.List;
+
 /** {@code geo_distance_struct(p1 STRUCT(lat,lon), p2 STRUCT(lat,lon)) -> DOUBLE}. */
-public final class GeoDistanceStructFunction implements ScalarFunction {
+public final class GeoDistanceStructFunction extends ScalarFn {
 
-    private static final FunctionSpec SPEC = FunctionSpec.builder("geo_distance_struct")
-            .description("Euclidean distance between two struct points")
-            .nested("p1", GeoTypes.structArgType(), GeoTypes.structPointChildren())
-            .nested("p2", GeoTypes.structArgType(), GeoTypes.structPointChildren())
-            .build();
-
-    @Override public FunctionSpec spec() { return SPEC; }
-    @Override public BindResponse onBind(ScalarBindParams params) {
-        return BindResponse.forSchema(Schemas.singleResultIpc(Schemas.FLOAT64));
-    }
+    @Override public String name() { return "geo_distance_struct"; }
+    @Override public String description() { return "Euclidean distance between two struct points"; }
 
     @Override
-    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        StructVector p1 = (StructVector) input.getFieldVectors().get(0);
-        StructVector p2 = (StructVector) input.getFieldVectors().get(1);
+    public List<ArgSpec> argumentSpecs() {
+        return List.of(
+                ArgSpec.nested("p1", 0, GeoTypes.structArgType(), GeoTypes.structPointChildren(), false),
+                ArgSpec.nested("p2", 1, GeoTypes.structArgType(), GeoTypes.structPointChildren(), false));
+    }
+
+    public void compute(
+            @Vector StructVector p1,
+            @Vector StructVector p2,
+            Float8Vector result) {
         Float8Vector p1lat = (Float8Vector) p1.getChildByOrdinal(0);
         Float8Vector p1lon = (Float8Vector) p1.getChildByOrdinal(1);
         Float8Vector p2lat = (Float8Vector) p2.getChildByOrdinal(0);
         Float8Vector p2lon = (Float8Vector) p2.getChildByOrdinal(1);
-
-        int rows = input.getRowCount();
-        VectorSchemaRoot out = VectorSchemaRoot.create(params.outputSchema(), alloc);
-        out.allocateNew();
-        Float8Vector v = (Float8Vector) out.getVector("result");
+        int rows = p1.getValueCount();
         for (int i = 0; i < rows; i++) {
-            if (p1.isNull(i) || p2.isNull(i)) {
-                v.setNull(i);
-            } else {
-                v.setSafe(i, GeoTypes.euclidean(
-                        p1lat.get(i), p1lon.get(i), p2lat.get(i), p2lon.get(i)));
-            }
+            if (p1.isNull(i) || p2.isNull(i)) { result.setNull(i); continue; }
+            result.setSafe(i, GeoTypes.euclidean(
+                    p1lat.get(i), p1lon.get(i), p2lat.get(i), p2lon.get(i)));
         }
-        out.setRowCount(rows);
-        return out;
     }
 }

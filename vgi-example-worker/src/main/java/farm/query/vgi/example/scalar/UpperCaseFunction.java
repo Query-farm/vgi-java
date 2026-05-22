@@ -2,37 +2,22 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.FunctionSpec;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.scalar.ScalarBindParams;
-import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
-import farm.query.vgi.types.ScalarHelpers;
-import farm.query.vgi.types.Schemas;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
+import farm.query.vgi.scalar.ScalarFn;
+import farm.query.vgi.scalar.Vector;
+import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.util.Text;
 
 /** {@code upper_case(value: utf8) -> utf8}. */
-public final class UpperCaseFunction implements ScalarFunction {
+public final class UpperCaseFunction extends ScalarFn {
 
-    private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.UTF8);
+    @Override public String name() { return "upper_case"; }
+    @Override public String description() { return "Converts string values to uppercase"; }
 
-    private static final FunctionSpec SPEC = FunctionSpec.builder("upper_case")
-            .description("Converts string values to uppercase")
-            .arg("value", Schemas.UTF8)
-            .build();
-
-    @Override public FunctionSpec spec() { return SPEC; }
-
-    @Override public BindResponse onBind(ScalarBindParams params) {
-        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
-    }
-
-    @Override
-    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        FieldVector value = input.getFieldVectors().get(0);
-        return ScalarHelpers.mapString(Schemas.singleResult(Schemas.UTF8), input, alloc, value,
-                row -> ScalarHelpers.toString(value, row).toUpperCase());
+    public void compute(@Vector VarCharVector value, VarCharVector result) {
+        int rows = value.getValueCount();
+        for (int i = 0; i < rows; i++) {
+            if (value.isNull(i)) result.setNull(i);
+            else result.setSafe(i, new Text(value.getObject(i).toString().toUpperCase()));
+        }
     }
 }

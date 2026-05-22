@@ -2,17 +2,14 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.FunctionSpec;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.scalar.ScalarBindParams;
-import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
+import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.scalar.Const;
+import farm.query.vgi.scalar.ScalarFn;
+import farm.query.vgi.scalar.Vector;
 import farm.query.vgi.types.Schemas;
-import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -24,57 +21,46 @@ import java.util.List;
  * {@code binary_packet(header BLOB [const], payload BLOB, config STRUCT(label,version) [const]) -> BLOB}.
  *
  * <p>Concatenates {@code header || payload || utf8(config.label) || lowByte(config.version)}.
+ * Override {@link #argumentSpecs()} because {@code config}'s STRUCT type carries explicit
+ * child fields that don't auto-derive from {@code StructVector.class}.
  */
-public final class BinaryPacketFunction implements ScalarFunction {
+public final class BinaryPacketFunction extends ScalarFn {
 
-    private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.BINARY);
-
-    private static final FunctionSpec SPEC = FunctionSpec.builder("binary_packet")
-            .description("Build binary packets with header, payload, and config")
-            .constArg("header", Schemas.BINARY)
-            .arg("payload", Schemas.BINARY)
-            .nested("config", ArrowType.Struct.INSTANCE,
-                    List.of(
-                            new Field("label", new FieldType(true, Schemas.UTF8, null), null),
-                            new Field("version", new FieldType(true, Schemas.INT64, null), null)))
-            .build();
-
-    @Override public FunctionSpec spec() { return SPEC; }
-
-    @Override public BindResponse onBind(ScalarBindParams params) {
-        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
-    }
+    @Override public String name() { return "binary_packet"; }
+    @Override public String description() { return "Build binary packets with header, payload, and config"; }
 
     @Override
-    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        // header (const) comes via args; payload + config arrive as input batch columns.
-        byte[] header = (byte[]) params.arguments().positionalAt(0);
-        if (header == null) header = new byte[0];
+    public List<ArgSpec> argumentSpecs() {
+        return List.of(
+                ArgSpec.positional("header", 0, Schemas.BINARY),
+                new ArgSpec("payload", 1, Schemas.BINARY),
+                ArgSpec.nested("config", 2, ArrowType.Struct.INSTANCE, List.of(
+                        new Field("label", new FieldType(true, Schemas.UTF8, null), null),
+                        new Field("version", new FieldType(true, Schemas.INT64, null), null)),
+                        false));
+    }
 
-        VarBinaryVector payload = (VarBinaryVector) input.getFieldVectors().get(0);
-        StructVector config = (StructVector) input.getFieldVectors().get(1);
+    public void compute(
+            @Const byte[] header,
+            @Vector VarBinaryVector payload,
+            @Vector StructVector config,
+            VarBinaryVector result) {
+        byte[] hdr = header == null ? new byte[0] : header;
         VarCharVector labelV = (VarCharVector) config.getChild("label");
         BigIntVector versionV = (BigIntVector) config.getChild("version");
-
-        VectorSchemaRoot out = VectorSchemaRoot.create(params.outputSchema(), alloc);
-        out.allocateNew();
-        VarBinaryVector v = (VarBinaryVector) out.getVector("result");
-        int rows = input.getRowCount();
+        int rows = payload.getValueCount();
         for (int i = 0; i < rows; i++) {
             byte[] payloadBytes = payload.isNull(i) ? new byte[0] : payload.get(i);
             byte[] labelBytes = labelV.isNull(i) ? new byte[0] : labelV.get(i);
             long version = versionV.isNull(i) ? 0L : versionV.get(i);
             int suffixLen = labelBytes.length + 1;
-            byte[] result = new byte[header.length + payloadBytes.length + suffixLen];
+            byte[] out = new byte[hdr.length + payloadBytes.length + suffixLen];
             int off = 0;
-            System.arraycopy(header, 0, result, off, header.length); off += header.length;
-            System.arraycopy(payloadBytes, 0, result, off, payloadBytes.length); off += payloadBytes.length;
-            System.arraycopy(labelBytes, 0, result, off, labelBytes.length); off += labelBytes.length;
-            result[off] = (byte) (version & 0xFF);
-            v.setSafe(i, result);
+            System.arraycopy(hdr, 0, out, off, hdr.length); off += hdr.length;
+            System.arraycopy(payloadBytes, 0, out, off, payloadBytes.length); off += payloadBytes.length;
+            System.arraycopy(labelBytes, 0, out, off, labelBytes.length); off += labelBytes.length;
+            out[off] = (byte) (version & 0xFF);
+            result.setSafe(i, out);
         }
-        v.setValueCount(rows);
-        out.setRowCount(rows);
-        return out;
     }
 }

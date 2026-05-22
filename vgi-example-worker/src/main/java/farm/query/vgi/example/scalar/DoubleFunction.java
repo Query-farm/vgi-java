@@ -2,16 +2,12 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.Arguments;
 import farm.query.vgi.function.TypeBoundPredicate;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.scalar.ScalarBindParams;
-import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
+import farm.query.vgi.scalar.ScalarFn;
+import farm.query.vgi.scalar.Vector;
 import farm.query.vgi.types.ScalarHelpers;
-import farm.query.vgi.types.Schemas;
 import farm.query.vgi.types.TypeRules;
-import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
@@ -20,7 +16,6 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
 import org.apache.arrow.vector.TinyIntVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
@@ -30,23 +25,17 @@ import java.math.BigDecimal;
  * {@code double(value)} — returns {@code value * 2}, promoted one width up
  * for integers (TINYINT→SMALLINT→INTEGER→BIGINT) and float-stable for floats.
  */
-public final class DoubleFunction implements ScalarFunction {
+public final class DoubleFunction extends ScalarFn {
 
-    private static final FunctionSpec SPEC = FunctionSpec.builder("double")
-            .description("Doubles numeric values")
-            .any("value", TypeBoundPredicate.IS_ADDABLE)
-            .build();
+    @Override public String name() { return "double"; }
+    @Override public String description() { return "Doubles numeric values"; }
 
-    @Override public FunctionSpec spec() { return SPEC; }
-
-    @Override public BindResponse onBind(ScalarBindParams params) {
-        if (params.inputSchema() == null || params.inputSchema().getFields().isEmpty()) {
-            return BindResponse.forSchema(Schemas.singleResultAnyIpc());
-        }
-        ArrowType in = params.inputSchema().getFields().get(0).getType();
-        // Reject non-multipliable types up-front. The error message must
-        // contain the predicate name so the test can pin the failure to the
-        // bind layer rather than a downstream Arrow kernel exception.
+    @Override
+    protected ArrowType outputType(Schema inputSchema, Arguments arguments) {
+        if (inputSchema == null || inputSchema.getFields().isEmpty()) return new ArrowType.Null();
+        ArrowType in = inputSchema.getFields().get(0).getType();
+        // Reject non-multipliable types at bind so the test pins the failure
+        // to the bind layer rather than a downstream Arrow kernel exception.
         if (in instanceof ArrowType.Date
                 || in instanceof ArrowType.Time
                 || in instanceof ArrowType.Timestamp
@@ -61,24 +50,16 @@ public final class DoubleFunction implements ScalarFunction {
                     "double: _is_multipliable_type rejects " + in
                             + " — only numeric types (int/float/decimal) are supported");
         }
-        return BindResponse.forSchema(Schemas.singleResultIpc(TypeRules.promoteForAddition(in)));
+        return TypeRules.promoteForAddition(in);
     }
 
-    @Override
-    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        FieldVector value = input.getFieldVectors().get(0);
-        Schema outSchema = params.outputSchema();
-        ArrowType outType = outSchema.getFields().get(0).getType();
-        int rows = input.getRowCount();
-        VectorSchemaRoot out = VectorSchemaRoot.create(outSchema, alloc);
-        out.allocateNew();
-        FieldVector v = out.getVector("result");
+    public void compute(
+            @Vector(any = true, typeBound = TypeBoundPredicate.IS_ADDABLE) FieldVector value,
+            FieldVector result) {
+        int rows = value.getValueCount();
         for (int i = 0; i < rows; i++) {
-            if (value.isNull(i)) {
-                v.setNull(i);
-                continue;
-            }
-            switch (v) {
+            if (value.isNull(i)) { result.setNull(i); continue; }
+            switch (result) {
                 case Float8Vector f -> f.setSafe(i, ScalarHelpers.toDouble(value, i) * 2);
                 case Float4Vector f -> f.setSafe(i, (float) (ScalarHelpers.toDouble(value, i) * 2));
                 case BigIntVector b -> b.setSafe(i, ScalarHelpers.toLong(value, i) * 2);
@@ -95,10 +76,8 @@ public final class DoubleFunction implements ScalarFunction {
                     }
                     d.setSafe(i, doubled);
                 }
-                default -> throw new IllegalStateException("unexpected output type: " + outType);
+                default -> throw new IllegalStateException("unexpected output type: " + result.getField().getType());
             }
         }
-        out.setRowCount(rows);
-        return out;
     }
 }

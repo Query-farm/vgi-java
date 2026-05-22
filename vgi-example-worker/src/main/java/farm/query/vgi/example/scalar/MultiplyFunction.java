@@ -2,47 +2,25 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.FunctionSpec;
-import farm.query.vgi.function.ParameterExtractor;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.scalar.ScalarBindParams;
-import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
-import farm.query.vgi.types.Schemas;
-import org.apache.arrow.memory.BufferAllocator;
+import farm.query.vgi.scalar.Const;
+import farm.query.vgi.scalar.ScalarFn;
+import farm.query.vgi.scalar.Vector;
 import org.apache.arrow.vector.BigIntVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
 
 /** {@code multiply(value INT64, factor INT64 [const]) -> INT64}. */
-public final class MultiplyFunction implements ScalarFunction {
+public final class MultiplyFunction extends ScalarFn {
 
-    private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.INT64);
+    @Override public String name() { return "multiply"; }
+    @Override public String description() { return "Multiplies a value by a constant factor"; }
 
-    private static final FunctionSpec SPEC = FunctionSpec.builder("multiply")
-            .description("Multiplies a value by a constant factor")
-            .arg("value", Schemas.INT64)
-            .constArg("factor", Schemas.INT64)
-            .build();
-
-    @Override public FunctionSpec spec() { return SPEC; }
-    @Override public BindResponse onBind(ScalarBindParams params) {
-        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
-    }
-
-    @Override
-    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        long factor = ParameterExtractor.of(params.arguments())
-                .positional(0, "factor").asLong().required();
-        BigIntVector value = (BigIntVector) input.getFieldVectors().get(0);
-        int rows = input.getRowCount();
-        VectorSchemaRoot out = VectorSchemaRoot.create(params.outputSchema(), alloc);
-        out.allocateNew();
-        BigIntVector v = (BigIntVector) out.getVector("result");
+    public void compute(
+            @Vector BigIntVector value,
+            @Const long factor,
+            BigIntVector result) {
+        int rows = value.getValueCount();
         for (int i = 0; i < rows; i++) {
-            if (value.isNull(i)) v.setNull(i);
-            else v.setSafe(i, value.get(i) * factor);
+            if (value.isNull(i)) result.setNull(i);
+            else result.setSafe(i, value.get(i) * factor);
         }
-        out.setRowCount(rows);
-        return out;
     }
 }

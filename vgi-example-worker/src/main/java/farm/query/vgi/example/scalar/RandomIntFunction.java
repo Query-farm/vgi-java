@@ -3,53 +3,38 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.FunctionMetadata;
-import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.NullHandling;
 import farm.query.vgi.function.Stability;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.scalar.ScalarBindParams;
-import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
-import farm.query.vgi.types.ScalarHelpers;
-import farm.query.vgi.types.Schemas;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
+import farm.query.vgi.scalar.ScalarFn;
+import farm.query.vgi.scalar.Vector;
+import org.apache.arrow.vector.BigIntVector;
 
 import java.util.concurrent.ThreadLocalRandom;
 
-/** {@code random_int(min: int64, max: int64) -> int64}, VOLATILE. */
-public final class RandomIntFunction implements ScalarFunction {
+/** {@code random_int(min_val: int64, max_val: int64) -> int64}, VOLATILE. */
+public final class RandomIntFunction extends ScalarFn {
 
-    private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.INT64);
-    private static final FunctionMetadata META = new FunctionMetadata(
-            "Generate random integers (demonstrates VOLATILE stability)", Stability.VOLATILE, NullHandling.DEFAULT, false, false, false, false);
-
-    private static final FunctionSpec SPEC = FunctionSpec.builder("random_int")
-            .metadata(META)
-            .arg("min_val", Schemas.INT64)
-            .arg("max_val", Schemas.INT64)
-            .build();
-
-    @Override public FunctionSpec spec() { return SPEC; }
-
-    @Override public BindResponse onBind(ScalarBindParams params) {
-        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
+    @Override public String name() { return "random_int"; }
+    @Override public FunctionMetadata metadata() {
+        return new FunctionMetadata(
+                "Generate random integers (demonstrates VOLATILE stability)",
+                Stability.VOLATILE, NullHandling.DEFAULT, false, false, false, false);
     }
 
-    @Override
-    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        FieldVector minV = input.getFieldVectors().get(0);
-        FieldVector maxV = input.getFieldVectors().get(1);
-        return ScalarHelpers.mapInt64Raw(Schemas.singleResult(Schemas.INT64), input, alloc, row -> {
-            long lo = ScalarHelpers.toLong(minV, row);
-            long hi = ScalarHelpers.toLong(maxV, row);
-            if (hi <= lo) return lo;
+    public void compute(
+            @Vector(value = "min_val") BigIntVector minV,
+            @Vector(value = "max_val") BigIntVector maxV,
+            BigIntVector result) {
+        int rows = minV.getValueCount();
+        for (int i = 0; i < rows; i++) {
+            long lo = minV.get(i);
+            long hi = maxV.get(i);
+            if (hi <= lo) { result.setSafe(i, lo); continue; }
             // hi + 1 overflows for hi = Long.MAX_VALUE; nextLong requires bound > origin.
-            // Use the unbounded variant in that case.
-            return hi == Long.MAX_VALUE
-                    ? ThreadLocalRandom.current().nextLong(lo, hi)  // [lo, hi); approximation, hi excluded
+            long v = hi == Long.MAX_VALUE
+                    ? ThreadLocalRandom.current().nextLong(lo, hi)
                     : ThreadLocalRandom.current().nextLong(lo, hi + 1);
-        });
+            result.setSafe(i, v);
+        }
     }
 }

@@ -3,74 +3,55 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionSpec;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.scalar.ScalarBindParams;
-import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.FieldVector;
+import farm.query.vgi.function.Arguments;
+import farm.query.vgi.scalar.ScalarFn;
+import farm.query.vgi.scalar.Vector;
 import org.apache.arrow.vector.Float8Vector;
-import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.FixedSizeListVector;
 import org.apache.arrow.vector.complex.StructVector;
+import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.util.ArrayList;
 import java.util.List;
 
-/** {@code geo_centroid_fixed(points DOUBLE[2]...) -> STRUCT(lat,lon)} (varargs). */
-public final class GeoCentroidFixedFunction implements ScalarFunction {
+/** {@code geo_centroid_fixed(points DOUBLE[2]...) -> STRUCT(lat,lon)} — varargs. */
+public final class GeoCentroidFixedFunction extends ScalarFn {
 
-    private static final FunctionSpec SPEC = FunctionSpec.builder("geo_centroid_fixed")
-            .description("Centroid of N fixed-size list points")
-            .arg(ArgSpec.nested(
-                    "points", 0, GeoTypes.fixedListArgType(), GeoTypes.doubleElementChildren(), /*varargs=*/true))
-            .build();
+    @Override public String name() { return "geo_centroid_fixed"; }
+    @Override public String description() { return "Centroid of N fixed-size list points"; }
 
-    @Override public FunctionSpec spec() { return SPEC; }
-    @Override public BindResponse onBind(ScalarBindParams params) {
-        return BindResponse.forSchema(GeoTypes.CENTROID_OUTPUT_SCHEMA_IPC);
+    @Override
+    public List<ArgSpec> argumentSpecs() {
+        return List.of(ArgSpec.nested("points", 0,
+                GeoTypes.fixedListArgType(), GeoTypes.doubleElementChildren(), /*varargs=*/true));
     }
 
     @Override
-    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        int numCols = input.getFieldVectors().size();
-        int rows = input.getRowCount();
+    protected Schema outputSchema(Schema inputSchema, Arguments arguments) {
+        return GeoTypes.CENTROID_OUTPUT_SCHEMA;
+    }
 
-        List<FixedSizeListVector> fsls = new ArrayList<>(numCols);
-        List<Float8Vector> values = new ArrayList<>(numCols);
-        for (FieldVector fv : input.getFieldVectors()) {
-            FixedSizeListVector lv = (FixedSizeListVector) fv;
-            fsls.add(lv);
-            values.add((Float8Vector) lv.getDataVector());
-        }
-
-        VectorSchemaRoot out = VectorSchemaRoot.create(params.outputSchema(), alloc);
-        out.allocateNew();
-        StructVector result = (StructVector) out.getVector("result");
+    public void compute(
+            @Vector(varargs = true) List<FixedSizeListVector> points,
+            StructVector result) {
         Float8Vector outLat = (Float8Vector) result.getChildByOrdinal(0);
         Float8Vector outLon = (Float8Vector) result.getChildByOrdinal(1);
-
+        int rows = points.get(0).getValueCount();
+        int numCols = points.size();
         for (int i = 0; i < rows; i++) {
             boolean anyNull = false;
-            for (FixedSizeListVector fsl : fsls) {
+            for (FixedSizeListVector fsl : points) {
                 if (fsl.isNull(i)) { anyNull = true; break; }
             }
-            if (anyNull) {
-                result.setNull(i);
-                continue;
-            }
+            if (anyNull) { result.setNull(i); continue; }
             double sumLat = 0, sumLon = 0;
-            for (int c = 0; c < numCols; c++) {
-                sumLat += values.get(c).get(i * 2);
-                sumLon += values.get(c).get(i * 2 + 1);
+            for (FixedSizeListVector fsl : points) {
+                Float8Vector vals = (Float8Vector) fsl.getDataVector();
+                sumLat += vals.get(i * 2);
+                sumLon += vals.get(i * 2 + 1);
             }
             outLat.setSafe(i, sumLat / numCols);
             outLon.setSafe(i, sumLon / numCols);
             result.setIndexDefined(i);
         }
-        result.setValueCount(rows);
-        out.setRowCount(rows);
-        return out;
     }
 }

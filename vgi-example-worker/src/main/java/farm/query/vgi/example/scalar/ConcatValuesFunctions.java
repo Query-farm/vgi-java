@@ -2,18 +2,13 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.ArgSpec;
-import farm.query.vgi.function.FunctionSpec;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.scalar.ScalarBindParams;
-import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
-import farm.query.vgi.types.ScalarHelpers;
+import farm.query.vgi.function.Arguments;
+import farm.query.vgi.scalar.ScalarFn;
+import farm.query.vgi.scalar.Vector;
 import farm.query.vgi.types.Schemas;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VarCharVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -22,98 +17,67 @@ import java.util.List;
 /**
  * Two overloads of {@code concat_values}:
  * <ul>
- *   <li>{@code (BIGINT...)} — sums the integer columns and returns the
- *       result as a string.</li>
+ *   <li>{@code (BIGINT...)} — sums the integer columns and returns the result as a string.</li>
  *   <li>{@code (VARCHAR...)} — concatenates the string columns.</li>
  * </ul>
- * Used by overload/scalar_varargs_overload.test to verify type-based
- * dispatch on a varargs scalar function.
  */
 public final class ConcatValuesFunctions {
 
     private ConcatValuesFunctions() {}
 
-    public static final class IntVariant implements ScalarFunction {
-        private static final FunctionSpec SPEC = FunctionSpec.builder("concat_values")
-                .description("Sum integer varargs and return as string")
-                .arg(new ArgSpec(
-                        "values", 0, Schemas.INT64, "", false, false, "",
-                        List.of(), /*varargs=*/true, /*anyType=*/false))
-                .build();
+    /** Catalog-enumeration: advertise ANY when input schema is absent; concrete VARCHAR otherwise. */
+    private static ArrowType outputUtf8OrAny(Schema in) {
+        if (in == null || in.getFields().isEmpty()) return new ArrowType.Null();
+        return Schemas.UTF8;
+    }
 
-        @Override public FunctionSpec spec() { return SPEC; }
-        @Override public BindResponse onBind(ScalarBindParams p) {
-            // At catalog-enumeration time (no concrete input) advertise ANY
-            // via the vgi_type=any field metadata so duckdb_functions() shows
-            // the same deferred-ANY return type that vgi-python exposes. At
-            // actual bind time we know the output is always VARCHAR.
-            Schema in = p.inputSchema();
-            if (in == null || in.getFields().isEmpty()) {
-                return BindResponse.forSchema(Schemas.singleResultAnyIpc());
-            }
-            return BindResponse.forSchema(Schemas.singleResultIpc(Schemas.UTF8));
+    public static final class IntVariant extends ScalarFn {
+        @Override public String name() { return "concat_values"; }
+        @Override public String description() { return "Sum integer varargs and return as string"; }
+
+        @Override protected ArrowType outputType(Schema inputSchema, Arguments arguments) {
+            return outputUtf8OrAny(inputSchema);
         }
-        @Override public VectorSchemaRoot process(ScalarProcessParams p, VectorSchemaRoot input,
-                                                    BufferAllocator alloc) {
-            int rows = input.getRowCount();
-            List<FieldVector> cols = input.getFieldVectors();
-            VectorSchemaRoot out = VectorSchemaRoot.create(p.outputSchema(), alloc);
-            out.allocateNew();
-            VarCharVector v = (VarCharVector) out.getVector("result");
+
+        public void compute(
+                @Vector(varargs = true) List<BigIntVector> values,
+                VarCharVector result) {
+            int rows = values.get(0).getValueCount();
             for (int r = 0; r < rows; r++) {
                 boolean anyNull = false;
                 long sum = 0;
-                for (FieldVector c : cols) {
+                for (BigIntVector c : values) {
                     if (c.isNull(r)) { anyNull = true; break; }
-                    sum += ScalarHelpers.toLong(c, r);
+                    sum += c.get(r);
                 }
-                if (anyNull) v.setNull(r);
-                else v.setSafe(r, new Text(Long.toString(sum)));
+                if (anyNull) result.setNull(r);
+                else result.setSafe(r, new Text(Long.toString(sum)));
             }
-            out.setRowCount(rows);
-            return out;
         }
     }
 
-    public static final class StrVariant implements ScalarFunction {
-        private static final FunctionSpec SPEC = FunctionSpec.builder("concat_values")
-                .description("Concatenate string varargs")
-                .arg(new ArgSpec(
-                        "values", 0, Schemas.UTF8, "", false, false, "",
-                        List.of(), /*varargs=*/true, /*anyType=*/false))
-                .build();
+    public static final class StrVariant extends ScalarFn {
+        @Override public String name() { return "concat_values"; }
+        @Override public String description() { return "Concatenate string varargs"; }
 
-        @Override public FunctionSpec spec() { return SPEC; }
-        @Override public BindResponse onBind(ScalarBindParams p) {
-            // At catalog-enumeration time (no concrete input) advertise ANY
-            // via the vgi_type=any field metadata so duckdb_functions() shows
-            // the same deferred-ANY return type that vgi-python exposes. At
-            // actual bind time we know the output is always VARCHAR.
-            Schema in = p.inputSchema();
-            if (in == null || in.getFields().isEmpty()) {
-                return BindResponse.forSchema(Schemas.singleResultAnyIpc());
-            }
-            return BindResponse.forSchema(Schemas.singleResultIpc(Schemas.UTF8));
+        @Override protected ArrowType outputType(Schema inputSchema, Arguments arguments) {
+            return outputUtf8OrAny(inputSchema);
         }
-        @Override public VectorSchemaRoot process(ScalarProcessParams p, VectorSchemaRoot input,
-                                                    BufferAllocator alloc) {
-            int rows = input.getRowCount();
-            List<FieldVector> cols = input.getFieldVectors();
-            VectorSchemaRoot out = VectorSchemaRoot.create(p.outputSchema(), alloc);
-            out.allocateNew();
-            VarCharVector v = (VarCharVector) out.getVector("result");
+
+        public void compute(
+                @Vector(varargs = true) List<VarCharVector> values,
+                VarCharVector result) {
+            int rows = values.get(0).getValueCount();
             for (int r = 0; r < rows; r++) {
                 boolean anyNull = false;
                 StringBuilder sb = new StringBuilder();
-                for (FieldVector c : cols) {
+                for (VarCharVector c : values) {
                     if (c.isNull(r)) { anyNull = true; break; }
-                    sb.append(((VarCharVector) c).getObject(r).toString());
+                    sb.append(c.getObject(r).toString());
                 }
-                if (anyNull) v.setNull(r);
-                else v.setSafe(r, new Text(sb.toString()));
+                if (anyNull) result.setNull(r);
+                else result.setSafe(r, new Text(sb.toString()));
             }
-            out.setRowCount(rows);
-            return out;
         }
     }
 }

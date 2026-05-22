@@ -2,42 +2,21 @@
 
 package farm.query.vgi.example.scalar;
 
-import farm.query.vgi.function.FunctionSpec;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.scalar.ScalarBindParams;
-import farm.query.vgi.scalar.ScalarFunction;
-import farm.query.vgi.scalar.ScalarProcessParams;
-import farm.query.vgi.types.ScalarHelpers;
-import farm.query.vgi.types.Schemas;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.VectorSchemaRoot;
+import farm.query.vgi.scalar.ScalarFn;
+import farm.query.vgi.scalar.Vector;
+import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.util.Text;
 
-/**
- * {@code whoami(x: int64) -> utf8}: returns the authenticated principal name,
- * or {@code "anonymous"} when there is no authenticated context.
- *
- * <p>Phase 2 doesn't surface {@code AuthContext} into ScalarProcessParams yet —
- * we always return {@code "anonymous"}, which matches the stdio transport's
- * test expectation. HTTP-mode auth wiring lands in Phase 8.
- */
-public final class WhoAmIFunction implements ScalarFunction {
+/** {@code whoami(x: int64) -> utf8}: always returns {@code "anonymous"} (auth wiring is Phase 8). */
+public final class WhoAmIFunction extends ScalarFn {
 
-    private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.UTF8);
+    @Override public String name() { return "whoami"; }
+    @Override public String description() { return "Return the authenticated principal name."; }
 
-    private static final FunctionSpec SPEC = FunctionSpec.builder("whoami")
-            .description("Return the authenticated principal name.")
-            .arg("x", Schemas.INT64)
-            .build();
-
-    @Override public FunctionSpec spec() { return SPEC; }
-
-    @Override public BindResponse onBind(ScalarBindParams params) {
-        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
-    }
-
-    @Override
-    public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        return ScalarHelpers.mapString(Schemas.singleResult(Schemas.UTF8), input, alloc, null,
-                row -> "anonymous");
+    public void compute(@Vector BigIntVector x, VarCharVector result) {
+        Text anon = new Text("anonymous");
+        int rows = x.getValueCount();
+        for (int i = 0; i < rows; i++) result.setSafe(i, anon);
     }
 }
