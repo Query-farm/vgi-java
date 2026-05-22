@@ -3,6 +3,8 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.ParameterExtractor;
+import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
@@ -70,13 +72,14 @@ public final class RepeatValueFunctions {
             return BindResponse.forSchema(schemaIpc(n, Schemas.INT64));
         }
         @Override public TableProducerState createProducer(TableInitParams p) {
-            long count = ((Number) p.arguments().positionalAt(0)).longValue();
-            int n = p.arguments().positional().size() - 1;
-            long[] values = new long[n];
-            for (int i = 0; i < n; i++) {
-                values[i] = ((Number) p.arguments().positionalAt(i + 1)).longValue();
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            long count = ex.positional(0, "count").asLong().required();
+            List<Object> tail = ex.varargsFrom(1);
+            long[] values = new long[tail.size()];
+            for (int i = 0; i < tail.size(); i++) {
+                values[i] = ((Number) tail.get(i)).longValue();
             }
-            return new IntState((int) count, values, schema(n, Schemas.INT64));
+            return new IntState((int) count, values, schema(tail.size(), Schemas.INT64));
         }
     }
 
@@ -119,15 +122,13 @@ public final class RepeatValueFunctions {
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (remaining <= 0) { out.finish(); return; }
             int n = Math.min(remaining, 1024);
-            VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
-            root.allocateNew();
-            for (int c = 0; c < values.length; c++) {
-                BigIntVector v = (BigIntVector) root.getVector("v" + c);
-                long val = values[c];
-                for (int i = 0; i < n; i++) v.setSafe(i, val);
-            }
-            root.setRowCount(n);
-            out.emit(root);
+            BatchUtil.emit(schema, n, out, (root, rows, start) -> {
+                for (int c = 0; c < values.length; c++) {
+                    BigIntVector v = (BigIntVector) root.getVector("v" + c);
+                    long val = values[c];
+                    for (int i = 0; i < rows; i++) v.setSafe(i, val);
+                }
+            });
             remaining -= n;
         }
     }

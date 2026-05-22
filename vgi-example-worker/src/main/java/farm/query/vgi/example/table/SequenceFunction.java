@@ -3,6 +3,7 @@
 package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.pushdown.FilterApplier;
@@ -36,40 +37,24 @@ public final class SequenceFunction extends CountdownTableFunction {
         return List.of(ArgSpec.named("increment", Schemas.INT64, "1"));
     }
 
-    private static void validate(java.util.Map<String, Object> named) {
-        if (named.containsKey("positional_0") && named.get("positional_0") == null) {
-            throw new IllegalArgumentException("count cannot be NULL");
-        }
-        if (named.get("count") == null && named.containsKey("count")) {
-            throw new IllegalArgumentException("count cannot be NULL");
-        }
-        if (named.containsKey("batch_size") && named.get("batch_size") == null) {
-            throw new IllegalArgumentException("batch_size cannot be NULL");
-        }
-        if (named.containsKey("increment") && named.get("increment") == null) {
-            throw new IllegalArgumentException("increment cannot be NULL");
-        }
-        Object bs = named.get("batch_size");
-        if (bs instanceof Number n && n.longValue() < 1L) {
-            throw new IllegalArgumentException("batch_size must be >= 1, got " + n);
-        }
-        Object inc = named.get("increment");
-        if (inc instanceof Number n && n.longValue() < 1L) {
-            throw new IllegalArgumentException("increment must be >= 1, got " + n);
-        }
+    private static void validate(ParameterExtractor p) {
+        p.positional(0, "count").asLong().notNull();
+        p.named("batch_size").asLong().ge(1).notNull();
+        p.named("increment").asLong().ge(1).notNull();
     }
 
     @Override
     public farm.query.vgi.protocol.BindResponse onBind(farm.query.vgi.table.TableBindParams params) {
-        validate(params.arguments().named());
+        validate(ParameterExtractor.of(params.arguments()));
         return super.onBind(params);
     }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
-        validate(params.arguments().named());
-        long count = ((Number) params.arguments().positionalAt(0)).longValue();
-        long batchSize = params.arguments().namedLong("batch_size", 1000L);
-        long increment = params.arguments().namedLong("increment", 1L);
+        ParameterExtractor p = ParameterExtractor.of(params.arguments());
+        validate(p);
+        long count = p.positional(0, "count").asLong().required();
+        long batchSize = p.named("batch_size").asLong().ge(1).orElse(1000L);
+        long increment = p.named("increment").asLong().ge(1).orElse(1L);
         return new SequenceState(new BatchState(count, batchSize), increment,
                 FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
     }
@@ -81,7 +66,8 @@ public final class SequenceFunction extends CountdownTableFunction {
                 ? null : params.arguments().positionalAt(0);
         if (!(countObj instanceof Number cn)) return null;
         long count = cn.longValue();
-        long increment = params.arguments().namedLong("increment", 1L);
+        long increment = ParameterExtractor.of(params.arguments())
+                .named("increment").asLong().orElse(1L);
         if (count <= 0) return null;
         long max = (count - 1) * increment;
         return java.util.List.of(

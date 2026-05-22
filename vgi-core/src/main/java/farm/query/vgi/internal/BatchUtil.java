@@ -90,6 +90,38 @@ public final class BatchUtil {
     }
 
     /**
+     * One-shot emit helper: allocate a {@link VectorSchemaRoot}, run {@code filler},
+     * set the row count, and emit. The non-countdown sibling of
+     * {@link #produceBatch}; use it from any producer that emits exactly one
+     * batch of known size (varargs schemas, constant-column fixtures, canned
+     * data tables, etc.).
+     *
+     * <p>{@code filler} is invoked with {@code startRowIndex = 0L} — the
+     * parameter exists only because {@link ColumnFiller} is reused from the
+     * countdown path; ignore it.
+     *
+     * <p>Ownership: {@link OutputCollector#emit(VectorSchemaRoot)} takes
+     * ownership of the root iff it returns normally. On any throw before that
+     * (including the collector's own "one data batch per call" precondition),
+     * the helper closes the root in a {@code finally}. On a throw <em>after</em>
+     * ownership has transferred (currently impossible — see OutputCollector
+     * source), the framework owns cleanup.
+     */
+    public static void emit(Schema schema, int rowCount, OutputCollector out, ColumnFiller filler) {
+        VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
+        boolean emitted = false;
+        try {
+            root.allocateNew();
+            filler.fill(root, rowCount, 0L);
+            root.setRowCount(rowCount);
+            out.emit(root);
+            emitted = true;
+        } finally {
+            if (!emitted) root.close();
+        }
+    }
+
+    /**
      * Producer-tick helper for {@link org.apache.arrow.vector.ipc.ArrowReader}-
      * backed scans (JDBC-Arrow, Parquet, HTTP-Arrow streams).
      *

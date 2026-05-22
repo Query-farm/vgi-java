@@ -4,6 +4,7 @@ package farm.query.vgi.example.tableinout;
 
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.tableinout.TableInOutBindParams;
@@ -71,8 +72,8 @@ public class SumAllColumnsFunction implements TableInOutFunction {
             if (f.getType() instanceof ArrowType.Int) intSums.put(f.getName(), 0L);
             else if (f.getType() instanceof ArrowType.FloatingPoint) floatSums.put(f.getName(), 0.0);
         }
-        Object loggingObj = params.arguments().named().get("logging");
-        boolean logging = loggingObj instanceof Boolean b && b;
+        boolean logging = ParameterExtractor.of(params.arguments())
+                .named("logging").asBool().orElse(false);
         return new SumState(intSums, floatSums, new CachedSchema(params.outputSchema()), logging);
     }
 

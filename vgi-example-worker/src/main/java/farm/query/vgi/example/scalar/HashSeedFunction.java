@@ -3,6 +3,7 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -34,7 +35,8 @@ public final class HashSeedFunction implements ScalarFunction {
 
     @Override
     public VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc) {
-        long seed = ((Number) params.arguments().positionalAt(0)).longValue();
+        long seed = ParameterExtractor.of(params.arguments())
+                .positional(0, "seed").asLong().required();
         return ScalarHelpers.mapInt64Raw(Schemas.singleResult(Schemas.INT64), input, alloc,
                 row -> seed + row);
     }
