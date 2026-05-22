@@ -275,13 +275,11 @@ public final class Worker {
      * until the launcher SIGTERMs it.
      */
     public void runUnixSocket(Path socketPath, long idleTimeoutMs) throws IOException {
-        // Note: idleTimeoutMs is currently accepted but not enforced. The
-        // launcher SIGTERMs the worker on test-runner exit, so the test suite
-        // doesn't depend on self-exit semantics. Implementing it correctly
-        // requires accept-loop instrumentation (track active connection
-        // count, treat "zero for N seconds" as the trigger) — TODO once
-        // long-running deployments need it.
-        UnixSocketTransport.serveForever(socketPath, buildServer(false));
+        // idleTimeoutMs <= 0 → never time out (legacy behaviour). The
+        // launcher passes --idle-timeout 300 by default; the watchdog inside
+        // UnixSocketTransport.serveForever closes the listener when active
+        // connections stay at zero past that boundary, letting the JVM exit.
+        UnixSocketTransport.serveForever(socketPath, buildServer(false), idleTimeoutMs);
     }
 
     public void runHttp(String host, int port) throws Exception {
