@@ -22,7 +22,9 @@ public final class TypeRules {
 
     public static boolean isNumeric(ArrowType t) { return isInteger(t) || isFloating(t); }
 
-    public static boolean isAddable(ArrowType t) { return isNumeric(t); }
+    public static boolean isAddable(ArrowType t) {
+        return isNumeric(t) || t instanceof ArrowType.Decimal;
+    }
 
     /**
      * Promote a single input type one width up (for {@code double(value)}-style
@@ -53,6 +55,45 @@ public final class TypeRules {
      * Mirrors {@code vgi.CommonTypeForAddition} — float wins, otherwise the
      * widest integer width plus one tier (capped at int64).
      */
+    /**
+     * Render an Arrow type as the SQL name DuckDB users recognise
+     * (e.g. {@code BIGINT}, {@code VARCHAR}, {@code DECIMAL(38,2)}). Falls back
+     * to Arrow's {@code toString} for types without a clean SQL equivalent.
+     */
+    public static String sqlTypeName(ArrowType t) {
+        if (t instanceof ArrowType.Int i) {
+            int w = i.getBitWidth();
+            boolean s = i.getIsSigned();
+            if (s) {
+                return switch (w) { case 8 -> "TINYINT"; case 16 -> "SMALLINT";
+                    case 32 -> "INTEGER"; case 64 -> "BIGINT"; default -> i.toString(); };
+            }
+            return switch (w) { case 8 -> "UTINYINT"; case 16 -> "USMALLINT";
+                case 32 -> "UINTEGER"; case 64 -> "UBIGINT"; default -> i.toString(); };
+        }
+        if (t instanceof ArrowType.FloatingPoint f) {
+            return switch (f.getPrecision()) {
+                case HALF -> "HALF"; case SINGLE -> "FLOAT"; case DOUBLE -> "DOUBLE"; };
+        }
+        if (t instanceof ArrowType.Decimal d) {
+            return "DECIMAL(" + d.getPrecision() + "," + d.getScale() + ")";
+        }
+        if (t instanceof ArrowType.Utf8) return "VARCHAR";
+        if (t instanceof ArrowType.LargeUtf8) return "VARCHAR";
+        if (t instanceof ArrowType.Bool) return "BOOLEAN";
+        if (t instanceof ArrowType.Binary) return "BLOB";
+        if (t instanceof ArrowType.LargeBinary) return "BLOB";
+        if (t instanceof ArrowType.Date) return "DATE";
+        if (t instanceof ArrowType.Time) return "TIME";
+        if (t instanceof ArrowType.Timestamp) return "TIMESTAMP";
+        if (t instanceof ArrowType.Interval) return "INTERVAL";
+        if (t instanceof ArrowType.Duration) return "INTERVAL";
+        if (t instanceof ArrowType.Struct) return "STRUCT";
+        if (t instanceof ArrowType.List) return "LIST";
+        if (t instanceof ArrowType.FixedSizeList fl) return "FIXED_LIST[" + fl.getListSize() + "]";
+        return t.toString();
+    }
+
     public static ArrowType commonTypeForAddition(ArrowType a, ArrowType b) {
         if (isFloating(a) || isFloating(b)) {
             return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
