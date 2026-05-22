@@ -5,11 +5,9 @@ package farm.query.vgi.example.table;
 import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.HexId;
-import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionSpec;
-import farm.query.vgi.protocol.BindResponse;
+import farm.query.vgi.table.SimpleTableFunction;
 import farm.query.vgi.table.TableBindParams;
-import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
@@ -39,12 +37,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * ConcurrentHashMap<execId, ConcurrentLinkedQueue<long[]>>} so all
  * producers pull from the same queue without further synchronization.
  */
-public final class PartitionedSequenceFunction implements TableFunction {
+public final class PartitionedSequenceFunction extends SimpleTableFunction {
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("n", Schemas.INT64)));
-    private static final byte[] OUTPUT_SCHEMA_IPC =
-            SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
     private static final long CHUNK = 10_000L;
 
     /** Per-execution work queue. Each entry is a {@code [start, end)} chunk. */
@@ -60,7 +56,7 @@ public final class PartitionedSequenceFunction implements TableFunction {
             .build();
 
     @Override public FunctionSpec spec() { return SPEC; }
-    @Override public BindResponse onBind(TableBindParams p) { return BindResponse.forSchema(OUTPUT_SCHEMA_IPC); }
+    @Override protected Schema outputSchema() { return OUTPUT_SCHEMA; }
 
     @Override public long cardinality(TableBindParams p) {
         Object c = p.arguments().positionalAt(0);

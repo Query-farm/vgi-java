@@ -42,21 +42,6 @@ public final class DoubleSequenceFunction extends CountdownTableFunction {
         return new State(new BatchState(count, batchSize), increment);
     }
 
-    @Override
-    public java.util.List<farm.query.vgi.catalog.ColumnStatistics> statistics(
-            farm.query.vgi.table.TableBindParams params) {
-        Object countObj = params.arguments().positional().isEmpty()
-                ? null : params.arguments().positionalAt(0);
-        if (!(countObj instanceof Number cn)) return null;
-        long count = cn.longValue();
-        double increment = ParameterExtractor.of(params.arguments())
-                .named("increment").asDouble().orElse(1.0);
-        if (count <= 0) return null;
-        double max = (count - 1) * increment;
-        return java.util.List.of(
-                farm.query.vgi.catalog.ColumnStatistics.ofFloat64("n", 0.0, max, false, count));
-    }
-
     public static final class State extends TableProducerState {
         public BatchState batch;
         public double increment;

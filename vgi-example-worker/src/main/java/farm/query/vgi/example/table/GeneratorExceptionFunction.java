@@ -4,12 +4,9 @@ package farm.query.vgi.example.table;
 
 import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.BatchUtil;
-import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
-import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.table.TableBindParams;
-import farm.query.vgi.table.TableFunction;
+import farm.query.vgi.table.SimpleTableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
@@ -22,12 +19,10 @@ import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
 
-public final class GeneratorExceptionFunction implements TableFunction {
+public final class GeneratorExceptionFunction extends SimpleTableFunction {
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
             Schemas.nullable("n", Schemas.INT64)));
-    private static final byte[] OUTPUT_SCHEMA_IPC =
-            SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
     private static final FunctionSpec SPEC = FunctionSpec.builder("generator_exception")
             .metadata(FunctionMetadata.describe("Raises an exception after N batches for testing").withCategories("testing"))
@@ -35,10 +30,7 @@ public final class GeneratorExceptionFunction implements TableFunction {
             .build();
 
     @Override public FunctionSpec spec() { return SPEC; }
-
-    @Override public BindResponse onBind(TableBindParams params) {
-        return BindResponse.forSchema(OUTPUT_SCHEMA_IPC);
-    }
+    @Override protected Schema outputSchema() { return OUTPUT_SCHEMA; }
 
     @Override public TableProducerState createProducer(TableInitParams params) {
         long failAfter = ParameterExtractor.of(params.arguments())

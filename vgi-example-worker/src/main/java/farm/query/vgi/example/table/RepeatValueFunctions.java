@@ -108,55 +108,72 @@ public final class RepeatValueFunctions {
         }
     }
 
-    public static final class IntState extends TableProducerState implements Serializable {
+    /**
+     * Shared shape: an N-row, M-column emitter where every cell in column
+     * {@code v<c>} carries the same value. Subclasses parameterize the
+     * per-column fill via {@link #fillColumn}.
+     */
+    public abstract static class RepeatState extends TableProducerState implements Serializable {
         private static final long serialVersionUID = 1L;
         public int remaining;
-        public long[] values;
         public Schema schema;
 
-        public IntState() {}
-
-        IntState(int remaining, long[] values, Schema schema) {
-            this.remaining = remaining; this.values = values; this.schema = schema;
+        protected RepeatState() {}
+        RepeatState(int remaining, Schema schema) {
+            this.remaining = remaining; this.schema = schema;
         }
 
-        @Override public void produceTick(OutputCollector out, CallContext ctx) {
+        /** Fill column {@code v<c>} with the same value for {@code rows} rows. */
+        protected abstract void fillColumn(org.apache.arrow.vector.VectorSchemaRoot root,
+                                              int columnIndex, int rows);
+
+        protected abstract int columnCount();
+
+        @Override public final void produceTick(OutputCollector out, CallContext ctx) {
             if (remaining <= 0) { out.finish(); return; }
             int n = Math.min(remaining, 1024);
             BatchUtil.emit(schema, n, out, (root, rows, start) -> {
-                for (int c = 0; c < values.length; c++) {
-                    BigIntVector v = (BigIntVector) root.getVector("v" + c);
-                    long val = values[c];
-                    for (int i = 0; i < rows; i++) v.setSafe(i, val);
-                }
+                for (int c = 0; c < columnCount(); c++) fillColumn(root, c, rows);
             });
             remaining -= n;
         }
     }
 
-    public static final class StrState extends TableProducerState implements Serializable {
+    public static final class IntState extends RepeatState {
         private static final long serialVersionUID = 1L;
-        public int remaining;
-        public String[] values;
-        public Schema schema;
+        public long[] values;
 
-        public StrState() {}
-
-        StrState(int remaining, String[] values, Schema schema) {
-            this.remaining = remaining; this.values = values; this.schema = schema;
+        public IntState() {}
+        IntState(int remaining, long[] values, Schema schema) {
+            super(remaining, schema);
+            this.values = values;
         }
 
-        @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            if (remaining <= 0) { out.finish(); return; }
-            int n = Math.min(remaining, 1024);
-            BatchUtil.emit(schema, n, out, (root, rows, start) -> {
-                for (int c = 0; c < values.length; c++) {
-                    VarCharVector v = (VarCharVector) root.getVector("v" + c);
-                    Text t = new Text(values[c] == null ? "" : values[c]);
-                    for (int i = 0; i < rows; i++) v.setSafe(i, t);
-                }
-            });
-            remaining -= n;
+        @Override protected int columnCount() { return values.length; }
+        @Override protected void fillColumn(org.apache.arrow.vector.VectorSchemaRoot root,
+                                               int c, int rows) {
+            BigIntVector v = (BigIntVector) root.getVector("v" + c);
+            long val = values[c];
+            for (int i = 0; i < rows; i++) v.setSafe(i, val);
+        }
+    }
+
+    public static final class StrState extends RepeatState {
+        private static final long serialVersionUID = 1L;
+        public String[] values;
+
+        public StrState() {}
+        StrState(int remaining, String[] values, Schema schema) {
+            super(remaining, schema);
+            this.values = values;
+        }
+
+        @Override protected int columnCount() { return values.length; }
+        @Override protected void fillColumn(org.apache.arrow.vector.VectorSchemaRoot root,
+                                               int c, int rows) {
+            VarCharVector v = (VarCharVector) root.getVector("v" + c);
+            Text t = new Text(values[c] == null ? "" : values[c]);
+            for (int i = 0; i < rows; i++) v.setSafe(i, t);
         }
     }
 }

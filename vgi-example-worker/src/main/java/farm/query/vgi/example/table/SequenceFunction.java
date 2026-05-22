@@ -59,21 +59,6 @@ public final class SequenceFunction extends CountdownTableFunction {
                 FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
     }
 
-    @Override
-    public java.util.List<farm.query.vgi.catalog.ColumnStatistics> statistics(
-            farm.query.vgi.table.TableBindParams params) {
-        Object countObj = params.arguments().positional().isEmpty()
-                ? null : params.arguments().positionalAt(0);
-        if (!(countObj instanceof Number cn)) return null;
-        long count = cn.longValue();
-        long increment = ParameterExtractor.of(params.arguments())
-                .named("increment").asLong().orElse(1L);
-        if (count <= 0) return null;
-        long max = (count - 1) * increment;
-        return java.util.List.of(
-                farm.query.vgi.catalog.ColumnStatistics.ofInt64("n", 0L, max, false, count));
-    }
-
     public static final class SequenceState extends TableProducerState {
         public BatchState batch;
         public long increment;
