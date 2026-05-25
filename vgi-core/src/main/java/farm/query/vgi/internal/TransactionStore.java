@@ -2,52 +2,64 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.storage.FunctionStorage;
 import farm.query.vgi.table.TransactionStorage;
 
-import java.util.concurrent.ConcurrentHashMap;
+import java.nio.charset.StandardCharsets;
 
 /**
- * Process-wide registry of per-transaction key/value stores, keyed by
- * {@code transaction_opaque_data}. {@code catalog_transaction_begin} allocates
- * an entry; {@code catalog_transaction_commit} / {@code _rollback} drop it.
- * A {@link #view} over an entry is handed to table-function {@code onBind} via
+ * Per-transaction key/value store, keyed by {@code transaction_opaque_data} and
+ * backed by the worker's shared {@link FunctionStorage}.
+ * {@code catalog_transaction_begin} marks a transaction active; {@code commit} /
+ * {@code rollback} clear it. A {@link #view} over an active transaction is
+ * handed to table-function {@code onBind} via
  * {@link farm.query.vgi.table.TableBindParams#transactionStorage()}.
  *
- * <p>The store is in-process: it works for the stdio / AF_UNIX (launcher)
- * transports the integration suite uses, where one long-lived worker handles
- * an attach's whole transaction lifecycle. A pooled HTTP deployment would need
- * a shared backend — out of scope here, same as vgi-go.
+ * <p>Because it rides on {@link FunctionStorage}, the transaction lifecycle and
+ * its cached values live in whichever tier {@code VGI_WORKER_SHARED_STORAGE}
+ * selected — so a pooled multi-process / multi-replica deployment sees a
+ * consistent transaction store, not just the single-process stdio launcher.
+ *
+ * <p>Layout: the {@code scope_id} is the transaction id; an active marker lives
+ * under {@link #ACTIVE_NS} and the user key/value pairs under {@link #DATA_NS}.
+ * {@code end} wipes the whole scope (marker + data) via {@code executionClear}.
  */
 public final class TransactionStore {
 
-    private TransactionStore() {}
+    private static final byte[] ACTIVE_NS = "__txn_active__".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] DATA_NS = "__txn_kv__".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] MARKER_KEY = {0};
+    private static final byte[] MARKER_VAL = {1};
 
-    private static final ConcurrentHashMap<String, ConcurrentHashMap<String, byte[]>> TXNS =
-            new ConcurrentHashMap<>();
+    private final FunctionStorage storage;
 
-    /** Register a fresh, empty store for {@code transactionId}. */
-    public static void begin(byte[] transactionId) {
-        TXNS.put(HexId.encode(transactionId), new ConcurrentHashMap<>());
+    public TransactionStore(FunctionStorage storage) {
+        this.storage = storage;
     }
 
-    /** Drop the store for {@code transactionId} (commit or rollback). */
-    public static void end(byte[] transactionId) {
-        if (transactionId != null) TXNS.remove(HexId.encode(transactionId));
+    /** Mark {@code transactionId} active (begin a fresh, empty store). */
+    public void begin(byte[] transactionId) {
+        storage.statePut(transactionId, ACTIVE_NS, MARKER_KEY, MARKER_VAL);
+    }
+
+    /** Clear {@code transactionId}'s marker + data (commit or rollback). */
+    public void end(byte[] transactionId) {
+        if (transactionId != null) storage.executionClear(transactionId);
     }
 
     /**
-     * A {@link TransactionStorage} view over the entry for {@code transactionId},
-     * or {@code null} when {@code transactionId} is null/empty (autocommit) or
-     * the transaction is unknown — fixtures treat {@code null} as "no caching".
+     * A {@link TransactionStorage} view over {@code transactionId}, or
+     * {@code null} when it is null/empty (autocommit) or not active — fixtures
+     * treat {@code null} as "no caching".
      */
-    public static TransactionStorage view(byte[] transactionId) {
+    public TransactionStorage view(byte[] transactionId) {
         if (transactionId == null || transactionId.length == 0) return null;
-        ConcurrentHashMap<String, byte[]> map = TXNS.get(HexId.encode(transactionId));
-        if (map == null) return null;
+        if (storage.stateGet(transactionId, ACTIVE_NS, MARKER_KEY) == null) return null;
+        final byte[] scope = transactionId;
         return new TransactionStorage() {
-            @Override public byte[] getOne(byte[] key) { return map.get(HexId.encode(key)); }
+            @Override public byte[] getOne(byte[] key) { return storage.stateGet(scope, DATA_NS, key); }
             @Override public void putOne(byte[] key, byte[] value) {
-                map.put(HexId.encode(key), value);
+                storage.statePut(scope, DATA_NS, key, value);
             }
         };
     }

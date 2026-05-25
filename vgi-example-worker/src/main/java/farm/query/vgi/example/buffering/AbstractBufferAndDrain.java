@@ -3,7 +3,7 @@
 package farm.query.vgi.example.buffering;
 
 import farm.query.vgi.buffering.BufferingFinalizeProducer;
-import farm.query.vgi.buffering.BufferingStore;
+import farm.query.vgi.storage.FunctionStorage;
 import farm.query.vgi.buffering.TableBufferingCombineParams;
 import farm.query.vgi.buffering.TableBufferingFinalizeParams;
 import farm.query.vgi.buffering.TableBufferingFunction;
@@ -67,12 +67,12 @@ public abstract class AbstractBufferAndDrain implements TableBufferingFunction {
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            List<BufferingStore.Entry> rows = storage.stateLogScan(ns, KEY, afterId, 1);
+            List<FunctionStorage.LogEntry> rows = storage.stateLogScan(ns, KEY, afterId, 1);
             if (rows.isEmpty()) {
                 out.finish();
                 return;
             }
-            BufferingStore.Entry e = rows.get(0);
+            FunctionStorage.LogEntry e = rows.get(0);
             VectorSchemaRoot full = BatchUtil.readSingleBatch(e.value(), Allocators.root());
             emitProjected(full, out);
             full.close();

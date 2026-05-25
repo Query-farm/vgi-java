@@ -64,8 +64,15 @@ public final class VgiServiceImpl implements VgiService {
     private final Map<String, List<AggregateFunction<?>>> aggregates = new HashMap<>();
     private final Map<String, List<farm.query.vgi.buffering.TableBufferingFunction>> bufferingFns =
             new HashMap<>();
-    private final farm.query.vgi.buffering.BufferingStore bufferingStore =
-            new farm.query.vgi.buffering.BufferingStore();
+    /**
+     * The shared-state backend for this worker, selected at startup by
+     * {@code VGI_WORKER_SHARED_STORAGE} (in-process {@code :memory:}, local
+     * file, or a Cloudflare Durable Object). Backs table-buffering logs,
+     * transaction key/value state, and aggregate group state alike.
+     */
+    private final farm.query.vgi.storage.FunctionStorage storage =
+            farm.query.vgi.storage.StorageResolver.fromEnv();
+    private final TransactionStore transactionStore = new TransactionStore(storage);
     private final AggregateRunner aggregateRunner;
     /**
      * Bind cache keyed by an opaque token returned to DuckDB as
@@ -170,7 +177,7 @@ public final class VgiServiceImpl implements VgiService {
         // Aggregate runner expects flat name → fn (no overloads in scope yet).
         Map<String, AggregateFunction<?>> aggFlat = new HashMap<>();
         for (var e : this.aggregates.entrySet()) aggFlat.put(e.getKey(), e.getValue().get(0));
-        this.aggregateRunner = new AggregateRunner(aggFlat);
+        this.aggregateRunner = new AggregateRunner(aggFlat, storage);
         this.catalogRegistry = new CatalogRegistry(worker);
         ServiceLocator.setCurrent(new ServiceLocator(this.scalars));
     }
@@ -250,7 +257,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.transaction_opaque_data(), request.attach_opaque_data(), auth);
         TableBindParams bindParams = new TableBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(), attachPlain,
-                TransactionStore.view(txnPlain));
+                transactionStore.view(txnPlain));
         BindResponse upstream = fn.onBind(bindParams);
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
@@ -429,7 +436,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.order_by_null_order(), request.order_by_limit(),
                 execId, null, bb.attachId(), bb.bindOpaqueData());
         farm.query.vgi.buffering.BufferingStorage storage =
-                new farm.query.vgi.buffering.BufferingStorage(bufferingStore, execId);
+                new farm.query.vgi.buffering.BufferingStorage(this.storage, execId);
         farm.query.vgi.buffering.TableBufferingFinalizeParams fparams =
                 new farm.query.vgi.buffering.TableBufferingFinalizeParams(
                         execId, request.finalize_state_id(), storage, initParams);
@@ -617,7 +624,7 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, CallContext ctx) {
         byte[] txnId = new byte[16];
         rng.nextBytes(txnId);
-        TransactionStore.begin(txnId);
+        transactionStore.begin(txnId);
         return new farm.query.vgi.protocol.TransactionBeginResponse(
                 sealer.sealTransaction(txnId, attach_opaque_data, authOf(ctx)));
     }
@@ -625,14 +632,14 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public void catalog_transaction_commit(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                              CallContext ctx) {
-        TransactionStore.end(sealer.unsealTransaction(
+        transactionStore.end(sealer.unsealTransaction(
                 transaction_opaque_data, attach_opaque_data, authOf(ctx)));
     }
 
     @Override
     public void catalog_transaction_rollback(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                                CallContext ctx) {
-        TransactionStore.end(sealer.unsealTransaction(
+        transactionStore.end(sealer.unsealTransaction(
                 transaction_opaque_data, attach_opaque_data, authOf(ctx)));
     }
 
@@ -927,7 +934,7 @@ public final class VgiServiceImpl implements VgiService {
             farm.query.vgi.protocol.TableBufferingProcessRequest request, CallContext ctx) {
         var fn = bufferingFn(request.function_name());
         farm.query.vgi.buffering.BufferingStorage storage =
-                new farm.query.vgi.buffering.BufferingStorage(bufferingStore, request.execution_id());
+                new farm.query.vgi.buffering.BufferingStorage(this.storage, request.execution_id());
         var params = new farm.query.vgi.buffering.TableBufferingProcessParams(
                 request.function_name(), request.execution_id(), storage, request.batch_index(), ctx);
         byte[] stateId;
@@ -943,7 +950,7 @@ public final class VgiServiceImpl implements VgiService {
             farm.query.vgi.protocol.TableBufferingCombineRequest request, CallContext ctx) {
         var fn = bufferingFn(request.function_name());
         farm.query.vgi.buffering.BufferingStorage storage =
-                new farm.query.vgi.buffering.BufferingStorage(bufferingStore, request.execution_id());
+                new farm.query.vgi.buffering.BufferingStorage(this.storage, request.execution_id());
         var params = new farm.query.vgi.buffering.TableBufferingCombineParams(
                 request.function_name(), request.execution_id(), storage, ctx);
         List<byte[]> ids = fn.combine(
@@ -954,7 +961,7 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.TableBufferingDestructorResponse table_buffering_destructor(
             farm.query.vgi.protocol.TableBufferingDestructorRequest request) {
-        bufferingStore.removeExecution(request.execution_id());
+        this.storage.executionClear(request.execution_id());
         return new farm.query.vgi.protocol.TableBufferingDestructorResponse();
     }
 

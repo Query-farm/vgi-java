@@ -2,7 +2,7 @@
 
 package farm.query.vgi.example.buffering;
 
-import farm.query.vgi.buffering.BufferingStore;
+import farm.query.vgi.storage.FunctionStorage;
 import farm.query.vgi.buffering.TableBufferingCombineParams;
 import farm.query.vgi.buffering.TableBufferingProcessParams;
 import farm.query.vgi.function.FunctionMetadata;
@@ -54,7 +54,7 @@ public final class BatchIndexBufferInputFunction extends AbstractBufferAndDrain 
     @Override public List<byte[]> combine(List<byte[]> stateIds, TableBufferingCombineParams params) {
         record Pair(long idx, byte[] ipc) {}
         List<Pair> pairs = new ArrayList<>();
-        for (BufferingStore.Entry e : params.storage().stateLogScan(NS_UNSORTED, KEY, -1, Integer.MAX_VALUE)) {
+        for (FunctionStorage.LogEntry e : params.storage().stateLogScan(NS_UNSORTED, KEY, -1, Integer.MAX_VALUE)) {
             ByteBuffer b = ByteBuffer.wrap(e.value());
             long idx = b.getLong();
             byte[] ipc = new byte[b.remaining()];

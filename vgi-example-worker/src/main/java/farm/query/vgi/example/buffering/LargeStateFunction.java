@@ -3,7 +3,7 @@
 package farm.query.vgi.example.buffering;
 
 import farm.query.vgi.buffering.BufferingFinalizeProducer;
-import farm.query.vgi.buffering.BufferingStore;
+import farm.query.vgi.storage.FunctionStorage;
 import farm.query.vgi.buffering.TableBufferingFinalizeParams;
 import farm.query.vgi.buffering.TableBufferingProcessParams;
 import farm.query.vgi.function.FunctionMetadata;
@@ -60,7 +60,7 @@ public final class LargeStateFunction extends AbstractBufferAndDrain {
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (emitted) { out.finish(); return; }
             long total = 0;
-            for (BufferingStore.Entry e : storage.stateLogScan(NS_LARGE, KEY, -1, Integer.MAX_VALUE)) {
+            for (FunctionStorage.LogEntry e : storage.stateLogScan(NS_LARGE, KEY, -1, Integer.MAX_VALUE)) {
                 total += e.value().length;
             }
             List<FieldVector> vectors = new ArrayList<>();

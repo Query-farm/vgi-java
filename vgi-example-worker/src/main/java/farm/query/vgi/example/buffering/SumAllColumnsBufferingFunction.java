@@ -3,7 +3,7 @@
 package farm.query.vgi.example.buffering;
 
 import farm.query.vgi.buffering.BufferingFinalizeProducer;
-import farm.query.vgi.buffering.BufferingStore;
+import farm.query.vgi.storage.FunctionStorage;
 import farm.query.vgi.buffering.TableBufferingFinalizeParams;
 import farm.query.vgi.buffering.TableBufferingProcessParams;
 import farm.query.vgi.function.FunctionMetadata;
@@ -109,7 +109,7 @@ public final class SumAllColumnsBufferingFunction extends AbstractBufferAndDrain
             if (emitted) { out.finish(); return; }
             VectorSchemaRoot result = VectorSchemaRoot.create(outputSchema, Allocators.root());
             result.allocateNew();
-            for (BufferingStore.Entry e : storage.stateLogScan(NS_RAW, KEY, -1, Integer.MAX_VALUE)) {
+            for (FunctionStorage.LogEntry e : storage.stateLogScan(NS_RAW, KEY, -1, Integer.MAX_VALUE)) {
                 try (VectorSchemaRoot src = BatchUtil.readSingleBatch(e.value(), Allocators.root())) {
                     int rows = src.getRowCount();
                     for (Field f : outputSchema.getFields()) {

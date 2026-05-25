@@ -23,18 +23,21 @@ import java.util.Map;
  * Drives the {@code aggregate_bind / update / combine / finalize / destructor}
  * lifecycle for one or more registered {@link AggregateFunction}s.
  *
- * <p>Per-execution state is persisted in a shared {@link AggregateStateStore}
- * (SQLite-backed) so partial states accumulated by one DuckDB worker
- * subprocess are visible to combine/finalize calls dispatched to a sibling
- * subprocess. Each lifecycle method follows the load → mutate → save pattern.
+ * <p>Per-execution state is persisted in the worker's shared
+ * {@link farm.query.vgi.storage.FunctionStorage} (via {@link AggregateStateStore})
+ * so partial states accumulated by one DuckDB worker subprocess are visible to
+ * combine/finalize calls dispatched to a sibling subprocess. Each lifecycle
+ * method follows the load → mutate → save pattern.
  */
 public final class AggregateRunner {
 
     private final Map<String, AggregateFunction<?>> registry;
-    private final AggregateStateStore store = AggregateStateStore.get();
+    private final AggregateStateStore store;
 
-    public AggregateRunner(Map<String, AggregateFunction<?>> registry) {
+    public AggregateRunner(Map<String, AggregateFunction<?>> registry,
+                           farm.query.vgi.storage.FunctionStorage storage) {
         this.registry = registry;
+        this.store = new AggregateStateStore(storage);
     }
 
     public AggregateBindResponse bind(String functionName, byte[] inputSchemaIpc, byte[] argumentsIpc) {
