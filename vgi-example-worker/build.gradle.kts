@@ -12,5 +12,9 @@ application {
     // ParameterBinder reads Parameter.getName() — required for kwargs binding.
     // (Already covered by -parameters compile flag in root build, but the
     // Arrow allocator opens are needed at runtime too.)
-    applicationDefaultJvmArgs = listOf("--add-opens=java.base/java.nio=ALL-UNNAMED")
+    applicationDefaultJvmArgs = listOf(
+        "--add-opens=java.base/java.nio=ALL-UNNAMED",
+        // FFM shm_open/mmap downcalls run in the worker JVM.
+        "--enable-native-access=ALL-UNNAMED",
+    )
 }

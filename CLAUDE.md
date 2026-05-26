@@ -73,6 +73,84 @@ their env contract changes — they're not generated.
 > the absolute paths in `/tmp/intest.txt` are fine. After rebuilding the worker,
 > `pkill -f farm.query.vgi.example.Main` before re-running.
 
+## Shared-memory transport (implemented 2026-05-25)
+
+The POSIX shm side-channel is wired in (all of it in **vgi-rpc-java**; the
+worker needs no code changes). The C++ client creates/owns a `shm_open`
+segment when `VGI_RPC_SHM_SIZE_BYTES` is set and advertises
+`vgi_rpc.shm_segment_name`/`_size` on each `init` request; the Java worker
+attaches and offloads streaming output batches as zero-row pointer batches.
+
+- `shm/ShmSegment.java` — POSIX `shm_open`/`ftruncate`/`mmap`/`munmap`/
+  `shm_unlink` via FFM (`java.lang.foreign`, GA in JDK 22+; needs the JDK 25
+  toolchain + `--enable-native-access`). Header layout + first-fit allocator
+  are byte-compatible with C++/Go/Python. `attach()` is the only production
+  path (`O_RDWR`, no `O_CREAT`); the worker never unlinks (client owns it).
+- `shm/ShmResolver.java` — `maybeWriteToShm` (emit) + `resolve`/`isPointer`,
+  mirroring the `external/{Externalizer,LocationResolver}` pointer-batch pattern.
+  Emit/resolve read/write the segment via **`MemorySegment`-backed
+  `WritableByteChannel`/`ReadableByteChannel`** (`ShmSegment.writeChannelAt`/
+  `readChannelAt`, 2026-05-25) handed straight to Arrow's `WriteChannel`/
+  `ReadChannel` (new channel-accepting `IpcStreamWriter`/`IpcStreamReader`
+  ctors). Emit estimates an upper-bound size, allocates, serializes in place,
+  records the exact `written()` length (overflow → inline). **Do NOT route these
+  through `Channels.newChannel(InputStream/OutputStream)`** — a JFR profile
+  showed that adapter burning ~72% of worker CPU bouncing each buffer through a
+  heap `byte[]`; the channel form makes each transfer one bulk `MemorySegment.
+  copy`, leaving the worker genuinely copy-bound. After this, Java shm `echo` is
+  the **fastest** of Java/pyarrow/Go at small–mid batches (4.2 GiB/s at 1 MiB)
+  and competitive at 512 MiB. The remaining non-copy cost is Arrow-Java zeroing a
+  fresh Netty-unpooled direct buffer per batch (`Bits.setMemory`, ~33%) — would
+  need a pooled allocator; the pipe path (no channel) is untouched and still the
+  slow fallback.
+- `shm/ShmSession.java` — per-connection attach state; lazy, best-effort
+  (attach failure → inline). Closed in `RpcServer.serve`'s try-with-resources.
+- Both the streaming path (`flushCollector`) **and** unary results
+  (`writeResult`) emit shm. The C++ client resolves shm pointer batches in two
+  places: the `ReadDataBatch` scan loop (table/scalar/TIO output) and
+  `ResolveUnaryShm` on the `FunctionConnection` unary path
+  (`table_buffering_{process,combine,destructor}`) — added 2026-05-25 in
+  `~/Development/vgi/src/vgi_function_connection.cpp` (rebuild:
+  `ninja -C build/release unittest`). Catalog/bind connections never advertise
+  a segment (`VgiShmSegment::Create` is only in `PerformInit`), so their
+  responses stay inline regardless. Dict-encoded (ENUM) and zero-row batches
+  fall back to inline; segment-full also falls back.
+
+  > **Earlier mistake (don't repeat):** shm'ing `writeResult` *before* the C++
+  > unary resolve existed broke `table_buffering_process` → "Empty response"
+  > (the 0-row pointer looked empty). The C++ side must resolve a response path
+  > before the worker is allowed to shm it.
+
+**Inbound (client → worker), added 2026-05-25 — fully bidirectional now.** The
+C++ client also writes request data into the *same* segment: `VgiShmSegment::
+AllocateAndWrite` (first-fit, the inverse of `FreeAllocation`) +
+`MaybeWriteBatchToShm` in `vgi_function_connection.cpp`, wired into
+`WriteInputBatch` (scalar/TIO input) and `RpcTableBufferingProcess` (the large
+unary params batch). The worker's `ShmResolver.resolve`/`isPointer` (already
+present, in `serveOne` for unary params and `processOneTick` for stream input)
+light up; **client allocates, worker frees** (inverse of outbound) — race-free
+under lockstep, verified under `threads=8`.
+
+Two subtleties that cost time (don't regress):
+- The client must serialize the shm bytes under the **bind-time `input_schema_`**
+  (the schema `input_writer_` declares on the wire), *not* `batch->schema()` —
+  Arrow's stream writer leniently writes the batch's buffers under the declared
+  schema, and TIMESTAMP_TZ etc. normalize differently, so a `batch->schema()`
+  serialization makes the worker's resolved schema ≠ `inputSchema` → a doomed
+  cast (`ClassCastException: TIMESTAMPMICROTZ`).
+- `ShmResolver.resolve` materializes via **`TransferPair`** (not row-wise
+  `copyFromSafe`, which `ComplexCopier` rejects for `LIST<TIMESTAMP_TZ>`) and
+  labels the result with the **pointer batch's schema** (== `inputSchema`), so
+  the downstream equality check passes. Dict/ENUM inputs stay inline (the worker
+  decodes resolved params with a null `DictionaryProvider`).
+
+Run it: `VGI_RPC_SHM_SIZE_BYTES=67108864 [VGI_RPC_SHM_DEBUG=1
+VGI_WORKER_STDERR=/tmp/w.log] /tmp/run_test.sh -f /tmp/intest.txt`. Verified:
+full suite identical to inline (164/165, only `schema_reconcile`); a tiny
+`VGI_RPC_SHM_SIZE_BYTES=69632` forces mid-stream fallback and still passes.
+`VGI_RPC_SHM_DEBUG=1` logs `[vgi-shm] attached …` (worker) and
+`[shm] resolved batch …`/`inline fallback …` (C++ client).
+
 ## The `launch:` prefix matters
 
 Workers are slow to cold-start (~2–5 s JVM). The C++ extension supports a
@@ -97,7 +175,12 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 
 ## Conventions
 
-- **Java 21 + `-parameters` is mandatory.** Wire field names equal Java
+- **Java 25 + `-parameters` is mandatory.** (Bumped from 21 → 25 on
+  2026-05-25 so the shm transport can call POSIX `shm_open`/`mmap` via the
+  GA `java.lang.foreign` FFM API without `--enable-preview`. Both repos
+  build on JDK 25; vgi-rpc-java's Gradle wrapper moved 8.10 → 9.0 because
+  8.10 can't run on JDK 25. Worker + test JVMs pass
+  `--enable-native-access=ALL-UNNAMED`.) Wire field names equal Java
   parameter names. Every `VgiService` method param must be `snake_case`
   matching the corresponding Go wire struct's field tag exactly. No
   `@JsonProperty`-style override exists.
