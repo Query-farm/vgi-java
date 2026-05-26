@@ -67,17 +67,53 @@ public final class ConcatValuesFunctions {
         public void compute(
                 @Vector(varargs = true) List<VarCharVector> values,
                 VarCharVector result) {
+            // Byte-level concat: the inputs are already contiguous UTF-8 in their
+            // Arrow data buffers, so we copy raw bytes and never round-trip
+            // through java.lang.String (which would decode UTF-8 -> UTF-16 and
+            // re-encode, doubling the data and burning the transcoder). One pass
+            // sizes the output, a second copies; pre-allocating means setSafe
+            // never reallocates + recopies a growing buffer.
             int rows = values.get(0).getValueCount();
+            int ncols = values.size();
+
+            long totalBytes = 0;
+            int maxRowLen = 0;
             for (int r = 0; r < rows; r++) {
                 boolean anyNull = false;
-                StringBuilder sb = new StringBuilder();
-                for (VarCharVector c : values) {
-                    if (c.isNull(r)) { anyNull = true; break; }
-                    sb.append(c.getObject(r).toString());
+                int rowLen = 0;
+                for (int c = 0; c < ncols; c++) {
+                    VarCharVector v = values.get(c);
+                    if (v.isNull(r)) { anyNull = true; break; }
+                    rowLen += v.getValueLength(r);
                 }
-                if (anyNull) result.setNull(r);
-                else result.setSafe(r, new Text(sb.toString()));
+                if (!anyNull) {
+                    totalBytes += rowLen;
+                    if (rowLen > maxRowLen) maxRowLen = rowLen;
+                }
             }
+
+            result.allocateNew(totalBytes, rows);
+            byte[] scratch = new byte[maxRowLen];
+            for (int r = 0; r < rows; r++) {
+                boolean anyNull = false;
+                for (int c = 0; c < ncols; c++) {
+                    if (values.get(c).isNull(r)) { anyNull = true; break; }
+                }
+                if (anyNull) {
+                    result.setNull(r);
+                    continue;
+                }
+                int pos = 0;
+                for (int c = 0; c < ncols; c++) {
+                    VarCharVector v = values.get(c);
+                    int start = v.getOffsetBuffer().getInt((long) r * VarCharVector.OFFSET_WIDTH);
+                    int len = v.getValueLength(r);
+                    v.getDataBuffer().getBytes(start, scratch, pos, len);
+                    pos += len;
+                }
+                result.setSafe(r, scratch, 0, pos);
+            }
+            result.setValueCount(rows);
         }
     }
 }
