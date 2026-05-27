@@ -24,13 +24,17 @@ subprojects {
     }
 
     extensions.configure<JavaPluginExtension> {
+        // Build with JDK 25 but target Java 21 bytecode so the example worker
+        // runs on any JDK >= 21. The shared-memory transport (java.lang.foreign,
+        // GA in 22) lives in vgi-rpc-java's Java 22 multi-release overlay and
+        // activates only on JDK >= 22; on 21 the worker uses the pipe transport.
         toolchain {
             languageVersion.set(JavaLanguageVersion.of(25))
         }
     }
 
     tasks.withType<JavaCompile>().configureEach {
-        options.release.set(25)
+        options.release.set(21)
         options.compilerArgs.addAll(
             listOf(
                 "-Xlint:all,-serial,-processing",
