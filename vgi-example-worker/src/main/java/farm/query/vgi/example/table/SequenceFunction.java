@@ -76,7 +76,14 @@ public final class SequenceFunction extends CountdownTableFunction {
         public void produceTick(OutputCollector out, CallContext ctx) {
             BatchUtil.produceBatch(batch, OUTPUT_SCHEMA, filters, out, (root, n, start) -> {
                 BigIntVector v = (BigIntVector) root.getVector("n");
-                for (int i = 0; i < n; i++) v.setSafe(i, (start + i) * increment);
+                v.allocateNew(n);
+                try {
+                    for (int i = 0; i < n; i++) {
+                        v.set(i, Math.multiplyExact(Math.addExact(start, i), increment));
+                    }
+                } catch (ArithmeticException e) {
+                    throw new IllegalArgumentException("sequence: int64 overflow", e);
+                }
             });
         }
     }

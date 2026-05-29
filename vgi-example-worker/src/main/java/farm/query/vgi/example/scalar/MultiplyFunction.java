@@ -18,9 +18,17 @@ public final class MultiplyFunction extends ScalarFn {
             @Const long factor,
             BigIntVector result) {
         int rows = value.getValueCount();
-        for (int i = 0; i < rows; i++) {
-            if (value.isNull(i)) result.setNull(i);
-            else result.setSafe(i, value.get(i) * factor);
+        // Size the output for the batch up front, then write with the
+        // unchecked set() — setSafe() re-checks capacity and can realloc+copy
+        // on every row.
+        result.allocateNew(rows);
+        try {
+            for (int i = 0; i < rows; i++) {
+                if (value.isNull(i)) result.setNull(i);
+                else result.set(i, Math.multiplyExact(value.get(i), factor));
+            }
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("multiply: int64 overflow", e);
         }
     }
 }

@@ -168,7 +168,7 @@ public final class ConstantColumnsFunction implements TableFunction {
         long count = ((Number) params.arguments().positionalAt(0)).longValue();
         List<Object> values = new ArrayList<>(params.arguments().positional().subList(
                 1, params.arguments().positional().size()));
-        State state = new State((int) count, values);
+        State state = new State(count, values);
         state.outputSchemaIpc = SchemaUtil.serializeSchema(params.outputSchema());
         return state;
     }
@@ -186,41 +186,93 @@ public final class ConstantColumnsFunction implements TableFunction {
     }
 
     public static final class State extends TableProducerState implements Serializable {
-        private static final long serialVersionUID = 1L;
-        public int total;
+        private static final long serialVersionUID = 2L;
+        /** Rows per emitted batch; matches DuckDB's standard vector size so a
+         *  large {@code count} streams instead of materializing in one root. */
+        private static final int BATCH_SIZE = 2048;
+        public long total;
+        public long emitted;
         public List<Object> values;
-        public boolean done;
         public byte[] outputSchemaIpc;
+        private transient Schema cachedSchema;
 
         public State() {}
-        State(int total, List<Object> values) { this.total = total; this.values = values; }
+        State(long total, List<Object> values) { this.total = total; this.values = values; }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            if (done) { out.finish(); return; }
-            done = true;
-            // Prefer the bind-time output schema so user-supplied types like
-            // TINYINT or FLOAT survive the round-trip. Falls back to inference
-            // from the Java runtime values if the schema isn't available.
-            Schema schema;
+            if (emitted >= total) { out.finish(); return; }
+            Schema schema = schema();
+            int n = (int) Math.min(BATCH_SIZE, total - emitted);
+            VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
+            boolean ownershipTransferred = false;
+            try {
+                root.allocateNew();
+                for (int c = 0; c < values.size(); c++) {
+                    fillColumn(root.getVector(c), values.get(c), n);
+                }
+                root.setRowCount(n);
+                out.emit(root);
+                ownershipTransferred = true;
+            } finally {
+                if (!ownershipTransferred) root.close();
+            }
+            emitted += n;
+        }
+
+        /** Resolve (and cache) the output schema. Prefer the bind-time output
+         *  schema so user-supplied types like TINYINT or FLOAT survive the
+         *  round-trip; fall back to inference from the runtime values. */
+        private Schema schema() {
+            if (cachedSchema != null) return cachedSchema;
             if (outputSchemaIpc != null && outputSchemaIpc.length > 0) {
-                schema = SchemaUtil.deserializeSchema(outputSchemaIpc);
+                cachedSchema = SchemaUtil.deserializeSchema(outputSchemaIpc);
             } else {
                 List<Field> fields = new ArrayList<>();
                 for (int i = 0; i < values.size(); i++) {
                     fields.add(buildField("col_" + i, values.get(i)));
                 }
-                schema = new Schema(fields);
+                cachedSchema = new Schema(fields);
             }
-            VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
-            root.allocateNew();
-            for (int c = 0; c < values.size(); c++) {
-                FieldVector v = root.getVector(c);
-                Object val = values.get(c);
-                for (int r = 0; r < total; r++) setCell(v, r, val);
+            return cachedSchema;
+        }
+
+        /** Fill {@code rows} cells of {@code v} with the constant {@code val},
+         *  resolving the concrete vector type once instead of per row. Nested /
+         *  uncommon types fall back to the per-row {@link #setCell} dispatch. */
+        private static void fillColumn(FieldVector v, Object val, int rows) {
+            if (val == null) {
+                for (int r = 0; r < rows; r++) v.setNull(r);
+                return;
             }
-            root.setRowCount(total);
-            out.emit(root);
-            out.finish();
+            if (v instanceof BigIntVector bv) {
+                long x = ((Number) val).longValue();
+                bv.allocateNew(rows);
+                for (int r = 0; r < rows; r++) bv.set(r, x);
+            } else if (v instanceof org.apache.arrow.vector.IntVector iv) {
+                int x = ((Number) val).intValue();
+                iv.allocateNew(rows);
+                for (int r = 0; r < rows; r++) iv.set(r, x);
+            } else if (v instanceof Float8Vector fv) {
+                double x = ((Number) val).doubleValue();
+                fv.allocateNew(rows);
+                for (int r = 0; r < rows; r++) fv.set(r, x);
+            } else if (v instanceof org.apache.arrow.vector.Float4Vector fv) {
+                float x = ((Number) val).floatValue();
+                fv.allocateNew(rows);
+                for (int r = 0; r < rows; r++) fv.set(r, x);
+            } else if (v instanceof BitVector bit) {
+                int x = (Boolean) val ? 1 : 0;
+                bit.allocateNew(rows);
+                for (int r = 0; r < rows; r++) bit.set(r, x);
+            } else if (v instanceof VarCharVector vc) {
+                byte[] x = val.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                vc.allocateNew((long) x.length * rows, rows);
+                for (int r = 0; r < rows; r++) vc.setSafe(r, x, 0, x.length);
+            } else {
+                // Smaller ints, decimals, binary, list/struct/map, temporal —
+                // per-row dispatch (rarer paths; correctness over speed).
+                for (int r = 0; r < rows; r++) setCell(v, r, val);
+            }
         }
 
         @SuppressWarnings("unchecked")

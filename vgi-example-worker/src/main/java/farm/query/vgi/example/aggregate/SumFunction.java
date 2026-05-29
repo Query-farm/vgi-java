@@ -39,16 +39,26 @@ public final class SumFunction implements AggregateFunction<SumFunction.State> {
         FieldVector v = input.getFieldVectors().get(0);
         if (!(v instanceof BigIntVector b)) return;
         int rows = input.getRowCount();
-        for (int i = 0; i < rows; i++) {
-            if (b.isNull(i)) continue;
-            long gid = groupIds[i];
-            State s = states.computeIfAbsent(gid, k -> new State());
-            s.total += b.get(i);
+        try {
+            for (int i = 0; i < rows; i++) {
+                if (b.isNull(i)) continue;
+                long gid = groupIds[i];
+                State s = states.computeIfAbsent(gid, k -> new State());
+                s.total = Math.addExact(s.total, b.get(i));
+            }
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("vgi_sum: int64 overflow", e);
         }
     }
 
     @Override
-    public void combine(State target, State source) { target.total += source.total; }
+    public void combine(State target, State source) {
+        try {
+            target.total = Math.addExact(target.total, source.total);
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("vgi_sum: int64 overflow", e);
+        }
+    }
 
     @Override
     public void finalize(FieldVector result, int rowIndex, State state) {

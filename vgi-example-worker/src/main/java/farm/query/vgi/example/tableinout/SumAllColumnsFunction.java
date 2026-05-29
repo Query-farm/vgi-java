@@ -132,22 +132,17 @@ public class SumAllColumnsFunction implements TableInOutFunction {
                         null));
             }
             for (Field f : schema.getFields()) {
-                FieldVector col = src.getVector(f.getName());
+                String name = f.getName();
+                FieldVector col = src.getVector(name);
                 if (col == null) continue;
-                if (intSums.containsKey(f.getName())) {
-                    long sum = 0;
-                    for (int i = 0; i < rows; i++) {
-                        if (col.isNull(i)) continue;
-                        sum += ScalarHelpers.toLong(col, i);
-                    }
-                    intSums.merge(f.getName(), sum, Long::sum);
-                } else if (floatSums.containsKey(f.getName())) {
-                    double sum = 0;
-                    for (int i = 0; i < rows; i++) {
-                        if (col.isNull(i)) continue;
-                        sum += ScalarHelpers.toDouble(col, i);
-                    }
-                    floatSums.merge(f.getName(), sum, Double::sum);
+                Long curInt = intSums.get(name);
+                if (curInt != null) {
+                    intSums.put(name, curInt + sumLong(col, rows));
+                    continue;
+                }
+                Double curFloat = floatSums.get(name);
+                if (curFloat != null) {
+                    floatSums.put(name, curFloat + sumDouble(col, rows));
                 }
             }
             // Emit empty batch to satisfy the exchange protocol.
@@ -158,5 +153,36 @@ public class SumAllColumnsFunction implements TableInOutFunction {
             }
         }
 
+        /** Sum an integer column, resolving the concrete vector type once
+         *  rather than per row (the {@link ScalarHelpers#toLong} instanceof
+         *  chain runs once instead of {@code rows} times). */
+        private static long sumLong(FieldVector col, int rows) {
+            long sum = 0;
+            if (col instanceof BigIntVector b) {
+                for (int i = 0; i < rows; i++) if (!b.isNull(i)) sum += b.get(i);
+            } else if (col instanceof org.apache.arrow.vector.IntVector v) {
+                for (int i = 0; i < rows; i++) if (!v.isNull(i)) sum += v.get(i);
+            } else if (col instanceof org.apache.arrow.vector.SmallIntVector v) {
+                for (int i = 0; i < rows; i++) if (!v.isNull(i)) sum += v.get(i);
+            } else if (col instanceof org.apache.arrow.vector.TinyIntVector v) {
+                for (int i = 0; i < rows; i++) if (!v.isNull(i)) sum += v.get(i);
+            } else {
+                for (int i = 0; i < rows; i++) if (!col.isNull(i)) sum += ScalarHelpers.toLong(col, i);
+            }
+            return sum;
+        }
+
+        /** Sum a floating-point column, resolving the vector type once. */
+        private static double sumDouble(FieldVector col, int rows) {
+            double sum = 0;
+            if (col instanceof Float8Vector f) {
+                for (int i = 0; i < rows; i++) if (!f.isNull(i)) sum += f.get(i);
+            } else if (col instanceof org.apache.arrow.vector.Float4Vector f) {
+                for (int i = 0; i < rows; i++) if (!f.isNull(i)) sum += f.get(i);
+            } else {
+                for (int i = 0; i < rows; i++) if (!col.isNull(i)) sum += ScalarHelpers.toDouble(col, i);
+            }
+            return sum;
+        }
     }
 }
