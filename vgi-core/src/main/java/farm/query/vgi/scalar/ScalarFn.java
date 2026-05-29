@@ -209,6 +209,28 @@ public abstract class ScalarFn implements ScalarFunction {
          */
         final ThreadLocal<Object[]> argsHolder;
 
+        /**
+         * Per-thread cached output {@link VectorSchemaRoot} reused across batches
+         * on the same stream. Each call to {@code invoke()} returns a non-closing
+         * wrapper around this root, so the framework's per-batch
+         * {@code root.close()} in {@code RpcServer.flushCollector} drops back to
+         * a no-op and the underlying ArrowBufs survive into the next batch.
+         *
+         * Cached by output {@link Schema}: the first batch on a thread allocates
+         * the root; subsequent batches reuse it if the schema is unchanged. A
+         * schema change (rare — only when {@code outputSchema()} is overridden
+         * to depend on input or arguments) closes the old root and allocates a
+         * fresh one.
+         *
+         * <p><strong>Lifetime caveat.</strong> The cache is never proactively
+         * closed; on thread death the ThreadLocal entry becomes unreachable and
+         * the underlying ArrowBufs go through Netty's pool's normal weak-ref
+         * cleanup. For long-lived dispatcher threads serving many streams this
+         * is the desired behaviour — one allocation amortized over the worker's
+         * lifetime.
+         */
+        final ThreadLocal<CachedOutput> cachedOutput;
+
         private ComputePlan(Method method, List<ArgSpec> argSpecs, ArrowType staticOutputType,
                               List<ParamBinder> binders, int outputParamIndex,
                               Class<?> outputVectorClass) {
@@ -227,6 +249,7 @@ public abstract class ScalarFn implements ScalarFunction {
             }
             int argsLen = binders.size() + 1;  // +1 for the instance receiver
             this.argsHolder = ThreadLocal.withInitial(() -> new Object[argsLen]);
+            this.cachedOutput = new ThreadLocal<>();
         }
 
         static ComputePlan forClass(Class<?> cls) {
@@ -313,8 +336,23 @@ public abstract class ScalarFn implements ScalarFunction {
                                   BufferAllocator alloc) {
             int rows = input.getRowCount();
             Schema outSchema = fn.outputSchema(input.getSchema(), params.arguments());
-            VectorSchemaRoot outRoot = VectorSchemaRoot.create(outSchema, Allocators.root());
-            outRoot.allocateNew();
+
+            // Pull the cached output root for this thread, allocating only on
+            // first use OR when the output schema differs from the previous
+            // batch's. Reusing the root across batches cuts the per-batch
+            // VectorSchemaRoot.allocateNew() + AllocationManager construction +
+            // FieldVector allocFixedDataAndValidityBufs overhead the JFR
+            // profile pinned at ~21% of worker RUNNABLE CPU on the scalar
+            // multiply workload.
+            CachedOutput cached = cachedOutput.get();
+            if (cached == null || !cached.schema.equals(outSchema)) {
+                if (cached != null) cached.root.close();
+                VectorSchemaRoot fresh = VectorSchemaRoot.create(outSchema, Allocators.root());
+                fresh.allocateNew();
+                cached = new CachedOutput(outSchema, fresh);
+                cachedOutput.set(cached);
+            }
+            VectorSchemaRoot outRoot = cached.root;
             FieldVector outputVec = outRoot.getVector("result");
 
             // Hot path: reuse the ThreadLocal args array; slot 0 is the receiver
@@ -345,7 +383,39 @@ public abstract class ScalarFn implements ScalarFunction {
             }
             outputVec.setValueCount(rows);
             outRoot.setRowCount(rows);
-            return outRoot;
+            // Hand the writer a non-closing view backed by the same FieldVector
+            // instances. {@code RpcServer.flushCollector} calls {@code root.close()}
+            // unconditionally after writing each batch; for the cached root we
+            // want that close to be a no-op so the underlying ArrowBufs survive
+            // to the next batch. The wrapper shares vectors with the cache so
+            // the writer reads the freshly populated data.
+            return new NonClosingVectorSchemaRoot(outSchema, outRoot.getFieldVectors(), rows);
+        }
+
+        /**
+         * Per-thread cache entry. Holds the schema this root was allocated for
+         * (used to invalidate when {@code outputSchema()} returns a different
+         * shape) and the root itself.
+         */
+        private record CachedOutput(Schema schema, VectorSchemaRoot root) {}
+
+        /**
+         * Thin subclass that shares {@link FieldVector}s with a cached
+         * {@link VectorSchemaRoot} but turns {@code close()} into a no-op so
+         * the framework's per-batch close doesn't release the underlying
+         * ArrowBufs. Lifecycle of the wrapped vectors belongs to the cache,
+         * not to this wrapper. {@code writeBatch} only reads from the vectors,
+         * so a non-closing view is wire-equivalent to the original root.
+         */
+        private static final class NonClosingVectorSchemaRoot extends VectorSchemaRoot {
+            NonClosingVectorSchemaRoot(Schema schema, List<FieldVector> fieldVectors, int rowCount) {
+                super(schema, fieldVectors, rowCount);
+            }
+
+            @Override
+            public void close() {
+                // No-op: the cache owns the vectors.
+            }
         }
 
         private static Method findCompute(Class<?> cls) {
