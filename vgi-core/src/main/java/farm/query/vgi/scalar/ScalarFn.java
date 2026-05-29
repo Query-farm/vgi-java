@@ -31,11 +31,14 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.types.pojo.Field;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -187,6 +190,24 @@ public abstract class ScalarFn implements ScalarFunction {
         final List<ParamBinder> binders;
         final int outputParamIndex;        // index in binders[] of the output binder
         final Class<?> outputVectorClass;  // concrete output vector class
+        /**
+         * Cached MethodHandle for the compute() body. Beats {@link Method#invoke}
+         * substantially in tight per-batch loops: invocation cost drops from
+         * full reflective dispatch (varargs unwrap + arg array copy + access
+         * checks + boxing reflection) to a single indirect call the JIT can
+         * inline through. Resolved once at plan creation; the underlying
+         * {@code Method} is also kept (for diagnostics + name lookups).
+         */
+        final MethodHandle methodHandle;
+        /**
+         * Per-thread reusable argument array sized to {@code binders.size() + 1}
+         * (slot 0 is the receiver for the instance method). Eliminates a per-batch
+         * {@code new Object[]} allocation on the hot path. Cleared via
+         * {@link Arrays#fill} after every invocation so we don't hold references
+         * to vectors past the call (those vectors will be released by the IPC
+         * writer; holding refs would defeat that release).
+         */
+        final ThreadLocal<Object[]> argsHolder;
 
         private ComputePlan(Method method, List<ArgSpec> argSpecs, ArrowType staticOutputType,
                               List<ParamBinder> binders, int outputParamIndex,
@@ -197,6 +218,15 @@ public abstract class ScalarFn implements ScalarFunction {
             this.binders = binders;
             this.outputParamIndex = outputParamIndex;
             this.outputVectorClass = outputVectorClass;
+            try {
+                this.methodHandle = MethodHandles.lookup().unreflect(method);
+            } catch (IllegalAccessException e) {
+                throw new IllegalStateException(
+                        "ScalarFn: unable to unreflect compute() — make it public or open the module",
+                        e);
+            }
+            int argsLen = binders.size() + 1;  // +1 for the instance receiver
+            this.argsHolder = ThreadLocal.withInitial(() -> new Object[argsLen]);
         }
 
         static ComputePlan forClass(Class<?> cls) {
@@ -286,24 +316,32 @@ public abstract class ScalarFn implements ScalarFunction {
             VectorSchemaRoot outRoot = VectorSchemaRoot.create(outSchema, Allocators.root());
             outRoot.allocateNew();
             FieldVector outputVec = outRoot.getVector("result");
-            Object[] args = new Object[binders.size()];
+
+            // Hot path: reuse the ThreadLocal args array; slot 0 is the receiver
+            // for the unbound MethodHandle. Cleared in finally to release refs.
+            Object[] args = argsHolder.get();
+            args[0] = fn;
             int vectorIdx = 0;
             for (int i = 0; i < binders.size(); i++) {
                 ParamBinder b = binders.get(i);
                 if (b instanceof OutputBinder) {
-                    args[i] = outputVec;
+                    args[i + 1] = outputVec;
                 } else {
-                    args[i] = b.resolve(params, input, alloc, vectorIdx);
+                    args[i + 1] = b.resolve(params, input, alloc, vectorIdx);
                     if (b instanceof VectorBinder) vectorIdx++;
                     if (b instanceof VarargsVectorBinder) vectorIdx = input.getFieldVectors().size();
                 }
             }
             try {
-                method.invoke(fn, args);
-            } catch (ReflectiveOperationException e) {
-                Throwable cause = e.getCause() != null ? e.getCause() : e;
-                if (cause instanceof RuntimeException re) throw re;
-                throw new RuntimeException(cause);
+                methodHandle.invokeWithArguments(args);
+            } catch (RuntimeException re) {
+                throw re;
+            } catch (Error e) {
+                throw e;
+            } catch (Throwable t) {
+                throw new RuntimeException(t);
+            } finally {
+                Arrays.fill(args, null);
             }
             outputVec.setValueCount(rows);
             outRoot.setRowCount(rows);
