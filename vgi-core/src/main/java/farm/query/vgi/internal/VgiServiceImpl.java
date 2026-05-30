@@ -85,18 +85,7 @@ public final class VgiServiceImpl implements VgiService {
      * normally short-lived; the cap is sized for the worst-case planner fan-out.</p>
      */
     private static final int MAX_PENDING_BINDS = 4096;
-    private static final int MAX_TIO_EXECUTIONS = 1024;
     private final java.util.Map<String, BoundEntry> pendingBinds = BoundedMap.create(MAX_PENDING_BINDS);
-    /**
-     * Per-execution table-in-out exchange states, keyed by hex execution_id.
-     * Survives the INPUT→FINALIZE phase boundary so that buffered state
-     * accumulated during exchange ticks can be drained at finalize time.
-     */
-    private final java.util.Map<String, TioExecutionState> tioExecutions = BoundedMap.create(MAX_TIO_EXECUTIONS);
-
-    /** Snapshot of an in-flight TIO execution, kept alive for FINALIZE-phase init. */
-    private record TioExecutionState(TableInOutFunction fn, TableInOutExchangeState state,
-                                       TableInOutInitParams params) {}
     private final SecureRandom rng = new SecureRandom();
 
     /**
@@ -370,23 +359,6 @@ public final class VgiServiceImpl implements VgiService {
     private RpcStream<? extends StreamState> initTableInOut(InitRequest request, BoundTableInOut bio,
                                                               Schema realOutputSchema, byte[] execId,
                                                               GlobalInitResponse header) {
-        String phase = request.phase();
-        String execKey = bytesKey(execId);
-        if ("FINALIZE".equalsIgnoreCase(phase)) {
-            // Look up the exchange state captured during INPUT phase and
-            // emit buffered batches via a producer stream.
-            TioExecutionState saved = tioExecutions.get(execKey);
-            java.util.List<org.apache.arrow.vector.VectorSchemaRoot> batches =
-                    saved != null
-                            ? bio.fn().finalizeBatches(saved.state(), saved.params())
-                            : bio.fn().finalizeBatches(null,
-                                    new TableInOutInitParams(bio.fn().name(), bio.args(),
-                                            bio.inputSchema(), realOutputSchema,
-                                            bio.settings(), Allocators.root()));
-            tioExecutions.remove(execKey);
-            farm.query.vgirpc.ProducerState producer = new FinalizeProducerState(batches);
-            return RpcStream.producer(realOutputSchema, producer, header);
-        }
         Schema inputSchema = bio.inputSchema() != null ? bio.inputSchema() : new Schema(List.of());
         // Narrow the output schema to the columns DuckDB requested when the
         // function opts into projection pushdown — mirrors initTable. The
@@ -402,9 +374,6 @@ public final class VgiServiceImpl implements VgiService {
                 bio.fn().name(), bio.args(), inputSchema, fnOutputSchema,
                 bio.settings(), Allocators.root());
         TableInOutExchangeState state = bio.fn().createExchange(params);
-        if (bio.fn().hasFinalize()) {
-            tioExecutions.put(execKey, new TioExecutionState(bio.fn(), state, params));
-        }
         return RpcStream.exchange(inputSchema, fnOutputSchema, state, header);
     }
 
@@ -1199,7 +1168,9 @@ public final class VgiServiceImpl implements VgiService {
 
     private FunctionInfo toTableInOutFunctionInfo(TableInOutFunction fn, String schemaName) {
         BindResponse r = fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return baseFunctionInfo(fn, schemaName, "table", bindOutput(r), fn.hasFinalize());
+        // Exchange-only: TIO has no finalize phase (Sink+Source lives in the
+        // buffering interface), so DuckDB never issues a FINALIZE-phase RPC.
+        return baseFunctionInfo(fn, schemaName, "table", bindOutput(r), /*hasFinalize=*/false);
     }
 
     private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
