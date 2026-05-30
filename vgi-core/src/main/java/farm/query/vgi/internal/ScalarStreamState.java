@@ -77,6 +77,11 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
             writeBytes(dos, outputSchemaIpc);
             writeBytes(dos, argumentsIpc);
             writeBytes(dos, settingsIpc);
+            // secrets must round-trip too: over HTTP the state is rehydrated
+            // from this token on the /exchange call, and the resolved secret
+            // bytes are only set at init. Dropping them made secret-consuming
+            // scalars (return_secret_value) see null over HTTP.
+            writeBytes(dos, secrets);
             return baos.toByteArray();
         } catch (Exception e) {
             throw new RuntimeException("ScalarStreamState.encode", e);
@@ -92,6 +97,7 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
             this.outputSchemaIpc = readBytes(dis);
             this.argumentsIpc = readBytes(dis);
             this.settingsIpc = readBytes(dis);
+            this.secrets = readBytes(dis);
         } catch (Exception e) {
             throw new RuntimeException("ScalarStreamState.decode", e);
         }
