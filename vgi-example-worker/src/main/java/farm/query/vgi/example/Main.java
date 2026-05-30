@@ -72,7 +72,6 @@ import farm.query.vgi.example.tableinout.EchoWitnessFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
 import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
 import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
-import farm.query.vgi.example.tableinout.DistributedSumFunction;
 import farm.query.vgi.example.tableinout.ExceptionFinalizeFunction;
 import farm.query.vgi.example.tableinout.ExceptionProcessFunction;
 import farm.query.vgi.example.tableinout.RepeatInputsFunction;
@@ -457,7 +456,6 @@ public final class Main {
                 new RepeatInputsFunction(),
                 new ExceptionFinalizeFunction(),
                 new ExceptionProcessFunction(),
-                new DistributedSumFunction(),
                 new FilterBySettingFunction(),
                 new SlowCancellableInoutFunction(),
                 new UnnestTensorRowsFunction()));
@@ -791,6 +789,7 @@ public final class Main {
         w.registerTableBufferings(List.of(
                 new farm.query.vgi.example.buffering.BufferInputFunction(),
                 new farm.query.vgi.example.buffering.SumAllColumnsBufferingFunction(),
+                new farm.query.vgi.example.buffering.DistributedSumBufferingFunction(),
                 new farm.query.vgi.example.buffering.EchoBufferingFunction(),
                 new farm.query.vgi.example.buffering.OrderedBufferInputFunction(),
                 new farm.query.vgi.example.buffering.BatchIndexBufferInputFunction(),

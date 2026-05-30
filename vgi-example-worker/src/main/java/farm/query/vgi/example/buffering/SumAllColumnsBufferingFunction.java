@@ -40,7 +40,7 @@ import java.util.StringJoiner;
  * remains. Mirrors vgi-python {@code SumAllColumnsFunction} (a buffering
  * Sink+Source function).
  */
-public final class SumAllColumnsBufferingFunction extends AbstractBufferAndDrain {
+public class SumAllColumnsBufferingFunction extends AbstractBufferAndDrain {
 
     private static final byte[] NS_RAW = "raw".getBytes(StandardCharsets.UTF_8);
 
