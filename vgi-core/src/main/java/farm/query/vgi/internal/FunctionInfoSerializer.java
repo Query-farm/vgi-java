@@ -80,6 +80,12 @@ final class FunctionInfoSerializer {
             nullable("projection_pushdown", BOOL),
             nullable("filter_pushdown", BOOL),
             nullable("sampling_pushdown", BOOL),
+            // late_materialization landed in the C++ FunctionInfoSchema between
+            // sampling_pushdown and supported_expression_filters
+            // (vgi_protocol_schemas.hpp). Nullable; only TableFunctions that
+            // expose an is_row_id virtual column + filter/projection pushdown
+            // opt in (Meta.late_materialization), everything else is null.
+            nullable("late_materialization", BOOL),
             listOfPrim("supported_expression_filters", UTF8),
             ORDER_PRESERVATION.field(true),
             nonNull("max_workers", I32),
@@ -131,6 +137,7 @@ final class FunctionInfoSerializer {
             writeNullableBool(v.get("projection_pushdown"), info.projection_pushdown());
             writeNullableBool(v.get("filter_pushdown"), info.filter_pushdown());
             writeNullableBool(v.get("sampling_pushdown"), info.sampling_pushdown());
+            writeNullableBool(v.get("late_materialization"), info.late_materialization());
             writeStringList(v.get("supported_expression_filters"), info.supported_expression_filters());
             ORDER_PRESERVATION.write(v.get("order_preservation"), info.order_preservation());
             writeInt32(v.get("max_workers"), info.max_workers());

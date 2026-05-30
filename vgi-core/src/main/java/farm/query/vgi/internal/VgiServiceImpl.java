@@ -1070,7 +1070,7 @@ public final class VgiServiceImpl implements VgiService {
         for (View v : worker.views()) {
             if (!v.schema().equals(name)) continue;
             items.add(RecordCodec.serializeToBytes(new farm.query.vgi.protocol.ViewInfo(
-                    v.comment(), v.tags(), v.name(), v.schema(), v.definition())));
+                    v.comment(), v.tags(), v.name(), v.schema(), v.definition(), v.columnComments())));
         }
         return new ItemsResponse(items);
     }
@@ -1081,7 +1081,7 @@ public final class VgiServiceImpl implements VgiService {
             if (v.schema().equals(schema_name) && v.name().equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
                         new farm.query.vgi.protocol.ViewInfo(v.comment(), v.tags(),
-                                v.name(), v.schema(), v.definition()))));
+                                v.name(), v.schema(), v.definition(), v.columnComments()))));
             }
         }
         return ItemsResponse.empty();
@@ -1219,7 +1219,8 @@ public final class VgiServiceImpl implements VgiService {
                 base.comment(), base.tags(), base.name(), base.schema_name(), base.function_type(),
                 base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
-                base.filter_pushdown(), base.sampling_pushdown(), base.supported_expression_filters(),
+                base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
+                base.supported_expression_filters(),
                 base.order_preservation(), base.max_workers(), base.supports_batch_index(),
                 base.partition_kind(), base.order_dependent(), base.distinct_dependent(),
                 base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
@@ -1261,6 +1262,7 @@ public final class VgiServiceImpl implements VgiService {
                 md.projectionPushdown(),
                 md.filterPushdown() ? Boolean.TRUE : null,
                 md.samplingPushdown() ? Boolean.TRUE : null,
+                md.lateMaterialization() ? Boolean.TRUE : null,
                 List.of(),
                 md.orderPreservation() == null ? null : md.orderPreservation().name(),
                 maxWorkers,

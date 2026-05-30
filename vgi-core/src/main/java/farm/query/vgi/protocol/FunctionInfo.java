@@ -32,6 +32,7 @@ public record FunctionInfo(
         @Nullable Boolean projection_pushdown,
         @Nullable Boolean filter_pushdown,
         @Nullable Boolean sampling_pushdown,
+        @Nullable Boolean late_materialization,
         List<String> supported_expression_filters,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String order_preservation,
         @ArrowField(ArrowFieldType.INT32) int max_workers,

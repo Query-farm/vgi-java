@@ -9,8 +9,19 @@ import java.util.Map;
  * {@code definition} is a SQL query string evaluated by DuckDB.
  */
 public record View(String schema, String name, String definition,
-                    String comment, Map<String, String> tags) {
+                    String comment, Map<String, String> tags,
+                    Map<String, String> columnComments) {
     public View(String schema, String name, String definition, String comment) {
-        this(schema, name, definition, comment, Map.of());
+        this(schema, name, definition, comment, Map.of(), Map.of());
+    }
+
+    public View(String schema, String name, String definition, String comment,
+                 Map<String, String> tags) {
+        this(schema, name, definition, comment, tags, Map.of());
+    }
+
+    /** Same view with the given per-column comment map (name → comment). */
+    public View withColumnComments(Map<String, String> columnComments) {
+        return new View(schema, name, definition, comment, tags, columnComments);
     }
 }

@@ -15,5 +15,6 @@ public record ViewInfo(
         Map<String, String> tags,
         String name,
         String schema_name,
-        String definition) implements ArrowSerializableRecord {
+        String definition,
+        Map<String, String> column_comments) implements ArrowSerializableRecord {
 }

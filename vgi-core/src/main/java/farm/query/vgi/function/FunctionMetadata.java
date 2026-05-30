@@ -16,7 +16,8 @@ public record FunctionMetadata(
         List<String> categories,
         OrderPreservation orderPreservation,
         boolean supportsBatchIndex,
-        PartitionKind partitionKind) {
+        PartitionKind partitionKind,
+        boolean lateMaterialization) {
 
     /**
      * Wire enum for {@code FunctionInfo.order_preservation}. Mirrors the
@@ -53,7 +54,7 @@ public record FunctionMetadata(
                               List<String> categories, OrderPreservation orderPreservation) {
         this(description, stability, nullHandling, autoApplyFilters, projectionPushdown,
                 filterPushdown, samplingPushdown, categories, orderPreservation,
-                false, PartitionKind.NOT_PARTITIONED);
+                false, PartitionKind.NOT_PARTITIONED, false);
     }
 
     public FunctionMetadata(String description, Stability stability, NullHandling nullHandling,
@@ -78,25 +79,26 @@ public record FunctionMetadata(
     /** Builder convenience: same description, opt into filter+projection pushdown. */
     public FunctionMetadata withPushdown(boolean projection, boolean filter, boolean autoApply) {
         return new FunctionMetadata(description, stability, nullHandling, autoApply, projection, filter,
-                samplingPushdown, categories, orderPreservation, supportsBatchIndex, partitionKind);
+                samplingPushdown, categories, orderPreservation, supportsBatchIndex, partitionKind,
+                lateMaterialization);
     }
 
     public FunctionMetadata withSamplingPushdown() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, true, categories, orderPreservation,
-                supportsBatchIndex, partitionKind);
+                supportsBatchIndex, partitionKind, lateMaterialization);
     }
 
     public FunctionMetadata withCategories(String... cats) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, List.of(cats), orderPreservation,
-                supportsBatchIndex, partitionKind);
+                supportsBatchIndex, partitionKind, lateMaterialization);
     }
 
     public FunctionMetadata withOrderPreservation(OrderPreservation op) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, op,
-                supportsBatchIndex, partitionKind);
+                supportsBatchIndex, partitionKind, lateMaterialization);
     }
 
     /** Opt into {@code supports_batch_index}: every emitted batch must carry a
@@ -104,7 +106,7 @@ public record FunctionMetadata(
     public FunctionMetadata withBatchIndex() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                true, partitionKind);
+                true, partitionKind, lateMaterialization);
     }
 
     /** Declare a non-default {@link PartitionKind} over the output schema's
@@ -112,6 +114,16 @@ public record FunctionMetadata(
     public FunctionMetadata withPartitionKind(PartitionKind kind) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, kind);
+                supportsBatchIndex, kind, lateMaterialization);
+    }
+
+    /** Opt into DuckDB's late-materialization optimizer. Only meaningful for a
+     *  table function whose output exposes an {@code is_row_id} virtual column
+     *  and that also declares filter + projection pushdown (see
+     *  {@code late_materialization.test}). */
+    public FunctionMetadata withLateMaterialization() {
+        return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
+                projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
+                supportsBatchIndex, partitionKind, true);
     }
 }

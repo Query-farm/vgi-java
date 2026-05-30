@@ -157,6 +157,92 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
     }
 
     /**
+     * Collect the filters constraining {@code name}, descending exactly one
+     * level into a top-level {@code And} whose own column is {@code name}
+     * (collecting only that And's children that also target {@code name}).
+     * Mirrors vgi-python's {@code _collect_column_filters}: DuckDB commonly
+     * pushes {@code col = v} / {@code col IN (...)} conjoined with derived range
+     * bounds as a single {@code AndFilter}; deeper nesting is not traversed.
+     */
+    private List<PushdownFilter> collectColumnFilters(String name) {
+        List<PushdownFilter> out = new ArrayList<>();
+        if (name == null) return out;
+        for (PushdownFilter f : filters) {
+            if (!name.equals(f.columnName())) continue;
+            if (f instanceof PushdownFilter.And a) {
+                for (PushdownFilter c : a.children()) {
+                    if (name.equals(c.columnName())) out.add(c);
+                }
+            } else {
+                out.add(f);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The discrete set of values {@code name} could take, when the pushed
+     * filters pin it to an enumerable set — an equality, an {@code IN} list, or
+     * an {@code OR} whose every branch pins {@code name} to discrete values
+     * (their union). Descends one level into a top-level {@code And} (see
+     * {@link #collectColumnFilters}). Returns {@code empty} when not enumerable
+     * (no filter, a bare range, an {@code OR} with a range/other-column branch,
+     * or deeper nesting) — the caller must then fall back to a full scan rather
+     * than an unsafe subset. Mirrors vgi-python's {@code get_column_values}.
+     */
+    public java.util.Optional<List<Object>> getColumnValues(String name) {
+        for (PushdownFilter f : collectColumnFilters(name)) {
+            switch (f) {
+                case PushdownFilter.Constant c -> {
+                    if (c.op() == ComparisonOperator.EQ) {
+                        List<Object> one = new ArrayList<>();
+                        one.add(c.value());
+                        return java.util.Optional.of(one);
+                    }
+                }
+                case PushdownFilter.In in -> {
+                    return java.util.Optional.of(new ArrayList<>(in.values()));
+                }
+                case PushdownFilter.Or o -> {
+                    List<Object> union = orDiscreteValues(o, name);
+                    if (union != null) return java.util.Optional.of(union);
+                }
+                default -> { }
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /**
+     * The deduped union of discrete values for {@code name} across all OR
+     * branches, iff every branch pins {@code name} to a discrete {@code =}/
+     * {@code IN} value; otherwise {@code null} (a range / {@code IS NULL} /
+     * other-column branch leaves the column unbounded, so it is not
+     * enumerable). Single-level descent, consistent with the rest of the API.
+     */
+    private static List<Object> orDiscreteValues(PushdownFilter.Or orFilter, String name) {
+        List<Object> values = new ArrayList<>();
+        for (PushdownFilter child : orFilter.children()) {
+            if (!name.equals(child.columnName())) return null;
+            switch (child) {
+                case PushdownFilter.Constant c -> {
+                    if (c.op() == ComparisonOperator.EQ) values.add(c.value());
+                    else return null;
+                }
+                case PushdownFilter.In in -> values.addAll(in.values());
+                default -> { return null; }
+            }
+        }
+        if (values.isEmpty()) return null;
+        List<Object> deduped = new ArrayList<>();
+        java.util.Set<Object> seen = new java.util.LinkedHashSet<>();
+        for (Object v : values) {
+            if (seen.add(v)) deduped.add(v);
+        }
+        return deduped;
+    }
+
+    /**
      * Evaluate every filter against {@code root} and return a boolean mask
      * (one entry per row) — {@code true} means the row passes all filters
      * (top-level AND). The mask is a {@code boolean[]} so callers can drive

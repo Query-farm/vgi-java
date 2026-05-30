@@ -32,6 +32,9 @@ import farm.query.vgi.example.scalar.TypeInfoFunctions;
 import farm.query.vgi.example.tensor.UnnestTensorFunction;
 import farm.query.vgi.example.scalar.UpperCaseFunction;
 import farm.query.vgi.example.scalar.WhoAmIFunction;
+import farm.query.vgi.example.table.DictFilterEchoFunction;
+import farm.query.vgi.example.table.LateMaterializationFunction;
+import farm.query.vgi.example.table.ValuePruneFunction;
 import farm.query.vgi.example.table.DoubleSequenceFunction;
 import farm.query.vgi.example.table.DynamicFilterEchoFunction;
 import farm.query.vgi.example.table.FilterEchoFunction;
@@ -380,6 +383,9 @@ public final class Main {
                 new farm.query.vgi.example.table.StubFunctions.ProjectsScan(),
                 new DoubleSequenceFunction(),
                 new DynamicFilterEchoFunction(),
+                new DictFilterEchoFunction(),
+                new ValuePruneFunction(),
+                new LateMaterializationFunction(),
                 new NamedParamsEchoFunction(),
                 new GeneratorExceptionFunction(),
                 new TenThousandFunction(),
@@ -460,15 +466,18 @@ public final class Main {
     private static void registerViews(Worker w) {
         w.registerView(new View(
                         "main", "first_ten",
-                        "SELECT * FROM sequence(10)", "First 10 integers"))
+                        "SELECT * FROM sequence(10)", "First 10 integers",
+                        Map.of("layer", "demo", "origin", "sequence"),
+                        Map.of("n", "Sequence index 0..9")))
                 .registerView(new View(
                         "main", "even_numbers",
                         "SELECT * FROM sequence(100) WHERE n % 2 = 0",
                         "Even numbers from 0 to 98"))
                 .registerView(new View(
                         "data", "small_numbers",
-                        "SELECT * FROM example.main.make_series(10)",
-                        "Numbers less than 10"));
+                        "SELECT * FROM numbers WHERE value < 10",
+                        "Numbers less than 10", Map.of(),
+                        Map.of("value", "Single-digit value 0..9")));
     }
 
     /** Mirror the stats list to {@link farm.query.vgi.example.table.CannedDataFunction#putStats}
@@ -478,6 +487,22 @@ public final class Main {
         List<farm.query.vgi.catalog.ColumnStatistics> list = List.of(stats);
         farm.query.vgi.example.table.CannedDataFunction.putStats(tableName, list);
         return list;
+    }
+
+    /** A late-materialization catalog table backed by the {@code
+     *  late_materialization(1000, ...)} scan function. {@code named} carries the
+     *  per-table knobs ({@code dup_row_id} / {@code null_ord_stride}). */
+    private static CatalogTable lateMatTable(String name, String comment,
+                Map<String, Object> named) {
+        return CatalogTable.builder("data", name,
+                        cols(rowIdCol("row_id", Schemas.INT64),
+                                col("ord", Schemas.INT64, true),
+                                col("payload", Schemas.UTF8, true),
+                                col("pushed", Schemas.UTF8, true)))
+                .comment(comment)
+                .scanFunction("late_materialization", List.of((Object) 1000L), named)
+                .cardinality(1000L, 1000L)
+                .build();
     }
 
     private static void registerCatalogTables(Worker w) {
@@ -655,6 +680,20 @@ public final class Main {
                         "Table with struct row_id", Map.of(),
                         "_table_data", List.of((Object) "rowid_struct"),
                         Map.of(), null, null, false, true))
+                // Late-materialization tables: rowid + scrambled ord, backed by
+                // the late_materialization scan function (advertises
+                // Meta.late_materialization). 1000 rows so LIMIT k << count is a
+                // real win and LIMIT 200 exceeds dynamic_or_filter_threshold (50).
+                .registerCatalogTable(lateMatTable("late_mat",
+                        "Late-materialization table (1000 rows, unique rowid)",
+                        Map.of()))
+                .registerCatalogTable(lateMatTable("late_mat_dup",
+                        "Late-materialization table with deliberately non-unique rowid"
+                                + " (contract violation)",
+                        Map.of("dup_row_id", (Object) Boolean.TRUE)))
+                .registerCatalogTable(lateMatTable("late_mat_nulls",
+                        "Late-materialization table with NULLs in the ord column",
+                        Map.of("null_ord_stride", (Object) 7L)))
                 .registerCatalogTable(stubTable("data", "versioned_data",
                         "Versioned data table demonstrating time travel with schema evolution",
                         col("id", Schemas.INT64, false),
