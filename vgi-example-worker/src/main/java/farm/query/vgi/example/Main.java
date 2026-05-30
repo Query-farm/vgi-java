@@ -72,10 +72,7 @@ import farm.query.vgi.example.tableinout.EchoWitnessFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
 import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
 import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
-import farm.query.vgi.example.tableinout.ExceptionFinalizeFunction;
-import farm.query.vgi.example.tableinout.ExceptionProcessFunction;
 import farm.query.vgi.example.tableinout.RepeatInputsFunction;
-import farm.query.vgi.example.tableinout.SumAllColumnsFunction;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -454,8 +451,6 @@ public final class Main {
                 // buffer_input is a TABLE_BUFFERING function (see registerBuffering),
                 // matching the canonical fixture's Sink+Source semantics.
                 new RepeatInputsFunction(),
-                new ExceptionFinalizeFunction(),
-                new ExceptionProcessFunction(),
                 new FilterBySettingFunction(),
                 new SlowCancellableInoutFunction(),
                 new UnnestTensorRowsFunction()));
@@ -790,6 +785,8 @@ public final class Main {
                 new farm.query.vgi.example.buffering.BufferInputFunction(),
                 new farm.query.vgi.example.buffering.SumAllColumnsBufferingFunction(),
                 new farm.query.vgi.example.buffering.DistributedSumBufferingFunction(),
+                new farm.query.vgi.example.buffering.ExceptionProcessFunction(),
+                new farm.query.vgi.example.buffering.ExceptionFinalizeFunction(),
                 new farm.query.vgi.example.buffering.EchoBufferingFunction(),
                 new farm.query.vgi.example.buffering.OrderedBufferInputFunction(),
                 new farm.query.vgi.example.buffering.BatchIndexBufferInputFunction(),

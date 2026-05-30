@@ -109,6 +109,14 @@ public class SumAllColumnsBufferingFunction extends AbstractBufferAndDrain {
             if (emitted) { out.finish(); return; }
             VectorSchemaRoot result = VectorSchemaRoot.create(outputSchema, Allocators.root());
             result.allocateNew();
+            // Seed every numeric column to 0 so empty storage (e.g. a function
+            // that buffers nothing) finalizes to a clean zero-sum row rather
+            // than NULLs — mirrors vgi-python passing the schema explicitly.
+            for (Field f : outputSchema.getFields()) {
+                FieldVector dst = result.getVector(f.getName());
+                if (dst instanceof BigIntVector bi) bi.setSafe(0, 0L);
+                else if (dst instanceof Float8Vector fl) fl.setSafe(0, 0.0);
+            }
             for (FunctionStorage.LogEntry e : storage.stateLogScan(NS_RAW, KEY, -1, Integer.MAX_VALUE)) {
                 try (VectorSchemaRoot src = BatchUtil.readSingleBatch(e.value(), Allocators.root())) {
                     int rows = src.getRowCount();
