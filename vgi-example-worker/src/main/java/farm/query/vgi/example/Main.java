@@ -173,6 +173,15 @@ public final class Main {
                 null);
     }
 
+    /** STRUCT(a BIGINT, b BIGINT) column used by the rff_struct / rff_multi
+     *  required_field_filter_paths fixtures. */
+    private static Field rffStructCol(String name) {
+        return new Field(name,
+                new FieldType(true, new ArrowType.Struct(), null),
+                List.of(Schemas.nullable("a", Schemas.INT64),
+                        Schemas.nullable("b", Schemas.INT64)));
+    }
+
     /** Serialize a list of fields as a TableInfo.columns IPC blob. */
     private static byte[] cols(Field... fields) {
         return SchemaUtil.serializeSchema(
@@ -377,6 +386,11 @@ public final class Main {
                 new farm.query.vgi.example.table.StubFunctions.EmployeesScan(),
                 new farm.query.vgi.example.table.StubFunctions.ProductsScan(),
                 new farm.query.vgi.example.table.StubFunctions.ProjectsScan(),
+                new farm.query.vgi.example.table.StubFunctions.RffSimpleScan(),
+                new farm.query.vgi.example.table.StubFunctions.RffStructScan(),
+                new farm.query.vgi.example.table.StubFunctions.RffNestedScan(),
+                new farm.query.vgi.example.table.StubFunctions.RffMultiScan(),
+                new farm.query.vgi.example.table.StubFunctions.RffNoneScan(),
                 new DoubleSequenceFunction(),
                 new DynamicFilterEchoFunction(),
                 new DictFilterEchoFunction(),
@@ -687,6 +701,35 @@ public final class Main {
                 .registerCatalogTable(lateMatTable("late_mat_nulls",
                         "Late-materialization table with NULLs in the ord column",
                         Map.of("null_ord_stride", (Object) 7L)))
+                // rff_* — Table.required_field_filter_paths fixtures. The C++
+                // optimizer enforces the declared dotted paths at bind time.
+                .registerCatalogTable(stubTable("data", "rff_simple",
+                        "rff_simple — single top-level required path on 'a'",
+                        col("a", Schemas.INT64, true),
+                        col("b", Schemas.INT64, true))
+                        .withRequiredFieldFilterPaths(List.of("a")))
+                .registerCatalogTable(stubTable("data", "rff_none",
+                        "rff_none — control table with no required paths",
+                        col("a", Schemas.INT64, true),
+                        col("b", Schemas.INT64, true)))
+                .registerCatalogTable(stubTable("data", "rff_struct",
+                        "rff_struct — required ('s.a', 's.b')",
+                        rffStructCol("s"),
+                        col("other", Schemas.INT64, true))
+                        .withRequiredFieldFilterPaths(List.of("s.a", "s.b")))
+                .registerCatalogTable(stubTable("data", "rff_multi",
+                        "rff_multi — required ('top', 's.a')",
+                        rffStructCol("s"),
+                        col("top", Schemas.INT64, true))
+                        .withRequiredFieldFilterPaths(List.of("top", "s.a")))
+                .registerCatalogTable(stubTable("data", "rff_nested",
+                        "rff_nested — required ('wrapper.mid.leaf')",
+                        new Field("wrapper",
+                                new FieldType(true, new ArrowType.Struct(), null),
+                                List.of(new Field("mid",
+                                        new FieldType(true, new ArrowType.Struct(), null),
+                                        List.of(Schemas.nullable("leaf", Schemas.INT64))))))
+                        .withRequiredFieldFilterPaths(List.of("wrapper.mid.leaf")))
                 .registerCatalogTable(stubTable("data", "versioned_data",
                         "Versioned data table demonstrating time travel with schema evolution",
                         col("id", Schemas.INT64, false),

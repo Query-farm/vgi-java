@@ -339,6 +339,53 @@ public final class CannedDataFunction implements TableFunction {
                 {1L, "P001", "Backend API"},
                 {1L, "P002", "Frontend UI"},
                 {2L, "P003", "Sales Portal"}});
+
+        // rff_* — required_field_filter_paths fixtures (rff_simple / rff_struct /
+        // rff_nested / rff_multi / rff_none). The required-path enforcement lives
+        // in the C++ optimizer; these just supply the scan data DuckDB filters.
+        SCHEMAS.put("rff_simple", new Schema(List.of(
+                f("a", Schemas.INT64, true),
+                f("b", Schemas.INT64, true))));
+        ROWS.put("rff_simple", new Object[][]{{1L, 10L}, {2L, 20L}, {3L, 30L}});
+
+        SCHEMAS.put("rff_none", new Schema(List.of(
+                f("a", Schemas.INT64, true),
+                f("b", Schemas.INT64, true))));
+        ROWS.put("rff_none", new Object[][]{{1L, 10L}, {2L, 20L}, {3L, 30L}});
+
+        SCHEMAS.put("rff_struct", new Schema(List.of(
+                rffStructField("s"),
+                f("other", Schemas.INT64, true))));
+        ROWS.put("rff_struct", new Object[][]{
+                {Map.of("a", 1L, "b", 10L), 100L},
+                {Map.of("a", 2L, "b", 20L), 200L},
+                {Map.of("a", 3L, "b", 30L), 300L}});
+
+        SCHEMAS.put("rff_multi", new Schema(List.of(
+                rffStructField("s"),
+                f("top", Schemas.INT64, true))));
+        ROWS.put("rff_multi", new Object[][]{
+                {Map.of("a", 1L, "b", 10L), 100L},
+                {Map.of("a", 2L, "b", 20L), 200L}});
+
+        Field rffMid = new Field("mid",
+                new FieldType(true, new ArrowType.Struct(), null),
+                List.of(Schemas.nullable("leaf", Schemas.INT64)));
+        Field rffWrapper = new Field("wrapper",
+                new FieldType(true, new ArrowType.Struct(), null),
+                List.of(rffMid));
+        SCHEMAS.put("rff_nested", new Schema(List.of(rffWrapper)));
+        ROWS.put("rff_nested", new Object[][]{
+                {Map.of("mid", Map.of("leaf", 1L))},
+                {Map.of("mid", Map.of("leaf", 2L))},
+                {Map.of("mid", Map.of("leaf", 3L))}});
+    }
+
+    private static Field rffStructField(String name) {
+        return new Field(name,
+                new FieldType(true, new ArrowType.Struct(), null),
+                List.of(Schemas.nullable("a", Schemas.INT64),
+                        Schemas.nullable("b", Schemas.INT64)));
     }
 
     public static boolean has(String tableName) { return SCHEMAS.containsKey(tableName); }
@@ -412,20 +459,37 @@ public final class CannedDataFunction implements TableFunction {
             NullableStructWriter w = sv.getWriter();
             w.setPosition(row);
             w.start();
-            for (Map.Entry<String, Object> e : entries.entrySet()) {
-                Object cell = e.getValue();
-                if (cell instanceof Long l) {
-                    w.bigInt(e.getKey()).writeBigInt(l);
-                } else if (cell instanceof String s) {
-                    byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                    try (org.apache.arrow.memory.ArrowBuf buf = sv.getAllocator().buffer(bytes.length)) {
-                        buf.setBytes(0, bytes);
-                        w.varChar(e.getKey()).writeVarChar(0, bytes.length, buf);
-                    }
-                }
-            }
+            writeStructFields(w, sv.getField().getChildren(), entries, sv.getAllocator());
             w.end();
             sv.setIndexDefined(row);
+        }
+    }
+
+    /** Recursively write a {@code Map}-shaped struct value, dispatching on the
+     *  declared child field type so arbitrarily-nested STRUCTs (e.g.
+     *  {@code wrapper.mid.leaf}) round-trip. */
+    @SuppressWarnings("unchecked")
+    private static void writeStructFields(
+            org.apache.arrow.vector.complex.writer.BaseWriter.StructWriter w,
+            List<Field> children, Map<String, Object> entries, BufferAllocator alloc) {
+        for (Field child : children) {
+            String key = child.getName();
+            Object cell = entries.get(key);
+            if (cell == null) continue;
+            if (child.getType() instanceof ArrowType.Struct) {
+                org.apache.arrow.vector.complex.writer.BaseWriter.StructWriter nested = w.struct(key);
+                nested.start();
+                writeStructFields(nested, child.getChildren(), (Map<String, Object>) cell, alloc);
+                nested.end();
+            } else if (cell instanceof Number n) {
+                w.bigInt(key).writeBigInt(n.longValue());
+            } else if (cell instanceof String s) {
+                byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                try (org.apache.arrow.memory.ArrowBuf buf = alloc.buffer(bytes.length)) {
+                    buf.setBytes(0, bytes);
+                    w.varChar(key).writeVarChar(0, bytes.length, buf);
+                }
+            }
         }
     }
 }

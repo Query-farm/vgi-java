@@ -164,4 +164,75 @@ public final class StubFunctions {
                     List.of());
         }
     }
+
+    private static Field structOf(String name, Field... children) {
+        return new Field(name,
+                new FieldType(true, new org.apache.arrow.vector.types.pojo.ArrowType.Struct(), null),
+                List.of(children));
+    }
+
+    /** {@code rff_simple_scan()} — flat (a, b) for required_field_filter_paths. */
+    public static final class RffSimpleScan extends Stub {
+        public RffSimpleScan() {
+            super("rff_simple_scan",
+                    "rff_simple — flat columns (a, b) for required_field_filter_paths tests",
+                    new Schema(List.of(
+                            Schemas.nullable("a", Schemas.INT64),
+                            Schemas.nullable("b", Schemas.INT64))),
+                    List.of());
+        }
+    }
+
+    /** {@code rff_struct_scan()} — STRUCT(s.a, s.b) + other. */
+    public static final class RffStructScan extends Stub {
+        public RffStructScan() {
+            super("rff_struct_scan",
+                    "rff_struct — STRUCT(s.a, s.b) + other for required_field_filter_paths tests",
+                    new Schema(List.of(
+                            structOf("s",
+                                    Schemas.nullable("a", Schemas.INT64),
+                                    Schemas.nullable("b", Schemas.INT64)),
+                            Schemas.nullable("other", Schemas.INT64))),
+                    List.of());
+        }
+    }
+
+    /** {@code rff_nested_scan()} — nested STRUCT(wrapper.mid.leaf). */
+    public static final class RffNestedScan extends Stub {
+        public RffNestedScan() {
+            super("rff_nested_scan",
+                    "rff_nested — nested STRUCT(wrapper.mid.leaf) for required_field_filter_paths tests",
+                    new Schema(List.of(
+                            structOf("wrapper",
+                                    structOf("mid",
+                                            Schemas.nullable("leaf", Schemas.INT64))))),
+                    List.of());
+        }
+    }
+
+    /** {@code rff_multi_scan()} — top-level + struct subfield required paths. */
+    public static final class RffMultiScan extends Stub {
+        public RffMultiScan() {
+            super("rff_multi_scan",
+                    "rff_multi — top-level + struct subfield required paths",
+                    new Schema(List.of(
+                            structOf("s",
+                                    Schemas.nullable("a", Schemas.INT64),
+                                    Schemas.nullable("b", Schemas.INT64)),
+                            Schemas.nullable("top", Schemas.INT64))),
+                    List.of());
+        }
+    }
+
+    /** {@code rff_none_scan()} — control table with no required paths. */
+    public static final class RffNoneScan extends Stub {
+        public RffNoneScan() {
+            super("rff_none_scan",
+                    "rff_none — control table with no required_field_filter_paths",
+                    new Schema(List.of(
+                            Schemas.nullable("a", Schemas.INT64),
+                            Schemas.nullable("b", Schemas.INT64))),
+                    List.of());
+        }
+    }
 }

@@ -65,7 +65,8 @@ public final class TableInfoSerializer {
             nonNull("cardinality_estimate", I64),
             nonNull("cardinality_max", I64),
             nonNull("column_statistics", BINARY),
-            nonNull("bind_result", BINARY)));
+            nonNull("bind_result", BINARY),
+            listOfPrim("required_field_filter_paths", UTF8)));
 
     public static byte[] serialize(TableInfo info) {
         return IpcStructBuilder.build(SCHEMA, v -> {
@@ -92,6 +93,7 @@ public final class TableInfoSerializer {
             writeNullableInt64(v.get("cardinality_max"), info.cardinality_max());
             writeVarBinarySafe(v.get("column_statistics"), info.column_statistics());
             writeVarBinarySafe(v.get("bind_result"), info.bind_result());
+            writeStringList(v.get("required_field_filter_paths"), info.required_field_filter_paths());
         });
     }
 }

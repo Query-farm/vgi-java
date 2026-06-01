@@ -30,7 +30,8 @@ public record CatalogTable(
         List<List<Integer>> uniqueConstraints,
         List<String> checkConstraints,
         List<ForeignKey> foreignKeys,
-        List<ColumnStatistics> statistics) {
+        List<ColumnStatistics> statistics,
+        List<String> requiredFieldFilterPaths) {
 
     /** Foreign-key constraint declaration. Wire shape uses column NAMES
      *  (not indices) for both sides — matches the vgi-go fkSchema. */
@@ -50,7 +51,7 @@ public record CatalogTable(
         this(schema, name, columns, comment, tags, scanFunctionName, scanFunctionPositional,
                 scanFunctionNamed, cardinalityEstimate, cardinalityMax,
                 inlineCardinality, inlineScanFunction,
-                List.of(), List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     /** @deprecated use {@link #builder(String, String, byte[])}. */
@@ -67,7 +68,7 @@ public record CatalogTable(
         this(schema, name, columns, comment, tags, scanFunctionName, scanFunctionPositional,
                 scanFunctionNamed, cardinalityEstimate, cardinalityMax,
                 inlineCardinality, inlineScanFunction,
-                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, List.of());
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, List.of(), List.of());
     }
 
     public static CatalogTable functionBacked(
@@ -109,6 +110,7 @@ public record CatalogTable(
         private List<String> checkConstraints = List.of();
         private List<ForeignKey> foreignKeys = List.of();
         private List<ColumnStatistics> statistics = List.of();
+        private List<String> requiredFieldFilterPaths = List.of();
 
         Builder(String schema, String name, byte[] columns) {
             this.schema = schema;
@@ -184,11 +186,18 @@ public record CatalogTable(
             return this;
         }
 
+        /** Dotted column paths the optimizer must see in any scan's WHERE. */
+        public Builder requiredFieldFilterPaths(List<String> paths) {
+            this.requiredFieldFilterPaths = paths == null ? List.of() : List.copyOf(paths);
+            return this;
+        }
+
         public CatalogTable build() {
             return new CatalogTable(schema, name, columns, comment, tags,
                     scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                     cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
-                    primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics);
+                    primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
+                    requiredFieldFilterPaths);
         }
     }
 
@@ -196,7 +205,8 @@ public record CatalogTable(
         return new CatalogTable(schema, name, columns, comment, tags,
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 estimate, max, true, inlineScanFunction,
-                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics);
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
+                requiredFieldFilterPaths);
     }
 
     /** Same backing function but skip the {@code TableInfo.scan_function}
@@ -205,7 +215,8 @@ public record CatalogTable(
         return new CatalogTable(schema, name, columns, comment, tags,
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, false,
-                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics);
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
+                requiredFieldFilterPaths);
     }
 
     /** Attach PK/UNIQUE/CHECK/FK constraints to this table. */
@@ -220,7 +231,8 @@ public record CatalogTable(
                 unique == null ? List.of() : unique,
                 check == null ? List.of() : check,
                 fks == null ? List.of() : fks,
-                statistics);
+                statistics,
+                requiredFieldFilterPaths);
     }
 
     /** Attach per-column statistics; used by the optimizer for filter elimination. */
@@ -229,6 +241,16 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys,
-                stats == null ? List.of() : stats);
+                stats == null ? List.of() : stats,
+                requiredFieldFilterPaths);
+    }
+
+    /** Attach the dotted column paths the optimizer must see in any scan's WHERE. */
+    public CatalogTable withRequiredFieldFilterPaths(List<String> paths) {
+        return new CatalogTable(schema, name, columns, comment, tags,
+                scanFunctionName, scanFunctionPositional, scanFunctionNamed,
+                cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
+                paths == null ? List.of() : List.copyOf(paths));
     }
 }

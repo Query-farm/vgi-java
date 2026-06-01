@@ -2,8 +2,8 @@
 
 Java port of the VGI protocol (DuckDB extension that lets external workers
 serve catalog data over Arrow IPC). Driven by passing the integration suite
-at `~/Development/vgi/test/sql/integration/`. Currently **161/163 passing**
-(the 2 failures are out of scope — see "State of play").
+at `~/Development/vgi/test/sql/integration/`. Currently **173/174 passing**
+(the 1 failure — `schema_reconcile.test` — is out of scope; see "State of play").
 
 ## Canonical references
 
@@ -242,15 +242,32 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
-## State of play (as of 2026-05-21)
+## State of play (as of 2026-06-01)
 
-**Passing: 163/164** (excluding the filtered-out `nested_type_combinations.test`
+**Passing: 173/174** (excluding the filtered-out `nested_type_combinations.test`
 segfault; 15 `require-env`/`require spatial` skips). The only failure is
 `schema_reconcile.test` (writable INSERT, deferred — out of scope). Re-verified
-against the current `~/Development/vgi/build/release/test/unittest` after the
-recent vgi (connection-string ATTACH, Windows transport, httpfs pin) and
-vgi-python (timestamp codegen, protocol_version surface, licensing) churn —
-nothing in that churn broke the read-only port.
+against the current `~/Development/vgi/build/release/test/unittest`.
+
+**2026-06-01 — synced the `required_field_filter_paths` feature** (vgi-python
+`7f4d80a`, vgi `f7eb2d1`). `TableInfo` grew a final `required_field_filter_paths:
+list<utf8>` wire field — adding it was the dominant fix (its absence broke the
+`catalog_schema_contents_tables` item schema, which cascaded into ~30 unrelated
+catalog-listing failures). Changes: `protocol/TableInfo` + `TableInfoSerializer`
+gained the field; `CatalogTable` gained a `requiredFieldFilterPaths` record
+component (threaded through the builder + every `with*` method, plus
+`withRequiredFieldFilterPaths`); `VgiServiceImpl.toTableInfo` emits it. The C++
+`VgiRequiredFiltersOptimizer` reads the inline paths and enforces them at bind
+time. Fixtures: 5 `rff_*` catalog tables in `Main.registerCatalogTables`
+(`rff_simple`/`_struct`/`_nested`/`_multi`/`_none`, backed by `_table_data` canned
+data — `CannedDataFunction`'s struct writer is now recursive so `wrapper.mid.leaf`
+round-trips) + 5 zero-row `rff_*_scan` stub functions in `StubFunctions` (for the
+`function_registration.test` count, now **87** table functions). Greened all 6
+`table/required_field_filter_paths_*.test`.
+
+(The earlier `083b8af` commit on this branch already synced the sibling
+view-column-comments + late-mat + value-prune features; `ViewInfo.column_comments`
+and `FunctionInfo.late_materialization` were in place before this session.)
 
 > **`attach/versioned_tables_impl.test` resolved upstream (2026-05-21):** the
 > previously not-Java-fixable launcher-pool failure is gone — vgi gated it

@@ -37,5 +37,6 @@ public record TableInfo(
         @Nullable Long cardinality_estimate,
         @Nullable Long cardinality_max,
         @Nullable byte[] column_statistics,
-        @Nullable byte[] bind_result) {
+        @Nullable byte[] bind_result,
+        List<String> required_field_filter_paths) {
 }
