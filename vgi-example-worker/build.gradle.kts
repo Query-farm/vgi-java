@@ -1,9 +1,10 @@
+// Copyright 2026 Query Farm LLC - https://query.farm
 plugins {
     application
 }
 
 dependencies {
-    implementation(project(":vgi-core"))
+    implementation(project(":vgi"))
     implementation("org.slf4j:slf4j-simple:2.0.16")
 }
 

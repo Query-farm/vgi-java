@@ -459,11 +459,11 @@ sparse-union writer); per-row type codes are written directly into
 ## File bookmarks
 
 - Worker entrypoint: `vgi-example-worker/src/main/java/farm/query/vgi/example/Main.java`
-- Service impl (large, dispatches everything): `vgi-core/src/main/java/farm/query/vgi/internal/VgiServiceImpl.java`
-- RPC service interface: `vgi-core/src/main/java/farm/query/vgi/VgiService.java`
+- Service impl (large, dispatches everything): `vgi/src/main/java/farm/query/vgi/internal/VgiServiceImpl.java`
+- RPC service interface: `vgi/src/main/java/farm/query/vgi/VgiService.java`
 - Fixtures: `vgi-example-worker/src/main/java/farm/query/vgi/example/{scalar,table,tableinout,aggregate}/`
-- Wire DTOs: `vgi-core/src/main/java/farm/query/vgi/protocol/`
-- IPC helpers (DRY refactor target): `vgi-core/src/main/java/farm/query/vgi/internal/{BatchUtil,SchemaUtil,SettingsParser,ArgumentsParser}.java`
+- Wire DTOs: `vgi/src/main/java/farm/query/vgi/protocol/`
+- IPC helpers (DRY refactor target): `vgi/src/main/java/farm/query/vgi/internal/{BatchUtil,SchemaUtil,SettingsParser,ArgumentsParser}.java`
 
 ## Out of scope
 

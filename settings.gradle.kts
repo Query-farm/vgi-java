@@ -1,3 +1,4 @@
+// Copyright 2026 Query Farm LLC - https://query.farm
 plugins {
     // Auto-provision Java 21 toolchain when not installed locally.
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
@@ -24,5 +25,5 @@ if (vgiRpcJavaDir.isDirectory) {
     }
 }
 
-include("vgi-core")
+include("vgi")
 include("vgi-example-worker")

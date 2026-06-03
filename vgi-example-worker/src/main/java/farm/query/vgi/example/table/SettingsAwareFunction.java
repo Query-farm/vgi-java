@@ -1,4 +1,4 @@
-// Copyright 2025-2026 Query.Farm LLC
+// Copyright 2026 Query Farm LLC - https://query.farm
 
 package farm.query.vgi.example.table;
 
