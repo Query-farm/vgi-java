@@ -3,6 +3,7 @@
 package farm.query.vgi.protocol;
 
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
+import farm.query.vgirpc.schema.Nullable;
 
 /**
  * Wire DTO for the VGI bind request, opening a table or function binding.
@@ -18,6 +19,11 @@ import farm.query.vgirpc.schema.ArrowSerializableRecord;
  * @param transaction_opaque_data active transaction state, when bound inside a transaction
  * @param resolved_secrets_provided {@code true} on the second pass of the two-phase secret
  *     exchange, after DuckDB has resolved the secrets requested by an earlier {@link BindResponse}
+ * @param at_unit the time-travel AT clause unit (e.g. {@code version}, {@code timestamp}), or
+ *     {@code null} when the scan carries no AT clause. Additive, nullable, name-keyed wire field —
+ *     a function-backed table reads it at init via {@code init_call.bind_call.at_value} so it can
+ *     time-travel alongside filter/projection pushdown
+ * @param at_value the time-travel AT clause value, or {@code null} when absent
  */
 public record BindRequest(
         String function_name,
@@ -28,4 +34,6 @@ public record BindRequest(
         byte[] secrets,
         byte[] attach_opaque_data,
         byte[] transaction_opaque_data,
-        boolean resolved_secrets_provided) implements ArrowSerializableRecord {}
+        boolean resolved_secrets_provided,
+        @Nullable String at_unit,
+        @Nullable String at_value) implements ArrowSerializableRecord {}

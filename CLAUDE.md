@@ -2,7 +2,7 @@
 
 Java port of the VGI protocol (DuckDB extension that lets external workers
 serve catalog data over Arrow IPC). Driven by passing the integration suite
-at `~/Development/vgi/test/sql/integration/`. Currently **173/174 passing**
+at `~/Development/vgi/test/sql/integration/`. Currently **178/179 passing**
 (the 1 failure — `schema_reconcile.test` — is out of scope; see "State of play").
 
 ## Canonical references
@@ -242,12 +242,61 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
-## State of play (as of 2026-06-01)
+## State of play (as of 2026-06-05)
 
-**Passing: 173/174** (excluding the filtered-out `nested_type_combinations.test`
-segfault; 15 `require-env`/`require spatial` skips). The only failure is
+**Passing: 178/179** (excluding the filtered-out `nested_type_combinations.test`
+segfault; `require-env`/`require spatial` skips). The only failure is
 `schema_reconcile.test` (writable INSERT, deferred — out of scope). Re-verified
-against the current `~/Development/vgi/build/release/test/unittest`.
+inline **and** under shm (`VGI_RPC_SHM_SIZE_BYTES`) against the current
+`~/Development/vgi/build/release/test/unittest`.
+
+**2026-06-05 — synced 5 new vgi-python / C++ features (5 new tests, all green).**
+The dominant new piece is **AT (time travel) threaded onto `BindRequest`**
+(vgi-python `bf40cc4`, vgi `0e5eb64`): `BindRequest` grew nullable
+`at_unit`/`at_value` (name-keyed, additive), `TableInitParams` + the `BoundTable`
+bind-cache carry them, and `initTable` passes them to the producer. A
+function-backed table now reads AT at init via the bind request embedded in
+`InitRequest` (no init-machinery change). Per feature:
+
+- **time_travel_pushdown** — `tt_pushdown_fn` (function-backed, reads AT at init
+  via `TableInitParams.atUnit/atValue`) + `tt_pushdown_cols` (columns-based; AT →
+  version resolved in `catalog_table_scan_function_get`/`_scan_branches_get`).
+  Both in `TimeTravelPushdownFunctions` (`tt_pushdown_scan`/`tt_pushdown_cols_scan`,
+  echo `seen_version` + `pushed_filters`). `CatalogRegistry.resolveVersion` now
+  **passes through** (rather than rejecting) these two names; a `resolveTtVersion`
+  helper in `VgiServiceImpl` mirrors the python fixture (no-AT→v2, `VERSION`→int,
+  `TIMESTAMP` year≤2020→1 else 2). The columns-based scan is special-cased in
+  *both* the scan-function and scan-branches RPCs (the Java worker implements
+  branches, so C++ routes every example table through `scan_branches_get`).
+- **filter_pushdown_through_view** — `FilterEchoTableScanFunction`
+  (`filter_echo_table_scan`, no-arg 100-row scan echoing `pushed_filters`) backs
+  `data.filter_echo_table`. The asserted LIKE cases all push as constant-prefix
+  RANGE filters, so no `supported_expression_filters` wiring was needed.
+- **table_buffering_large_batch** — `BufferEmitWideFunction` (`buffer_emit_wide`,
+  finalize emits one batch of N>2048 rows; C++ drains it across `GetData` calls
+  after vgi `2c67929`).
+- **required_field_filter_paths_native** — `rff_parquet`/`rff_hive`/
+  `rff_hive_mixed` columns-based tables delegate to native `read_parquet` via
+  `catalog_table_scan_function_get` (`scanFunction("read_parquet", [path], …)` +
+  `rpcScanFunction()`); the test `COPY`s the parquet/Hive-glob fixtures itself.
+- **required_field_filter_paths_rowid** — `RffRowidScanFunction` (`rff_rowid_scan`,
+  real generator: 10 rows, FLOAT32 `bbox` struct built directly with
+  `Float4Vector` children + `setIndexDefined`, `auto_apply_filters` applies the
+  rowid + bbox.* filters so `WHERE rowid = N` returns one row). The C++ resolves
+  the sentinel-keyed rowid filter to the `row_id` field name
+  (`vgi_table_function_impl.cpp`), so the worker's `FilterApplier` matches it by
+  name.
+
+`table/function_registration.test` count is now **92** (+5 new table-type fns).
+The `SimpleTableFunction`-based fixtures must override `argumentSpecs()` (empty
+for no-arg) — the default reads `spec()` which throws.
+
+**Harness note:** `/tmp/run_test.sh` + the three `/tmp/vgi-worker-*` wrappers are
+ephemeral (not in the repo) and had to be reconstructed this session. The
+`launch:` scheme auto-appends `--unix`/`--idle-timeout`, so each
+`VGI_*_WORKER=launch:<binary-or-wrapper>` just names the executable. The
+`unittest` binary takes **one** `.test` path per invocation, so `run_test.sh -f`
+loops (the `launch:` pool stays warm across invocations via flock).
 
 **2026-06-01 — synced the `required_field_filter_paths` feature** (vgi-python
 `7f4d80a`, vgi `f7eb2d1`). `TableInfo` grew a final `required_field_filter_paths:

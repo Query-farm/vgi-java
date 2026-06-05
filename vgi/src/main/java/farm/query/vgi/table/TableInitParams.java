@@ -39,6 +39,9 @@ import java.util.Map;
  * @param bindOpaqueData the {@code BindResponse.opaque_data} the fixture's
  *     {@code onBind} returned — ships bind-time state through to the producer;
  *     empty {@code byte[0]} when the fixture returned none
+ * @param atUnit the time-travel AT clause unit threaded from the bind request
+ *     ({@code init_call.bind_call.at_unit}), or {@code null} when the scan has no AT clause
+ * @param atValue the time-travel AT clause value, or {@code null} when absent
  */
 public record TableInitParams(
         String functionName,
@@ -58,7 +61,9 @@ public record TableInitParams(
         byte[] executionId,
         byte[] secrets,
         byte[] attachId,
-        byte[] bindOpaqueData) {
+        byte[] bindOpaqueData,
+        String atUnit,
+        String atValue) {
 
     /**
      * Wrap the raw {@link #pushdownFilters} / {@link #joinKeys} bytes into a

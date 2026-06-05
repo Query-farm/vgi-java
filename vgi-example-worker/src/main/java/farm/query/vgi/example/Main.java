@@ -173,6 +173,19 @@ public final class Main {
                 null);
     }
 
+    /** STRUCT(xmin, ymin, xmax, ymax FLOAT) bbox column used by the native
+     *  read_parquet + rowid required_field_filter_paths fixtures. */
+    private static Field bboxCol(String name) {
+        ArrowType f32 = new ArrowType.FloatingPoint(
+                org.apache.arrow.vector.types.FloatingPointPrecision.SINGLE);
+        return new Field(name,
+                new FieldType(true, new ArrowType.Struct(), null),
+                List.of(new Field("xmin", new FieldType(true, f32, null), null),
+                        new Field("ymin", new FieldType(true, f32, null), null),
+                        new Field("xmax", new FieldType(true, f32, null), null),
+                        new Field("ymax", new FieldType(true, f32, null), null)));
+    }
+
     /** STRUCT(a BIGINT, b BIGINT) column used by the rff_struct / rff_multi
      *  required_field_filter_paths fixtures. */
     private static Field rffStructCol(String name) {
@@ -391,6 +404,10 @@ public final class Main {
                 new farm.query.vgi.example.table.StubFunctions.RffNestedScan(),
                 new farm.query.vgi.example.table.StubFunctions.RffMultiScan(),
                 new farm.query.vgi.example.table.StubFunctions.RffNoneScan(),
+                new farm.query.vgi.example.table.RffRowidScanFunction(),
+                new farm.query.vgi.example.table.FilterEchoTableScanFunction(),
+                new farm.query.vgi.example.table.TimeTravelPushdownFunctions.TimeTravelPushdown(),
+                new farm.query.vgi.example.table.TimeTravelPushdownFunctions.TtPushdownCols(),
                 new DoubleSequenceFunction(),
                 new DynamicFilterEchoFunction(),
                 new DictFilterEchoFunction(),
@@ -730,6 +747,90 @@ public final class Main {
                                         new FieldType(true, new ArrowType.Struct(), null),
                                         List.of(Schemas.nullable("leaf", Schemas.INT64))))))
                         .withRequiredFieldFilterPaths(List.of("wrapper.mid.leaf")))
+                // rff_rowid — virtual row_id column + required bbox.* filters.
+                // Backed by the real rff_rowid_scan (auto-applies the rowid /
+                // bbox.* filters so WHERE rowid = N returns exactly one row).
+                .registerCatalogTable(CatalogTable.builder("data", "rff_rowid",
+                        cols(rowIdCol("row_id", Schemas.INT64),
+                                bboxCol("bbox"),
+                                col("other", Schemas.INT64, true)))
+                        .scanFunction("rff_rowid_scan")
+                        .comment("rff_rowid — row_id virtual column + required bbox.* filters.")
+                        .requiredFieldFilterPaths(List.of(
+                                "bbox.xmin", "bbox.xmax", "bbox.ymin", "bbox.ymax"))
+                        .build())
+                // rff_parquet — native read_parquet delegation, single file,
+                // bbox at column 0 (identity projection).
+                .registerCatalogTable(CatalogTable.builder("data", "rff_parquet",
+                        cols(bboxCol("bbox"), col("other", Schemas.INT64, true)))
+                        .scanFunction("read_parquet",
+                                List.of((Object) "/tmp/rff_seg.parquet"), Map.of())
+                        .rpcScanFunction()
+                        .comment("rff_parquet — native read_parquet delegation with bbox.* required filters.")
+                        .requiredFieldFilterPaths(List.of(
+                                "bbox.xmin", "bbox.xmax", "bbox.ymin", "bbox.ymax"))
+                        .build())
+                // rff_hive — native read_parquet over a Hive-partitioned glob
+                // (theme/type), bbox at a non-zero (permuted) column_ids slot.
+                .registerCatalogTable(CatalogTable.builder("data", "rff_hive",
+                        cols(col("id", Schemas.UTF8, true),
+                                bboxCol("bbox"),
+                                col("name", Schemas.UTF8, true),
+                                col("num", Schemas.INT64, true),
+                                col("theme", Schemas.UTF8, true),
+                                col("type", Schemas.UTF8, true)))
+                        .scanFunction("read_parquet",
+                                List.of((Object) "/tmp/rff_hive/*/*/*.parquet"),
+                                Map.of("hive_partitioning", (Object) Boolean.TRUE))
+                        .rpcScanFunction()
+                        .comment("rff_hive — native read_parquet over Hive glob with bbox.* required filters.")
+                        .requiredFieldFilterPaths(List.of(
+                                "bbox.xmin", "bbox.xmax", "bbox.ymin", "bbox.ymax"))
+                        .build())
+                // rff_hive_mixed — same Hive layout, MIXED requirement: a
+                // top-level field ('id') plus the struct corners.
+                .registerCatalogTable(CatalogTable.builder("data", "rff_hive_mixed",
+                        cols(col("id", Schemas.UTF8, true),
+                                bboxCol("bbox"),
+                                col("name", Schemas.UTF8, true),
+                                col("num", Schemas.INT64, true),
+                                col("theme", Schemas.UTF8, true),
+                                col("type", Schemas.UTF8, true)))
+                        .scanFunction("read_parquet",
+                                List.of((Object) "/tmp/rff_hive/*/*/*.parquet"),
+                                Map.of("hive_partitioning", (Object) Boolean.TRUE))
+                        .rpcScanFunction()
+                        .comment("rff_hive_mixed — native read_parquet, top-level 'id' + bbox.* required filters.")
+                        .requiredFieldFilterPaths(List.of(
+                                "id", "bbox.xmin", "bbox.xmax", "bbox.ymin", "bbox.ymax"))
+                        .build())
+                // filter_echo_table — catalog table echoing the pushed-down
+                // filters it received. Backs filter_pushdown_through_view.test.
+                .registerCatalogTable(CatalogTable.builder("data", "filter_echo_table",
+                        cols(col("n", Schemas.INT64, true),
+                                col("s", Schemas.UTF8, true),
+                                col("pushed_filters", Schemas.UTF8, true)))
+                        .scanFunction("filter_echo_table_scan")
+                        .comment("Catalog table echoing pushed-down filters (filter-pushdown-through-view tests).")
+                        .build())
+                // Time travel + filter pushdown together. tt_pushdown_fn is
+                // function-backed (reads AT at init); tt_pushdown_cols is
+                // columns-based (AT -> version arg via table_scan_function_get).
+                .registerCatalogTable(CatalogTable.functionBacked("data", "tt_pushdown_fn",
+                        cols(col("id", Schemas.INT64, true),
+                                col("val", Schemas.INT64, true),
+                                col("seen_version", Schemas.INT64, true),
+                                col("pushed_filters", Schemas.UTF8, true)),
+                        "Function-backed: prunes by filter AND time-travels (AT read at init).",
+                        "tt_pushdown_scan"))
+                .registerCatalogTable(CatalogTable.builder("data", "tt_pushdown_cols",
+                        cols(col("id", Schemas.INT64, true),
+                                col("val", Schemas.INT64, true),
+                                col("seen_version", Schemas.INT64, true),
+                                col("pushed_filters", Schemas.UTF8, true)))
+                        .rpcScanFunction()
+                        .comment("Columns-based: prunes by filter AND time-travels (AT → version arg).")
+                        .build())
                 .registerCatalogTable(stubTable("data", "versioned_data",
                         "Versioned data table demonstrating time travel with schema evolution",
                         col("id", Schemas.INT64, false),
@@ -831,6 +932,7 @@ public final class Main {
                 new farm.query.vgi.example.buffering.ExceptionProcessFunction(),
                 new farm.query.vgi.example.buffering.ExceptionFinalizeFunction(),
                 new farm.query.vgi.example.buffering.EchoBufferingFunction(),
+                new farm.query.vgi.example.buffering.BufferEmitWideFunction(),
                 new farm.query.vgi.example.buffering.OrderedBufferInputFunction(),
                 new farm.query.vgi.example.buffering.BatchIndexBufferInputFunction(),
                 new farm.query.vgi.example.buffering.LargeStateFunction(),

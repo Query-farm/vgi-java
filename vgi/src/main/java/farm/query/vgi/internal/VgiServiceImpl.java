@@ -131,7 +131,8 @@ public final class VgiServiceImpl implements VgiService {
     private record BoundTable(TableFunction fn, Arguments args, Schema inputSchema,
                                Schema outputSchema, Map<String, Object> settings,
                                byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
-                               byte[] secrets, byte[] attachId, byte[] bindOpaqueData)
+                               byte[] secrets, byte[] attachId, byte[] bindOpaqueData,
+                               String atUnit, String atValue)
             implements BoundEntry {}
 
     private record BoundTableInOut(TableInOutFunction fn, Arguments args, Schema inputSchema,
@@ -301,7 +302,7 @@ public final class VgiServiceImpl implements VgiService {
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
         pendingBinds.put(bytesKey(token), new BoundTable(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
-                request.secrets(), attachPlain, bindOpaque));
+                request.secrets(), attachPlain, bindOpaque, request.at_unit(), request.at_value()));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -409,7 +410,9 @@ public final class VgiServiceImpl implements VgiService {
                 execId,
                 bt.secrets(),
                 bt.attachId(),
-                bt.bindOpaqueData());
+                bt.bindOpaqueData(),
+                bt.atUnit(),
+                bt.atValue());
         TableProducerState state = bt.fn().createProducer(params);
         return RpcStream.producer(fnOutputSchema, state, header);
     }
@@ -461,7 +464,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.tablesample_percentage(), request.tablesample_seed(),
                 request.order_by_column_name(), request.order_by_direction(),
                 request.order_by_null_order(), request.order_by_limit(),
-                execId, null, bb.attachId(), bb.bindOpaqueData());
+                execId, null, bb.attachId(), bb.bindOpaqueData(), null, null);
         farm.query.vgi.buffering.BufferingStorage storage =
                 new farm.query.vgi.buffering.BufferingStorage(this.storage, execId);
         farm.query.vgi.buffering.TableBufferingFinalizeParams fparams =
@@ -469,6 +472,27 @@ public final class VgiServiceImpl implements VgiService {
                         execId, request.finalize_state_id(), storage, initParams);
         TableProducerState producer = bb.fn().createFinalizeProducer(fparams);
         return RpcStream.producer(fnOutputSchema, producer, header);
+    }
+
+    /**
+     * Resolve an AT clause to one of the {@code tt_pushdown_cols} fixture's data
+     * versions (1 or 2): no AT -> current version (2); {@code VERSION => n} ->
+     * {@code n}; {@code TIMESTAMP} -> year &le; 2020 maps to 1, else 2. Mirrors
+     * the vgi-python {@code resolve_tt_version} fixture helper.
+     */
+    private static int resolveTtVersion(String atUnit, String atValue) {
+        if (atUnit == null || atUnit.isEmpty()) return 2;
+        if ("version".equalsIgnoreCase(atUnit)) {
+            try { return Integer.parseInt(atValue); }
+            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + atValue); }
+        }
+        if ("timestamp".equalsIgnoreCase(atUnit)) {
+            int year;
+            try { year = Integer.parseInt(atValue.substring(0, Math.min(4, atValue.length()))); }
+            catch (RuntimeException e) { throw new IllegalArgumentException("Unknown timestamp: " + atValue); }
+            return year <= 2020 ? 1 : 2;
+        }
+        throw new IllegalArgumentException("Unsupported at_unit: " + atUnit);
     }
 
     private static Schema projectSchema(Schema full, List<Integer> projectionIds) {
@@ -1026,6 +1050,14 @@ public final class VgiServiceImpl implements VgiService {
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         var at = catalogRegistry.effectiveAt(attach_opaque_data_plain, at_unit, at_value);
+        // Columns-based time-travel + pushdown: resolve AT -> version and pass it
+        // as a scan-function argument (the native columns-based AT mechanism).
+        if ("data".equals(schema_name) && "tt_pushdown_cols".equals(name)) {
+            byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
+                    List.of((Object) (long) resolveTtVersion(at.unit(), at.value())), Map.of());
+            return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
+                    "tt_pushdown_cols_scan", argsBytes, List.of());
+        }
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
                 CatalogTable resolved = catalogRegistry.resolveVersion(t, at.unit(), at.value());
@@ -1070,6 +1102,15 @@ public final class VgiServiceImpl implements VgiService {
         // branch. The C++ capability cache is per-attach, not per-table, so we
         // can't selectively raise method-not-implemented here.
         var at = catalogRegistry.effectiveAt(attach_opaque_data_plain, at_unit, at_value);
+        // Columns-based time-travel + pushdown: resolve AT -> version and wrap
+        // tt_pushdown_cols_scan(version) as the single branch.
+        if ("data".equals(schema_name) && "tt_pushdown_cols".equals(name)) {
+            farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
+                    "tt_pushdown_cols_scan",
+                    List.of((Object) (long) resolveTtVersion(at.unit(), at.value())),
+                    Map.of(), null, false);
+            return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
+        }
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
                 CatalogTable resolved = catalogRegistry.resolveVersion(t, at.unit(), at.value());
