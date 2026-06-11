@@ -21,17 +21,24 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.PARAMETER)
 public @interface Vector {
-    /** Override the wire name; default uses the parameter name (snake-cased). */
+    /** {@return the wire name used in the generated {@code ArgSpec}; the empty
+     *  default means the Java parameter name, snake-cased} */
     String value() default "";
-    /** Human-readable documentation surfaced in the function spec. */
+    /** {@return human-readable documentation carried into the function spec
+     *  and surfaced by catalog introspection; empty for none} */
     String doc() default "";
-    /** Marks an any-typed input — accepts any Arrow type. Parameter Java type
-     *  must be a generic vector reference ({@code FieldVector}). */
+    /** {@return whether this input is any-typed — the spec accepts any Arrow
+     *  type instead of inferring one from the parameter class. The Java type
+     *  must then be the generic {@code FieldVector}; pair with
+     *  {@link #typeBound()} to constrain at bind time} */
     boolean any() default false;
-    /** Varargs: parameter must be {@code List<FieldVector>} (or a typed
-     *  vector subtype to constrain element type). Consumes all remaining
-     *  positional input columns from this position. */
+    /** {@return whether this input is varargs — it consumes all remaining
+     *  positional input columns from this position. The Java type must be
+     *  {@code List<FieldVector>} (or a {@code List} of a typed vector subtype
+     *  to constrain the element type)} */
     boolean varargs() default false;
-    /** Type-bound predicate applied at bind time for any-typed inputs. Empty = no bound. */
+    /** {@return type-bound predicates enforced at bind time for any-typed
+     *  inputs, reported as a function-named SQL-typed error on violation;
+     *  empty means unconstrained} */
     TypeBoundPredicate[] typeBound() default {};
 }

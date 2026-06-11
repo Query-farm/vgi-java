@@ -65,17 +65,32 @@ subprojects {
     if (name in publishedModules) {
         apply(plugin = "com.vanniktech.maven.publish")
 
-        // The codebase predates strict doc-comment hygiene; don't fail the
-        // build (and thus publishing) on doclint warnings.
         tasks.withType<Javadoc>().configureEach {
-            (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:none", "-quiet")
+            with(options as StandardJavadocDocletOptions) {
+                addBooleanOption("Xdoclint:all", true)
+                addStringOption("Xmaxwarns", "10000")
+            }
+        }
+
+        tasks.named<Jar>("jar") {
+            manifest {
+                attributes(
+                    // Stable JPMS module name for consumers on the module path;
+                    // without it the name is derived from the jar filename.
+                    "Automatic-Module-Name" to "farm.query.${project.name.replace("-", ".")}",
+                    "Implementation-Title" to "${project.group}:${project.name}",
+                    "Implementation-Version" to version,
+                    "Implementation-Vendor" to "Query Farm LLC",
+                )
+            }
         }
 
         extensions.configure<com.vanniktech.maven.publish.MavenPublishBaseExtension> {
-            // Upload to the Central Portal and auto-release once validation
-            // passes (no manual "publish" click in the Portal UI). Flip to
-            // publishToMavenCentral(false) if you'd rather gate releases by hand.
-            publishToMavenCentral(automaticRelease = true)
+            // Upload to the Central Portal but gate the final release on a
+            // manual "Publish" click in the Portal UI (https://central.sonatype.com/
+            // publishing/deployments). Flip to automaticRelease = true once the
+            // coordinate has been through Portal validation at least once.
+            publishToMavenCentral(automaticRelease = false)
 
             // Sign only when a key is available (CI / local release). Plain
             // `publishToMavenLocal` and contributor builds without a key still work.

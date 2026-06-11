@@ -21,6 +21,8 @@ public final class ServiceLocator {
     private final Map<String, List<ScalarFunction>> scalars;
 
     /**
+     * Creates a locator over a fixed registration snapshot.
+     *
      * @param scalars registered scalar functions, keyed by name, each value an overload list
      */
     public ServiceLocator(Map<String, List<ScalarFunction>> scalars) {
@@ -35,6 +37,8 @@ public final class ServiceLocator {
     public static void setCurrent(ServiceLocator s) { current = s; }
 
     /**
+     * The process-wide locator installed by {@link #setCurrent}.
+     *
      * @return the installed process-wide locator
      * @throws IllegalStateException if no locator has been installed yet
      */

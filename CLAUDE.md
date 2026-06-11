@@ -1,5 +1,10 @@
 # vgi-java
 
+> **Note:** this file is internal working documentation for AI-assisted
+> development sessions. It references machine-specific paths (`~/Development`,
+> `/tmp` harness scripts) that exist only on the maintainer's machine. If
+> you're evaluating or using the library, start with [README.md](README.md).
+
 Java port of the VGI protocol (DuckDB extension that lets external workers
 serve catalog data over Arrow IPC). Driven by passing the integration suite
 at `~/Development/vgi/test/sql/integration/`. Currently **178/179 passing**

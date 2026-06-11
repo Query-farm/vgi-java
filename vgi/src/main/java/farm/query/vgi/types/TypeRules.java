@@ -17,24 +17,34 @@ public final class TypeRules {
     private TypeRules() {}
 
     /**
+     * Tests whether {@code t} is an integer type (any width, signed or unsigned).
+     *
      * @param t an Arrow type
      * @return {@code true} if {@code t} is an integer type
      */
     public static boolean isInteger(ArrowType t) { return t instanceof ArrowType.Int; }
 
     /**
+     * Tests whether {@code t} is a floating-point type (any precision).
+     *
      * @param t an Arrow type
      * @return {@code true} if {@code t} is a floating-point type
      */
     public static boolean isFloating(ArrowType t) { return t instanceof ArrowType.FloatingPoint; }
 
     /**
+     * Tests whether {@code t} is numeric, i.e. integer or floating-point
+     * (decimals are excluded; see {@link #isAddable}).
+     *
      * @param t an Arrow type
      * @return {@code true} if {@code t} is an integer or floating-point type
      */
     public static boolean isNumeric(ArrowType t) { return isInteger(t) || isFloating(t); }
 
     /**
+     * Tests whether {@code t} can participate in arithmetic addition — numeric
+     * or decimal. Backs {@code TypeBoundPredicate.IS_ADDABLE} bind-time checks.
+     *
      * @param t an Arrow type
      * @return {@code true} if {@code t} can participate in arithmetic addition (numeric or decimal)
      */

@@ -4,6 +4,10 @@ name: Release to Maven Central
 # Publishes the library module (farm.query:vgi) to the Sonatype Central Portal
 # when a GitHub Release is published.
 #
+# NOTE: the upload is validated but NOT auto-released (automaticRelease = false
+# in build.gradle.kts). After this workflow succeeds, finish the release with
+# the "Publish" button at https://central.sonatype.com/publishing/deployments.
+#
 # Required repository secrets:
 #   MAVEN_CENTRAL_USERNAME  - Central Portal user-token username
 #   MAVEN_CENTRAL_PASSWORD  - Central Portal user-token password
@@ -67,7 +71,7 @@ jobs:
       - name: Test
         run: ./gradlew --no-daemon :vgi:test
 
-      - name: Publish and release to Maven Central
+      - name: Publish to Maven Central (manual release in Portal UI)
         run: ./gradlew --no-daemon :vgi:publishToMavenCentral
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}

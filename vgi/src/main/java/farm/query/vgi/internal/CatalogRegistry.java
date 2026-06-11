@@ -40,6 +40,8 @@ public final class CatalogRegistry {
     private final Map<String, AttachRecord> attaches = new ConcurrentHashMap<>();
 
     /**
+     * Creates a registry bound to its owning worker.
+     *
      * @param worker the owning worker (supplies catalog name and registered tables)
      */
     public CatalogRegistry(Worker worker) {
@@ -62,6 +64,8 @@ public final class CatalogRegistry {
     }
 
     /**
+     * The data version negotiated at ATTACH time for this attach.
+     *
      * @param attachId the attach identifier
      * @return the resolved data version for this attach, or {@code null} if unknown
      */
@@ -71,6 +75,8 @@ public final class CatalogRegistry {
     }
 
     /**
+     * The catalog name from the {@code ATTACH 'name'} clause for this attach.
+     *
      * @param attachId the attach identifier
      * @return the ATTACH catalog name for this attach, or {@code null} if unknown
      */
@@ -130,7 +136,7 @@ public final class CatalogRegistry {
      * declared columns + scan args for a version-specific variant when the
      * client asked {@code AT (VERSION => N)}. Other tables and AT clauses
      * pass through unchanged. Throws if N is out of range so DuckDB surfaces
-     * "Unknown version" / "table did not exist before <year>" cleanly.
+     * "Unknown version" / "table did not exist before {@code <year>}" cleanly.
      *
      * @param t        the base table being bound
      * @param at_unit  the AT clause unit, or {@code null}/empty for no time travel

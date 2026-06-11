@@ -62,7 +62,21 @@ public record ArgSpec(
         }
     }
 
-    /** Full constructor with an empty {@code children} list (non-nested types). */
+    /**
+     * Full constructor with an empty {@code children} list (non-nested types).
+     *
+     * @param name         SQL parameter name.
+     * @param position     zero-based positional slot, or {@code -1} for named-only.
+     * @param arrowType    declared Arrow type.
+     * @param doc          human-readable parameter description.
+     * @param isConst      {@code true} for a compile-time-constant argument.
+     * @param hasDefault   {@code true} when {@code defaultValue} applies (named-only).
+     * @param defaultValue default literal used when {@code hasDefault}.
+     * @param typeBound    bind-time predicates applied to an "any"-typed argument.
+     * @param varargs      {@code true} when the argument absorbs trailing positionals.
+     * @param anyType      {@code true} for an "any" parameter.
+     * @param tableInput   {@code true} for a TABLE-typed input.
+     */
     public ArgSpec(String name, int position, ArrowType arrowType, String doc,
                     boolean isConst, boolean hasDefault, String defaultValue,
                     List<TypeBoundPredicate> typeBound,
@@ -71,17 +85,43 @@ public record ArgSpec(
                 typeBound, varargs, anyType, tableInput, List.of());
     }
 
-    /** Minimal positional runtime-column argument (non-const, no doc, no bounds). */
+    /**
+     * Minimal positional runtime-column argument (non-const, no doc, no bounds).
+     *
+     * @param name      SQL parameter name.
+     * @param position  zero-based positional slot.
+     * @param arrowType declared Arrow type.
+     */
     public ArgSpec(String name, int position, ArrowType arrowType) {
         this(name, position, arrowType, "", false, false, "", List.of(), false, false, false);
     }
 
-    /** Positional argument with explicit const flag. */
+    /**
+     * Positional argument with explicit const flag.
+     *
+     * @param name      SQL parameter name.
+     * @param position  zero-based positional slot.
+     * @param arrowType declared Arrow type.
+     * @param isConst   {@code true} for a compile-time-constant argument.
+     */
     public ArgSpec(String name, int position, ArrowType arrowType, boolean isConst) {
         this(name, position, arrowType, "", isConst, false, "", List.of(), false, false, false);
     }
 
-    /** Constructor for the non-table case ({@code tableInput=false}). */
+    /**
+     * Constructor for the non-table case ({@code tableInput=false}).
+     *
+     * @param name         SQL parameter name.
+     * @param position     zero-based positional slot, or {@code -1} for named-only.
+     * @param arrowType    declared Arrow type.
+     * @param doc          human-readable parameter description.
+     * @param isConst      {@code true} for a compile-time-constant argument.
+     * @param hasDefault   {@code true} when {@code defaultValue} applies (named-only).
+     * @param defaultValue default literal used when {@code hasDefault}.
+     * @param typeBound    bind-time predicates applied to an "any"-typed argument.
+     * @param varargs      {@code true} when the argument absorbs trailing positionals.
+     * @param anyType      {@code true} for an "any" parameter.
+     */
     public ArgSpec(String name, int position, ArrowType arrowType, String doc, boolean isConst,
                     boolean hasDefault, String defaultValue, List<TypeBoundPredicate> typeBound,
                     boolean varargs, boolean anyType) {

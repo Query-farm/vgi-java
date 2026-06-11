@@ -15,6 +15,9 @@ import farm.query.vgirpc.OutputCollector;
  */
 public abstract class TableInOutExchangeState extends ExchangeState {
 
+    /** Sole constructor; per-execution state lives in the subclass. */
+    protected TableInOutExchangeState() {}
+
     /**
      * Final dispatch hook from the RPC layer; forwards each input batch to
      * {@link #onInputBatch}.

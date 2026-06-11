@@ -30,6 +30,8 @@ public final class AggregateStateStore {
     private final FunctionStorage storage;
 
     /**
+     * Creates a store view over the worker's shared storage backend.
+     *
      * @param storage the shared worker storage backend that persists state across
      *                parallel worker subprocesses
      */
@@ -54,17 +56,36 @@ public final class AggregateStateStore {
         return k;
     }
 
-    /** Save bind-time arguments for an execution_id. */
+    /**
+     * Save bind-time arguments for an execution_id.
+     *
+     * @param executionId  the execution id minted at bind time (storage scope)
+     * @param functionName the aggregate function name (namespace component)
+     * @param argsIpc      the IPC-encoded bind arguments
+     */
     public void saveArgs(byte[] executionId, String functionName, byte[] argsIpc) {
         storage.statePut(executionId, argsNs(functionName), ARGS_KEY, argsIpc);
     }
 
-    /** Load bind-time arguments for an execution_id. Returns null if absent. */
+    /**
+     * Load bind-time arguments for an execution_id.
+     *
+     * @param executionId  the execution id minted at bind time (storage scope)
+     * @param functionName the aggregate function name (namespace component)
+     * @return the IPC-encoded bind arguments saved by {@link #saveArgs}, or {@code null} if absent
+     */
     public byte[] loadArgs(byte[] executionId, String functionName) {
         return storage.stateGet(executionId, argsNs(functionName), ARGS_KEY);
     }
 
-    /** Load state bytes for the given group_ids. Missing keys are absent from the map. */
+    /**
+     * Load state bytes for the given group_ids. Missing keys are absent from the map.
+     *
+     * @param executionId  the execution id minted at bind time (storage scope)
+     * @param functionName the aggregate function name (namespace component)
+     * @param gids         the group ids to fetch
+     * @return per-group serialized state, in {@code gids} order, omitting groups with no saved state
+     */
     public Map<Long, byte[]> loadStates(byte[] executionId, String functionName, long[] gids) {
         Map<Long, byte[]> out = new LinkedHashMap<>();
         if (gids.length == 0) return out;
@@ -78,7 +99,13 @@ public final class AggregateStateStore {
         return out;
     }
 
-    /** Upsert state bytes for the given (gid → bytes) entries. */
+    /**
+     * Upsert state bytes for the given (gid → bytes) entries.
+     *
+     * @param executionId  the execution id minted at bind time (storage scope)
+     * @param functionName the aggregate function name (namespace component)
+     * @param states       per-group serialized state to write; an empty map is a no-op
+     */
     public void saveStates(byte[] executionId, String functionName, Map<Long, byte[]> states) {
         if (states.isEmpty()) return;
         List<FunctionStorage.KV> items = new ArrayList<>(states.size());
@@ -88,7 +115,13 @@ public final class AggregateStateStore {
         storage.statePutMany(executionId, stateNs(functionName), items);
     }
 
-    /** Delete the given (executionId, function, gid) tuples. */
+    /**
+     * Delete the given (executionId, function, gid) tuples.
+     *
+     * @param executionId  the execution id minted at bind time (storage scope)
+     * @param functionName the aggregate function name (namespace component)
+     * @param gids         the group ids whose state should be removed
+     */
     public void deleteStates(byte[] executionId, String functionName, long[] gids) {
         if (gids.length == 0) return;
         List<byte[]> keys = new ArrayList<>(gids.length);

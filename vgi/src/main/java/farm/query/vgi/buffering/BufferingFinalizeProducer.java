@@ -25,7 +25,9 @@ import java.util.List;
  */
 public abstract class BufferingFinalizeProducer extends TableProducerState {
 
+    /** Read view over the batches buffered during the Sink phase. */
     protected final BufferingStorage storage;
+    /** State id selecting which combined partition this producer drains. */
     protected final byte[] finalizeStateId;
 
     /**

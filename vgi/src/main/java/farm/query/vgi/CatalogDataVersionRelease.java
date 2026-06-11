@@ -23,6 +23,11 @@ public record CatalogDataVersionRelease(
         String summary,
         String notesUrl) {
 
+    /**
+     * Enforces the wire schema's nullability: {@code version} and
+     * {@code releasedAt} must be present, and a {@code null} summary is
+     * normalised to the empty string ({@code notesUrl} alone may stay null).
+     */
     public CatalogDataVersionRelease {
         if (version == null || version.isEmpty()) {
             throw new IllegalArgumentException("CatalogDataVersionRelease.version is required");

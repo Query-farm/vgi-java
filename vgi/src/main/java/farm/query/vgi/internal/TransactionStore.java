@@ -34,6 +34,8 @@ public final class TransactionStore {
     private final FunctionStorage storage;
 
     /**
+     * Creates a transaction store over the worker's shared storage backend.
+     *
      * @param storage the worker's shared state backend the transaction lifecycle rides on
      */
     public TransactionStore(FunctionStorage storage) {

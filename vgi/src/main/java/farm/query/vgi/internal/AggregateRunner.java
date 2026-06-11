@@ -35,6 +35,8 @@ public final class AggregateRunner {
     private final AggregateStateStore store;
 
     /**
+     * Creates a runner over a fixed aggregate registry.
+     *
      * @param registry registered aggregates keyed by function name
      * @param storage  shared worker storage backing per-execution state
      */

@@ -38,19 +38,19 @@ public final class BatchState {
         this.batchSize = Math.max(1, batchSize);
     }
 
-    /** @return the total number of rows to emit */
+    /** {@return the total number of rows to emit} */
     public long total() { return total; }
 
-    /** @return the configured rows-per-batch */
+    /** {@return the configured rows-per-batch} */
     public long batchSize() { return batchSize; }
 
-    /** @return the number of rows already emitted */
+    /** {@return the number of rows already emitted} */
     public long index() { return index; }
 
-    /** @return {@code true} once every row has been emitted */
+    /** {@return {@code true} once every row has been emitted} */
     public boolean done() { return index >= total; }
 
-    /** @return the row count for the next batch, clamped to the remaining rows */
+    /** {@return the row count for the next batch, clamped to the remaining rows} */
     public int nextBatchSize() {
         long remaining = total - index;
         return (int) Math.min(batchSize, remaining);

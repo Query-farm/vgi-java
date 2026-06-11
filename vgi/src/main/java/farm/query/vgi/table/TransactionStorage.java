@@ -16,9 +16,20 @@ package farm.query.vgi.table;
  */
 public interface TransactionStorage {
 
-    /** Look up a value previously stored under {@code key}; {@code null} if absent. */
+    /**
+     * Looks up a value previously stored under {@code key}.
+     *
+     * @param key the lookup key, compared by byte content
+     * @return the stored value, or {@code null} if absent
+     */
     byte[] getOne(byte[] key);
 
-    /** Store {@code value} under {@code key}, overwriting any previous value. */
+    /**
+     * Stores {@code value} under {@code key}, overwriting any previous value.
+     *
+     * @param key the key, compared by byte content
+     * @param value the value to store; retrievable until the transaction
+     *     commits or rolls back
+     */
     void putOne(byte[] key, byte[] value);
 }

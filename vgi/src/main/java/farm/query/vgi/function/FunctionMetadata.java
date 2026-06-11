@@ -36,20 +36,19 @@ public record FunctionMetadata(
 
     /**
      * Wire enum for {@code FunctionInfo.order_preservation}. Mirrors the
-     * three values DuckDB recognises in {@code TableFunction::order_preservation_type}:
-     *
-     * <ul>
-     *   <li>{@link #NO_ORDER_PRESERVED} — planner is free to parallelise
-     *       and reorder; output ordering is undefined.</li>
-     *   <li>{@link #INSERTION_ORDER} — insertion / production order is
-     *       preserved within each parallel output stream; the planner can
-     *       still parallelise.</li>
-     *   <li>{@link #FIXED_ORDER} — the planner serialises the entire
-     *       pipeline onto a single worker so the function's output is
-     *       observed in exact emission order.</li>
-     * </ul>
+     * three values DuckDB recognises in
+     * {@code TableFunction::order_preservation_type}.
      */
-    public enum OrderPreservation { NO_ORDER_PRESERVED, INSERTION_ORDER, FIXED_ORDER }
+    public enum OrderPreservation {
+        /** Planner is free to parallelise and reorder; output ordering is undefined. */
+        NO_ORDER_PRESERVED,
+        /** Insertion / production order is preserved within each parallel
+         *  output stream; the planner can still parallelise. */
+        INSERTION_ORDER,
+        /** The planner serialises the entire pipeline onto a single worker so
+         *  the function's output is observed in exact emission order. */
+        FIXED_ORDER
+    }
 
     /**
      * Wire enum for {@code FunctionInfo.partition_kind} — the partition shape
@@ -60,10 +59,36 @@ public record FunctionMetadata(
      * fall back to {@code HASH_GROUP_BY}.
      */
     public enum PartitionKind {
-        NOT_PARTITIONED, SINGLE_VALUE_PARTITIONS, OVERLAPPING_PARTITIONS, DISJOINT_PARTITIONS
+        /** No partitioning declared over the annotated columns (default; same
+         *  effect as leaving fields un-annotated). */
+        NOT_PARTITIONED,
+        /** Each emitted batch carries exactly one distinct value per partition
+         *  column. Unlocks {@code PhysicalPartitionedAggregate} for
+         *  {@code GROUP BY} over those columns. */
+        SINGLE_VALUE_PARTITIONS,
+        /** Per-batch value ranges overlap only at boundaries (bounds like
+         *  {@code [1,2][2,3][3,4]}). Wire-level declarable; DuckDB has no
+         *  consumer today. */
+        OVERLAPPING_PARTITIONS,
+        /** Per-batch value ranges are pairwise disjoint (bounds like
+         *  {@code [1,2][3,4][5,6]}). Wire-level declarable; DuckDB has no
+         *  consumer today. */
+        DISJOINT_PARTITIONS
     }
 
-    /** Convenience constructor defaulting batch-index, partition-kind, and late-materialization off. */
+    /**
+     * Convenience constructor defaulting batch-index, partition-kind, and late-materialization off.
+     *
+     * @param description        human-readable function description.
+     * @param stability          output determinism ({@link Stability}).
+     * @param nullHandling       how null inputs propagate ({@link NullHandling}).
+     * @param autoApplyFilters   whether the engine may auto-apply pushed-down filters.
+     * @param projectionPushdown whether the function accepts projection pushdown.
+     * @param filterPushdown     whether the function accepts filter pushdown.
+     * @param samplingPushdown   whether the function accepts sampling pushdown.
+     * @param categories         SQL function categories for discovery.
+     * @param orderPreservation  declared output ordering guarantee ({@link OrderPreservation}).
+     */
     public FunctionMetadata(String description, Stability stability, NullHandling nullHandling,
                               boolean autoApplyFilters, boolean projectionPushdown,
                               boolean filterPushdown, boolean samplingPushdown,
@@ -73,7 +98,18 @@ public record FunctionMetadata(
                 false, PartitionKind.NOT_PARTITIONED, false);
     }
 
-    /** Convenience constructor with no declared order preservation. */
+    /**
+     * Convenience constructor with no declared order preservation.
+     *
+     * @param description        human-readable function description.
+     * @param stability          output determinism ({@link Stability}).
+     * @param nullHandling       how null inputs propagate ({@link NullHandling}).
+     * @param autoApplyFilters   whether the engine may auto-apply pushed-down filters.
+     * @param projectionPushdown whether the function accepts projection pushdown.
+     * @param filterPushdown     whether the function accepts filter pushdown.
+     * @param samplingPushdown   whether the function accepts sampling pushdown.
+     * @param categories         SQL function categories for discovery.
+     */
     public FunctionMetadata(String description, Stability stability, NullHandling nullHandling,
                               boolean autoApplyFilters, boolean projectionPushdown,
                               boolean filterPushdown, boolean samplingPushdown,
@@ -82,7 +118,17 @@ public record FunctionMetadata(
                 filterPushdown, samplingPushdown, categories, null);
     }
 
-    /** Convenience constructor with no categories and no declared order preservation. */
+    /**
+     * Convenience constructor with no categories and no declared order preservation.
+     *
+     * @param description        human-readable function description.
+     * @param stability          output determinism ({@link Stability}).
+     * @param nullHandling       how null inputs propagate ({@link NullHandling}).
+     * @param autoApplyFilters   whether the engine may auto-apply pushed-down filters.
+     * @param projectionPushdown whether the function accepts projection pushdown.
+     * @param filterPushdown     whether the function accepts filter pushdown.
+     * @param samplingPushdown   whether the function accepts sampling pushdown.
+     */
     public FunctionMetadata(String description, Stability stability, NullHandling nullHandling,
                               boolean autoApplyFilters, boolean projectionPushdown,
                               boolean filterPushdown, boolean samplingPushdown) {

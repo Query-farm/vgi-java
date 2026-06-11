@@ -30,6 +30,8 @@ public final class HexId {
     }
 
     /**
+     * Mint a fresh execution identifier.
+     *
      * @return a 16-byte execution id derived from a fresh random UUID
      */
     public static byte[] newExecutionId() {

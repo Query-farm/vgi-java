@@ -18,8 +18,10 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.PARAMETER)
 public @interface Const {
-    /** Override the wire name; default uses the parameter name (snake-cased). */
+    /** {@return the wire name used in the generated {@code ArgSpec}; the empty
+     *  default means the Java parameter name, snake-cased} */
     String value() default "";
-    /** Human-readable documentation surfaced in the function spec. */
+    /** {@return human-readable documentation carried into the function spec
+     *  and surfaced by catalog introspection; empty for none} */
     String doc() default "";
 }

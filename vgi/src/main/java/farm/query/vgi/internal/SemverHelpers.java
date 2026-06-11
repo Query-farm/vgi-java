@@ -19,7 +19,14 @@ public final class SemverHelpers {
 
     private SemverHelpers() {}
 
-    /** Compare two dotted-int versions. Missing components compare as zero. */
+    /**
+     * Compare two dotted-int versions. Missing components compare as zero
+     * (so {@code "1.2"} equals {@code "1.2.0"}).
+     *
+     * @param a the left-hand dotted version
+     * @param b the right-hand dotted version
+     * @return negative / zero / positive as {@code a} is lower than / equal to / higher than {@code b}
+     */
     public static int compareVersions(String a, String b) {
         String[] as = a.split("\\.");
         String[] bs = b.split("\\.");
@@ -32,8 +39,15 @@ public final class SemverHelpers {
         return 0;
     }
 
-    /** Test whether {@code version} satisfies a {@code ">=A.B.C,<D.E.F"}-style
-     *  range. Each comma-separated clause is one of {@code >=, >, <=, <, =}. */
+    /**
+     * Test whether {@code version} satisfies a {@code ">=A.B.C,<D.E.F"}-style
+     * range. Each comma-separated clause is one of {@code >=, >, <=, <, =};
+     * a bare version clause means equality.
+     *
+     * @param version the concrete dotted version under test
+     * @param range   the comma-separated clause list; all clauses must hold
+     * @return {@code true} if every clause is satisfied
+     */
     public static boolean matchesRange(String version, String range) {
         String[] parts = range.split(",");
         for (String p : parts) {
@@ -63,6 +77,11 @@ public final class SemverHelpers {
      * Resolve an npm-style {@code spec} (exact / caret / tilde / partial)
      * against an ascending list of {@code supported} concrete versions.
      * Returns the highest matching supported version, or {@code null}.
+     *
+     * @param spec      the version spec ({@code ^1.2.3}, {@code ~1.2.3}, {@code 1.2},
+     *                  bare {@code 1.2.3}), or {@code null}
+     * @param supported the concrete versions the worker offers
+     * @return the highest supported version matching {@code spec}, or {@code null} if none
      */
     public static String resolveNpmSpec(String spec, List<String> supported) {
         if (spec == null) return null;

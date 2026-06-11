@@ -37,6 +37,9 @@ import java.util.List;
  */
 public abstract class CountdownTableFunction extends SimpleTableFunction {
 
+    /** Sole constructor; all configuration comes from the override hooks. */
+    protected CountdownTableFunction() {}
+
     /**
      * Default {@code batch_size} when the caller doesn't pass one.
      *

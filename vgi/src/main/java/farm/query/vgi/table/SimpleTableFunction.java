@@ -24,6 +24,9 @@ public abstract class SimpleTableFunction implements TableFunction {
 
     private volatile byte[] schemaIpcCache;
 
+    /** Sole constructor; the schema IPC cache is populated lazily on first bind. */
+    protected SimpleTableFunction() {}
+
     /**
      * The fixed output schema. Called once and the result is cached.
      *

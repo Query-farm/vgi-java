@@ -70,6 +70,14 @@ public abstract class ScalarFn implements ScalarFunction {
     private final ComputePlan plan = ComputePlan.forClass(getClass());
 
     /**
+     * Sole constructor. Parses the subclass's {@code compute()} signature into
+     * the cached dispatch plan, so an invalid signature (no output vector
+     * parameter, unannotated inputs) fails here — at registration — rather
+     * than at first call.
+     */
+    protected ScalarFn() {}
+
+    /**
      * SQL function name.
      *
      * @return the SQL name this function registers under.

@@ -46,6 +46,9 @@ public final class CfdoStorage implements FunctionStorage {
     /** Thrown on a non-2xx response from the Worker, or a transport error. */
     public static final class CfdoException extends RuntimeException {
         /**
+         * Creates the exception with the Worker's error body or the transport
+         * failure message.
+         *
          * @param message the failure detail
          */
         public CfdoException(String message) {

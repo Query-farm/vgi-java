@@ -16,8 +16,12 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.PARAMETER)
 public @interface Setting {
-    /** Setting key on the wire. Default = parameter name (snake-cased). */
+    /** {@return the session-setting key looked up at process time; the empty
+     *  default means the Java parameter name, snake-cased} */
     String value() default "";
-    /** Default if absent (parsed per parameter type). */
+    /** {@return the fallback used when the session doesn't supply the setting,
+     *  parsed into the parameter's Java type; with the empty default an absent
+     *  setting resolves to the type's zero value ({@code 0}, {@code false},
+     *  {@code null})} */
     String default_() default "";
 }

@@ -20,6 +20,9 @@ import java.util.List;
  */
 public abstract class PassthroughTIOFunction implements TableInOutFunction {
 
+    /** Sole constructor; the passthrough bind needs no per-instance state. */
+    protected PassthroughTIOFunction() {}
+
     /**
      * Returns the input schema as the output schema, falling back to an empty
      * schema when no input is present (catalog enumeration).

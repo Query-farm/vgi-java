@@ -71,9 +71,9 @@ public record AttachOptionSpec(
         return new AttachOptionSpec(name, description, field, defaults);
     }
 
-    /** @return the option's Arrow value type, read from {@link #valueField}. */
+    /** {@return the option's Arrow value type, read from {@link #valueField}} */
     public ArrowType type() { return valueField.getType(); }
 
-    /** @return the value field's child fields (empty for flat scalar options). */
+    /** {@return the value field's child fields (empty for flat scalar options)} */
     public List<Field> children() { return valueField.getChildren(); }
 }

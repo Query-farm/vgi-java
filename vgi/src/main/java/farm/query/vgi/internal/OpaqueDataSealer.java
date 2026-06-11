@@ -80,7 +80,11 @@ public final class OpaqueDataSealer {
         }
     }
 
-    /** @return {@code true} when sealing is active (HTTP transport); {@code false} for passthrough. */
+    /**
+     * Whether this sealer actually seals or merely passes blobs through.
+     *
+     * @return {@code true} when sealing is active (HTTP transport); {@code false} for passthrough
+     */
     public boolean enabled() { return key != null; }
 
     // --- attach_opaque_data ------------------------------------------------

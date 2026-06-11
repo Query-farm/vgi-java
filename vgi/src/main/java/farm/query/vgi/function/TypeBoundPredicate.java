@@ -11,6 +11,11 @@ public enum TypeBoundPredicate {
 
     TypeBoundPredicate(String description) { this.description = description; }
 
-    /** User-facing description ("numeric", "comparable", etc.). */
+    /**
+     * User-facing description used in bind-time violation messages
+     * (e.g. {@code add_values: col1 must be numeric (got VARCHAR)}).
+     *
+     * @return the description noun ("numeric", "comparable", etc.).
+     */
     public String description() { return description; }
 }

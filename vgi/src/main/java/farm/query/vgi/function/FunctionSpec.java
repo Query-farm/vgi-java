@@ -38,7 +38,12 @@ public record FunctionSpec(String name, FunctionMetadata metadata, List<ArgSpec>
         argumentSpecs = argumentSpecs == null ? List.of() : List.copyOf(argumentSpecs);
     }
 
-    /** name + metadata, no arguments. */
+    /**
+     * name + metadata, no arguments.
+     *
+     * @param name     the function's SQL name.
+     * @param metadata the function's {@link FunctionMetadata}.
+     */
     public FunctionSpec(String name, FunctionMetadata metadata) {
         this(name, metadata, List.of());
     }

@@ -31,12 +31,23 @@ public record Arguments(List<Object> positional, Map<String, Object> named,
                           List<ArrowType> positionalTypes,
                           List<Field> positionalFields) {
 
-    /** Construct with no per-positional type or field metadata. */
+    /**
+     * Construct with no per-positional type or field metadata.
+     *
+     * @param positional positional argument values, as plain Java scalars.
+     * @param named      kwarg-style argument values keyed by name.
+     */
     public Arguments(List<Object> positional, Map<String, Object> named) {
         this(positional, named, List.of(), List.of());
     }
 
-    /** Construct with positional types but no per-positional field metadata. */
+    /**
+     * Construct with positional types but no per-positional field metadata.
+     *
+     * @param positional      positional argument values, as plain Java scalars.
+     * @param named           kwarg-style argument values keyed by name.
+     * @param positionalTypes source Arrow type per positional value.
+     */
     public Arguments(List<Object> positional, Map<String, Object> named,
                        List<ArrowType> positionalTypes) {
         this(positional, named, positionalTypes, List.of());

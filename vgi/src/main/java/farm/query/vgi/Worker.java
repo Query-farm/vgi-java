@@ -82,7 +82,11 @@ public final class Worker {
         return this;
     }
 
-    /** @return the registered macros. */
+    /**
+     * Macros enumerated through {@code catalog_schema_contents_macros}.
+     *
+     * @return the registered macros, in registration order
+     */
     public List<Macro> macros() { return macros; }
 
     private final List<CatalogTable> catalogTables = new ArrayList<>();
@@ -100,7 +104,12 @@ public final class Worker {
         return this;
     }
 
-    /** @return the registered catalog tables. */
+    /**
+     * Catalog tables enumerated through {@code catalog_schema_contents_tables} /
+     * {@code catalog_table_get}.
+     *
+     * @return the registered catalog tables, in registration order
+     */
     public List<CatalogTable> catalogTables() { return catalogTables; }
 
     /**
@@ -133,29 +142,89 @@ public final class Worker {
         return multiBranchTables.get(schema + "." + name);
     }
 
-    /** @return all multi-branch tables keyed by {@code schema.name}. */
+    /**
+     * Every table registered via
+     * {@link #registerMultiBranchTable(CatalogTable, List)}, used by the
+     * service to answer {@code catalog_table_scan_branches_get}.
+     *
+     * @return all multi-branch tables keyed by {@code schema.name}
+     */
     public Map<String, List<farm.query.vgi.catalog.ScanBranch>> multiBranchTables() {
         return multiBranchTables;
     }
 
     private Worker() {}
 
-    /** @return a fresh worker builder with default catalog metadata. */
+    /**
+     * Start building a worker. Defaults: catalog name {@code "vgi"}, default
+     * schema {@code "main"}, empty comment/tags, no versioning metadata.
+     *
+     * @return a fresh worker builder with default catalog metadata
+     */
     public static Worker builder() { return new Worker(); }
 
-    /** @param name catalog name. @return this builder. */
+    /**
+     * Name this worker's catalog. Surfaced as the catalog row in
+     * {@code catalog_catalogs()} and as the default database alias on ATTACH.
+     *
+     * @param name the catalog name (default {@code "vgi"})
+     * @return this builder
+     */
     public Worker catalogName(String name) { this.catalogName = name; return this; }
-    /** @param comment catalog comment. @return this builder. */
+
+    /**
+     * Set the catalog-level comment, surfaced through {@code catalog_catalogs()}
+     * and DuckDB's {@code duckdb_databases()} comment column.
+     *
+     * @param comment the catalog comment (default empty)
+     * @return this builder
+     */
     public Worker catalogComment(String comment) { this.catalogComment = comment; return this; }
-    /** @param tags catalog tag key/value pairs (merged into existing tags). @return this builder. */
+
+    /**
+     * Attach key/value tags to the catalog, surfaced through
+     * {@code catalog_catalogs()}. Merged into any previously set tags
+     * (later calls overwrite duplicate keys).
+     *
+     * @param tags catalog tag key/value pairs to merge in
+     * @return this builder
+     */
     public Worker catalogTags(Map<String, String> tags) { this.catalogTags.putAll(tags); return this; }
-    /** @param v implementation version string. @return this builder. */
+
+    /**
+     * Advertise the worker's implementation (code) version, reported through
+     * {@code catalog_version} alongside the resolved data version so clients
+     * can distinguish "what code is running" from "what data it serves".
+     *
+     * @param v semver implementation version string (e.g. {@code "11.0.0"});
+     *          {@code null} (the default) omits it
+     * @return this builder
+     */
     public Worker implementationVersion(String v) { this.implementationVersion = v; return this; }
-    /** @param v data-version spec (e.g. {@code ">=1.0.0,<4.0.0"}). @return this builder. */
+
+    /**
+     * Declare the range of data versions this worker can serve. ATTACH-time
+     * version requests are validated against this spec; requests outside the
+     * range are rejected.
+     *
+     * @param v semver range spec (e.g. {@code ">=1.0.0,<4.0.0"});
+     *          {@code null} (the default) disables version negotiation
+     * @return this builder
+     */
     public Worker dataVersionSpec(String v) { this.dataVersionSpec = v; return this; }
-    /** @return the configured implementation version, or {@code null}. */
+
+    /**
+     * Implementation version advertised through {@code catalog_version}.
+     *
+     * @return the configured implementation version, or {@code null} if unset
+     */
     public String implementationVersion() { return implementationVersion; }
-    /** @return the configured data-version spec, or {@code null}. */
+
+    /**
+     * Data-version range this worker accepts at ATTACH time.
+     *
+     * @return the configured data-version spec, or {@code null} if unset
+     */
     public String dataVersionSpec() { return dataVersionSpec; }
 
     /**
@@ -193,13 +262,37 @@ public final class Worker {
         for (CatalogDataVersionRelease r : rs) releases.add(r);
         return this;
     }
-    /** @return a copy of the configured releases. */
+    /**
+     * Data-version releases surfaced through {@code catalog_catalogs()}.
+     *
+     * @return a copy of the configured releases, in the order passed to
+     *         {@link #releases(CatalogDataVersionRelease...)}
+     */
     public List<CatalogDataVersionRelease> releases() { return List.copyOf(releases); }
-    /** @param url catalog source URL. @return this builder. */
+
+    /**
+     * Set the catalog's source URL (e.g. a homepage or repository link),
+     * surfaced through {@code catalog_catalogs()}.
+     *
+     * @param url the source URL; {@code null} (the default) omits it
+     * @return this builder
+     */
     public Worker sourceUrl(String url) { this.sourceUrl = url; return this; }
-    /** @return the configured source URL, or {@code null}. */
+
+    /**
+     * Source URL surfaced through {@code catalog_catalogs()}.
+     *
+     * @return the configured source URL, or {@code null} if unset
+     */
     public String sourceUrl() { return sourceUrl; }
-    /** @param schema default schema name. @return this builder. */
+
+    /**
+     * Name the schema DuckDB selects by default after ATTACH. Functions,
+     * tables and views without an explicit schema register here.
+     *
+     * @param schema the default schema name (default {@code "main"})
+     * @return this builder
+     */
     public Worker defaultSchema(String schema) { this.defaultSchema = schema; return this; }
 
     /** Per-schema comment surfaced via {@code catalog_schemas} /
@@ -216,128 +309,273 @@ public final class Worker {
         return this;
     }
 
-    /** @return the per-schema comments keyed by schema name. */
+    /**
+     * Comments registered via {@link #schemaComment(String, String)}.
+     *
+     * @return the per-schema comments keyed by schema name
+     */
     public Map<String, String> schemaComments() { return schemaComments; }
 
-    /** @param fn scalar function to register. @return this builder. */
+    /**
+     * Register a scalar function, callable from SQL and enumerated through
+     * {@code catalog_schema_contents_functions}.
+     *
+     * @param fn the scalar function to register
+     * @return this builder
+     */
     public Worker registerScalar(ScalarFunction fn) {
         scalars.add(fn);
         return this;
     }
 
-    /** @param fn table function to register. @return this builder. */
+    /**
+     * Register a table function, callable from SQL and enumerated through
+     * {@code catalog_schema_contents_functions}.
+     *
+     * @param fn the table function to register
+     * @return this builder
+     */
     public Worker registerTable(TableFunction fn) {
         tables.add(fn);
         return this;
     }
 
-    /** @param fn aggregate function to register. @return this builder. */
+    /**
+     * Register an aggregate function, callable from SQL and enumerated
+     * through {@code catalog_schema_contents_functions}.
+     *
+     * @param fn the aggregate function to register
+     * @return this builder
+     */
     public Worker registerAggregate(AggregateFunction<?> fn) {
         aggregates.add(fn);
         return this;
     }
 
-    /** @param fn table-in-out function to register. @return this builder. */
+    /**
+     * Register a table-in-out function (consumes an input relation, streams
+     * an output relation), enumerated through
+     * {@code catalog_schema_contents_functions}.
+     *
+     * @param fn the table-in-out function to register
+     * @return this builder
+     */
     public Worker registerTableInOut(TableInOutFunction fn) {
         tableInOuts.add(fn);
         return this;
     }
 
-    /** @param fns scalar functions to register. @return this builder. */
+    /**
+     * Register several scalar functions; equivalent to calling
+     * {@link #registerScalar(ScalarFunction)} for each.
+     *
+     * @param fns the scalar functions to register
+     * @return this builder
+     */
     public Worker registerScalars(Iterable<? extends ScalarFunction> fns) {
         for (ScalarFunction f : fns) scalars.add(f);
         return this;
     }
 
-    /** @param fns table functions to register. @return this builder. */
+    /**
+     * Register several table functions; equivalent to calling
+     * {@link #registerTable(TableFunction)} for each.
+     *
+     * @param fns the table functions to register
+     * @return this builder
+     */
     public Worker registerTables(Iterable<? extends TableFunction> fns) {
         for (TableFunction f : fns) tables.add(f);
         return this;
     }
 
-    /** @param fns aggregate functions to register. @return this builder. */
+    /**
+     * Register several aggregate functions; equivalent to calling
+     * {@link #registerAggregate(AggregateFunction)} for each.
+     *
+     * @param fns the aggregate functions to register
+     * @return this builder
+     */
     public Worker registerAggregates(Iterable<? extends AggregateFunction<?>> fns) {
         for (AggregateFunction<?> f : fns) aggregates.add(f);
         return this;
     }
 
-    /** @param fn table-buffering (Sink+Source) function to register. @return this builder. */
+    /**
+     * Register a table-buffering (Sink+Source) function: DuckDB sinks the
+     * full input through {@code table_buffering_process}/{@code _combine}
+     * before the finalize stream sources results back out.
+     *
+     * @param fn the table-buffering function to register
+     * @return this builder
+     */
     public Worker registerTableBuffering(farm.query.vgi.buffering.TableBufferingFunction fn) {
         bufferingFns.add(fn);
         return this;
     }
 
-    /** @param fns table-buffering functions to register. @return this builder. */
+    /**
+     * Register several table-buffering functions; equivalent to calling
+     * {@link #registerTableBuffering} for each.
+     *
+     * @param fns the table-buffering functions to register
+     * @return this builder
+     */
     public Worker registerTableBufferings(Iterable<? extends farm.query.vgi.buffering.TableBufferingFunction> fns) {
         for (var f : fns) bufferingFns.add(f);
         return this;
     }
 
-    /** @return the registered table-buffering functions. */
+    /**
+     * Table-buffering functions registered via {@link #registerTableBuffering}.
+     *
+     * @return the registered table-buffering functions, in registration order
+     */
     public List<farm.query.vgi.buffering.TableBufferingFunction> bufferingFunctions() {
         return bufferingFns;
     }
 
-    /** @param fns table-in-out functions to register. @return this builder. */
+    /**
+     * Register several table-in-out functions; equivalent to calling
+     * {@link #registerTableInOut(TableInOutFunction)} for each.
+     *
+     * @param fns the table-in-out functions to register
+     * @return this builder
+     */
     public Worker registerTableInOuts(Iterable<? extends TableInOutFunction> fns) {
         for (TableInOutFunction f : fns) tableInOuts.add(f);
         return this;
     }
 
-    /** @param specs custom settings to advertise at attach time. @return this builder. */
+    /**
+     * Advertise custom session settings in the {@code catalog_attach} result.
+     * DuckDB registers each as a {@code SET}-able option whose current value
+     * is forwarded to the worker on every bind.
+     *
+     * @param specs the setting specs to advertise
+     * @return this builder
+     */
     public Worker settings(SettingSpec... specs) {
         for (SettingSpec s : specs) settings.add(s);
         return this;
     }
 
-    /** @param specs secret types to advertise at attach time. @return this builder. */
+    /**
+     * Advertise secret types in the {@code catalog_attach} result. DuckDB
+     * registers each so {@code CREATE SECRET} of that type resolves against
+     * this catalog, and matching secrets flow to the worker on bind.
+     *
+     * @param specs the secret-type specs to advertise
+     * @return this builder
+     */
     public Worker secretTypes(SecretTypeSpec... specs) {
         for (SecretTypeSpec s : specs) secretTypes.add(s);
         return this;
     }
 
-    /** @return the registered secret-type specs. */
+    /**
+     * Secret types advertised at attach time.
+     *
+     * @return the registered secret-type specs, in registration order
+     */
     public List<SecretTypeSpec> secretTypeSpecs() { return secretTypes; }
 
-    /** @param specs ATTACH-time option specs to accept. @return this builder. */
+    /**
+     * Declare the options this worker accepts in DuckDB's
+     * {@code ATTACH ... (key value, ...)} clause. Unknown options are
+     * rejected client-side; accepted values arrive in the attach request.
+     *
+     * @param specs the ATTACH-time option specs to accept
+     * @return this builder
+     */
     public Worker attachOptions(AttachOptionSpec... specs) {
         for (AttachOptionSpec s : specs) attachOptions.add(s);
         return this;
     }
 
-    /** @return a copy of the registered attach-option specs. */
+    /**
+     * ATTACH-time options declared via {@link #attachOptions(AttachOptionSpec...)}.
+     *
+     * @return a copy of the registered attach-option specs
+     */
     public List<AttachOptionSpec> attachOptionSpecs() { return List.copyOf(attachOptions); }
 
-    /** @param v view to register. @return this builder. */
+    /**
+     * Register a view, enumerated through {@code catalog_schema_contents_views};
+     * its SQL text is expanded by DuckDB at query time.
+     *
+     * @param v the view to register
+     * @return this builder
+     */
     public Worker registerView(View v) {
         views.add(v);
         return this;
     }
 
-    /** @param vs views to register. @return this builder. */
+    /**
+     * Register several views; equivalent to calling
+     * {@link #registerView(View)} for each.
+     *
+     * @param vs the views to register
+     * @return this builder
+     */
     public Worker registerViews(Iterable<? extends View> vs) {
         for (View v : vs) views.add(v);
         return this;
     }
 
-    /** @return the registered views. */
+    /**
+     * Views enumerated through {@code catalog_schema_contents_views}.
+     *
+     * @return the registered views, in registration order
+     */
     public List<View> views() { return views; }
 
-    /** @param ts catalog tables to register. @return this builder. */
+    /**
+     * Register several catalog tables; equivalent to calling
+     * {@link #registerCatalogTable(CatalogTable)} for each.
+     *
+     * @param ts the catalog tables to register
+     * @return this builder
+     */
     public Worker registerCatalogTables(Iterable<? extends CatalogTable> ts) {
         for (CatalogTable t : ts) catalogTables.add(t);
         return this;
     }
 
-    /** @return the catalog name. */
+    /**
+     * Catalog name surfaced through {@code catalog_catalogs()}.
+     *
+     * @return the catalog name (default {@code "vgi"})
+     */
     public String catalogName() { return catalogName; }
-    /** @return the catalog comment. */
+
+    /**
+     * Catalog comment surfaced through {@code catalog_catalogs()}.
+     *
+     * @return the catalog comment (default empty, never {@code null})
+     */
     public String catalogComment() { return catalogComment; }
-    /** @return the catalog tag key/value pairs. */
+
+    /**
+     * Catalog tags surfaced through {@code catalog_catalogs()}.
+     *
+     * @return the catalog tag key/value pairs, in insertion order
+     */
     public Map<String, String> catalogTags() { return catalogTags; }
-    /** @return the default schema name. */
+
+    /**
+     * Schema DuckDB selects by default after ATTACH.
+     *
+     * @return the default schema name (default {@code "main"})
+     */
     public String defaultSchema() { return defaultSchema; }
-    /** @return the registered setting specs. */
+
+    /**
+     * Session settings advertised at attach time.
+     *
+     * @return the registered setting specs, in registration order
+     */
     public List<SettingSpec> settingSpecs() { return settings; }
 
     /**
@@ -457,7 +695,10 @@ public final class Worker {
     }
 
     /** Convenience overload — equivalent to
-     *  {@code runFromArgs(args, b -> b)}. */
+     *  {@code runFromArgs(args, b -> b)}.
+     *
+     * @param args argv as received by {@code main}
+     */
     public void runFromArgs(String[] args) {
         runFromArgs(args, b -> b);
     }
