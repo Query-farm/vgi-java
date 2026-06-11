@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Query-farm/vgi-rpc-java/main/assets/vgi-logo.png" alt="Vector Gateway Interface logo" width="320">
+  <img src="https://raw.githubusercontent.com/Query-farm/vgi-java/main/assets/vgi-logo.png" alt="Vector Gateway Interface logo" width="320">
 </p>
 
 <h1 align="center">vgi-java</h1>
