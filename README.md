@@ -98,6 +98,27 @@ public final class DemoWorker {
 
 The `compute()` signature drives everything: `@Vector` parameters are per-row input columns, `@Const` parameters are bind-time constants, `@Setting` parameters read session settings, and the last unannotated Arrow vector is the framework-allocated output.
 
+**The worker JVM needs two flags** — Apache Arrow requires access to `java.nio` internals, and the shared-memory transport uses the FFM API:
+
+```
+--add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED
+--enable-native-access=ALL-UNNAMED
+```
+
+With the Gradle `application` plugin, bake them into the start script so the worker binary is self-contained:
+
+```kotlin
+application {
+    mainClass.set("DemoWorker")
+    applicationDefaultJvmArgs = listOf(
+        "--add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED",
+        "--enable-native-access=ALL-UNNAMED",
+    )
+}
+```
+
+Without the `--add-opens` flag the worker fails at first query with `Failed to initialize MemoryUtil`.
+
 Attach and query it from DuckDB:
 
 ```sql
