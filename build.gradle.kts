@@ -22,7 +22,8 @@ val publishedModules = setOf("vgi")
 
 val moduleDescriptions = mapOf(
     "vgi" to "Java implementation of the VGI (Vector Gateway Interface) protocol " +
-        "for serving DuckDB catalog data to external workers over Apache Arrow IPC.",
+        "for serving catalog data to Haybarn, Query Farm's DuckDB-derived engine, " +
+        "from external workers over Apache Arrow IPC.",
 )
 
 subprojects {

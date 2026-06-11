@@ -5,7 +5,7 @@
 <h1 align="center">vgi-java</h1>
 
 <p align="center">
-  Serve <a href="https://duckdb.org/">DuckDB</a> catalogs, tables, and functions from a Java process over <a href="https://arrow.apache.org/">Apache Arrow</a> IPC — the Java implementation of the <a href="https://github.com/Query-farm/vgi">VGI (Vector Gateway Interface)</a> protocol.<br>
+  Serve <a href="https://github.com/Query-farm-haybarn/haybarn">Haybarn</a> catalogs, tables, and functions from a Java process over <a href="https://arrow.apache.org/">Apache Arrow</a> IPC — the Java implementation of the <a href="https://github.com/Query-farm/vgi">VGI (Vector Gateway Interface)</a> protocol.<br>
   Built by <a href="https://query.farm">🚜 Query.Farm</a>
 </p>
 
@@ -14,13 +14,13 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Query%20Farm%20Source--Available-blue" alt="License"></a>
 </p>
 
-VGI lets DuckDB `ATTACH` a catalog whose schemas, tables, and functions live in an external worker process. The [vgi DuckDB extension](https://github.com/Query-farm/vgi) speaks an Arrow-IPC RPC protocol to that worker; this library is everything you need to write the worker side in Java. Your code registers functions and tables against a `Worker` builder — the library handles the wire protocol, schema negotiation, batch streaming, pushdown, and transports.
+VGI lets [Haybarn](https://github.com/Query-farm-haybarn/haybarn) — Query Farm's independent derived distribution of DuckDB — `ATTACH` a catalog whose schemas, tables, and functions live in an external worker process. The [vgi extension](https://github.com/Query-farm/vgi) speaks an Arrow-IPC RPC protocol to that worker; this library is everything you need to write the worker side in Java. Your code registers functions and tables against a `Worker` builder — the library handles the wire protocol, schema negotiation, batch streaming, pushdown, and transports.
 
 Wire-compatible with the [Python reference implementation](https://github.com/Query-farm/vgi-python) and the [Go port](https://github.com/Query-farm/vgi-go): all three serve the same integration suite against the same C++ extension.
 
 ## What you can serve
 
-- **Catalog tables** — named tables with inline schemas, comments, tags, constraints, foreign keys, and per-column statistics that feed DuckDB's optimizer.
+- **Catalog tables** — named tables with inline schemas, comments, tags, constraints, foreign keys, and per-column statistics that feed the engine's optimizer.
 - **Scalar functions** — annotation-driven (`ScalarFn`): declare a `compute()` method and the parameter annotations generate the spec, bind-time validation, and dispatch.
 - **Table functions** — streaming producers with projection pushdown, filter pushdown, row-id, sampling, and time-travel (`AT`) support.
 - **Table-in/out functions** — exchange-style streaming transforms over input batches.
@@ -30,8 +30,8 @@ Wire-compatible with the [Python reference implementation](https://github.com/Qu
 
 ## Requirements
 
-- **Java 21+** at runtime. The shared-memory side-channel (zero-copy batch transfer with a co-located DuckDB) additionally requires **JDK 22+**; on 21 it transparently falls back to pipe transport.
-- The [vgi extension](https://github.com/Query-farm/vgi) loaded in DuckDB on the client side.
+- **Java 21+** at runtime. The shared-memory side-channel (zero-copy batch transfer with a co-located engine) additionally requires **JDK 22+**; on 21 it transparently falls back to pipe transport.
+- [Haybarn](https://github.com/Query-farm-haybarn/haybarn) with the [vgi extension](https://github.com/Query-farm/vgi) installed on the client side (it's in Haybarn's signed community channel: `INSTALL vgi FROM community`).
 
 ## Installation
 
@@ -119,15 +119,16 @@ application {
 
 Without the `--add-opens` flag the worker fails at first query with `Failed to initialize MemoryUtil`.
 
-Attach and query it from DuckDB:
+Attach and query it from Haybarn:
 
 ```sql
+INSTALL vgi FROM community;
 LOAD vgi;
 ATTACH 'demo' AS demo (TYPE vgi, LOCATION 'launch:/path/to/demo-worker');
 SELECT demo.multiply(21, 2);  -- 42
 ```
 
-The `launch:` location scheme starts the worker once behind a flock-coordinated Unix socket and reuses it across queries and DuckDB processes — essential for JVM workers, which are expensive to cold-start. Plain subprocess (`/path/to/worker`) and `http(s)://` locations also work.
+The `launch:` location scheme starts the worker once behind a flock-coordinated Unix socket and reuses it across queries and engine processes — essential for JVM workers, which are expensive to cold-start. Plain subprocess (`/path/to/worker`) and `http(s)://` locations also work.
 
 ## Example worker
 
@@ -137,7 +138,8 @@ The [`vgi-example-worker`](vgi-example-worker/) module (not published) is a comp
 
 | Repository | What it is |
 |---|---|
-| [Query-farm/vgi](https://github.com/Query-farm/vgi) | The DuckDB extension (C++) — the client side of the protocol |
+| [Query-farm-haybarn/haybarn](https://github.com/Query-farm-haybarn/haybarn) | Haybarn — the independent derived distribution of DuckDB by Query Farm |
+| [Query-farm/vgi](https://github.com/Query-farm/vgi) | The vgi engine extension (C++) — the client side of the protocol |
 | [Query-farm/vgi-python](https://github.com/Query-farm/vgi-python) | Python reference implementation of the worker side |
 | [Query-farm/vgi-go](https://github.com/Query-farm/vgi-go) | Go implementation of the worker side |
 | [Query-farm/vgi-rpc-java](https://github.com/Query-farm/vgi-rpc-java) | The transport-agnostic Arrow RPC framework this library builds on |
