@@ -5,7 +5,7 @@ plugins {
 
 dependencies {
     // farm.query is the published group (see ../build.gradle.kts allprojects).
-    api("farm.query:vgirpc:0.9.0")
+    api("farm.query:vgirpc:0.9.1")
     implementation("org.slf4j:slf4j-api:2.0.16")
     // Cross-process aggregate state store. DuckDB spawns multiple worker
     // subprocesses for parallel aggregation; SQLite's file locking gives us
