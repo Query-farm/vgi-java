@@ -7,8 +7,9 @@
 
 Java port of the VGI protocol (DuckDB extension that lets external workers
 serve catalog data over Arrow IPC). Driven by passing the integration suite
-at `~/Development/vgi/test/sql/integration/`. Currently **178/179 passing**
-(the 1 failure — `schema_reconcile.test` — is out of scope; see "State of play").
+at `~/Development/vgi/test/sql/integration/`. Currently **185/185 passing**
+(`schema_reconcile.test` skips via an upstream require-env gate — the writable
+path is out of scope; see "State of play").
 
 ## Canonical references
 
@@ -283,8 +284,11 @@ each run over sqlite-memory / sqlite-file / mock-CfDo backends).
   `TransactionStore.begin/end/view` take the unsealed attach for shard routing;
   `table_buffering_destructor` gained `CallContext` and shard-pins its
   `executionClear` (was unsharded — broken on CfDo).
-- **Suite status: 184/185** (only `schema_reconcile`, known/out of scope) —
-  after also porting the **accumulate fixture** (same session, see below).
+- **Suite status: 185/185 (fully green).** `schema_reconcile.test` now *skips*
+  under this harness — upstream vgi `4444d66` added
+  `require-env VGI_SCHEMA_RECONCILE_DB` (the per-run sqlite path every Python
+  Makefile lane already exports), the same capability-gating pattern as
+  `versioned_tables_impl`. The writable path it exercises stays out of scope.
   `table/comments.test` was a one-word upstream drift, fixed here.
 
 **2026-06-11 (same session) — ported the new accumulate fixture catalog**
