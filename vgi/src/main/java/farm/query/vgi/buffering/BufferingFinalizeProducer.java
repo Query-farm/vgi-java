@@ -2,6 +2,7 @@
 
 package farm.query.vgi.buffering;
 
+import farm.query.vgi.storage.BoundStorage;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgirpc.OutputCollector;
@@ -26,7 +27,7 @@ import java.util.List;
 public abstract class BufferingFinalizeProducer extends TableProducerState {
 
     /** Read view over the batches buffered during the Sink phase. */
-    protected final BufferingStorage storage;
+    protected final BoundStorage storage;
     /** State id selecting which combined partition this producer drains. */
     protected final byte[] finalizeStateId;
 

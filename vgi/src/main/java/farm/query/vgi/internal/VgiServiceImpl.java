@@ -137,7 +137,8 @@ public final class VgiServiceImpl implements VgiService {
 
     private record BoundTableInOut(TableInOutFunction fn, Arguments args, Schema inputSchema,
                                     Schema outputSchema, Map<String, Object> settings,
-                                    byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc)
+                                    byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
+                                    byte[] attachId)
             implements BoundEntry {}
 
     private record BoundBuffering(farm.query.vgi.buffering.TableBufferingFunction fn, Arguments args,
@@ -244,7 +245,7 @@ public final class VgiServiceImpl implements VgiService {
             return bindTable(request, name, args, inputSchema, settings, argCount, token, ctx);
         }
         if (tableInOuts.containsKey(name)) {
-            return bindTableInOut(request, name, args, inputSchema, settings, argCount, token);
+            return bindTableInOut(request, name, args, inputSchema, settings, argCount, token, ctx);
         }
         if (bufferingFns.containsKey(name)) {
             return bindBuffering(request, name, args, inputSchema, settings, argCount, token, ctx);
@@ -295,7 +296,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.transaction_opaque_data(), request.attach_opaque_data(), auth);
         TableBindParams bindParams = new TableBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(), attachPlain,
-                transactionStore.view(txnPlain));
+                transactionStore.view(txnPlain, attachPlain));
         BindResponse upstream = fn.onBind(bindParams);
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
@@ -309,13 +310,14 @@ public final class VgiServiceImpl implements VgiService {
 
     private BindResponse bindTableInOut(BindRequest request, String name, Arguments args,
                                          Schema inputSchema, Map<String, Object> settings,
-                                         int argCount, byte[] token) {
+                                         int argCount, byte[] token, CallContext ctx) {
         TableInOutFunction fn = OverloadResolver.pick(tableInOuts.get(name), argCount, args, inputSchema);
+        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         pendingBinds.put(bytesKey(token), new BoundTableInOut(fn, args, inputSchema, outputSchema, settings,
-                request.arguments(), request.settings(), upstream.output_schema()));
+                request.arguments(), request.settings(), upstream.output_schema(), attachPlain));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -412,7 +414,8 @@ public final class VgiServiceImpl implements VgiService {
                 bt.attachId(),
                 bt.bindOpaqueData(),
                 bt.atUnit(),
-                bt.atValue());
+                bt.atValue(),
+                new farm.query.vgi.storage.BoundStorage(this.storage, execId, bt.attachId()));
         TableProducerState state = bt.fn().createProducer(params);
         return RpcStream.producer(fnOutputSchema, state, header);
     }
@@ -433,7 +436,8 @@ public final class VgiServiceImpl implements VgiService {
         }
         TableInOutInitParams params = new TableInOutInitParams(
                 bio.fn().name(), bio.args(), inputSchema, fnOutputSchema,
-                bio.settings(), Allocators.root());
+                bio.settings(), Allocators.root(),
+                new farm.query.vgi.storage.BoundStorage(this.storage, execId, bio.attachId()));
         TableInOutExchangeState state = bio.fn().createExchange(params);
         return RpcStream.exchange(inputSchema, fnOutputSchema, state, header);
     }
@@ -457,6 +461,8 @@ public final class VgiServiceImpl implements VgiService {
         if (bb.fn().metadata().projectionPushdown() && !projIds.isEmpty()) {
             fnOutputSchema = projectSchema(realOutputSchema, projIds);
         }
+        farm.query.vgi.storage.BoundStorage storage =
+                new farm.query.vgi.storage.BoundStorage(this.storage, execId, bb.attachId());
         TableInitParams initParams = new TableInitParams(
                 bb.fn().name(), bb.args(), fnOutputSchema, bb.settings(), Allocators.root(),
                 request.pushdown_filters(), projIds,
@@ -464,9 +470,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.tablesample_percentage(), request.tablesample_seed(),
                 request.order_by_column_name(), request.order_by_direction(),
                 request.order_by_null_order(), request.order_by_limit(),
-                execId, null, bb.attachId(), bb.bindOpaqueData(), null, null);
-        farm.query.vgi.buffering.BufferingStorage storage =
-                new farm.query.vgi.buffering.BufferingStorage(this.storage, execId);
+                execId, null, bb.attachId(), bb.bindOpaqueData(), null, null, storage);
         farm.query.vgi.buffering.TableBufferingFinalizeParams fparams =
                 new farm.query.vgi.buffering.TableBufferingFinalizeParams(
                         execId, request.finalize_state_id(), storage, initParams);
@@ -742,9 +746,10 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, CallContext ctx) {
         byte[] txnId = new byte[16];
         rng.nextBytes(txnId);
-        transactionStore.begin(txnId);
+        AuthContext auth = authOf(ctx);
+        transactionStore.begin(txnId, sealer.unsealAttach(attach_opaque_data, auth));
         return new farm.query.vgi.protocol.TransactionBeginResponse(
-                sealer.sealTransaction(txnId, attach_opaque_data, authOf(ctx)));
+                sealer.sealTransaction(txnId, attach_opaque_data, auth));
     }
 
     /**
@@ -757,8 +762,10 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public void catalog_transaction_commit(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                              CallContext ctx) {
-        transactionStore.end(sealer.unsealTransaction(
-                transaction_opaque_data, attach_opaque_data, authOf(ctx)));
+        AuthContext auth = authOf(ctx);
+        transactionStore.end(
+                sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
+                sealer.unsealAttach(attach_opaque_data, auth));
     }
 
     /**
@@ -771,8 +778,10 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public void catalog_transaction_rollback(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                                CallContext ctx) {
-        transactionStore.end(sealer.unsealTransaction(
-                transaction_opaque_data, attach_opaque_data, authOf(ctx)));
+        AuthContext auth = authOf(ctx);
+        transactionStore.end(
+                sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
+                sealer.unsealAttach(attach_opaque_data, auth));
     }
 
     private final CatalogRegistry catalogRegistry;
@@ -1150,8 +1159,9 @@ public final class VgiServiceImpl implements VgiService {
     public farm.query.vgi.protocol.TableBufferingProcessResponse table_buffering_process(
             farm.query.vgi.protocol.TableBufferingProcessRequest request, CallContext ctx) {
         var fn = bufferingFn(request.function_name());
-        farm.query.vgi.buffering.BufferingStorage storage =
-                new farm.query.vgi.buffering.BufferingStorage(this.storage, request.execution_id());
+        farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
+                this.storage, request.execution_id(),
+                sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx)));
         var params = new farm.query.vgi.buffering.TableBufferingProcessParams(
                 request.function_name(), request.execution_id(), storage, request.batch_index(), ctx);
         byte[] stateId;
@@ -1173,8 +1183,9 @@ public final class VgiServiceImpl implements VgiService {
     public farm.query.vgi.protocol.TableBufferingCombineResponse table_buffering_combine(
             farm.query.vgi.protocol.TableBufferingCombineRequest request, CallContext ctx) {
         var fn = bufferingFn(request.function_name());
-        farm.query.vgi.buffering.BufferingStorage storage =
-                new farm.query.vgi.buffering.BufferingStorage(this.storage, request.execution_id());
+        farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
+                this.storage, request.execution_id(),
+                sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx)));
         var params = new farm.query.vgi.buffering.TableBufferingCombineParams(
                 request.function_name(), request.execution_id(), storage, ctx);
         List<byte[]> ids = fn.combine(
@@ -1186,12 +1197,15 @@ public final class VgiServiceImpl implements VgiService {
      * Release all buffered state for an execution once its buffering pipeline is done.
      *
      * @param request the destructor request (execution id)
+     * @param ctx the per-call RPC context
      * @return an empty acknowledgement
      */
     @Override
     public farm.query.vgi.protocol.TableBufferingDestructorResponse table_buffering_destructor(
-            farm.query.vgi.protocol.TableBufferingDestructorRequest request) {
-        this.storage.executionClear(request.execution_id());
+            farm.query.vgi.protocol.TableBufferingDestructorRequest request, CallContext ctx) {
+        new farm.query.vgi.storage.BoundStorage(this.storage, request.execution_id(),
+                sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx)))
+                .executionClear();
         return new farm.query.vgi.protocol.TableBufferingDestructorResponse();
     }
 

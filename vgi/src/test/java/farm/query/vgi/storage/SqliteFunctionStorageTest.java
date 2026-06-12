@@ -34,6 +34,42 @@ class SqliteFunctionStorageTest {
     }
 
     @Test
+    void selfHealDropsStaleTablesAndKeepsHealthyOnes(@TempDir Path tmp) throws Exception {
+        Path db = tmp.resolve("stale.db");
+        // Simulate a pre-unification SDK's on-disk schema (HTTP-idempotency
+        // columns) plus one healthy table with data that must survive.
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+                Statement st = c.createStatement()) {
+            st.execute("CREATE TABLE function_state (scope_id BLOB, ns BLOB, key BLOB, value BLOB,"
+                    + " last_attempt_id BLOB, PRIMARY KEY(scope_id, ns, key))");
+            st.execute("CREATE TABLE function_state_log (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    + " scope_id BLOB, ns BLOB, key BLOB, value BLOB, attempt_id BLOB)");
+            st.execute("CREATE TABLE work_queue (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    + " execution_id BLOB, work_item BLOB, created_at TEXT)");
+            st.execute("CREATE TABLE worker_state (k BLOB)");
+            st.execute("CREATE TABLE function_counter (scope_id BLOB NOT NULL, ns BLOB NOT NULL,"
+                    + " key BLOB NOT NULL, n INTEGER NOT NULL, PRIMARY KEY(scope_id, ns, key))");
+            st.execute("INSERT INTO function_counter VALUES (x'01', x'02', x'03', 41)");
+        }
+        try (SqliteFunctionStorage s = new SqliteFunctionStorage(db.toString())) {
+            // Stale tables were rebuilt minimal and usable.
+            s.statePut(b("e"), b("n"), b("k"), b("v"));
+            assertArrayEquals(b("v"), s.stateGet(b("e"), b("n"), b("k")));
+            assertEquals(1, s.stateAppend(b("e"), b("n"), b("k"), b("x")));
+            s.queuePush(b("e"), List.of(b("w")));
+            assertArrayEquals(b("w"), s.queuePop(b("e")));
+            // The healthy counter table was NOT dropped.
+            assertEquals(42, s.stateCounterAdd(new byte[] {1}, new byte[] {2}, new byte[] {3}, 1));
+        }
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + db);
+                Statement st = c.createStatement();
+                ResultSet rs = st.executeQuery(
+                        "SELECT name FROM sqlite_master WHERE name='worker_state'")) {
+            assertTrue(!rs.next(), "obsolete table dropped");
+        }
+    }
+
+    @Test
     void appendLogMonotonicCursorAndScan() {
         try (SqliteFunctionStorage s = new SqliteFunctionStorage(":memory:")) {
             byte[] exec = b("exec-log");

@@ -42,6 +42,9 @@ import java.util.Map;
  * @param atUnit the time-travel AT clause unit threaded from the bind request
  *     ({@code init_call.bind_call.at_unit}), or {@code null} when the scan has no AT clause
  * @param atValue the time-travel AT clause value, or {@code null} when absent
+ * @param storage the per-execution shared-state facade (scoped to
+ *     {@code executionId}, shard-pinned to the attach) — mirrors vgi-python's
+ *     {@code params.storage}
  */
 public record TableInitParams(
         String functionName,
@@ -63,7 +66,8 @@ public record TableInitParams(
         byte[] attachId,
         byte[] bindOpaqueData,
         String atUnit,
-        String atValue) {
+        String atValue,
+        farm.query.vgi.storage.BoundStorage storage) {
 
     /**
      * Wrap the raw {@link #pushdownFilters} / {@link #joinKeys} bytes into a

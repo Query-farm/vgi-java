@@ -13,8 +13,8 @@
  * <ul>
  *   <li>{@link farm.query.vgi.buffering.TableBufferingFunction} — the function
  *       interface implementing the process/combine/finalize lifecycle.</li>
- *   <li>{@link farm.query.vgi.buffering.BufferingStorage} — an append-log
- *       storage view bound to one {@code execution_id}.</li>
+ *   <li>{@link farm.query.vgi.storage.BoundStorage} — the per-execution,
+ *       shard-pinned storage facade buffered batches are stashed in.</li>
  *   <li>{@link farm.query.vgi.buffering.BufferingFinalizeProducer} — base
  *       Source-phase producer that narrows buffered batches to the projected
  *       schema and applies pushdown filters before emit.</li>

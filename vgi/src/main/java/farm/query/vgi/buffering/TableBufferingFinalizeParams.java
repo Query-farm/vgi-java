@@ -2,6 +2,7 @@
 
 package farm.query.vgi.buffering;
 
+import farm.query.vgi.storage.BoundStorage;
 import farm.query.vgi.table.TableInitParams;
 
 /**
@@ -19,5 +20,5 @@ import farm.query.vgi.table.TableInitParams;
 public record TableBufferingFinalizeParams(
         byte[] executionId,
         byte[] finalizeStateId,
-        BufferingStorage storage,
+        BoundStorage storage,
         TableInitParams initParams) {}

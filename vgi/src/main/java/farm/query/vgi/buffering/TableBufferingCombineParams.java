@@ -2,6 +2,7 @@
 
 package farm.query.vgi.buffering;
 
+import farm.query.vgi.storage.BoundStorage;
 import farm.query.vgirpc.CallContext;
 
 /**
@@ -17,5 +18,5 @@ import farm.query.vgirpc.CallContext;
 public record TableBufferingCombineParams(
         String functionName,
         byte[] executionId,
-        BufferingStorage storage,
+        BoundStorage storage,
         CallContext ctx) {}

@@ -247,6 +247,59 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-06-11)
+
+**2026-06-11 — ported the evolved vgi-python storage layer** (counters + ranged
+ops `88581a6`, per-attach sharding `c5c09f2`, BoundStorage facade). The Python
+conformance suites were ported as JUnit and are the spec
+(`storage/FunctionStorageConformanceTest` + `BoundStorageConformanceTest`,
+each run over sqlite-memory / sqlite-file / mock-CfDo backends).
+
+- **Backends** (`storage/FunctionStorage` + both impls): `stateScan`
+  (`[start,end)`, reverse, limit, unsigned-lex order), `stateDrain` (atomic,
+  single `DELETE..RETURNING` statement on sqlite — SELECT-then-DELETE races
+  cross-process), `stateDelete` now returns count + new `stateDeleteRange`
+  (both-null = wipe ns), atomic int64 counters (`function_counter` table;
+  add = single upsert-RETURNING), FIFO `work_queue` (pop = single-statement
+  claim), sqlite schema self-heal on init (drops tables w/ stale idempotency
+  columns), CfDo client pages scan/drain via `after_key`/`next_after` (drain
+  mints ONE attempt_id reused across pages — server snapshot semantics).
+- **`storage/BoundStorage`** — the `params.storage` facade: scoped to one
+  execution_id, **shard-pinned at construction** from the attach plaintext's
+  leading UUID (`ShardKey.derive` → `forShard`; Java pins once instead of
+  Python's per-call `shard_key=` kwargs — equivalent, since Python also
+  resolves once in `__init__`). Null/empty attach + `requiresShardKey()`
+  backend (CfDo) → hard error, mirroring Python. User `byte[]` namespaces
+  starting `_vgi/` are rejected; `FrameworkNs` enum overloads bypass.
+  Replaced `buffering/BufferingStorage` (deleted) in the three buffering
+  params records; also exposed on `TableInitParams.storage()` and
+  `TableInOutInitParams.storage()` (BoundTableInOut now carries the unsealed
+  attach — `bindTableInOut` takes ctx).
+- **Layout migrations (Python byte-exact):** aggregate state → ns
+  `_vgi/aggregate_state`, keys `BoundStorage.packIntKey(gid)` (8-byte
+  **little-endian** signed; was BE), const args at synthetic gid `-2`;
+  transactions → data ns `"txn"` (via new `storage/TransactionBoundStorage`,
+  which `TransactionStore.view` now returns), active marker `_vgi/txn_active`.
+  `TransactionStore.begin/end/view` take the unsealed attach for shard routing;
+  `table_buffering_destructor` gained `CallContext` and shard-pins its
+  `executionClear` (was unsharded — broken on CfDo).
+- **Suite status: 177/185.** The 8 = `schema_reconcile` (known, out of scope),
+  `table/comments.test` (upstream one-word drift, fixed here), and **6 new
+  `accumulate/*.test`** that landed upstream the same day (vgi `48f4fea`) —
+  they drive a new vgi-python `_test_fixtures/accumulate/` catalog (a
+  TableBufferingFunction using persistent attach-scoped BoundStorage segments,
+  counters, ranged scan/delete + `accumulate_read`/`accumulate_clear`
+  generators). **Not yet ported**: needs MetaWorker-style multi-catalog
+  serving (`vgi_catalogs` must list `accumulate` next to `example` on
+  VGI_TEST_WORKER, attach-name routing for schema/function listings + bind).
+  No other test reads `vgi_catalogs('${VGI_TEST_WORKER}')` unfiltered, so
+  adding a second catalog row is safe.
+- **Harness reconstructed again** (all of `/tmp` was wiped): `/tmp/run_test.sh`
+  now also sets **`VGI_TEST_DEDICATED_WORKER`** (plain binary, NO `launch:`) —
+  `table_buffering_{worker_crash,pool_recovery}.test` require it — and counts
+  "All tests were skipped" as a skip. Wrapper env contracts unchanged
+  (versioned = 1.0.0 / >=1.0.0,<2.0.0 / 1.0.0,1.1.0,1.2.0 / default 1.2.0).
+
 ## State of play (as of 2026-06-05)
 
 **Passing: 178/179** (excluding the filtered-out `nested_type_combinations.test`

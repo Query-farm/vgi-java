@@ -198,10 +198,11 @@ public interface VgiService {
      * Release buffered state.
      *
      * @param request the state handles to destroy
+     * @param ctx     per-call context
      * @return acknowledgement; default is a no-op
      */
     default farm.query.vgi.protocol.TableBufferingDestructorResponse table_buffering_destructor(
-            farm.query.vgi.protocol.TableBufferingDestructorRequest request) {
+            farm.query.vgi.protocol.TableBufferingDestructorRequest request, CallContext ctx) {
         return new farm.query.vgi.protocol.TableBufferingDestructorResponse();
     }
 

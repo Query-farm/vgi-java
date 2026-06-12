@@ -32,4 +32,27 @@ public interface TransactionStorage {
      *     commits or rolls back
      */
     void putOne(byte[] key, byte[] value);
+
+    /**
+     * Batch lookup of values previously stored in this transaction.
+     *
+     * @param keys the lookup keys, compared by byte content
+     * @return one element per key, {@code null} where absent, in request order
+     */
+    java.util.List<byte[]> getMany(java.util.List<byte[]> keys);
+
+    /**
+     * Batch store of key/value pairs, overwriting any previous values.
+     *
+     * @param items the pairs to store; retrievable until the transaction
+     *     commits or rolls back
+     */
+    void putMany(java.util.List<farm.query.vgi.storage.FunctionStorage.KV> items);
+
+    /**
+     * Drops every value stored for this transaction.
+     *
+     * @return the number of rows removed
+     */
+    int clear();
 }

@@ -20,6 +20,8 @@ import java.util.Map;
  *     columns when the function opts into projection pushdown.
  * @param settings the session settings in effect for this execution.
  * @param allocator the allocator the exchange must use for all output vectors.
+ * @param storage the per-execution shared-state facade (shard-pinned to the
+ *     attach) — mirrors vgi-python's {@code params.storage}.
  */
 public record TableInOutInitParams(
         String functionName,
@@ -27,5 +29,6 @@ public record TableInOutInitParams(
         Schema inputSchema,
         Schema outputSchema,
         Map<String, Object> settings,
-        BufferAllocator allocator) {
+        BufferAllocator allocator,
+        farm.query.vgi.storage.BoundStorage storage) {
 }

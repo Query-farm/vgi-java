@@ -3,6 +3,8 @@
 package farm.query.vgi.internal;
 
 import farm.query.vgi.storage.FunctionStorage;
+import farm.query.vgi.storage.ShardKey;
+import farm.query.vgi.storage.TransactionBoundStorage;
 import farm.query.vgi.table.TransactionStorage;
 
 import java.nio.charset.StandardCharsets;
@@ -21,13 +23,15 @@ import java.nio.charset.StandardCharsets;
  * consistent transaction store, not just the single-process stdio launcher.
  *
  * <p>Layout: the {@code scope_id} is the transaction id; an active marker lives
- * under {@link #ACTIVE_NS} and the user key/value pairs under {@link #DATA_NS}.
+ * under {@link #ACTIVE_NS} and the user key/value pairs under the {@code txn}
+ * namespace of {@link TransactionBoundStorage} (byte-identical to vgi-python).
  * {@code end} wipes the whole scope (marker + data) via {@code executionClear}.
+ * Every lifecycle call accepts the unsealed attach plaintext so the distributed
+ * tier routes to the attach's shard; local tiers ignore it.
  */
 public final class TransactionStore {
 
-    private static final byte[] ACTIVE_NS = "__txn_active__".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] DATA_NS = "__txn_kv__".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] ACTIVE_NS = "_vgi/txn_active".getBytes(StandardCharsets.UTF_8);
     private static final byte[] MARKER_KEY = {0};
     private static final byte[] MARKER_VAL = {1};
 
@@ -42,22 +46,31 @@ public final class TransactionStore {
         this.storage = storage;
     }
 
+    private FunctionStorage shard(byte[] attachPlaintext) {
+        if (attachPlaintext != null && attachPlaintext.length >= ShardKey.ATTACH_UUID_LEN) {
+            return storage.forShard(ShardKey.derive(attachPlaintext));
+        }
+        return storage;
+    }
+
     /**
      * Mark {@code transactionId} active (begin a fresh, empty store).
      *
-     * @param transactionId the plain transaction id (scope key)
+     * @param transactionId   the plain transaction id (scope key)
+     * @param attachPlaintext the unsealed attach for shard routing, or {@code null}
      */
-    public void begin(byte[] transactionId) {
-        storage.statePut(transactionId, ACTIVE_NS, MARKER_KEY, MARKER_VAL);
+    public void begin(byte[] transactionId, byte[] attachPlaintext) {
+        shard(attachPlaintext).statePut(transactionId, ACTIVE_NS, MARKER_KEY, MARKER_VAL);
     }
 
     /**
      * Clear {@code transactionId}'s marker + data (commit or rollback).
      *
-     * @param transactionId the plain transaction id; a {@code null} is ignored
+     * @param transactionId   the plain transaction id; a {@code null} is ignored
+     * @param attachPlaintext the unsealed attach for shard routing, or {@code null}
      */
-    public void end(byte[] transactionId) {
-        if (transactionId != null) storage.executionClear(transactionId);
+    public void end(byte[] transactionId, byte[] attachPlaintext) {
+        if (transactionId != null) shard(attachPlaintext).executionClear(transactionId);
     }
 
     /**
@@ -65,18 +78,14 @@ public final class TransactionStore {
      * {@code null} when it is null/empty (autocommit) or not active — fixtures
      * treat {@code null} as "no caching".
      *
-     * @param transactionId the plain transaction id (may be {@code null}/empty)
+     * @param transactionId   the plain transaction id (may be {@code null}/empty)
+     * @param attachPlaintext the unsealed attach for shard routing, or {@code null}
      * @return a storage view, or {@code null} when the id is null/empty or not active
      */
-    public TransactionStorage view(byte[] transactionId) {
+    public TransactionStorage view(byte[] transactionId, byte[] attachPlaintext) {
         if (transactionId == null || transactionId.length == 0) return null;
-        if (storage.stateGet(transactionId, ACTIVE_NS, MARKER_KEY) == null) return null;
-        final byte[] scope = transactionId;
-        return new TransactionStorage() {
-            @Override public byte[] getOne(byte[] key) { return storage.stateGet(scope, DATA_NS, key); }
-            @Override public void putOne(byte[] key, byte[] value) {
-                storage.statePut(scope, DATA_NS, key, value);
-            }
-        };
+        FunctionStorage pinned = shard(attachPlaintext);
+        if (pinned.stateGet(transactionId, ACTIVE_NS, MARKER_KEY) == null) return null;
+        return new TransactionBoundStorage(pinned, transactionId);
     }
 }

@@ -31,20 +31,20 @@ class TransactionStoreTest {
     void viewIsNullBeforeBeginAndAfterEnd() {
         TransactionStore txns = store();
         byte[] txn = b("txn-lifecycle");
-        assertNull(txns.view(txn), "no view before begin");
-        txns.begin(txn);
-        assertNotNull(txns.view(txn), "view exists after begin");
-        txns.end(txn);
-        assertNull(txns.view(txn), "no view after end");
+        assertNull(txns.view(txn, null), "no view before begin");
+        txns.begin(txn, null);
+        assertNotNull(txns.view(txn, null), "view exists after begin");
+        txns.end(txn, null);
+        assertNull(txns.view(txn, null), "no view after end");
     }
 
     @Test
     void putGetRoundTripsAndMissingKeyIsNull() {
         TransactionStore txns = store();
         byte[] txn = b("txn-kv");
-        txns.begin(txn);
+        txns.begin(txn, null);
         try {
-            TransactionStorage v = txns.view(txn);
+            TransactionStorage v = txns.view(txn, null);
             assertNotNull(v);
             assertNull(v.getOne(b("watermark")), "missing key is null");
             v.putOne(b("watermark"), b("42"));
@@ -52,7 +52,7 @@ class TransactionStoreTest {
             v.putOne(b("watermark"), b("43")); // overwrite
             assertArrayEquals(b("43"), v.getOne(b("watermark")));
         } finally {
-            txns.end(txn);
+            txns.end(txn, null);
         }
     }
 
@@ -61,15 +61,15 @@ class TransactionStoreTest {
         TransactionStore txns = store();
         byte[] a = b("txn-a");
         byte[] c = b("txn-c");
-        txns.begin(a);
-        txns.begin(c);
+        txns.begin(a, null);
+        txns.begin(c, null);
         try {
-            txns.view(a).putOne(b("k"), b("from-a"));
-            assertNull(txns.view(c).getOne(b("k")), "txn C cannot see txn A's key");
-            assertArrayEquals(b("from-a"), txns.view(a).getOne(b("k")));
+            txns.view(a, null).putOne(b("k"), b("from-a"));
+            assertNull(txns.view(c, null).getOne(b("k")), "txn C cannot see txn A's key");
+            assertArrayEquals(b("from-a"), txns.view(a, null).getOne(b("k")));
         } finally {
-            txns.end(a);
-            txns.end(c);
+            txns.end(a, null);
+            txns.end(c, null);
         }
     }
 }

@@ -24,11 +24,13 @@ import java.util.List;
  * the per-attach {@code shard_key} (set via {@link #forShard}); destructive ops
  * carry a fresh 32-hex {@code attempt_id}. Mirrors vgi-python / vgi-go.
  *
- * <p>vgi-java's shared-state surface is the append-only log (table-buffering),
- * the transaction key/value store, and aggregate group state, so this client
- * maps those onto {@code state_append} / {@code state_log_scan} /
- * {@code execution_clear} and {@code state_get_many} / {@code state_put_many} /
- * {@code state_delete}. It is the distributed tier of {@link FunctionStorage}.
+ * <p>Implements the full unified surface — composite-key K/V with ranged
+ * scan/drain/delete, the append-only log, atomic int64 counters, and the FIFO
+ * work queue. {@code state_scan} / {@code state_drain} page under a server-side
+ * byte budget via an opaque {@code after_key}/{@code next_after} continuation
+ * cursor; a drain mints ONE attempt_id and reuses it on every page so the
+ * server's snapshot-then-page semantics stay atomic and replay-safe. It is the
+ * distributed tier of {@link FunctionStorage}.
  */
 public final class CfdoStorage implements FunctionStorage {
 
@@ -94,8 +96,20 @@ public final class CfdoStorage implements FunctionStorage {
      * @param shard the shard key (e.g. {@code att-<hex uuid>} from {@link ShardKey})
      * @return a new client that splices {@code shard} into every request
      */
+    @Override
     public CfdoStorage forShard(String shard) {
         return new CfdoStorage(baseUrl, token, shard, client);
+    }
+
+    /**
+     * The Durable Object routes on shard_key ({@code idFromName}) — unsharded
+     * use is refused, so {@link BoundStorage} demands an attach identity.
+     *
+     * @return always {@code true}
+     */
+    @Override
+    public boolean requiresShardKey() {
+        return true;
     }
 
     // --- Append-only log (table-buffering) ---
@@ -183,9 +197,9 @@ public final class CfdoStorage implements FunctionStorage {
     }
 
     @Override
-    public void stateDelete(byte[] scopeId, byte[] ns, List<byte[]> keys) {
+    public int stateDelete(byte[] scopeId, byte[] ns, List<byte[]> keys) {
         if (keys.isEmpty()) {
-            return;
+            return 0;
         }
         JsonObject body = scoped(scopeId, ns);
         JsonArray keyArr = new JsonArray();
@@ -194,7 +208,160 @@ public final class CfdoStorage implements FunctionStorage {
         }
         body.add("keys", keyArr);
         body.addProperty("attempt_id", newAttemptId());
-        post("state_delete", body);
+        return post("state_delete", body).get("deleted").getAsInt();
+    }
+
+    @Override
+    public int stateDeleteRange(byte[] scopeId, byte[] ns, byte[] start, byte[] end) {
+        JsonObject body = scoped(scopeId, ns);
+        if (start != null) {
+            body.addProperty("start", b64(start));
+        }
+        if (end != null) {
+            body.addProperty("end", b64(end));
+        }
+        body.addProperty("attempt_id", newAttemptId());
+        return post("state_delete", body).get("deleted").getAsInt();
+    }
+
+    @Override
+    public List<KV> stateScan(byte[] scopeId, byte[] ns, byte[] start, byte[] end,
+                              boolean reverse, int limit) {
+        List<KV> out = new ArrayList<>();
+        String afterKey = null;
+        long remaining = limit > 0 ? limit : -1;
+        while (true) {
+            JsonObject body = scoped(scopeId, ns);
+            if (start != null) {
+                body.addProperty("start", b64(start));
+            }
+            if (end != null) {
+                body.addProperty("end", b64(end));
+            }
+            if (reverse) {
+                body.addProperty("reverse", true);
+            }
+            if (remaining >= 0) {
+                body.addProperty("limit", remaining);
+            }
+            if (afterKey != null) {
+                body.addProperty("after_key", afterKey);
+            }
+            JsonObject data = post("state_scan", body);
+            JsonArray rows = data.getAsJsonArray("rows");
+            if (rows != null) {
+                for (JsonElement e : rows) {
+                    JsonObject r = e.getAsJsonObject();
+                    out.add(new KV(unb64(r.get("key").getAsString()), unb64(r.get("value").getAsString())));
+                    if (remaining > 0) {
+                        remaining--;
+                    }
+                }
+            }
+            afterKey = optString(data, "next_after");
+            if (afterKey == null || afterKey.isEmpty() || remaining == 0) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    @Override
+    public List<KV> stateDrain(byte[] scopeId, byte[] ns) {
+        // One attempt_id for every page: the first page tombstones the whole
+        // namespace server-side, later pages read that snapshot, and a retried
+        // (attempt_id, after_key) replays identically.
+        String attemptId = newAttemptId();
+        List<KV> out = new ArrayList<>();
+        String afterKey = null;
+        while (true) {
+            JsonObject body = scoped(scopeId, ns);
+            if (afterKey != null) {
+                body.addProperty("after_key", afterKey);
+            }
+            body.addProperty("attempt_id", attemptId);
+            JsonObject data = post("state_drain", body);
+            JsonArray rows = data.getAsJsonArray("rows");
+            if (rows != null) {
+                for (JsonElement e : rows) {
+                    JsonObject r = e.getAsJsonObject();
+                    out.add(new KV(unb64(r.get("key").getAsString()), unb64(r.get("value").getAsString())));
+                }
+            }
+            afterKey = optString(data, "next_after");
+            if (afterKey == null || afterKey.isEmpty()) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    // --- Atomic int64 counters (function_counter) ---
+
+    @Override
+    public long stateCounterGet(byte[] scopeId, byte[] ns, byte[] key) {
+        JsonObject body = scoped(scopeId, ns);
+        body.addProperty("key", b64(key));
+        return post("state_counter_get", body).get("n").getAsLong();
+    }
+
+    @Override
+    public long stateCounterAdd(byte[] scopeId, byte[] ns, byte[] key, long delta) {
+        JsonObject body = scoped(scopeId, ns);
+        body.addProperty("key", b64(key));
+        body.addProperty("delta", delta);
+        body.addProperty("attempt_id", newAttemptId());
+        return post("state_counter_add", body).get("n").getAsLong();
+    }
+
+    @Override
+    public void stateCounterSet(byte[] scopeId, byte[] ns, byte[] key, long value) {
+        JsonObject body = scoped(scopeId, ns);
+        body.addProperty("key", b64(key));
+        body.addProperty("value", value);
+        body.addProperty("attempt_id", newAttemptId());
+        post("state_counter_set", body);
+    }
+
+    @Override
+    public void stateCounterDelete(byte[] scopeId, byte[] ns, byte[] key) {
+        JsonObject body = scoped(scopeId, ns);
+        body.addProperty("key", b64(key));
+        body.addProperty("attempt_id", newAttemptId());
+        post("state_counter_delete", body);
+    }
+
+    // --- Work queue (FIFO, destructive pop) ---
+
+    @Override
+    public int queuePush(byte[] executionId, List<byte[]> items) {
+        JsonObject body = new JsonObject();
+        body.addProperty("execution_id", b64(executionId));
+        JsonArray arr = new JsonArray();
+        for (byte[] item : items) {
+            arr.add(b64(item));
+        }
+        body.add("items", arr);
+        body.addProperty("attempt_id", newAttemptId());
+        return post("queue_push", body).get("count").getAsInt();
+    }
+
+    @Override
+    public byte[] queuePop(byte[] executionId) {
+        JsonObject body = new JsonObject();
+        body.addProperty("execution_id", b64(executionId));
+        body.addProperty("attempt_id", newAttemptId());
+        JsonElement item = post("queue_pop", body).get("item");
+        return (item == null || item.isJsonNull() || item.getAsString().isEmpty())
+                ? null : unb64(item.getAsString());
+    }
+
+    @Override
+    public int queueClear(byte[] executionId) {
+        JsonObject body = new JsonObject();
+        body.addProperty("execution_id", b64(executionId));
+        body.addProperty("attempt_id", newAttemptId());
+        return post("queue_clear", body).get("cleared").getAsInt();
     }
 
     // --- HTTP plumbing ---
@@ -236,6 +403,11 @@ public final class CfdoStorage implements FunctionStorage {
             throw new CfdoException("cfdo: " + endpoint + " error " + sc + ": " + data);
         }
         return data;
+    }
+
+    private static String optString(JsonObject obj, String field) {
+        JsonElement e = obj.get(field);
+        return (e == null || e.isJsonNull()) ? null : e.getAsString();
     }
 
     /** Fresh 32-char lowercase-hex idempotency token (the DO's attempt_id shape). */

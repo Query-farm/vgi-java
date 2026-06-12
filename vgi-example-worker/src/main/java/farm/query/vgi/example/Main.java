@@ -987,7 +987,7 @@ public final class Main {
         // Empty branch list — exercises the C++ loud-fail at the wire layer.
         w.registerMultiBranchTable(
                 CatalogTable.builder("data", "multi_branch_empty", colN)
-                        .comment("Multi-branch: worker returns empty branches list — used by multi_branch_empty_branches.test").build(),
+                        .comment("Multi-branch: empty branches list — used by multi_branch_empty_branches.test").build(),
                 List.of());
 
         // Two writable arms — C++ rejects (single-writable-catalog rule).
