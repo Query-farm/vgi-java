@@ -146,7 +146,94 @@ public final class PushdownFiltersDecoder {
                 PushdownFilter child = childSpec == null ? null : parseSpec(childSpec, root, joinKeys);
                 yield new PushdownFilter.Struct(colName, colIdx, childIdx, childName, child);
             }
+            case EXPRESSION -> {
+                JsonNode expr = spec.get("expr");
+                String sql = expr == null ? "TRUE" : renderExpr(expr, colName, root);
+                yield new PushdownFilter.Expression(colName, colIdx, sql);
+            }
         };
+    }
+
+    /**
+     * Render a pushed expression-tree node to a SQL boolean predicate over the
+     * output columns. Mirrors vgi-python's {@code ExpressionNode.to_sql}: column
+     * refs become the (quoted) filter column, constants are resolved from the
+     * sibling value columns ({@code value_ref}), operators like {@code &&} render
+     * infix, and geoarrow.wkb constants are wrapped in {@code ST_GeomFromHEXWKB}.
+     */
+    private static String renderExpr(JsonNode node, String columnName, VectorSchemaRoot root) {
+        String exprType = node.path("expr_type").asText("");
+        switch (exprType) {
+            case "column_ref":
+                return '"' + columnName.replace("\"", "\"\"") + '"';
+            case "constant":
+                return renderConstant(node.path("value_ref").asInt(-1), root);
+            case "function": {
+                String fn = node.path("function_name").asText("");
+                List<String> args = new ArrayList<>();
+                JsonNode children = node.get("children");
+                if (children != null && children.isArray()) {
+                    for (JsonNode c : children) args.add(renderExpr(c, columnName, root));
+                }
+                if (isOperatorName(fn) && args.size() == 2) {
+                    return "(" + args.get(0) + " " + fn + " " + args.get(1) + ")";
+                }
+                return fn + "(" + String.join(", ", args) + ")";
+            }
+            case "comparison": {
+                String opTok = node.path("op").asText("");
+                ComparisonOperator op = ComparisonOperator.fromWire(opTok);
+                String sym = op == null ? opTok : op.symbol();
+                String left = renderExpr(node.get("left"), columnName, root);
+                String right = renderExpr(node.get("right"), columnName, root);
+                return "(" + left + " " + sym + " " + right + ")";
+            }
+            case "conjunction": {
+                String joiner = "or".equals(node.path("conjunction_type").asText("")) ? " OR " : " AND ";
+                List<String> parts = new ArrayList<>();
+                JsonNode children = node.get("children");
+                if (children != null && children.isArray()) {
+                    for (JsonNode c : children) parts.add(renderExpr(c, columnName, root));
+                }
+                return "(" + String.join(joiner, parts) + ")";
+            }
+            default:
+                return "TRUE";
+        }
+    }
+
+    /** A function name that is all non-alphanumeric/underscore chars renders infix (e.g. {@code &&}). */
+    private static boolean isOperatorName(String name) {
+        if (name.isEmpty()) return false;
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (Character.isLetterOrDigit(c) || c == '_') return false;
+        }
+        return true;
+    }
+
+    /** Render the constant referenced by {@code value_ref} (sibling column {@code value_ref + 1}) as a SQL literal. */
+    private static String renderConstant(int valueRef, VectorSchemaRoot root) {
+        int colIdx = valueRef + 1;
+        if (colIdx < 0 || colIdx >= root.getFieldVectors().size()) return "NULL";
+        FieldVector v = root.getVector(colIdx);
+        Object value = VectorScalarCodec.read(v, 0);
+        if (value == null) return "NULL";
+        if (value instanceof Boolean b) return b ? "TRUE" : "FALSE";
+        if (value instanceof byte[] bytes) {
+            StringBuilder hex = new StringBuilder(bytes.length * 2);
+            for (byte x : bytes) hex.append(Character.forDigit((x >> 4) & 0xF, 16))
+                    .append(Character.forDigit(x & 0xF, 16));
+            String extName = "";
+            if (v.getField().getMetadata() != null) {
+                String e = v.getField().getMetadata().get("ARROW:extension:name");
+                if (e != null) extName = e;
+            }
+            if ("geoarrow.wkb".equals(extName)) return "ST_GeomFromHEXWKB('" + hex + "')";
+            return "'\\x" + hex + "'::BLOB";
+        }
+        if (value instanceof Number) return value.toString();
+        return "'" + value.toString().replace("'", "''") + "'";
     }
 
     private static List<PushdownFilter> parseChildren(JsonNode spec, VectorSchemaRoot root,

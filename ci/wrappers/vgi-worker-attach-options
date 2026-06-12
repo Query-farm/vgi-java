@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Routes the single example worker binary into the `attach_options` catalog
+# (Main.java short-circuits this catalog name to the echo_attach_options
+# worker). Worker binary named via $VGI_WORKER_BIN.
+export VGI_WORKER_CATALOG_NAME=attach_options
+exec "${VGI_WORKER_BIN:?set VGI_WORKER_BIN to the example worker launcher}" "$@"

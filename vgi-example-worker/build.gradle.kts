@@ -6,6 +6,15 @@ plugins {
 dependencies {
     implementation(project(":vgi"))
     implementation("org.slf4j:slf4j-simple:2.0.16")
+    // Embedded Haybarn engine for evaluating pushed expression filters
+    // (spatial &&, list_contains, ...) against emitted batches — mirrors
+    // vgi-python's `vgi._duckdb` expression-filter evaluator. arrow-c-data
+    // bridges an Arrow batch into the engine via the C Data interface.
+    implementation("farm.query.haybarn:haybarn_jdbc:1.5.3")
+    implementation("org.apache.arrow:arrow-c-data:18.1.0")
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 application {

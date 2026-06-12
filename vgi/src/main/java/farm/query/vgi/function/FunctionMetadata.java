@@ -32,7 +32,8 @@ public record FunctionMetadata(
         OrderPreservation orderPreservation,
         boolean supportsBatchIndex,
         PartitionKind partitionKind,
-        boolean lateMaterialization) {
+        boolean lateMaterialization,
+        List<String> supportedExpressionFilters) {
 
     /**
      * Wire enum for {@code FunctionInfo.order_preservation}. Mirrors the
@@ -95,7 +96,7 @@ public record FunctionMetadata(
                               List<String> categories, OrderPreservation orderPreservation) {
         this(description, stability, nullHandling, autoApplyFilters, projectionPushdown,
                 filterPushdown, samplingPushdown, categories, orderPreservation,
-                false, PartitionKind.NOT_PARTITIONED, false);
+                false, PartitionKind.NOT_PARTITIONED, false, List.of());
     }
 
     /**
@@ -157,7 +158,7 @@ public record FunctionMetadata(
     public FunctionMetadata withPushdown(boolean projection, boolean filter, boolean autoApply) {
         return new FunctionMetadata(description, stability, nullHandling, autoApply, projection, filter,
                 samplingPushdown, categories, orderPreservation, supportsBatchIndex, partitionKind,
-                lateMaterialization);
+                lateMaterialization, supportedExpressionFilters);
     }
 
     /**
@@ -168,7 +169,7 @@ public record FunctionMetadata(
     public FunctionMetadata withSamplingPushdown() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, true, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization);
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters);
     }
 
     /**
@@ -180,7 +181,7 @@ public record FunctionMetadata(
     public FunctionMetadata withCategories(String... cats) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, List.of(cats), orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization);
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters);
     }
 
     /**
@@ -192,7 +193,7 @@ public record FunctionMetadata(
     public FunctionMetadata withOrderPreservation(OrderPreservation op) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, op,
-                supportsBatchIndex, partitionKind, lateMaterialization);
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters);
     }
 
     /** Opt into {@code supports_batch_index}: every emitted batch must carry a
@@ -202,7 +203,7 @@ public record FunctionMetadata(
     public FunctionMetadata withBatchIndex() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                true, partitionKind, lateMaterialization);
+                true, partitionKind, lateMaterialization, supportedExpressionFilters);
     }
 
     /** Declare a non-default {@link PartitionKind} over the output schema's
@@ -213,7 +214,7 @@ public record FunctionMetadata(
     public FunctionMetadata withPartitionKind(PartitionKind kind) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, kind, lateMaterialization);
+                supportsBatchIndex, kind, lateMaterialization, supportedExpressionFilters);
     }
 
     /** Opt into DuckDB's late-materialization optimizer. Only meaningful for a
@@ -225,6 +226,21 @@ public record FunctionMetadata(
     public FunctionMetadata withLateMaterialization() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, true);
+                supportsBatchIndex, partitionKind, true, supportedExpressionFilters);
+    }
+
+    /** Declare the expression-filter function names this table function can
+     *  receive pushed down and apply itself (e.g. {@code "&&"},
+     *  {@code "st_intersects_extent"}, {@code "list_contains"}). The engine only
+     *  pushes an expression filter into the function when every function name in
+     *  the predicate tree appears here; otherwise it keeps a FILTER node above
+     *  the scan. Surfaced on the wire as {@code FunctionInfo.supported_expression_filters}.
+     *
+     *  @param names the supported expression-filter function names.
+     *  @return a copy declaring the given supported expression filters. */
+    public FunctionMetadata withSupportedExpressionFilters(String... names) {
+        return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
+                projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
+                supportsBatchIndex, partitionKind, lateMaterialization, List.of(names));
     }
 }

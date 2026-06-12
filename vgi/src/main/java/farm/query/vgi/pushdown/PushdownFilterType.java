@@ -19,7 +19,9 @@ public enum PushdownFilterType {
     /** Disjunction of children. */
     OR("or"),
     /** Filter that recurses into a struct field. */
-    STRUCT("struct");
+    STRUCT("struct"),
+    /** Recursive expression-tree predicate (e.g. {@code geom && box}), evaluated by the worker. */
+    EXPRESSION("expression");
 
     private final String wireToken;
 

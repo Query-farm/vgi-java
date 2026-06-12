@@ -248,6 +248,63 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-06-12)
+
+**2026-06-12 — GitHub Actions integration CI + expression-filter pushdown.**
+Two coupled pieces landed so the integration suite runs on every push/PR
+without a C++ build:
+
+- **CI (`.github/workflows/integration.yml` + `ci/`).** Drives the **prebuilt**
+  standalone `haybarn-unittest` (Haybarn release asset) against the Java worker,
+  installing the **signed** vgi extension via `INSTALL vgi FROM community` (deps
+  from `core`) — no extension build from source. The `.test` files come from a
+  pinned `Query-farm/vgi` checkout (`VGI_REF` in the workflow `env:`). The
+  standalone runner links **none** of vgi/httpfs/json/parquet/spatial, so
+  `ci/preprocess-require.awk` rewrites every `require <ext>` into an explicit
+  `INSTALL … FROM {community,core}; LOAD …;` (`require-env` untouched).
+  `ci/run-integration.sh` stages the preprocessed tree, sets the four
+  `VGI_*_WORKER` vars (`launch:` + the three `ci/wrappers/` catalog wrappers —
+  the committed, path-relative replacements for the old `/tmp/vgi-worker-*`),
+  warms the extension cache once, and tallies pass/skip/fail. Validated locally
+  at **172 pass / 13 skip / 0 fail** (the 13 skips are the http/bearer/dynamic/
+  `schema_reconcile` `require-env` gates). **Path-B coupling:** the extension is
+  pulled live from community (not version-pinned), so a `VGI_REF` bump must be
+  re-validated against the then-current community build — see `ci/README.md`.
+
+- **Expression-filter pushdown subsystem** (was entirely absent; this is why
+  `spatial_filter_example`/`expression_filter_test` were zero-row `Stub`s and
+  `table/expression_filter.test` always *skipped* — the local dev harness can't
+  load spatial). Now implemented end-to-end:
+  - **Wire decode (core):** `PushdownFilterType.EXPRESSION` +
+    `PushdownFilter.Expression(columnName, columnIndex, sql)`.
+    `PushdownFiltersDecoder` renders the pushed expression tree
+    (`column_ref`/`constant`/`function`/`comparison`/`conjunction`, constants
+    resolved from sibling `value_ref` columns, geoarrow.wkb →
+    `ST_GeomFromHEXWKB`) to a SQL predicate — mirroring vgi-python's
+    `ExpressionNode.to_sql`. `evaluate()` skips Expression (not row-at-a-time);
+    `PushdownFilters.expressionPredicates()` / `FilterApplier.expressionPredicates()`
+    expose the SQL.
+  - **Evaluator (worker):** `example/table/ExpressionFilterEvaluator` evaluates
+    the predicates against each batch via an embedded **haybarn_jdbc** engine
+    (Maven Central `farm.query.haybarn:haybarn_jdbc:1.5.3` + `arrow-c-data`),
+    thread-local connection with spatial loaded — the Java analogue of
+    vgi-python's `vgi._duckdb` evaluator. Batch is bridged in via the Arrow C
+    Data interface (`registerArrowStream`); a registered stream is **single-use**
+    so it's queried once per batch; `FilterApplier.compact` does the masking.
+    **haybarn_jdbc is a worker-only dep — the published `vgi` core stays
+    engine-free.**
+  - **Capability wiring:** `FunctionMetadata.withSupportedExpressionFilters(...)`
+    → `FunctionInfo.supported_expression_filters` (was hardcoded `List.of()` at
+    `VgiServiceImpl` ~line 1731). The C++ extension only pushes an expression
+    filter when every function name in the tree is declared; otherwise it keeps
+    a FILTER node (the `length(name) > 7` EXPLAIN case).
+  - **Fixtures:** real `SpatialFilterExampleFunction` (`{n,x,y,geom GEOMETRY}`
+    grid, declares `&&`/`st_intersects_extent`) + `ExpressionFilterTestFunction`
+    (`{id,name,tags,score}`, declares `list_contains`/`starts_with`/`contains`)
+    replace the two stubs. `table/expression_filter.test` now **runs and passes**
+    (30 assertions, incl. the pushdown EXPLAIN asserts) — strictly better than
+    the prior silent skip.
+
 ## State of play (as of 2026-06-11)
 
 **2026-06-11 — ported the evolved vgi-python storage layer** (counters + ranged

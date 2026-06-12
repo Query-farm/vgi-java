@@ -60,31 +60,9 @@ public final class StubFunctions {
         @Override public void produceTick(OutputCollector out, CallContext ctx) { out.finish(); }
     }
 
-    /** {@code expression_filter_test(count BIGINT [, batch_size := 1024])} — sequence-shaped stub. */
-    public static final class ExpressionFilterTest extends Stub {
-        public ExpressionFilterTest() {
-            super("expression_filter_test",
-                    "Generates rows for non-spatial expression filter testing",
-                    new Schema(List.of(Schemas.nullable("n", Schemas.INT64))),
-                    List.of(
-                            ArgSpec.positional("count", 0, Schemas.INT64),
-                            ArgSpec.named("batch_size", Schemas.INT64, "1024")));
-        }
-    }
-
-    /** {@code spatial_filter_example(count BIGINT [, batch_size := 1024])} — spatial filter reproducer stub. */
-    public static final class SpatialFilterExample extends Stub {
-        public SpatialFilterExample() {
-            super("spatial_filter_example",
-                    "Generates points on a grid with geometry for spatial filter testing",
-                    new Schema(List.of(
-                            Schemas.nullable("id", Schemas.INT64),
-                            new Field("geom", new FieldType(true, new org.apache.arrow.vector.types.pojo.ArrowType.Binary(), null), null))),
-                    List.of(
-                            ArgSpec.positional("count", 0, Schemas.INT64),
-                            ArgSpec.named("batch_size", Schemas.INT64, "1024")));
-        }
-    }
+    // expression_filter_test and spatial_filter_example are now real generators
+    // (ExpressionFilterTestFunction / SpatialFilterExampleFunction) — they back
+    // table/expression_filter.test, which exercises expression-filter pushdown.
 
     /** {@code versioned_data_scan(version BIGINT)} — versioned scan stub. */
     public static final class VersionedDataScan extends Stub {

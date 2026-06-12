@@ -1728,7 +1728,7 @@ public final class VgiServiceImpl implements VgiService {
                 md.filterPushdown() ? Boolean.TRUE : null,
                 md.samplingPushdown() ? Boolean.TRUE : null,
                 md.lateMaterialization() ? Boolean.TRUE : null,
-                List.of(),
+                md.supportedExpressionFilters() == null ? List.of() : md.supportedExpressionFilters(),
                 md.orderPreservation() == null ? null : md.orderPreservation().name(),
                 maxWorkers,
                 md.supportsBatchIndex(),

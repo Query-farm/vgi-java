@@ -49,6 +49,18 @@ public final class FilterApplier {
     }
 
     /**
+     * The rendered SQL predicates of any pushed expression filters (spatial
+     * {@code &&}, {@code list_contains}, ...). {@link #apply} only handles
+     * column filters; expression filters are pass-through there and must be
+     * applied separately via the worker's expression evaluator.
+     *
+     * @return the expression-filter SQL predicates, in order; empty when none
+     */
+    public List<String> expressionPredicates() {
+        return filters().expressionPredicates();
+    }
+
+    /**
      * Compact {@code src} to only rows that pass the parsed filters. Returns
      * {@code src} unchanged when no filters were pushed; closes {@code src}
      * and returns a new root when rows are dropped.
@@ -59,7 +71,20 @@ public final class FilterApplier {
     public VectorSchemaRoot apply(VectorSchemaRoot src) {
         PushdownFilters pf = filters();
         if (pf.filters().isEmpty()) return src;
-        boolean[] mask = pf.evaluate(src);
+        return compact(src, pf.evaluate(src));
+    }
+
+    /**
+     * Compact {@code src} to only the rows whose {@code mask} entry is {@code true}.
+     * Returns {@code src} unchanged when every row is kept; otherwise builds a new
+     * root and closes {@code src} (ownership transfer). Shared by the column-filter
+     * path here and the worker's expression-filter evaluator.
+     *
+     * @param src  the batch to compact; closed when rows are dropped
+     * @param mask one entry per row — {@code true} keeps the row
+     * @return {@code src} itself when nothing is dropped, otherwise a new compacted root
+     */
+    public static VectorSchemaRoot compact(VectorSchemaRoot src, boolean[] mask) {
         int kept = 0;
         for (boolean b : mask) if (b) kept++;
         if (kept == src.getRowCount()) return src;

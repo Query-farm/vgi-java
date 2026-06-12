@@ -6,3 +6,7 @@ build/
 .vscode/
 .DS_Store
 /tmp/
+# Local scratch / test artifacts
+duckdb_unittest_tempdir/
+.wrangler/
+.playwright-mcp/

@@ -93,6 +93,7 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
                     + s.childName() + " "
                     + (s.childFilter() == null ? "<unfiltered>" : formatOneRepr(s.childFilter()))
                     + ")";
+            case PushdownFilter.Expression e -> "ExpressionFilter(" + e.columnName() + ": " + e.sql() + ")";
         };
     }
 
@@ -122,7 +123,25 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
             }
             case PushdownFilter.Struct s -> s.columnName() + "." + s.childName() + " " +
                     (s.childFilter() == null ? "<unfiltered>" : formatOne(s.childFilter()));
+            case PushdownFilter.Expression e -> e.sql();
         };
+    }
+
+    /**
+     * The rendered SQL predicates of the top-level expression filters (e.g.
+     * {@code ("geom" && ST_MakeEnvelope(...))}). These can't be evaluated
+     * row-at-a-time — {@link #evaluate} treats them as pass-through; the worker
+     * applies them via an embedded engine (see vgi-example-worker's
+     * {@code ExpressionFilterEvaluator}).
+     *
+     * @return the SQL predicates of the expression filters, in order; empty when none
+     */
+    public List<String> expressionPredicates() {
+        List<String> out = new ArrayList<>();
+        for (PushdownFilter f : filters) {
+            if (f instanceof PushdownFilter.Expression e) out.add(e.sql());
+        }
+        return out;
     }
 
     private static String sqlLiteral(Object v) {
@@ -326,6 +345,9 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
                 if (child == null) yield true;
                 yield evalChildFilter(s.childFilter(), child, row);
             }
+            // Expression filters can't be evaluated row-at-a-time; the worker
+            // applies them via an embedded engine. Pass-through here.
+            case PushdownFilter.Expression e -> true;
         };
     }
 
@@ -359,6 +381,7 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
                 FieldVector grandChild = sv.getChild(s.childName());
                 yield grandChild == null ? true : evalChildFilter(s.childFilter(), grandChild, row);
             }
+            case PushdownFilter.Expression e -> true;
         };
     }
 

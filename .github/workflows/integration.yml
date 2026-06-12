@@ -1,0 +1,87 @@
+# Copyright 2026 Query Farm LLC - https://query.farm
+#
+# Runs the canonical vgi integration sqllogictest suite against the Java
+# example worker on every push / PR. Rather than building the C++ extension
+# from source, it drives a prebuilt standalone `haybarn-unittest` (the
+# DuckDB/Haybarn sqllogictest runner) and installs the SIGNED vgi extension
+# from the Haybarn community channel + its deps from core. The .test files
+# come from a pinned Query-farm/vgi checkout; ci/preprocess-require.awk turns
+# each `require <ext>` gate into an explicit INSTALL+LOAD so the standalone
+# runner (which links none of these extensions) can run them.
+#
+# See ci/README.md for the full design and the version-pin coupling.
+name: Integration suite
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Query-farm/vgi commit whose test/sql/integration suite we run. Pinned
+  # for reproducibility; bump deliberately and re-validate against the then-current
+  # community extension (see ci/README.md).
+  VGI_REF: 4444d669c700d9efd70e5f97db4d2c4c886f509f
+  # The Haybarn release providing the prebuilt haybarn-unittest binary. Must be
+  # ABI-compatible with the community-published vgi extension (both v1.5.3).
+  HAYBARN_RELEASE: haybarn-v1.5.3-rc7
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout vgi-java
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned vgi test suite
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi
+          ref: ${{ env.VGI_REF }}
+          path: vgi-upstream
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build example worker
+        run: ./gradlew --no-daemon :vgi-example-worker:installDist
+
+      - name: Download haybarn-unittest
+        run: |
+          gh release download "$HAYBARN_RELEASE" \
+            --repo Query-farm-haybarn/haybarn \
+            --pattern 'haybarn_unittest-linux-amd64.zip' \
+            --output /tmp/haybarn-unittest.zip --clobber
+          unzip -o -q /tmp/haybarn-unittest.zip -d /tmp/haybarn-unittest
+          UNITTEST=$(find /tmp/haybarn-unittest -name 'haybarn-unittest' -type f | head -1)
+          chmod +x "$UNITTEST"
+          echo "HAYBARN_UNITTEST=$UNITTEST" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Run integration suite
+        run: ci/run-integration.sh
+        env:
+          VGI_SRC: ${{ github.workspace }}/vgi-upstream
+          VGI_WORKER_BIN: ${{ github.workspace }}/vgi-example-worker/build/install/vgi-example-worker/bin/vgi-example-worker
+          # JDK 25 + native access for the worker JVM (FFM shm, haybarn_jdbc).
+          JAVA_TOOL_OPTIONS: --enable-native-access=ALL-UNNAMED

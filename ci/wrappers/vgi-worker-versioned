@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Routes the single example worker binary into the canonical `versioned`
+# catalog (vgi-python/_test_fixtures/versioned.py). Must stay in sync with that
+# fixture's version sets. The worker binary is named via $VGI_WORKER_BIN.
+export VGI_WORKER_CATALOG_NAME=versioned
+export VGI_WORKER_IMPLEMENTATION_VERSION=1.0.0
+export VGI_WORKER_SUPPORTED_IMPL_VERSIONS=1.0.0
+export VGI_WORKER_DATA_VERSION_SPEC='>=1.0.0,<2.0.0'
+export VGI_WORKER_SUPPORTED_VERSIONS=1.0.0,1.1.0,1.2.0
+export VGI_WORKER_DEFAULT_DATA_VERSION=1.2.0
+exec "${VGI_WORKER_BIN:?set VGI_WORKER_BIN to the example worker launcher}" "$@"

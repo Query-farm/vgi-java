@@ -21,7 +21,8 @@ public sealed interface PushdownFilter permits
         PushdownFilter.In,
         PushdownFilter.And,
         PushdownFilter.Or,
-        PushdownFilter.Struct {
+        PushdownFilter.Struct,
+        PushdownFilter.Expression {
 
     /**
      * The name of the column this filter targets.
@@ -98,4 +99,19 @@ public sealed interface PushdownFilter permits
      */
     record Struct(String columnName, int columnIndex, int childIndex, String childName,
                     PushdownFilter childFilter) implements PushdownFilter {}
+
+    /**
+     * A recursive expression-tree predicate (e.g. {@code geom && ST_MakeEnvelope(...)},
+     * {@code list_contains(tags, 'x')}) that the engine pushed into the function. The
+     * tree is rendered to a SQL boolean expression at decode time (constants resolved
+     * from the sibling value columns, geoarrow.wkb constants wrapped in
+     * {@code ST_GeomFromHEXWKB}); the worker evaluates it against each emitted batch
+     * via an embedded engine. Not evaluable row-at-a-time, so {@code evaluate()} skips
+     * it — apply it through the worker's expression evaluator instead.
+     *
+     * @param columnName  the column the predicate primarily targets (wire {@code column_name})
+     * @param columnIndex column index into DuckDB's projected schema (wire {@code column_index})
+     * @param sql         the rendered SQL boolean predicate over the output columns
+     */
+    record Expression(String columnName, int columnIndex, String sql) implements PushdownFilter {}
 }
