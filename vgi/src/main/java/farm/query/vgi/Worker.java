@@ -317,6 +317,43 @@ public final class Worker {
     public Map<String, String> schemaComments() { return schemaComments; }
 
     /**
+     * An auxiliary catalog served by the same worker process next to the main
+     * catalog, MetaWorker-style: it appears as its own row in
+     * {@code catalog_catalogs()}, attaches by name with its own versions and a
+     * random per-ATTACH opaque id, and owns every registered function whose
+     * name starts with {@code functionNamePrefix} (those functions are listed
+     * only under this catalog's attaches, and hidden from the main catalog's).
+     *
+     * @param name the catalog name used in {@code ATTACH '<name>' ...}
+     * @param implementationVersion the advertised/resolved implementation version
+     * @param dataVersion the advertised {@code data_version_spec} and resolved data version
+     * @param schemaComment the comment on the catalog's single {@code main} schema
+     * @param functionNamePrefix the function-name prefix this catalog owns
+     */
+    public record ExtraCatalog(String name, String implementationVersion, String dataVersion,
+                               String schemaComment, String functionNamePrefix) {}
+
+    private final Map<String, ExtraCatalog> extraCatalogs = new LinkedHashMap<>();
+
+    /**
+     * Register an auxiliary catalog served next to the main one.
+     *
+     * @param catalog the catalog descriptor
+     * @return this builder
+     */
+    public Worker registerExtraCatalog(ExtraCatalog catalog) {
+        extraCatalogs.put(catalog.name(), catalog);
+        return this;
+    }
+
+    /**
+     * The auxiliary catalogs registered via {@link #registerExtraCatalog}.
+     *
+     * @return the catalogs keyed by name, in registration order
+     */
+    public Map<String, ExtraCatalog> extraCatalogs() { return extraCatalogs; }
+
+    /**
      * Register a scalar function, callable from SQL and enumerated through
      * {@code catalog_schema_contents_functions}.
      *

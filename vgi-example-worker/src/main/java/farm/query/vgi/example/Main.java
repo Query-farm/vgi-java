@@ -282,6 +282,12 @@ public final class Main {
         registerAggregates(w);
         registerTableInOuts(w);
         registerBuffering(w);
+        if ("example".equals(catalogName)) {
+            // The accumulate catalog rides only the default fixture worker —
+            // the versioned/versioned_tables wrappers reuse this binary and
+            // their vgi_catalogs() output must stay single-row.
+            registerAccumulate(w);
+        }
         registerViews(w);
         registerCatalogTables(w);
         registerMultiBranch(w);
@@ -924,6 +930,20 @@ public final class Main {
      * scan is the UNION_ALL of its declared branches, resolved through
      * {@code catalog_table_scan_branches_get}.
      */
+    private static void registerAccumulate(Worker w) {
+        // The accumulate fixture is its own MetaWorker-style catalog served
+        // next to "example": ATTACH 'accumulate' routes to it, its functions
+        // are hidden from the example catalog's listings, and each ATTACH
+        // mints a random opaque id scoping the persistent collections.
+        w.registerExtraCatalog(new Worker.ExtraCatalog(
+                        "accumulate", "vgi-fixture", "2.0.0",
+                        "Row accumulation keyed by name, persisted via FunctionStorage and scoped per ATTACH",
+                        "accumulate"))
+                .registerTableBuffering(new farm.query.vgi.example.accumulate.AccumulateFunction())
+                .registerTable(new farm.query.vgi.example.accumulate.AccumulateReadFunction())
+                .registerTable(new farm.query.vgi.example.accumulate.AccumulateClearFunction());
+    }
+
     private static void registerBuffering(Worker w) {
         w.registerTableBufferings(List.of(
                 new farm.query.vgi.example.buffering.BufferInputFunction(),

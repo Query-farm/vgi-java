@@ -17,10 +17,30 @@ import java.util.Map;
  * @param inputSchema the Arrow schema of the input stream (may be {@code null}
  *     or empty during catalog enumeration).
  * @param settings the session settings in effect for this bind.
+ * @param attachOpaqueData the catalog attach's opaque identifier bytes, or
+ *     {@code null} during catalog enumeration.
+ * @param attachStorage a storage facade scoped to {@code attachOpaqueData} —
+ *     state that persists across queries within one ATTACH session;
+ *     {@code null} during catalog enumeration.
  */
 public record TableInOutBindParams(
         String functionName,
         Arguments arguments,
         Schema inputSchema,
-        Map<String, Object> settings) {
+        Map<String, Object> settings,
+        byte[] attachOpaqueData,
+        farm.query.vgi.storage.BoundStorage attachStorage) {
+
+    /**
+     * Convenience constructor with no attach context (catalog enumeration).
+     *
+     * @param functionName the bound function's name as invoked in SQL.
+     * @param arguments the resolved positional/named arguments.
+     * @param inputSchema the Arrow schema of the input stream.
+     * @param settings the session settings in effect for this bind.
+     */
+    public TableInOutBindParams(String functionName, Arguments arguments, Schema inputSchema,
+                                 Map<String, Object> settings) {
+        this(functionName, arguments, inputSchema, settings, null, null);
+    }
 }

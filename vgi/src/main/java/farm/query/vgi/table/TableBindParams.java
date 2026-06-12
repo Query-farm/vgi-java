@@ -21,6 +21,9 @@ import java.util.Map;
  * @param attachId the catalog attach's opaque identifier bytes
  * @param transactionStorage per-transaction storage, or {@code null} outside an
  *     explicit {@code BEGIN}/{@code COMMIT} block (autocommit — no caching)
+ * @param attachStorage a storage facade scoped to {@code attachId} — state that
+ *     persists across queries within one ATTACH session; {@code null} when the
+ *     bind has no attach context (catalog enumeration, cardinality/statistics)
  */
 public record TableBindParams(
         String functionName,
@@ -30,7 +33,8 @@ public record TableBindParams(
         byte[] secrets,
         boolean resolvedSecretsProvided,
         byte[] attachId,
-        TransactionStorage transactionStorage) {
+        TransactionStorage transactionStorage,
+        farm.query.vgi.storage.BoundStorage attachStorage) {
 
     /**
      * Convenience constructor with no secrets, attach id, or transaction storage.
@@ -42,7 +46,7 @@ public record TableBindParams(
      */
     public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
                             Map<String, Object> settings) {
-        this(functionName, arguments, inputSchema, settings, null, false, null, null);
+        this(functionName, arguments, inputSchema, settings, null, false, null, null, null);
     }
 
     /**
@@ -58,7 +62,8 @@ public record TableBindParams(
     public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
                             Map<String, Object> settings, byte[] secrets,
                             boolean resolvedSecretsProvided) {
-        this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided, null, null);
+        this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided,
+                null, null, null);
     }
 
     /**
@@ -76,6 +81,6 @@ public record TableBindParams(
                             Map<String, Object> settings, byte[] secrets,
                             boolean resolvedSecretsProvided, byte[] attachId) {
         this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided,
-                attachId, null);
+                attachId, null, null);
     }
 }

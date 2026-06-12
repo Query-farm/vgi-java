@@ -59,6 +59,11 @@ public final class BoundStorage {
         this.executionId = executionId;
     }
 
+    private BoundStorage(byte[] scopeId, FunctionStorage pinnedStore) {
+        this.store = pinnedStore;
+        this.executionId = scopeId;
+    }
+
     /**
      * The {@code execution_id} this view is scoped to.
      *
@@ -66,6 +71,18 @@ public final class BoundStorage {
      */
     public byte[] executionId() {
         return executionId;
+    }
+
+    /**
+     * A view over the same (already shard-pinned) backend bound to a different
+     * scope id — e.g. attach-scoped state that must persist across queries,
+     * mirroring vgi-python fixtures' {@code BoundStorage(storage, attach_bytes)}.
+     *
+     * @param scopeId the scope to bind (e.g. the attach's opaque identifier)
+     * @return a facade identical to this one except for the scope
+     */
+    public BoundStorage rescope(byte[] scopeId) {
+        return new BoundStorage(scopeId, store);
     }
 
     private static byte[] checkNs(byte[] ns) {

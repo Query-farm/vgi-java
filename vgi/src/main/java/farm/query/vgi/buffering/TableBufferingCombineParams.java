@@ -14,9 +14,18 @@ import farm.query.vgirpc.CallContext;
  * @param executionId the opaque {@code execution_id} identifying this buffering execution.
  * @param storage the storage view bound to {@code executionId}, for reading back stashed state.
  * @param ctx the RPC call context; {@code ctx.clientLog(...)} surfaces in {@code duckdb_logs()}.
+ * @param args the bind-time arguments, rehydrated from the init metadata
+ *     persisted in storage (any pool worker can serve the RPC).
+ * @param outputSchema the bound output schema, rehydrated the same way.
+ * @param attachOpaqueData the catalog attach's opaque identifier bytes —
+ *     {@code storage().rescope(attachOpaqueData())} reaches state that
+ *     persists across queries within one ATTACH session.
  */
 public record TableBufferingCombineParams(
         String functionName,
         byte[] executionId,
         BoundStorage storage,
-        CallContext ctx) {}
+        CallContext ctx,
+        farm.query.vgi.function.Arguments args,
+        org.apache.arrow.vector.types.pojo.Schema outputSchema,
+        byte[] attachOpaqueData) {}

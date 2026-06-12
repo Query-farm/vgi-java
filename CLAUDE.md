@@ -283,17 +283,50 @@ each run over sqlite-memory / sqlite-file / mock-CfDo backends).
   `TransactionStore.begin/end/view` take the unsealed attach for shard routing;
   `table_buffering_destructor` gained `CallContext` and shard-pins its
   `executionClear` (was unsharded — broken on CfDo).
-- **Suite status: 177/185.** The 8 = `schema_reconcile` (known, out of scope),
-  `table/comments.test` (upstream one-word drift, fixed here), and **6 new
-  `accumulate/*.test`** that landed upstream the same day (vgi `48f4fea`) —
-  they drive a new vgi-python `_test_fixtures/accumulate/` catalog (a
-  TableBufferingFunction using persistent attach-scoped BoundStorage segments,
-  counters, ranged scan/delete + `accumulate_read`/`accumulate_clear`
-  generators). **Not yet ported**: needs MetaWorker-style multi-catalog
-  serving (`vgi_catalogs` must list `accumulate` next to `example` on
-  VGI_TEST_WORKER, attach-name routing for schema/function listings + bind).
-  No other test reads `vgi_catalogs('${VGI_TEST_WORKER}')` unfiltered, so
-  adding a second catalog row is safe.
+- **Suite status: 184/185** (only `schema_reconcile`, known/out of scope) —
+  after also porting the **accumulate fixture** (same session, see below).
+  `table/comments.test` was a one-word upstream drift, fixed here.
+
+**2026-06-11 (same session) — ported the new accumulate fixture catalog**
+(vgi `48f4fea` / vgi-python `_test_fixtures/accumulate/worker.py`), the first
+real consumer of the storage port. All 6 `accumulate/*.test` green.
+
+- **Multi-catalog (MetaWorker-style) serving** via
+  `Worker.ExtraCatalog(name, implVersion, dataVersion, schemaComment,
+  functionNamePrefix)` + `registerExtraCatalog`: extra rows in
+  `catalog_catalogs`, `catalog_attach` branches on the attach name (random
+  16-byte opaque id = the per-ATTACH storage scope,
+  `attach_opaque_data_required=true`, its own resolved versions),
+  `catalog_schemas`/`schema_get`/`schemaCounts`/`contents_functions` route per
+  attach via `catalogRegistry.catalogName` (extends the `projection_repro`
+  prefix-filter precedent; owned functions are hidden from the example
+  catalog's listings, so `function_registration.test` counts are unchanged).
+  **Gated to `catalogName=="example"` in Main** — the versioned wrappers reuse
+  the binary and their `vgi_catalogs()` must stay single-row (regressed
+  `attach/versioning.test` + `versioned_tables.test` until gated).
+- **Buffering API grew Python-parity context**: `TableBufferingProcessParams`
+  / `CombineParams` now carry `args`, `outputSchema`, `attachOpaqueData`,
+  rehydrated per-RPC from a `BufferingInitState` record persisted into
+  execution-scoped storage at Sink init (`FrameworkNs.BUFFERING_INIT`, key
+  `packIntKey(-1)`) — any pool worker can serve any RPC, mirroring worker.py's
+  `_TABLE_BUFFERING_INIT_KEY`. `TableInOutBindParams` + `TableBindParams`
+  gained `attachOpaqueData`/`attachStorage` (attach-scoped facade; null during
+  catalog enumeration — fixture `onBind`s must tolerate that).
+  `BoundStorage.rescope(scopeId)` rebinds the same pinned backend to another
+  scope (the fixtures' attach-scoped collection store).
+- **Fixtures** (`example/accumulate/`): `AccumulateFunction` (buffering:
+  stage→stamp one `_timestamp` (timestamp[us], tz-naive → DuckDB TIMESTAMP)→
+  append time-keyed segments (BE-us-prefix keys so memcmp==time order)→TTL via
+  one ranged delete→max_row_size drops oldest segments trimming the straddler
+  via `VectorSchemaRoot.slice`→stage all/new/none), `AccumulateReadFunction`,
+  `AccumulateClearFunction`, shared `AccumulateStore` (per-collection row
+  counters via `counterAdd`). INTERVAL named args arrive as Arrow
+  `PeriodDuration` (months≈30 days, Python parity).
+- **Stale-worker race (cost a flaky suite run):** `pkill` alone isn't enough
+  before relaunching — the dying worker's socket can still accept the first
+  test's connection. Use `pkill -f farm.query.vgi.example.Main; until ! pgrep
+  -f farm.query.vgi.example.Main >/dev/null; do sleep 1; done` before a suite
+  run (alphabetically-first `accumulate/attach_scope.test` was the victim).
 - **Harness reconstructed again** (all of `/tmp` was wiped): `/tmp/run_test.sh`
   now also sets **`VGI_TEST_DEDICATED_WORKER`** (plain binary, NO `launch:`) —
   `table_buffering_{worker_crash,pool_recovery}.test` require it — and counts

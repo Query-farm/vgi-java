@@ -260,7 +260,8 @@ public final class VgiServiceImpl implements VgiService {
                 OverloadResolver.pick(bufferingFns.get(name), argCount, args, inputSchema);
         AuthContext auth = authOf(ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
-        BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings));
+        BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
+                attachPlain, attachScopedStorage(attachPlain)));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
@@ -296,7 +297,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.transaction_opaque_data(), request.attach_opaque_data(), auth);
         TableBindParams bindParams = new TableBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(), attachPlain,
-                transactionStore.view(txnPlain, attachPlain));
+                transactionStore.view(txnPlain, attachPlain), attachScopedStorage(attachPlain));
         BindResponse upstream = fn.onBind(bindParams);
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
@@ -313,7 +314,8 @@ public final class VgiServiceImpl implements VgiService {
                                          int argCount, byte[] token, CallContext ctx) {
         TableInOutFunction fn = OverloadResolver.pick(tableInOuts.get(name), argCount, args, inputSchema);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
-        BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings));
+        BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
+                attachPlain, attachScopedStorage(attachPlain)));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         pendingBinds.put(bytesKey(token), new BoundTableInOut(fn, args, inputSchema, outputSchema, settings,
@@ -447,7 +449,15 @@ public final class VgiServiceImpl implements VgiService {
                                                              GlobalInitResponse header) {
         String phase = request.phase();
         if (!"TABLE_BUFFERING_FINALIZE".equalsIgnoreCase(phase)) {
-            // Sink-side init (phase TABLE_BUFFERING): only mints execution_id.
+            // Sink-side init (phase TABLE_BUFFERING): mints execution_id and
+            // persists the init metadata so any pool worker can cold-load it
+            // to serve the subsequent process/combine RPCs (Python parity).
+            new farm.query.vgi.storage.BoundStorage(this.storage, execId, bb.attachId())
+                    .statePut(farm.query.vgi.storage.FrameworkNs.BUFFERING_INIT,
+                            farm.query.vgi.storage.BoundStorage.packIntKey(-1),
+                            RecordCodec.serializeToBytes(new BufferingInitState(
+                                    bb.argumentsIpc(), bb.settingsIpc(),
+                                    bb.outputSchemaIpc(), bb.attachId())));
             // No data stream — emit the header then immediate EOS.
             return RpcStream.producer(realOutputSchema,
                     new FinalizeProducerState(List.of()), header);
@@ -716,10 +726,17 @@ public final class VgiServiceImpl implements VgiService {
         for (farm.query.vgi.AttachOptionSpec spec : worker.attachOptionSpecs()) {
             attachOptionBytes.add(AttachOptionSpecSerializer.serialize(spec));
         }
-        return new ItemsResponse(List.of(CatalogInfoSerializer.serialize(
+        List<byte[]> items = new ArrayList<>();
+        items.add(CatalogInfoSerializer.serialize(
                 worker.catalogName(), worker.implementationVersion(),
                 worker.dataVersionSpec(), attachOptionBytes,
-                worker.releases(), worker.sourceUrl())));
+                worker.releases(), worker.sourceUrl()));
+        for (Worker.ExtraCatalog extra : worker.extraCatalogs().values()) {
+            items.add(CatalogInfoSerializer.serialize(
+                    extra.name(), extra.implementationVersion(), extra.dataVersion(),
+                    List.of(), List.of(), null));
+        }
+        return new ItemsResponse(items);
     }
 
     /**
@@ -798,6 +815,27 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public CatalogAttachResult catalog_attach(CatalogAttachRequest request, CallContext ctx) {
+        Worker.ExtraCatalog extra = worker.extraCatalogs().get(request.name());
+        if (extra != null) {
+            // MetaWorker-style auxiliary catalog: a random per-ATTACH opaque id
+            // is the storage scope isolating this session's state; the client
+            // persists and resends it, so it also survives worker restarts.
+            byte[] extraAttachId = new byte[16];
+            rng.nextBytes(extraAttachId);
+            catalogRegistry.recordAttach(extraAttachId, extra.dataVersion(), request.name());
+            return new CatalogAttachResult(
+                    sealer.sealAttach(extraAttachId, authOf(ctx)),
+                    false, false, false,
+                    1L,
+                    true,  // attach_opaque_data_required
+                    "main",
+                    List.of(), List.of(),
+                    extra.schemaComment(),
+                    Map.of(),
+                    false,
+                    extra.dataVersion(),
+                    extra.implementationVersion());
+        }
         byte[] attachId;
         if (!worker.attachOptionSpecs().isEmpty()) {
             // attach_options pattern (Go/Python parity): encode merged
@@ -907,6 +945,12 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_schemas(byte[] attach_opaque_data, byte[] transaction_opaque_data) {
+        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        if (extra != null) {
+            return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
+                    new SchemaInfo(extra.schemaComment(), Map.of(), attach_opaque_data, "main",
+                            extraSchemaCounts(extra)))));
+        }
         List<byte[]> items = new ArrayList<>();
         for (SchemaDesc s : workerSchemas()) {
             items.add(RecordCodec.serializeToBytes(
@@ -925,6 +969,13 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_schema_get(byte[] attach_opaque_data, String name, byte[] transaction_opaque_data) {
+        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        if (extra != null) {
+            if (!"main".equals(name)) return ItemsResponse.empty();
+            return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
+                    new SchemaInfo(extra.schemaComment(), Map.of(), attach_opaque_data, name,
+                            extraSchemaCounts(extra)))));
+        }
         for (SchemaDesc s : workerSchemas()) {
             if (s.name.equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
@@ -936,6 +987,60 @@ public final class VgiServiceImpl implements VgiService {
 
     /** Schema descriptors registered with the worker (default + auxiliary). */
     private record SchemaDesc(String name, String comment) {}
+
+    /**
+     * The auxiliary catalog an attach belongs to, or {@code null} for the main
+     * catalog. Routed by the catalog name recorded at {@code catalog_attach};
+     * under stdio / AF_UNIX the wire token IS the recorded plaintext id.
+     */
+    private Worker.ExtraCatalog extraCatalogOf(byte[] attachOpaqueData) {
+        if (worker.extraCatalogs().isEmpty() || attachOpaqueData == null) return null;
+        String name = catalogRegistry.catalogName(attachOpaqueData);
+        if (name == null) {
+            try {
+                name = catalogRegistry.catalogName(sealer.unsealAttach(attachOpaqueData, null));
+            } catch (RuntimeException sealedWithoutAuth) {
+                return null;
+            }
+        }
+        return name == null ? null : worker.extraCatalogs().get(name);
+    }
+
+    /** Whether a function name belongs to any registered auxiliary catalog. */
+    private boolean ownedByExtraCatalog(String functionName) {
+        for (Worker.ExtraCatalog extra : worker.extraCatalogs().values()) {
+            if (functionName.startsWith(extra.functionNamePrefix())) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Object counts for an auxiliary catalog's single {@code main} schema: only
+     * its owned table functions; zero counts let the C++ extension skip the
+     * corresponding contents RPCs entirely.
+     */
+    private Map<String, Long> extraSchemaCounts(Worker.ExtraCatalog extra) {
+        long owned = 0;
+        for (var v : tables.values()) {
+            for (TableFunction fn : v) {
+                if (fn.name().startsWith(extra.functionNamePrefix())) owned++;
+            }
+        }
+        for (var v : bufferingFns.values()) {
+            for (var fn : v) {
+                if (fn.name().startsWith(extra.functionNamePrefix())) owned++;
+            }
+        }
+        Map<String, Long> m = new java.util.LinkedHashMap<>();
+        m.put("scalar_function", 0L);
+        m.put("table_function", owned);
+        m.put("aggregate_function", 0L);
+        m.put("table", 0L);
+        m.put("view", 0L);
+        m.put("macro", 0L);
+        m.put("index", 0L);
+        return m;
+    }
 
     /**
      * Schemas advertised to DuckDB. Always includes {@link
@@ -982,7 +1087,11 @@ public final class VgiServiceImpl implements VgiService {
         long aggregateCount = 0;
         if (s.name.equals(worker.defaultSchema())) {
             for (var v : scalars.values()) scalarCount += v.size();
-            for (var v : tables.values()) tableFnCount += v.size();
+            for (var v : tables.values()) {
+                for (TableFunction fn : v) {
+                    if (!ownedByExtraCatalog(fn.name())) tableFnCount++;
+                }
+            }
             for (var v : tableInOuts.values()) tableFnCount += v.size();
             for (var v : aggregates.values()) aggregateCount += v.size();
         }
@@ -1149,6 +1258,28 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     /**
+     * A storage facade scoped (and shard-pinned) to one attach, for state that
+     * persists across queries within the ATTACH session; {@code null} when no
+     * attach identity is available.
+     */
+    private farm.query.vgi.storage.BoundStorage attachScopedStorage(byte[] attachPlain) {
+        if (attachPlain == null || attachPlain.length == 0) return null;
+        return new farm.query.vgi.storage.BoundStorage(this.storage, attachPlain, attachPlain);
+    }
+
+    /**
+     * Cold-load the buffering init metadata persisted at Sink init, so any
+     * pool worker can serve a process/combine RPC (Python parity). Absent
+     * metadata (legacy execution) degrades to empty args / null schema.
+     */
+    private BufferingInitState bufferingInitState(farm.query.vgi.storage.BoundStorage storage) {
+        byte[] payload = storage.stateGet(farm.query.vgi.storage.FrameworkNs.BUFFERING_INIT,
+                farm.query.vgi.storage.BoundStorage.packIntKey(-1));
+        if (payload == null) return new BufferingInitState(null, null, null, null);
+        return RecordCodec.deserializeFromBytes(payload, BufferingInitState.class);
+    }
+
+    /**
      * Sink phase: buffer one input batch into the function's append-log and return its state id.
      *
      * @param request the process request (function, execution id, input batch, batch index)
@@ -1159,11 +1290,15 @@ public final class VgiServiceImpl implements VgiService {
     public farm.query.vgi.protocol.TableBufferingProcessResponse table_buffering_process(
             farm.query.vgi.protocol.TableBufferingProcessRequest request, CallContext ctx) {
         var fn = bufferingFn(request.function_name());
+        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
-                this.storage, request.execution_id(),
-                sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx)));
+                this.storage, request.execution_id(), attachPlain);
+        BufferingInitState init = bufferingInitState(storage);
         var params = new farm.query.vgi.buffering.TableBufferingProcessParams(
-                request.function_name(), request.execution_id(), storage, request.batch_index(), ctx);
+                request.function_name(), request.execution_id(), storage, request.batch_index(), ctx,
+                ArgumentsParser.parse(init.arguments()),
+                init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
+                init.attach_plain() != null ? init.attach_plain() : attachPlain);
         byte[] stateId;
         try (org.apache.arrow.vector.VectorSchemaRoot root =
                      BatchUtil.readSingleBatch(request.input_batch(), Allocators.root())) {
@@ -1183,11 +1318,15 @@ public final class VgiServiceImpl implements VgiService {
     public farm.query.vgi.protocol.TableBufferingCombineResponse table_buffering_combine(
             farm.query.vgi.protocol.TableBufferingCombineRequest request, CallContext ctx) {
         var fn = bufferingFn(request.function_name());
+        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
-                this.storage, request.execution_id(),
-                sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx)));
+                this.storage, request.execution_id(), attachPlain);
+        BufferingInitState init = bufferingInitState(storage);
         var params = new farm.query.vgi.buffering.TableBufferingCombineParams(
-                request.function_name(), request.execution_id(), storage, ctx);
+                request.function_name(), request.execution_id(), storage, ctx,
+                ArgumentsParser.parse(init.arguments()),
+                init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
+                init.attach_plain() != null ? init.attach_plain() : attachPlain);
         List<byte[]> ids = fn.combine(
                 request.state_ids() == null ? List.of() : request.state_ids(), params);
         return new farm.query.vgi.protocol.TableBufferingCombineResponse(ids);
@@ -1452,7 +1591,8 @@ public final class VgiServiceImpl implements VgiService {
                 || type.equalsIgnoreCase("aggregate")
                 || type.equalsIgnoreCase("AGGREGATE_FUNCTION");
         List<byte[]> items = new ArrayList<>();
-        if (wantScalar) {
+        Worker.ExtraCatalog extraOnlyTables = extraCatalogOf(attach_opaque_data_plain);
+        if (wantScalar && extraOnlyTables == null) {
             for (List<ScalarFunction> variants : scalars.values()) {
                 for (ScalarFunction fn : variants) {
                     items.add(FunctionInfoSerializer.serialize(toScalarFunctionInfo(fn, name)));
@@ -1462,6 +1602,10 @@ public final class VgiServiceImpl implements VgiService {
         if (wantTable) {
             String attachCatName = catalogRegistry.catalogName(attach_opaque_data_plain);
             boolean isProjReproAttach = "projection_repro".equals(attachCatName);
+            // MetaWorker-style routing: an auxiliary catalog's attach sees only
+            // its owned (prefix-matched) functions; the main catalog hides them.
+            Worker.ExtraCatalog extraAttach = attachCatName == null
+                    ? null : worker.extraCatalogs().get(attachCatName);
             for (List<TableFunction> variants : tables.values()) {
                 for (TableFunction fn : variants) {
                     // proj_repro_* fixtures live in the example worker binary
@@ -1469,6 +1613,8 @@ public final class VgiServiceImpl implements VgiService {
                     // them only when that catalog was attached.
                     if (!isProjReproAttach && fn.name().startsWith("proj_repro_")) continue;
                     if (isProjReproAttach && !fn.name().startsWith("proj_repro_")) continue;
+                    if (extraAttach == null && ownedByExtraCatalog(fn.name())) continue;
+                    if (extraAttach != null && !fn.name().startsWith(extraAttach.functionNamePrefix())) continue;
                     items.add(FunctionInfoSerializer.serialize(toTableFunctionInfo(fn, name)));
                 }
             }
@@ -1478,6 +1624,8 @@ public final class VgiServiceImpl implements VgiService {
             // apart by argument shape).
             for (List<TableInOutFunction> variants : tableInOuts.values()) {
                 for (TableInOutFunction fn : variants) {
+                    if (extraAttach == null && ownedByExtraCatalog(fn.name())) continue;
+                    if (extraAttach != null && !fn.name().startsWith(extraAttach.functionNamePrefix())) continue;
                     items.add(FunctionInfoSerializer.serialize(toTableInOutFunctionInfo(fn, name)));
                 }
             }
@@ -1486,11 +1634,13 @@ public final class VgiServiceImpl implements VgiService {
             // C++ buffering operator.
             for (var variants : bufferingFns.values()) {
                 for (var fn : variants) {
+                    if (extraAttach == null && ownedByExtraCatalog(fn.name())) continue;
+                    if (extraAttach != null && !fn.name().startsWith(extraAttach.functionNamePrefix())) continue;
                     items.add(FunctionInfoSerializer.serialize(toBufferingFunctionInfo(fn, name)));
                 }
             }
         }
-        if (wantAggregate) {
+        if (wantAggregate && extraOnlyTables == null) {
             for (List<AggregateFunction<?>> variants : aggregates.values()) {
                 for (AggregateFunction<?> fn : variants) {
                     items.add(FunctionInfoSerializer.serialize(toAggregateFunctionInfo(fn, name)));
