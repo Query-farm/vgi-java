@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>vgi-java API overview</title>
+</head>
+<body>
+<p>Worker-side Java implementation of the
+<a href="https://github.com/Query-farm/vgi">VGI (Vector Gateway Interface)</a>
+protocol: serve catalogs, tables, and functions to
+<a href="https://github.com/Query-farm-haybarn/haybarn">Haybarn</a>, Query
+Farm's DuckDB-derived engine, from an external Java process over
+<a href="https://arrow.apache.org/">Apache Arrow</a> IPC. Your code registers
+functions and tables against a {@link farm.query.vgi.Worker} builder; the
+library handles the wire protocol, schema negotiation, batch streaming,
+pushdown, and transports.</p>
+
+<p>Start with {@link farm.query.vgi.Worker}, register scalar functions by
+extending {@link farm.query.vgi.scalar.ScalarFn}, and see the
+<a href="https://github.com/Query-farm/vgi-java">project README</a> for a
+runnable example worker.</p>
+</body>
+</html>

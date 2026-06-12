@@ -67,9 +67,29 @@ subprojects {
         apply(plugin = "com.vanniktech.maven.publish")
 
         tasks.withType<Javadoc>().configureEach {
+            val logo = rootProject.layout.projectDirectory.file("assets/vgi-logo.png").asFile
+            val brandCss = file("src/main/javadoc/query-farm.css")
+            val overviewHtml = file("src/main/javadoc/overview.html")
+            inputs.file(logo)
+            inputs.file(brandCss)
+            inputs.file(overviewHtml)
             with(options as StandardJavadocDocletOptions) {
                 addBooleanOption("Xdoclint:all", true)
                 addStringOption("Xmaxwarns", "10000")
+                windowTitle = "${project.name} $version — Query.Farm VGI for Java"
+                docTitle = "<img src='vgi-logo.png' alt='Vector Gateway Interface' class='qf-logo'>" +
+                    "${project.name} $version API"
+                header = "<a href='https://query.farm' target='_top'>🚜 Query.Farm</a>"
+                bottom = "Copyright © 2026 <a href='https://query.farm'>Query Farm LLC</a> · " +
+                    "<a href='https://github.com/Query-farm/vgi-java'>github.com/Query-farm/vgi-java</a> · " +
+                    "Query Farm Source-Available License"
+                overview = overviewHtml.path
+                addStringOption("-add-stylesheet", brandCss.path)
+            }
+            // The doctitle's logo isn't a doclet-managed resource; drop it into
+            // the output root so the javadoc jar stays self-contained.
+            doLast {
+                logo.copyTo(destinationDir!!.resolve("vgi-logo.png"), overwrite = true)
             }
         }
 
