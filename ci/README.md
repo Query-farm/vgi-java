@@ -30,8 +30,12 @@ extension from the Haybarn community channel:
    `.test` and tallies pass / skip / fail.
 
 Out of scope and excluded: `writable/`, `simple_writable/` (the port is
-read-only), and `nested_type_combinations.test` (segfaults the upstream
-runner — see the project `CLAUDE.md`). The HTTP / bearer / dynamic-code /
+read-only), `nested_type_combinations.test` (segfaults the upstream runner —
+see the project `CLAUDE.md`), and `bool_in_union.test` (characterizes a
+pre-existing, platform-dependent union-bool bug: the worker reads uninitialized
+memory for boolean union variants after the first row, so its pinned expected
+output matches arm64 but not amd64 — a real bug to fix separately, not a CI
+artifact). The HTTP / bearer / dynamic-code /
 `schema_reconcile` tests skip via their `require-env` gates (we don't set those
 workers), exactly as in the reference harness.
 

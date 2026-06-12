@@ -265,9 +265,16 @@ without a C++ build:
   `ci/run-integration.sh` stages the preprocessed tree, sets the four
   `VGI_*_WORKER` vars (`launch:` + the three `ci/wrappers/` catalog wrappers —
   the committed, path-relative replacements for the old `/tmp/vgi-worker-*`),
-  warms the extension cache once, and tallies pass/skip/fail. Validated locally
-  at **172 pass / 13 skip / 0 fail** (the 13 skips are the http/bearer/dynamic/
-  `schema_reconcile` `require-env` gates). **Path-B coupling:** the extension is
+  warms the extension cache once, and tallies pass/skip/fail. Green on Linux CI
+  (**171 pass / 13 skip**) and macOS (**172/13** — one more because the
+  `launch:` osx run includes a test the Linux exclusion drops). **Excludes**
+  `bool_in_union.test` in addition to `nested_type_combinations` — CI surfaced
+  that it characterizes a **pre-existing platform-dependent union-bool bug**:
+  the worker reads uninitialized memory for boolean union variants after row 1
+  (its own comment says "CORRECT result would be true,true,true,true" but it
+  pins the buggy `true,false,false,false`), so the result is undefined and
+  differs arm64 vs amd64. Real bug to fix separately, not a CI artifact.
+  **Path-B coupling:** the extension is
   pulled live from community (not version-pinned), so a `VGI_REF` bump must be
   re-validated against the then-current community build — see `ci/README.md`.
 
