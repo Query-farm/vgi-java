@@ -26,8 +26,13 @@ extension from the Haybarn community channel:
 5. **Run** — [`run-integration.sh`](run-integration.sh) stages the preprocessed
    tree, points the four `VGI_*_WORKER` env vars at the worker (via `launch:`,
    which amortises JVM cold-start across the run) and the three catalog
-   [`wrappers/`](wrappers), warms the extension cache once, then runs each
-   `.test` and tallies pass / skip / fail.
+   [`wrappers/`](wrappers), warms the extension cache once, then runs the whole
+   suite in a **single `unittest` invocation** (as `make test_launcher` does).
+   The CI log streams the runner's native report — a `[i/N] (..%): test/...`
+   line per file and the final `All tests passed (.. N assertions in M test
+   cases)` summary (thousands of assertions across the ~185 files) — so you can
+   see the tests actually ran. Any failed assertion exits non-zero and fails
+   the job.
 
 ## Transport lanes
 

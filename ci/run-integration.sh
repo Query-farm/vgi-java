@@ -116,25 +116,14 @@ EOF
 "$HAYBARN_UNITTEST" "test/_warm.test" >/dev/null 2>&1 || echo "::warning::extension warm step did not fully succeed"
 rm -f "$STAGE/test/_warm.test"
 
-echo "Running suite ..."
-pass=0; skip=0; fail=0; failed=()
-while IFS= read -r t; do
-  rel="${t#"$STAGE"/}"
-  if out=$("$HAYBARN_UNITTEST" "$rel" 2>&1); then :; fi
-  if grep -q "All tests passed" <<<"$out"; then
-    pass=$((pass + 1))
-  elif grep -qE "All tests were skipped|No tests ran" <<<"$out"; then
-    skip=$((skip + 1))
-  else
-    fail=$((fail + 1)); failed+=("$rel")
-    echo "----- FAIL: $rel -----"
-    printf '%s\n' "$out" | tail -40
-  fi
-done < <(find "$STAGE/test" -name '*.test' | sort)
-
-echo "=================================================="
-echo "PASS=$pass  SKIP=$skip  FAIL=$fail"
-if [ "$fail" -gt 0 ]; then
-  printf '  failed: %s\n' "${failed[@]}"
-  exit 1
-fi
+# Run the whole suite in ONE unittest invocation (as `make test_launcher`
+# does), streaming the runner's native sqllogictest report: a `[i/N] (..%):
+# test/...` progress line per file and the final
+# `All tests passed (.. N assertions in M test cases)` summary (a failure
+# prints the offending query + a `M test cases | K failed` summary). This keeps
+# the CI log showing that the tests actually ran — and how many assertions —
+# rather than a rolled-up count. Out-of-scope tests were already dropped at
+# staging, so the glob never matches them; any failed assertion exits non-zero
+# and fails the job (via `set -e`).
+echo "Running suite (single invocation — native sqllogictest report) ..."
+"$HAYBARN_UNITTEST" "test/sql/integration/*"
