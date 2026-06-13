@@ -29,6 +29,25 @@ extension from the Haybarn community channel:
    [`wrappers/`](wrappers), warms the extension cache once, then runs each
    `.test` and tallies pass / skip / fail.
 
+## Transport lanes
+
+The workflow runs a matrix over transports (`run-integration.sh` honours
+`TRANSPORT=launch|http` and a `VGI_RPC_SHM_SIZE_BYTES` passthrough):
+
+- **`launch`** — the AF_UNIX worker pool (default).
+- **`shm`** — `launch` plus the POSIX shared-memory side channel
+  (`VGI_RPC_SHM_SIZE_BYTES`); needs JDK 22+ (`--enable-native-access`).
+
+**`http` is intentionally *not* a CI lane yet.** `TRANSPORT=http` works locally
+(it boots the worker with `--http` and attaches over `http://`), but the Java
+worker's HTTP transport has a known gap: **table-function streaming** (e.g.
+`example.sequence(...)`) errors over http where the vgi-python worker succeeds.
+The haybarn runner has a built-in `skip_error_messages HTTP` policy that turns
+those errors into *skips*, so an http run looks green (0 fail) while silently
+dropping the broken table tests. Promoting http to the matrix should wait until
+that streaming path is fixed. (`subprocess` was skipped as low-value — same
+logic as `launch` but with per-ATTACH JVM cold-start.)
+
 Out of scope and excluded: `writable/`, `simple_writable/` (the port is
 read-only), `nested_type_combinations.test` (segfaults the upstream runner —
 see the project `CLAUDE.md`), and `bool_in_union.test` (characterizes a

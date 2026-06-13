@@ -36,6 +36,15 @@ env:
 jobs:
   integration:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # launch: the AF_UNIX worker pool. shm: same, plus the POSIX
+          # shared-memory side channel (VGI_RPC_SHM_SIZE_BYTES).
+          - { lane: launch }
+          - { lane: shm, shm_bytes: '67108864' }
+    name: integration (${{ matrix.lane }})
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
@@ -78,10 +87,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Run integration suite
+      - name: Run integration suite (${{ matrix.lane }})
         run: ci/run-integration.sh
         env:
           VGI_SRC: ${{ github.workspace }}/vgi-upstream
           VGI_WORKER_BIN: ${{ github.workspace }}/vgi-example-worker/build/install/vgi-example-worker/bin/vgi-example-worker
+          # Empty for the launch lane; run-integration.sh drops an empty value.
+          VGI_RPC_SHM_SIZE_BYTES: ${{ matrix.shm_bytes || '' }}
           # JDK 25 + native access for the worker JVM (FFM shm, haybarn_jdbc).
           JAVA_TOOL_OPTIONS: --enable-native-access=ALL-UNNAMED

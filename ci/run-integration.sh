@@ -39,16 +39,57 @@ mkdir -p "$STAGE/test/sql/integration"
     awk -f "$HERE/preprocess-require.awk" "$f" > "$STAGE/test/sql/integration/$f"
   done )
 
-# launch: amortises the JVM cold-start across the whole run via a flock-coordinated
-# AF_UNIX worker pool. VGI_TEST_DEDICATED_WORKER is a plain (non-pooled) worker for
-# the crash/pool-recovery tests. The three wrappers route the one binary into the
-# versioned / versioned_tables / attach_options catalogs.
+# Transport selection (TRANSPORT=launch|http; default launch):
+#   launch — flock-coordinated AF_UNIX worker pool, amortising JVM cold-start
+#            across the run. Set VGI_RPC_SHM_SIZE_BYTES to also exercise the
+#            shared-memory side channel (the `shm` lane).
+#   http   — boot the worker as an HTTP server and attach over http:// (mirrors
+#            vgi's `make test_http`).
 export VGI_WORKER_BIN
-export VGI_TEST_WORKER="launch:${VGI_WORKER_BIN}"
-export VGI_TEST_DEDICATED_WORKER="${VGI_WORKER_BIN}"
-export VGI_VERSIONED_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned"
-export VGI_VERSIONED_TABLES_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned-tables"
-export VGI_ATTACH_OPTIONS_WORKER="launch:${HERE}/wrappers/vgi-worker-attach-options"
+TRANSPORT="${TRANSPORT:-launch}"
+# An empty VGI_RPC_SHM_SIZE_BYTES must not reach the C++ client (it would try to
+# attach a zero-size segment); only a real value enables the shm side channel.
+[ -n "${VGI_RPC_SHM_SIZE_BYTES:-}" ] || unset VGI_RPC_SHM_SIZE_BYTES
+
+case "$TRANSPORT" in
+  launch)
+    # VGI_TEST_DEDICATED_WORKER is a plain (non-pooled) worker for the crash/
+    # pool-recovery tests; the three wrappers route the one binary into the
+    # versioned / versioned_tables / attach_options catalogs.
+    export VGI_TEST_WORKER="launch:${VGI_WORKER_BIN}"
+    export VGI_TEST_DEDICATED_WORKER="${VGI_WORKER_BIN}"
+    export VGI_VERSIONED_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned"
+    export VGI_VERSIONED_TABLES_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned-tables"
+    export VGI_ATTACH_OPTIONS_WORKER="launch:${HERE}/wrappers/vgi-worker-attach-options"
+    ;;
+  http)
+    # Boot the example worker as an HTTP server on an ephemeral port; it prints
+    # `PORT:<n>` once bound (same readiness contract as vgi-python's
+    # vgi-fixture-http). For LOCAL use — NOT yet a CI lane: the Java worker's
+    # HTTP transport has a known gap (table-function streaming, e.g.
+    # `example.sequence(...)`, errors over http where vgi-python succeeds; the
+    # haybarn runner's built-in `skip_error_messages HTTP` policy masks those as
+    # skips, so the lane looks green while silently dropping ~table tests). Fix
+    # the http streaming path before promoting this to the CI matrix. See
+    # ci/README.md.
+    HTTP_LOG="$(mktemp)"
+    "$VGI_WORKER_BIN" --http --port 0 >"$HTTP_LOG" 2>&1 &
+    HTTP_PID=$!
+    trap '[ -n "${HTTP_PID:-}" ] && kill "$HTTP_PID" 2>/dev/null || true' EXIT
+    PORT=""
+    for _ in $(seq 1 60); do
+      kill -0 "$HTTP_PID" 2>/dev/null || { echo "::error::http worker exited"; cat "$HTTP_LOG"; exit 1; }
+      PORT="$(sed -n 's/.*PORT:\([0-9]*\).*/\1/p' "$HTTP_LOG" | head -1)"
+      [ -n "$PORT" ] && break
+      sleep 0.5
+    done
+    [ -n "$PORT" ] || { echo "::error::http worker never reported a port"; cat "$HTTP_LOG"; exit 1; }
+    echo "HTTP worker on port $PORT (pid $HTTP_PID)"
+    export VGI_TEST_WORKER="http://localhost:${PORT}"
+    ;;
+  *)
+    echo "::error::unknown TRANSPORT=$TRANSPORT (expected launch|http)"; exit 1 ;;
+esac
 
 cd "$STAGE"
 
