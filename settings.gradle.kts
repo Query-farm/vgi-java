@@ -9,7 +9,11 @@ rootProject.name = "vgi-java"
 // Composite-include the sibling vgi-rpc-java repo so :vgirpc is built from
 // source; falls back gracefully if the directory isn't present (CI may pin
 // to a published artifact instead).
-val vgiRpcJavaDir = file("../Development/vgi-rpc-java")
+// VGI_RPC_JAVA_DIR overrides the path (CI checks out the sibling repo inside
+// the workspace and points here so it can build vgirpc from source — actions/
+// checkout can't write the default ../Development sibling path).
+val vgiRpcJavaDir = System.getenv("VGI_RPC_JAVA_DIR")?.let { file(it) }
+    ?: file("../Development/vgi-rpc-java")
 if (vgiRpcJavaDir.isDirectory) {
     includeBuild(vgiRpcJavaDir) {
         dependencySubstitution {

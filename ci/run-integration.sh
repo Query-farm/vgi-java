@@ -89,16 +89,18 @@ case "$TRANSPORT" in
     # We are the launcher transport, so opt into the launcher-only tests
     # (launcher/options_smoke.test) — matches vgi's `make test_launcher`.
     export VGI_REQUIRE_LAUNCHER_TRANSPORT=1
-    # Also serve the versioned_tables catalog over HTTP: the four
-    # attach/versioned_tables_*_http tests attach an http:// worker regardless of
-    # the main transport, and pass against the Java worker. (The other http-only
-    # tests need worker HTTP features the Java port doesn't yet implement —
-    # versioning_http needs sticky-session cookies, bearer_token needs bearer
-    # auth, gzip_fallback needs zstd-disable negotiation — so their env vars stay
-    # unset and they skip.)
+    # Serve the versioned_tables + versioned catalogs over HTTP too: the
+    # attach/versioned_tables_*_http and attach/versioning_http tests attach an
+    # http:// worker regardless of the main transport. versioning_http exercises
+    # the sticky-cookie round-trip (vgi_sticky). (bearer_token / gzip_fallback
+    # run as a separate step below since they need VGI_TEST_WORKER itself to be a
+    # specially-configured http worker.)
     vth_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-versioned-tables")"
     export VGI_VERSIONED_TABLES_HTTP_WORKER="http://localhost:${vth_port}"
     echo "versioned_tables http worker on ${VGI_VERSIONED_TABLES_HTTP_WORKER}"
+    vh_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-versioned")"
+    export VGI_VERSIONED_HTTP_WORKER="http://localhost:${vh_port}"
+    echo "versioned http worker on ${VGI_VERSIONED_HTTP_WORKER}"
     ;;
   http)
     # Whole-suite-over-HTTP. For LOCAL use — NOT yet a CI lane: the Java worker's
@@ -151,3 +153,15 @@ rm -f "$STAGE/test/_warm.test"
 # and fails the job (via `set -e`).
 echo "Running suite (single invocation — native sqllogictest report) ..."
 "$HAYBARN_UNITTEST" "test/sql/integration/*"
+
+# gzip_fallback.test needs VGI_TEST_WORKER itself to be a zstd-disabled HTTP
+# worker (it attaches it directly and asserts the gzip codec fallback). That
+# conflicts with the main suite's launch: worker, so run it as a dedicated
+# single-test invocation against its own worker. Only on the launch lane (shm is
+# the same coverage; the http lane is local-only).
+if [ "$TRANSPORT" = "launch" ]; then
+  echo "Running http/gzip_fallback.test (zstd-disabled http worker) ..."
+  gz_port="$(VGI_HTTP_DISABLE_ZSTD=1 boot_http_worker "$VGI_WORKER_BIN")"
+  VGI_TEST_WORKER="http://localhost:${gz_port}" VGI_HTTP_DISABLE_ZSTD=1 \
+    "$HAYBARN_UNITTEST" "test/sql/integration/http/gzip_fallback.test"
+fi

@@ -747,7 +747,17 @@ public final class VgiServiceImpl implements VgiService {
      * @return the catalog version response
      */
     @Override
-    public farm.query.vgi.protocol.CatalogVersionResponse catalog_version(byte[] attach_opaque_data, byte[] transaction_opaque_data) {
+    public farm.query.vgi.protocol.CatalogVersionResponse catalog_version(byte[] attach_opaque_data,
+            byte[] transaction_opaque_data, CallContext ctx) {
+        // Versioned fixture: assert the routing cookie set at ATTACH is echoed
+        // back. Over HTTP a populated cookie jar that's missing vgi_sticky means
+        // the client failed to plumb Set-Cookie -> Cookie. Over subprocess the
+        // cookie map is empty, so the check is skipped. (vgi-python parity.)
+        if ("versioned".equals(worker.catalogName()) && ctx != null
+                && !ctx.cookies().isEmpty() && !ctx.cookies().containsKey("vgi_sticky")) {
+            throw new IllegalStateException(
+                    "expected cookie 'vgi_sticky' on follow-up request; got " + ctx.cookies().keySet());
+        }
         return new farm.query.vgi.protocol.CatalogVersionResponse(1L);
     }
 
@@ -866,6 +876,14 @@ public final class VgiServiceImpl implements VgiService {
         Map<String, String> tags = new java.util.LinkedHashMap<>(worker.catalogTags() == null ? Map.of() : worker.catalogTags());
         if (resolvedImpl != null) tags.put("vgi_resolved_implementation_version", resolvedImpl);
         if (resolvedData != null) tags.put("vgi_resolved_data_version", resolvedData);
+        // Versioned fixture: pin an HTTP routing cookie so the C++ cookie jar
+        // round-trips Set-Cookie -> Cookie; catalog_version asserts it on every
+        // follow-up RPC (attach/versioning_http.test). No-op on non-HTTP
+        // transports (set_cookie has no sink there), matching vgi-python's
+        // VersionedCatalog.
+        if ("versioned".equals(worker.catalogName()) && ctx != null) {
+            ctx.setCookie("vgi_sticky", java.util.UUID.randomUUID().toString().replace("-", ""));
+        }
         return new CatalogAttachResult(
                 sealer.sealAttach(attachId, authOf(ctx)),
                 true, true, false,  // supports_transactions, supports_time_travel, catalog_version_frozen
@@ -1056,6 +1074,10 @@ public final class VgiServiceImpl implements VgiService {
         String defaultSchema = worker.defaultSchema();
         result.add(new SchemaDesc(defaultSchema,
                 comments.getOrDefault(defaultSchema, "Default schema")));
+        // The minimal `versioned` fixture exposes only its default schema
+        // (vgi-python parity); the example worker's auxiliary `data` schema is
+        // not part of it. attach/versioning_http.test asserts exactly one schema.
+        if ("versioned".equals(worker.catalogName())) return result;
         java.util.LinkedHashSet<String> extras = new java.util.LinkedHashSet<>();
         for (var t : worker.catalogTables()) {
             if (!defaultSchema.equals(t.schema())) extras.add(t.schema());

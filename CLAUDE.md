@@ -269,20 +269,28 @@ without a C++ build:
   unittest invocation** (like `make test_launcher`) so the CI log streams the
   native sqllogictest report (per-test progress + `All tests passed (… N
   assertions in M test cases)` — ~8700 assertions across the ~185 files), not a
-  rolled-up count. Green on both lanes: **176 pass / 8 skip**. Sets
+  rolled-up count. Green on both lanes: **177 pass / 7 skip** (+
+  `http/gzip_fallback.test` in a dedicated step). Sets
   `VGI_REQUIRE_LAUNCHER_TRANSPORT=1` (we *are* the launcher transport) so
   `launcher/options_smoke.test` runs — which required `Main.runWorker` to accept
   the launcher cache-key / fixture flags (`--describe`/`--no-describe`/
   `--threaded`/`--quiet`/`--debug`/`--log-level`) as no-ops instead of exiting
-  on unknown argv. Also boots a versioned_tables catalog worker over HTTP and
-  sets `VGI_VERSIONED_TABLES_HTTP_WORKER` so the 4
-  `attach/versioned_tables_*_http` tests run (they attach an `http://` worker and
-  pass against the Java worker). The remaining http-only tests stay skipped —
-  they need Java worker HTTP features not yet ported: `versioning_http`
-  (sticky-session `vgi_sticky` cookies), `bearer_token` (HTTP bearer auth),
-  `gzip_fallback` (zstd-disable negotiation). The whole-suite-over-http
-  `TRANSPORT=http` path stays local-only (function-backed table-function
-  streaming, e.g. `example.sequence`, still errors over http). **Excludes**
+  on unknown argv. Boots versioned_tables + versioned catalog workers over HTTP
+  (`VGI_VERSIONED_TABLES_HTTP_WORKER`/`VGI_VERSIONED_HTTP_WORKER`) so the 4
+  `versioned_tables_*_http` tests and `versioning_http` (sticky-cookie
+  round-trip) run, and runs `gzip_fallback` against a dedicated zstd-disabled
+  http worker. These use **HTTP features added to vgi-rpc-java** (`b946c2d` —
+  gzip codec negotiation via `VGI-Supported-Encodings`/415,
+  `CallContext.cookies()`/`setCookie()`), which CI **builds from source** through
+  the composite include (`VGI_RPC_JAVA_DIR`/`VGI_RPC_JAVA_REF`) until a vgirpc
+  release ships them. `bearer_token.test` stays skipped: bearer auth IS
+  implemented (`Main.buildHttpConfig` + `BearerAuthenticator`, validated 10/11
+  against the vgi-python worker) but the test isn't greenable under the prebuilt
+  haybarn-unittest — the community C++ extension raises on the no-auth-ATTACH 401
+  instead of deferring it to the first query, which fails against the Python
+  reference worker identically. The whole-suite-over-http `TRANSPORT=http` path
+  stays local-only (function-backed table-function streaming, e.g.
+  `example.sequence`, still errors over http). **Excludes**
   `bool_in_union.test` in addition to `nested_type_combinations` — CI surfaced
   that it characterizes a **pre-existing platform-dependent union-bool bug**:
   the worker reads uninitialized memory for boolean union variants after row 1

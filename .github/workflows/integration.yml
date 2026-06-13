@@ -32,6 +32,10 @@ env:
   # The Haybarn release providing the prebuilt haybarn-unittest binary. Must be
   # ABI-compatible with the community-published vgi extension (both v1.5.3).
   HAYBARN_RELEASE: haybarn-v1.5.3-rc7
+  # The vgi-rpc-java commit built from source (composite include) for the worker's
+  # HTTP features. Drop once a vgirpc release with these features is published and
+  # pinned in vgi/build.gradle.kts.
+  VGI_RPC_JAVA_REF: b946c2de63e176e16ad73b533a4eebdcccddd16d
 
 jobs:
   integration:
@@ -56,6 +60,16 @@ jobs:
           ref: ${{ env.VGI_REF }}
           path: vgi-upstream
 
+      # Build the vgirpc RPC layer from source (composite include) so the worker
+      # picks up the HTTP features the integration suite needs (gzip negotiation,
+      # sticky cookies) ahead of the next published vgirpc release.
+      - name: Checkout pinned vgi-rpc-java
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: ${{ env.VGI_RPC_JAVA_REF }}
+          path: vgi-rpc-java
+
       - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
@@ -73,6 +87,8 @@ jobs:
 
       - name: Build example worker
         run: ./gradlew --no-daemon :vgi-example-worker:installDist
+        env:
+          VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
       - name: Download haybarn-unittest
         run: |

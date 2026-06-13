@@ -5,6 +5,9 @@ package farm.query.vgi.example;
 import farm.query.vgi.SettingSpec;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.Worker;
+import farm.query.vgirpc.AuthContext;
+import farm.query.vgirpc.http.HttpServer;
+import farm.query.vgirpc.http.auth.BearerAuthenticator;
 import farm.query.vgi.example.scalar.AddValuesFunction;
 import farm.query.vgi.example.scalar.BinaryPacketFunction;
 import farm.query.vgi.example.scalar.AnyMixedFunctions;
@@ -1064,10 +1067,26 @@ public final class Main {
             try { w.runUnixSocket(java.nio.file.Path.of(unixSocket), idleTimeoutMs); }
             catch (Exception e) { e.printStackTrace(); System.exit(1); }
         } else if (http) {
-            try { w.runHttp(host, port); }
+            try { w.runHttp(buildHttpConfig(host, port)); }
             catch (Exception e) { e.printStackTrace(); System.exit(1); }
         } else {
             w.runStdio();
         }
+    }
+
+    /**
+     * Build the HTTP server config from the environment. {@code VGI_TEST_BEARER_TOKEN}
+     * turns on bearer-token auth (the server accepts only that token; the C++
+     * extension presents it via the {@code bearer_token} ATTACH option). Other
+     * HTTP-feature knobs ({@code VGI_HTTP_DISABLE_ZSTD}) are applied here too.
+     */
+    private static HttpServer.Config buildHttpConfig(String host, int port) {
+        HttpServer.Config.Builder cb = HttpServer.Config.builder().host(host).port(port);
+        String bearer = System.getenv("VGI_TEST_BEARER_TOKEN");
+        if (bearer != null && !bearer.isEmpty()) {
+            cb.authenticator(BearerAuthenticator.fromMap(
+                    Map.of(bearer, new AuthContext("bearer", true, "vgi-test", Map.of()))));
+        }
+        return cb.build();
     }
 }

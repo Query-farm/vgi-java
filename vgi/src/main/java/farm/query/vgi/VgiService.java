@@ -241,7 +241,8 @@ public interface VgiService {
      * @param transaction_opaque_data optional in-flight transaction handle
      * @return the monotonically increasing catalog version; default {@code 0}
      */
-    default CatalogVersionResponse catalog_version(byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data) {
+    default CatalogVersionResponse catalog_version(byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data,
+                                                    CallContext ctx) {
         return new CatalogVersionResponse(0L);
     }
 
