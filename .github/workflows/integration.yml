@@ -35,7 +35,7 @@ env:
   # The vgi-rpc-java commit built from source (composite include) for the worker's
   # HTTP features. Drop once a vgirpc release with these features is published and
   # pinned in vgi/build.gradle.kts.
-  VGI_RPC_JAVA_REF: b946c2de63e176e16ad73b533a4eebdcccddd16d
+  VGI_RPC_JAVA_REF: aa40dcb05effd840da721f57a0e32198afbb6eea
 
 jobs:
   integration:
@@ -45,9 +45,12 @@ jobs:
       matrix:
         include:
           # launch: the AF_UNIX worker pool. shm: same, plus the POSIX
-          # shared-memory side channel (VGI_RPC_SHM_SIZE_BYTES).
+          # shared-memory side channel (VGI_RPC_SHM_SIZE_BYTES). http: the whole
+          # suite over the stateless HTTP transport (state-token continuations),
+          # mirroring vgi's `make test_http`.
           - { lane: launch }
           - { lane: shm, shm_bytes: '67108864' }
+          - { lane: http, transport: http }
     name: integration (${{ matrix.lane }})
     steps:
       - name: Checkout vgi-java
@@ -110,5 +113,7 @@ jobs:
           VGI_WORKER_BIN: ${{ github.workspace }}/vgi-example-worker/build/install/vgi-example-worker/bin/vgi-example-worker
           # Empty for the launch lane; run-integration.sh drops an empty value.
           VGI_RPC_SHM_SIZE_BYTES: ${{ matrix.shm_bytes || '' }}
+          # launch (default) unless the lane selects the http transport.
+          TRANSPORT: ${{ matrix.transport || 'launch' }}
           # JDK 25 + native access for the worker JVM (FFM shm, haybarn_jdbc).
           JAVA_TOOL_OPTIONS: --enable-native-access=ALL-UNNAMED

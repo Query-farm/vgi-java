@@ -281,12 +281,50 @@ exceptions. Fixes (all pushed; no launch regression — verified):
   (registered by `VgiServiceImpl`) on resume. Subclasses gained no-arg ctors and
   use `storage()`.
 
-**Remaining 5 (a narrow tail, over http only):** `overload/scalar_overload`
-(`ScalarStreamState` decodes fine — a multi-exchange/correctness nuance),
-`table_in_out/unnest_tensor_rows` (tensor state field), and
-`accumulate/{basic,attach_scope,result_modes}` (10/11; an accumulate-specific
-issue past the storage round-trip). An http CI matrix lane (+ greening
-`bearer_token`) waits on these.
+**Tail closed (2026-06-13) — http is now a CI lane.** The last worker-side http
+failures are fixed and the whole suite is green over `TRANSPORT=http`:
+- **`overload/scalar_overload`** — VGI multiplexes *every* function through one
+  wildcard `init` RPC, so vgi-rpc-java's per-method `stateTypes[init]` hint
+  collides when a query drives two stream functions at once (`scalar(…) FROM
+  table(…)`): a `SequenceState` token got decoded as `ScalarStreamState`.
+  `StateSerializer.serialize` now **prefixes the concrete state class name**
+  (`DataOutputStream` UTF + length + body); `deserialize` resolves the real type
+  from the bytes (`Class.forName`, verified `StreamState`-assignable), falling
+  back to the per-method hint for legacy tokens. (vgi-rpc-java `aa40dcb`.)
+- **`table_in_out/unnest_tensor_rows`** — `State` held `ArrowType` axis/value
+  fields (not Jackson beans). Marked `transient`; recomputed by `derive()` from
+  the serializable `outputSchema` on the first exchange tick.
+- **`accumulate/*`** — `AccumulateReadFunction` used an *anonymous* producer that
+  captured `segments` via a synthetic enclosing ref (serializes as null).
+  Promoted to a named `ReadState` (public fields, no-arg ctor).
+
+**Two http failures that are NOT worker bugs** (proven by running vgi-python's
+worker against the *same* prebuilt `haybarn-unittest` — it fails them
+identically, while upstream's locally-built `unittest` passes):
+- **httpfs at ATTACH** — the prebuilt `haybarn-unittest` doesn't statically link
+  httpfs, so `ATTACH … (TYPE vgi, LOCATION 'http://…')` errors with a binder
+  "requires the httpfs extension". On the launch lane only the `*_http.test`
+  files attach http (they piggyback on autoload after an earlier `require httpfs`
+  installs it); on the http lane *every* test attaches http from the start.
+  `ci/preprocess-require.awk -v http=1` injects an idempotent `INSTALL httpfs
+  FROM core; LOAD httpfs;` before each worker ATTACH.
+- **`table/dynamic_filter.test`** — Top-N + dynamic-filter continuation
+  *terminates after the first batch over http in the prebuilt binary* (the
+  `LIMIT 5` heap fills within batch 1, then the C++ http scan stops issuing
+  `/exchange`; `LIMIT 500` fills after 5 batches and runs to completion). The
+  worker's init response is byte-identical for both LIMITs, so the divergence is
+  in that C++ build, not the worker. Dropped on the http lane only (alongside
+  `projection_pushdown_repro.test`, which upstream's `make test_http` also drops).
+
+**http CI lane** — `.github/workflows/integration.yml` matrix gained
+`{ lane: http, transport: http }`; `ci/run-integration.sh` resolves `TRANSPORT`
+*before* staging (so the awk gets `-v http=1` and `HTTP_SKIP` drops the two
+files), boots the example + versioned + versioned_tables workers each as their
+own http server, and deliberately does **not** set
+`VGI_REQUIRE_LAUNCHER_TRANSPORT` (so `launcher/options_smoke.test` skips). Green:
+**171 test cases / 9043 assertions / 11 skipped**. `VGI_RPC_JAVA_REF` bumped to
+`aa40dcb`. (Greening `bearer_token` over http still waits on
+`VGI_TEST_BEARER_TOKEN`; the no-auth ATTACH-raises change is PR #2 upstream.)
 
 **2026-06-12 — GitHub Actions integration CI + expression-filter pushdown.**
 Two coupled pieces landed so the integration suite runs on every push/PR
