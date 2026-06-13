@@ -18,9 +18,18 @@ import java.util.List;
  */
 public final class FilterApplier {
 
-    private final byte[] filterBytes;
-    private final List<byte[]> joinKeysIpc;
+    // Non-final + a no-arg constructor so the HTTP transport's field-based CBOR
+    // state serializer can round-trip a FilterApplier held in a producer's
+    // StreamState across /init -> /exchange. cached is transient (re-decoded
+    // lazily after a round-trip).
+    private byte[] filterBytes;
+    private List<byte[]> joinKeysIpc;
     private transient PushdownFilters cached;
+
+    /** No-arg constructor for state deserialization; {@link #from} is the API. */
+    private FilterApplier() {
+        this.joinKeysIpc = List.of();
+    }
 
     /**
      * Create an applier over the init-time pushdown payload; decoding is deferred
