@@ -51,6 +51,31 @@ TRANSPORT="${TRANSPORT:-launch}"
 # attach a zero-size segment); only a real value enables the shm side channel.
 [ -n "${VGI_RPC_SHM_SIZE_BYTES:-}" ] || unset VGI_RPC_SHM_SIZE_BYTES
 
+# Background worker processes (http servers) are tracked here and killed on exit.
+BG_PIDS=()
+cleanup() { for p in "${BG_PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done; }
+trap cleanup EXIT
+
+# boot_http_worker <executable> — start it as an HTTP server on an ephemeral
+# port and echo the port it reports (`PORT:<n>`, the same readiness contract as
+# vgi-python's vgi-fixture-http). The executable inherits $VGI_WORKER_BIN (the
+# catalog wrappers exec it).
+boot_http_worker() {
+  local exe="$1" log pid port=""
+  log="$(mktemp)"
+  VGI_WORKER_BIN="$VGI_WORKER_BIN" "$exe" --http --port 0 >"$log" 2>&1 &
+  pid=$!
+  BG_PIDS+=("$pid")
+  for _ in $(seq 1 60); do
+    kill -0 "$pid" 2>/dev/null || { echo "::error::http worker '$exe' exited" >&2; cat "$log" >&2; return 1; }
+    port="$(sed -n 's/.*PORT:\([0-9]*\).*/\1/p' "$log" | head -1)"
+    [ -n "$port" ] && break
+    sleep 0.5
+  done
+  [ -n "$port" ] || { echo "::error::http worker '$exe' never reported a port" >&2; cat "$log" >&2; return 1; }
+  echo "$port"
+}
+
 case "$TRANSPORT" in
   launch)
     # VGI_TEST_DEDICATED_WORKER is a plain (non-pooled) worker for the crash/
@@ -64,31 +89,27 @@ case "$TRANSPORT" in
     # We are the launcher transport, so opt into the launcher-only tests
     # (launcher/options_smoke.test) — matches vgi's `make test_launcher`.
     export VGI_REQUIRE_LAUNCHER_TRANSPORT=1
+    # Also serve the versioned_tables catalog over HTTP: the four
+    # attach/versioned_tables_*_http tests attach an http:// worker regardless of
+    # the main transport, and pass against the Java worker. (The other http-only
+    # tests need worker HTTP features the Java port doesn't yet implement —
+    # versioning_http needs sticky-session cookies, bearer_token needs bearer
+    # auth, gzip_fallback needs zstd-disable negotiation — so their env vars stay
+    # unset and they skip.)
+    vth_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-versioned-tables")"
+    export VGI_VERSIONED_TABLES_HTTP_WORKER="http://localhost:${vth_port}"
+    echo "versioned_tables http worker on ${VGI_VERSIONED_TABLES_HTTP_WORKER}"
     ;;
   http)
-    # Boot the example worker as an HTTP server on an ephemeral port; it prints
-    # `PORT:<n>` once bound (same readiness contract as vgi-python's
-    # vgi-fixture-http). For LOCAL use — NOT yet a CI lane: the Java worker's
-    # HTTP transport has a known gap (table-function streaming, e.g.
-    # `example.sequence(...)`, errors over http where vgi-python succeeds; the
-    # haybarn runner's built-in `skip_error_messages HTTP` policy masks those as
-    # skips, so the lane looks green while silently dropping ~table tests). Fix
-    # the http streaming path before promoting this to the CI matrix. See
-    # ci/README.md.
-    HTTP_LOG="$(mktemp)"
-    "$VGI_WORKER_BIN" --http --port 0 >"$HTTP_LOG" 2>&1 &
-    HTTP_PID=$!
-    trap '[ -n "${HTTP_PID:-}" ] && kill "$HTTP_PID" 2>/dev/null || true' EXIT
-    PORT=""
-    for _ in $(seq 1 60); do
-      kill -0 "$HTTP_PID" 2>/dev/null || { echo "::error::http worker exited"; cat "$HTTP_LOG"; exit 1; }
-      PORT="$(sed -n 's/.*PORT:\([0-9]*\).*/\1/p' "$HTTP_LOG" | head -1)"
-      [ -n "$PORT" ] && break
-      sleep 0.5
-    done
-    [ -n "$PORT" ] || { echo "::error::http worker never reported a port"; cat "$HTTP_LOG"; exit 1; }
-    echo "HTTP worker on port $PORT (pid $HTTP_PID)"
-    export VGI_TEST_WORKER="http://localhost:${PORT}"
+    # Whole-suite-over-HTTP. For LOCAL use — NOT yet a CI lane: the Java worker's
+    # HTTP transport has a known gap (function-backed table-function streaming,
+    # e.g. `example.sequence(...)`, errors over http where vgi-python succeeds;
+    # the haybarn runner's built-in `skip_error_messages HTTP` policy masks those
+    # as skips, so the lane looks green while silently dropping those tests).
+    # See ci/README.md.
+    port="$(boot_http_worker "$VGI_WORKER_BIN")"
+    echo "HTTP worker on port $port"
+    export VGI_TEST_WORKER="http://localhost:${port}"
     ;;
   *)
     echo "::error::unknown TRANSPORT=$TRANSPORT (expected launch|http)"; exit 1 ;;

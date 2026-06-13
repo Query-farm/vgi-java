@@ -269,12 +269,20 @@ without a C++ build:
   unittest invocation** (like `make test_launcher`) so the CI log streams the
   native sqllogictest report (per-test progress + `All tests passed (… N
   assertions in M test cases)` — ~8700 assertions across the ~185 files), not a
-  rolled-up count. Green on both lanes: **172 pass / 12 skip**. Sets
+  rolled-up count. Green on both lanes: **176 pass / 8 skip**. Sets
   `VGI_REQUIRE_LAUNCHER_TRANSPORT=1` (we *are* the launcher transport) so
   `launcher/options_smoke.test` runs — which required `Main.runWorker` to accept
   the launcher cache-key / fixture flags (`--describe`/`--no-describe`/
   `--threaded`/`--quiet`/`--debug`/`--log-level`) as no-ops instead of exiting
-  on unknown argv. **Excludes**
+  on unknown argv. Also boots a versioned_tables catalog worker over HTTP and
+  sets `VGI_VERSIONED_TABLES_HTTP_WORKER` so the 4
+  `attach/versioned_tables_*_http` tests run (they attach an `http://` worker and
+  pass against the Java worker). The remaining http-only tests stay skipped —
+  they need Java worker HTTP features not yet ported: `versioning_http`
+  (sticky-session `vgi_sticky` cookies), `bearer_token` (HTTP bearer auth),
+  `gzip_fallback` (zstd-disable negotiation). The whole-suite-over-http
+  `TRANSPORT=http` path stays local-only (function-backed table-function
+  streaming, e.g. `example.sequence`, still errors over http). **Excludes**
   `bool_in_union.test` in addition to `nested_type_combinations` — CI surfaced
   that it characterizes a **pre-existing platform-dependent union-bool bug**:
   the worker reads uninitialized memory for boolean union variants after row 1

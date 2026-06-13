@@ -43,6 +43,14 @@ The workflow runs a matrix over transports (`run-integration.sh` honours
 - **`shm`** — `launch` plus the POSIX shared-memory side channel
   (`VGI_RPC_SHM_SIZE_BYTES`); needs JDK 22+ (`--enable-native-access`).
 
+Both lanes also boot a **versioned_tables catalog worker over HTTP** and set
+`VGI_VERSIONED_TABLES_HTTP_WORKER`, so the four `attach/versioned_tables_*_http`
+tests run (they attach an `http://` worker regardless of the main transport and
+pass against the Java worker). The other http-only tests stay skipped because
+they need Java worker HTTP features that aren't ported yet: `versioning_http`
+(sticky-session `vgi_sticky` cookies), `bearer_token` (HTTP bearer auth),
+`gzip_fallback` (zstd-disable negotiation).
+
 **`http` is intentionally *not* a CI lane yet.** `TRANSPORT=http` works locally
 (it boots the worker with `--http` and attaches over `http://`), but the Java
 worker's HTTP transport has a known gap: **table-function streaming** (e.g.
