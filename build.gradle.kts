@@ -107,11 +107,11 @@ subprojects {
         }
 
         extensions.configure<com.vanniktech.maven.publish.MavenPublishBaseExtension> {
-            // Upload to the Central Portal but gate the final release on a
-            // manual "Publish" click in the Portal UI (https://central.sonatype.com/
-            // publishing/deployments). Flip to automaticRelease = true once the
-            // coordinate has been through Portal validation at least once.
-            publishToMavenCentral(automaticRelease = false)
+            // Auto-release to Maven Central: once the upload passes Portal
+            // validation the deployment is published without a manual "Publish"
+            // click. (The coordinate has been through validation since 0.1.0;
+            // set this back to false to re-gate on the Portal UI.)
+            publishToMavenCentral(automaticRelease = true)
 
             // Sign only when a key is available (CI / local release). Plain
             // `publishToMavenLocal` and contributor builds without a key still work.
