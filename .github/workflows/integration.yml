@@ -35,7 +35,7 @@ env:
   # The vgi-rpc-java commit built from source (composite include) for the worker's
   # HTTP features. Drop once a vgirpc release with these features is published and
   # pinned in vgi/build.gradle.kts.
-  VGI_RPC_JAVA_REF: aa40dcb05effd840da721f57a0e32198afbb6eea
+  VGI_RPC_JAVA_REF: 6a9246ebc03f51438c168cb145671f5ce280faae
 
 jobs:
   integration:
