@@ -179,6 +179,45 @@ Gradle's incremental cache occasionally misses RPC-layer edits — if a
 change to `~/Development/vgi-rpc-java/` doesn't show up, run
 `./gradlew --refresh-dependencies` or `./gradlew clean`.
 
+## Releasing (Maven Central)
+
+Published: **`farm.query:vgi`** (this repo) and **`farm.query:vgirpc`** /
+`vgirpc-oauth` (the sibling). Latest as of 2026-06-13: **vgi 0.2.0 → vgirpc
+0.10.2**. To cut a release: bump `version` in `build.gradle.kts`, push, then
+create a GitHub Release whose tag is the version (`v0.2.0` for `0.2.0`). The
+`release.yml` workflow (trigger: `release: published`) verifies tag == version,
+runs tests, and publishes. Both repos now set
+`publishToMavenCentral(automaticRelease = true)`, so a release goes **live on
+Maven Central with no manual Portal click** once it passes validation (changed
+2026-06-13 — was `false`/click-gated through vgi 0.1.0 + vgirpc 0.10.1).
+
+**The cross-repo ordering trap.** The `release.yml` build resolves
+`farm.query:vgirpc` from **Maven Central** (the composite is absent on CI —
+`VGI_RPC_JAVA_DIR` unset), *not* from source. So **`:vgi` cannot release until
+the `vgirpc` version it pins in `vgi/build.gradle.kts` is already published to
+Maven Central.** Integration CI hides this (it builds vgirpc from source via the
+composite), so green integration ≠ releasable. Before tagging a `:vgi` release,
+prove it builds against the *published* vgirpc with the composite disabled:
+
+```bash
+VGI_RPC_JAVA_DIR=/nonexistent ./gradlew :vgi:test :vgi:javadoc
+```
+
+(Pointing the override at a non-directory forces Maven Central resolution.) If
+`:vgi` calls a vgirpc API only on `main` (e.g. `CallContext.cookies()` added
+after a release), this fails to compile — publish a new vgirpc first, bump the
+pin, then release `:vgi`.
+
+**Two gotchas that cost a release attempt (2026-06-13):**
+- **Javadoc doclint is fatal on the publish.** vgirpc's `publishToMavenCentral`
+  runs `:vgirpc:javadoc`, which **errors** (not warns) on a stale `@param`
+  (e.g. a renamed parameter). Run `./gradlew :<module>:javadoc` locally first.
+  (vgi's javadoc only *warns* on missing `@param`, so `:vgi` is laxer — but
+  check anyway.)
+- **GitHub immutable release tags can't be reused.** A failed publish leaves the
+  release's tag permanently reserved (immutable releases). You can't re-cut the
+  same version after fixing — **bump the patch** (0.10.1 → 0.10.2) and tag that.
+
 ## Conventions
 
 - **Java 25 + `-parameters` is mandatory.** (Bumped from 21 → 25 on
@@ -322,9 +361,15 @@ identically, while upstream's locally-built `unittest` passes):
 files), boots the example + versioned + versioned_tables workers each as their
 own http server, and deliberately does **not** set
 `VGI_REQUIRE_LAUNCHER_TRANSPORT` (so `launcher/options_smoke.test` skips). Green:
-**171 test cases / 9043 assertions / 11 skipped**. `VGI_RPC_JAVA_REF` bumped to
-`aa40dcb`. (Greening `bearer_token` over http still waits on
-`VGI_TEST_BEARER_TOKEN`; the no-auth ATTACH-raises change is PR #2 upstream.)
+**171 test cases / 9043 assertions / 11 skipped**. (Greening `bearer_token` over
+http still waits on `VGI_TEST_BEARER_TOKEN`; the no-auth ATTACH-raises change is
+PR #2 upstream.)
+
+**Released 2026-06-13 — vgi 0.2.0 → vgirpc 0.10.2** (both live on Maven Central;
+see the "Releasing" section). vgirpc 0.10.2 carries the six http
+state-serialization commits (`815b0fe`…`aa40dcb`); `:vgi`'s pin in
+`vgi/build.gradle.kts` and `integration.yml`'s `VGI_RPC_JAVA_REF` both point at
+the 0.10.2 commit (`6a9246e`).
 
 **2026-06-12 — GitHub Actions integration CI + expression-filter pushdown.**
 Two coupled pieces landed so the integration suite runs on every push/PR
