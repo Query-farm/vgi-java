@@ -250,6 +250,44 @@ lifecycle methods + per-execution state don't translate one-for-one.
 
 ## State of play (as of 2026-06-12)
 
+**2026-06-12 — HTTP table-function streaming sweep (state serialization).** The
+HTTP transport is **stateless**: a streaming call splits into `/init` +
+`/exchange`, and the producer's `StreamState` is serialized into a continuation
+token between them (CBOR via `StateSerializer`). The Java fixtures were written
+for the in-memory unix/launch transport, so their state held things that don't
+serialize — which is why **table functions worked over `launch:` but 500'd over
+http** (`example.sequence`, etc.). Running the suite over `TRANSPORT=http`
+(unmasked, injecting `set ignore_error_messages zzznomatch` so the runner's
+built-in `ignore_error_messages={"HTTP",…}` doesn't hide failures as skips)
+surfaced **48** table-function failures; systemic fixes took that to **5**. Use
+`VGI_STREAM_DEBUG=1` on the worker to log the otherwise-swallowed stream-handler
+exceptions. Fixes (all pushed; no launch regression — verified):
+- **vgi-rpc-java `StateSerializer`**: serialize by FIELD not getters (record-style
+  accessors like `BatchState.total()` aren't Jackson getters); an Arrow `Schema`
+  codec (round-trip via `Schema.serializeAsMessage`/`deserializeMessage`, since
+  `Field` has no default ctor + recurses → StackOverflow); jsr310 `JavaTimeModule`
+  (state holding `LocalDateTime`).
+- **vgi-rpc-java dictionaries** (two bugs): `Wire.writeZeroBatch` now writes empty
+  dictionaries for dict-encoded (ENUM) fields so even the zero-row token batch's
+  schema message renders; and `HttpStreamHandler` transfers the input batch's
+  dictionaries out of the reader and threads them to the exchange response (echo
+  emits dict-encoded output referencing the input's dictionary, which the reader
+  had already freed).
+- **vgi `FilterApplier`**: no-arg ctor + non-final fields (held in ~7 producers).
+- **vgi buffering** (`BufferingFinalizeProducer` + `BufferingStorageHolder` + 7
+  subclasses): the source/finalize producers held a live `BoundStorage` (SQLite
+  connection) in state. Keep the view `transient`; serialize `executionId`/
+  `attachId`/`finalizeStateId`; `storage()` re-binds via the static holder
+  (registered by `VgiServiceImpl`) on resume. Subclasses gained no-arg ctors and
+  use `storage()`.
+
+**Remaining 5 (a narrow tail, over http only):** `overload/scalar_overload`
+(`ScalarStreamState` decodes fine — a multi-exchange/correctness nuance),
+`table_in_out/unnest_tensor_rows` (tensor state field), and
+`accumulate/{basic,attach_scope,result_modes}` (10/11; an accumulate-specific
+issue past the storage round-trip). An http CI matrix lane (+ greening
+`bearer_token`) waits on these.
+
 **2026-06-12 — GitHub Actions integration CI + expression-filter pushdown.**
 Two coupled pieces landed so the integration suite runs on every push/PR
 without a C++ build:
