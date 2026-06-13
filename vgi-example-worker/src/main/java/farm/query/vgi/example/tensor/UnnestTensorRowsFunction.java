@@ -57,13 +57,25 @@ public final class UnnestTensorRowsFunction implements TableInOutFunction {
     }
 
     public static final class State extends TableInOutExchangeState {
-        private final Schema outputSchema;
-        private final ArrowType valueType;
-        private final List<String> axisNames = new ArrayList<>();
-        private final List<ArrowType> axisTypes = new ArrayList<>();
+        private Schema outputSchema;
+        // Derived from outputSchema; transient because ArrowType isn't a Jackson
+        // bean. Recomputed by derive() after an HTTP state-token round-trip.
+        private transient ArrowType valueType;
+        private transient List<String> axisNames;
+        private transient List<ArrowType> axisTypes;
+
+        /** No-arg ctor for HTTP state-token deserialization. */
+        public State() {}
 
         public State(Schema outputSchema) {
             this.outputSchema = outputSchema;
+            derive();
+        }
+
+        /** (Re)compute the axis/value metadata from {@link #outputSchema}. */
+        private void derive() {
+            axisNames = new ArrayList<>();
+            axisTypes = new ArrayList<>();
             Field valueField = null, axesField = null;
             for (Field f : outputSchema.getFields()) {
                 if ("value".equals(f.getName())) valueField = f;
@@ -80,6 +92,7 @@ public final class UnnestTensorRowsFunction implements TableInOutFunction {
 
         @Override
         public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+            if (axisNames == null) derive();
             VectorSchemaRoot root = input.root();
             FieldVector inputVec = root.getFieldVectors().get(0);
             if (!(inputVec instanceof StructVector sv)) { return; }

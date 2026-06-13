@@ -65,16 +65,29 @@ public final class AccumulateReadFunction implements TableFunction {
         String name = params.arguments().positionalAt(0) instanceof String s ? s : "";
         List<byte[]> segments = AccumulateStore.readSegments(
                 ps, name.getBytes(StandardCharsets.UTF_8));
-        return new TableProducerState() {
-            private int next = 0;
+        return new ReadState(segments);
+    }
 
-            @Override public void produceTick(OutputCollector out, CallContext ctx) {
-                if (next >= segments.size()) {
-                    out.finish();
-                    return;
-                }
-                out.emit(BatchUtil.readSingleBatch(segments.get(next++), params.allocator()));
+    /**
+     * Producer over the read-back segments. A named state (not an anonymous
+     * capture) so {@code segments} (IPC batch bytes) and the cursor serialize
+     * into the HTTP continuation token and the read resumes on {@code /exchange}.
+     */
+    public static final class ReadState extends TableProducerState {
+        public List<byte[]> segments;
+        public int next;
+
+        /** No-arg ctor for HTTP state-token deserialization. */
+        public ReadState() {}
+
+        ReadState(List<byte[]> segments) { this.segments = segments; }
+
+        @Override public void produceTick(OutputCollector out, CallContext ctx) {
+            if (segments == null || next >= segments.size()) {
+                out.finish();
+                return;
             }
-        };
+            out.emit(BatchUtil.readSingleBatch(segments.get(next++), farm.query.vgirpc.wire.Allocators.root()));
+        }
     }
 }
