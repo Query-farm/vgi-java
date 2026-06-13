@@ -103,6 +103,8 @@ public class SumAllColumnsBufferingFunction extends AbstractBufferAndDrain {
     private static final class SumProducer extends BufferingFinalizeProducer {
         private boolean emitted = false;
 
+        private SumProducer() {}
+
         SumProducer(TableBufferingFinalizeParams params) { super(params); }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
@@ -117,7 +119,7 @@ public class SumAllColumnsBufferingFunction extends AbstractBufferAndDrain {
                 if (dst instanceof BigIntVector bi) bi.setSafe(0, 0L);
                 else if (dst instanceof Float8Vector fl) fl.setSafe(0, 0.0);
             }
-            for (FunctionStorage.LogEntry e : storage.stateLogScan(NS_RAW, KEY, -1, Integer.MAX_VALUE)) {
+            for (FunctionStorage.LogEntry e : storage().stateLogScan(NS_RAW, KEY, -1, Integer.MAX_VALUE)) {
                 try (VectorSchemaRoot src = BatchUtil.readSingleBatch(e.value(), Allocators.root())) {
                     int rows = src.getRowCount();
                     for (Field f : outputSchema.getFields()) {

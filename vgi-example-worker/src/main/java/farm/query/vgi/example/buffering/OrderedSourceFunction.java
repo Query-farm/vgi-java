@@ -70,8 +70,10 @@ public final class OrderedSourceFunction implements TableBufferingFunction {
 
     /** Emits exactly one row carrying the integer decoded from finalize_state_id. */
     private static final class OneShotProducer extends BufferingFinalizeProducer {
-        private final long value;
+        private long value;
         private boolean emitted = false;
+
+        private OneShotProducer() {}
 
         OneShotProducer(TableBufferingFinalizeParams params) {
             super(params);

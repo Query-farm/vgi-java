@@ -67,8 +67,10 @@ public final class BufferEmitWideFunction implements TableBufferingFunction {
     }
 
     private static final class WideProducer extends BufferingFinalizeProducer {
-        private final long rows;
+        private long rows;
         private boolean emitted = false;
+
+        private WideProducer() {}
 
         WideProducer(TableBufferingFinalizeParams params, long rows) {
             super(params);

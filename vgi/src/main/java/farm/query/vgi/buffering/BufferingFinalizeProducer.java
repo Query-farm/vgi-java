@@ -26,10 +26,20 @@ import java.util.List;
  */
 public abstract class BufferingFinalizeProducer extends TableProducerState {
 
-    /** Read view over the batches buffered during the Sink phase. */
-    protected final BoundStorage storage;
+    /** Read view over the batches buffered during the Sink phase. Transient: a
+     *  live storage view (SQLite connection) can't be serialized into an HTTP
+     *  state token, so it's re-acquired from {@link #executionId}/{@link #attachId}
+     *  via {@link #storage()} when this producer is resumed on /exchange. */
+    protected transient BoundStorage storageView;
+    /** Execution id the storage is scoped to (survives the state token). */
+    protected byte[] executionId;
+    /** Attach plaintext for per-attach shard routing (survives the state token). */
+    protected byte[] attachId;
     /** State id selecting which combined partition this producer drains. */
-    protected final byte[] finalizeStateId;
+    protected byte[] finalizeStateId;
+
+    /** No-arg constructor for HTTP state-token deserialization. */
+    protected BufferingFinalizeProducer() {}
 
     /**
      * Captures the storage view + {@code finalize_state_id} and forwards the
@@ -39,8 +49,22 @@ public abstract class BufferingFinalizeProducer extends TableProducerState {
      */
     protected BufferingFinalizeProducer(TableBufferingFinalizeParams params) {
         super(params.initParams());
-        this.storage = params.storage();
+        this.storageView = params.storage();
+        this.executionId = params.executionId();
+        this.attachId = params.attachId();
         this.finalizeStateId = params.finalizeStateId();
+    }
+
+    /**
+     * The storage view, re-acquired from {@code (executionId, attachId)} if this
+     * producer was resumed from an HTTP state token (the transient view is null
+     * after deserialization).
+     *
+     * @return the per-execution storage view
+     */
+    protected BoundStorage storage() {
+        if (storageView == null) storageView = BufferingStorageHolder.bind(executionId, attachId);
+        return storageView;
     }
 
     /**

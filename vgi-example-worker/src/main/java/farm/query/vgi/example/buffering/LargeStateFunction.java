@@ -55,12 +55,14 @@ public final class LargeStateFunction extends AbstractBufferAndDrain {
     private static final class TotalSizeProducer extends BufferingFinalizeProducer {
         private boolean emitted = false;
 
+        private TotalSizeProducer() {}
+
         TotalSizeProducer(TableBufferingFinalizeParams params) { super(params); }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (emitted) { out.finish(); return; }
             long total = 0;
-            for (FunctionStorage.LogEntry e : storage.stateLogScan(NS_LARGE, KEY, -1, Integer.MAX_VALUE)) {
+            for (FunctionStorage.LogEntry e : storage().stateLogScan(NS_LARGE, KEY, -1, Integer.MAX_VALUE)) {
                 total += e.value().length;
             }
             List<FieldVector> vectors = new ArrayList<>();

@@ -14,11 +14,13 @@ import farm.query.vgi.table.TableInitParams;
  *
  * @param executionId the opaque {@code execution_id} identifying this buffering execution.
  * @param finalizeStateId the opaque {@code finalize_state_id} naming the output stream this producer drains.
+ * @param attachId the attach plaintext for per-attach shard routing (lets a source producer re-bind storage after an HTTP state-token round-trip).
  * @param storage the storage view bound to {@code executionId}, for reading back stashed state.
  * @param initParams the table-init parameters carrying the projection-narrowed output schema and pushdown filter.
  */
 public record TableBufferingFinalizeParams(
         byte[] executionId,
         byte[] finalizeStateId,
+        byte[] attachId,
         BoundStorage storage,
         TableInitParams initParams) {}

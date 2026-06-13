@@ -65,9 +65,11 @@ public final class SlowCancellableBufferingFunction implements TableBufferingFun
     }
 
     private static final class SlowProducer extends BufferingFinalizeProducer {
-        private final long sleepMs;
-        private final long total;
+        private long sleepMs;
+        private long total;
         private long emitted = 0;
+
+        private SlowProducer() {}
 
         SlowProducer(TableBufferingFinalizeParams params, long sleepMs, long total) {
             super(params);

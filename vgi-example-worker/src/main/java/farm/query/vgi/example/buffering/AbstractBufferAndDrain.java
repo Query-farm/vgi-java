@@ -58,8 +58,10 @@ public abstract class AbstractBufferAndDrain implements TableBufferingFunction {
 
     /** Drains a {@code (ns, "")} state-log, one buffered batch per tick. */
     static final class LogDrainProducer extends BufferingFinalizeProducer {
-        private final byte[] ns;
+        private byte[] ns;
         private long afterId = -1;
+
+        LogDrainProducer() {}
 
         LogDrainProducer(TableBufferingFinalizeParams params, byte[] ns) {
             super(params);
@@ -67,7 +69,7 @@ public abstract class AbstractBufferAndDrain implements TableBufferingFunction {
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            List<FunctionStorage.LogEntry> rows = storage.stateLogScan(ns, KEY, afterId, 1);
+            List<FunctionStorage.LogEntry> rows = storage().stateLogScan(ns, KEY, afterId, 1);
             if (rows.isEmpty()) {
                 out.finish();
                 return;

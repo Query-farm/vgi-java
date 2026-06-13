@@ -84,6 +84,9 @@ public final class VgiServiceImpl implements VgiService {
      */
     private final farm.query.vgi.storage.FunctionStorage storage =
             farm.query.vgi.storage.StorageResolver.fromEnv();
+    // Expose the backend process-wide so a buffering source producer can re-bind
+    // its storage after an HTTP state-token round-trip (see BufferingStorageHolder).
+    { farm.query.vgi.buffering.BufferingStorageHolder.register(storage); }
     private final TransactionStore transactionStore = new TransactionStore(storage);
     private final AggregateRunner aggregateRunner;
     /**
@@ -483,7 +486,7 @@ public final class VgiServiceImpl implements VgiService {
                 execId, null, bb.attachId(), bb.bindOpaqueData(), null, null, storage);
         farm.query.vgi.buffering.TableBufferingFinalizeParams fparams =
                 new farm.query.vgi.buffering.TableBufferingFinalizeParams(
-                        execId, request.finalize_state_id(), storage, initParams);
+                        execId, request.finalize_state_id(), bb.attachId(), storage, initParams);
         TableProducerState producer = bb.fn().createFinalizeProducer(fparams);
         return RpcStream.producer(fnOutputSchema, producer, header);
     }

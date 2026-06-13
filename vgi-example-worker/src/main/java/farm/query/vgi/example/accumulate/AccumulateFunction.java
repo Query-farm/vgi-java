@@ -166,12 +166,14 @@ public final class AccumulateFunction implements TableBufferingFunction {
     private static final class OutDrainProducer extends BufferingFinalizeProducer {
         private long afterId = 0;
 
+        private OutDrainProducer() {}
+
         OutDrainProducer(TableBufferingFinalizeParams params) {
             super(params);
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            List<FunctionStorage.LogEntry> rows = storage.stateLogScan(NS_OUT, KEY, afterId, 1);
+            List<FunctionStorage.LogEntry> rows = storage().stateLogScan(NS_OUT, KEY, afterId, 1);
             if (rows.isEmpty()) {
                 out.finish();
                 return;
