@@ -1049,6 +1049,14 @@ public final class Main {
                 case "--unix" -> unixSocket = args[++i];
                 case "--idle-timeout" ->
                         idleTimeoutMs = (long) (Double.parseDouble(args[++i]) * 1000.0);
+                // Launcher cache-key / fixture-parity flags. The vgi-python
+                // fixture worker implements these (quiet/debug logging,
+                // description pages, threading); here they only need to be
+                // accepted, so a launch: LOCATION that appends them to vary the
+                // launcher cache key (launcher/options_smoke.test) starts the
+                // worker instead of being rejected.
+                case "--describe", "--no-describe", "--threaded", "--quiet", "-q", "--debug" -> { }
+                case "--log-level" -> i++; // consumes its value
                 default -> { System.err.println("unknown arg: " + args[i]); System.exit(2); }
             }
         }

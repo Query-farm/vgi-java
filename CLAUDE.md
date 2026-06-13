@@ -265,9 +265,16 @@ without a C++ build:
   `ci/run-integration.sh` stages the preprocessed tree, sets the four
   `VGI_*_WORKER` vars (`launch:` + the three `ci/wrappers/` catalog wrappers —
   the committed, path-relative replacements for the old `/tmp/vgi-worker-*`),
-  warms the extension cache once, and tallies pass/skip/fail. Green on Linux CI
-  (**171 pass / 13 skip**) and macOS (**172/13** — one more because the
-  `launch:` osx run includes a test the Linux exclusion drops). **Excludes**
+  warms the extension cache once, then runs the whole suite in a **single
+  unittest invocation** (like `make test_launcher`) so the CI log streams the
+  native sqllogictest report (per-test progress + `All tests passed (… N
+  assertions in M test cases)` — ~8700 assertions across the ~185 files), not a
+  rolled-up count. Green on both lanes: **172 pass / 12 skip**. Sets
+  `VGI_REQUIRE_LAUNCHER_TRANSPORT=1` (we *are* the launcher transport) so
+  `launcher/options_smoke.test` runs — which required `Main.runWorker` to accept
+  the launcher cache-key / fixture flags (`--describe`/`--no-describe`/
+  `--threaded`/`--quiet`/`--debug`/`--log-level`) as no-ops instead of exiting
+  on unknown argv. **Excludes**
   `bool_in_union.test` in addition to `nested_type_combinations` — CI surfaced
   that it characterizes a **pre-existing platform-dependent union-bool bug**:
   the worker reads uninitialized memory for boolean union variants after row 1

@@ -61,6 +61,9 @@ case "$TRANSPORT" in
     export VGI_VERSIONED_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned"
     export VGI_VERSIONED_TABLES_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned-tables"
     export VGI_ATTACH_OPTIONS_WORKER="launch:${HERE}/wrappers/vgi-worker-attach-options"
+    # We are the launcher transport, so opt into the launcher-only tests
+    # (launcher/options_smoke.test) — matches vgi's `make test_launcher`.
+    export VGI_REQUIRE_LAUNCHER_TRANSPORT=1
     ;;
   http)
     # Boot the example worker as an HTTP server on an ephemeral port; it prints
