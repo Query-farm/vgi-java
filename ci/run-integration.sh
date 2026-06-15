@@ -146,6 +146,17 @@ case "$TRANSPORT" in
     export VGI_VERSIONED_HTTP_WORKER="http://localhost:${vh_port}"
     export VGI_VERSIONED_WORKER="http://localhost:${vh_port}"
     echo "versioned http worker on ${VGI_VERSIONED_HTTP_WORKER}"
+    # attach_options catalog over http so attach/attach_options_echo.test runs on
+    # this lane too — it's a plain per-attach catalog round-trip (the test even
+    # has an explicit "Pool / HTTP safety" section), so http serves it fine.
+    ao_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-attach-options")"
+    export VGI_ATTACH_OPTIONS_WORKER="http://localhost:${ao_port}"
+    echo "attach_options http worker on ${VGI_ATTACH_OPTIONS_WORKER}"
+    # NB: VGI_TEST_DEDICATED_WORKER stays UNSET here. The buffering crash /
+    # pool-recovery tests SIGKILL their worker mid-process, which is only safe on
+    # a subprocess (bare-path) transport — over http it would tear down the single
+    # shared server for the whole suite. Those tests are designed to skip on any
+    # shared-worker transport (see table_buffering_worker_crash.test's header).
     ;;
   *)
     echo "::error::unknown TRANSPORT=$TRANSPORT (expected launch|http)"; exit 1 ;;
