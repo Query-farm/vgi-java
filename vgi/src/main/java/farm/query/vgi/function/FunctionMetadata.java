@@ -2,6 +2,8 @@
 
 package farm.query.vgi.function;
 
+import farm.query.vgi.protocol.FunctionExample;
+
 import java.util.List;
 
 /**
@@ -19,6 +21,8 @@ import java.util.List;
  * @param supportsBatchIndex  whether emitted batches carry a {@code vgi_batch_index} tag.
  * @param partitionKind       partition shape over partition-column-annotated output fields.
  * @param lateMaterialization whether the function opts into DuckDB late materialization.
+ * @param supportedExpressionFilters expression-filter function names this function can apply itself.
+ * @param examples            documented usage examples surfaced on {@code FunctionInfo.examples}.
  */
 public record FunctionMetadata(
         String description,
@@ -33,7 +37,8 @@ public record FunctionMetadata(
         boolean supportsBatchIndex,
         PartitionKind partitionKind,
         boolean lateMaterialization,
-        List<String> supportedExpressionFilters) {
+        List<String> supportedExpressionFilters,
+        List<FunctionExample> examples) {
 
     /**
      * Wire enum for {@code FunctionInfo.order_preservation}. Mirrors the
@@ -96,7 +101,7 @@ public record FunctionMetadata(
                               List<String> categories, OrderPreservation orderPreservation) {
         this(description, stability, nullHandling, autoApplyFilters, projectionPushdown,
                 filterPushdown, samplingPushdown, categories, orderPreservation,
-                false, PartitionKind.NOT_PARTITIONED, false, List.of());
+                false, PartitionKind.NOT_PARTITIONED, false, List.of(), List.of());
     }
 
     /**
@@ -158,7 +163,7 @@ public record FunctionMetadata(
     public FunctionMetadata withPushdown(boolean projection, boolean filter, boolean autoApply) {
         return new FunctionMetadata(description, stability, nullHandling, autoApply, projection, filter,
                 samplingPushdown, categories, orderPreservation, supportsBatchIndex, partitionKind,
-                lateMaterialization, supportedExpressionFilters);
+                lateMaterialization, supportedExpressionFilters, examples);
     }
 
     /**
@@ -169,7 +174,7 @@ public record FunctionMetadata(
     public FunctionMetadata withSamplingPushdown() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, true, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters);
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters, examples);
     }
 
     /**
@@ -181,7 +186,7 @@ public record FunctionMetadata(
     public FunctionMetadata withCategories(String... cats) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, List.of(cats), orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters);
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters, examples);
     }
 
     /**
@@ -193,7 +198,7 @@ public record FunctionMetadata(
     public FunctionMetadata withOrderPreservation(OrderPreservation op) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, op,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters);
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters, examples);
     }
 
     /** Opt into {@code supports_batch_index}: every emitted batch must carry a
@@ -203,7 +208,7 @@ public record FunctionMetadata(
     public FunctionMetadata withBatchIndex() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                true, partitionKind, lateMaterialization, supportedExpressionFilters);
+                true, partitionKind, lateMaterialization, supportedExpressionFilters, examples);
     }
 
     /** Declare a non-default {@link PartitionKind} over the output schema's
@@ -214,7 +219,7 @@ public record FunctionMetadata(
     public FunctionMetadata withPartitionKind(PartitionKind kind) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, kind, lateMaterialization, supportedExpressionFilters);
+                supportsBatchIndex, kind, lateMaterialization, supportedExpressionFilters, examples);
     }
 
     /** Opt into DuckDB's late-materialization optimizer. Only meaningful for a
@@ -226,7 +231,7 @@ public record FunctionMetadata(
     public FunctionMetadata withLateMaterialization() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, true, supportedExpressionFilters);
+                supportsBatchIndex, partitionKind, true, supportedExpressionFilters, examples);
     }
 
     /** Declare the expression-filter function names this table function can
@@ -241,6 +246,19 @@ public record FunctionMetadata(
     public FunctionMetadata withSupportedExpressionFilters(String... names) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, List.of(names));
+                supportsBatchIndex, partitionKind, lateMaterialization, List.of(names), examples);
+    }
+
+    /** Declare the documented usage examples surfaced on {@code FunctionInfo.examples}.
+     *  Each {@link FunctionExample} carries an example {@code sql} string, a
+     *  human-readable {@code description}, and an optional {@code expected_output}.
+     *
+     *  @param examples the usage examples to advertise.
+     *  @return a copy carrying the given examples. */
+    public FunctionMetadata withExamples(List<FunctionExample> examples) {
+        return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
+                projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
+                examples == null ? List.of() : examples);
     }
 }

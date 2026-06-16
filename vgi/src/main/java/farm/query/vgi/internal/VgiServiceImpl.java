@@ -1676,6 +1676,20 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private FunctionInfo toScalarFunctionInfo(ScalarFunction fn, String schemaName) {
+        return scalarFunctionInfo(fn, schemaName);
+    }
+
+    /**
+     * Build the {@code FunctionInfo} for a scalar function exactly as the
+     * catalog-enumeration path does (binds with empty args, maps metadata).
+     * Package-private + static so it is exercisable in isolation by tests
+     * without standing up a full server.
+     *
+     * @param fn the scalar function.
+     * @param schemaName the owning schema name.
+     * @return the wire {@link FunctionInfo}.
+     */
+    static FunctionInfo scalarFunctionInfo(ScalarFunction fn, String schemaName) {
         BindResponse r = fn.onBind(new ScalarBindParams(fn.name(), Arguments.empty(), null, Map.of()));
         return baseFunctionInfo(fn, schemaName, "scalar", bindOutput(r), false);
     }
@@ -1722,7 +1736,7 @@ public final class VgiServiceImpl implements VgiService {
         return r.output_schema() != null ? r.output_schema() : new byte[0];
     }
 
-    private FunctionInfo baseFunctionInfo(farm.query.vgi.function.FunctionDescriptor fn,
+    private static FunctionInfo baseFunctionInfo(farm.query.vgi.function.FunctionDescriptor fn,
                                            String schemaName, String type,
                                            byte[] outputSchema, boolean hasFinalize) {
         // Only TableFunction has a meaningful maxWorkers; everything else
@@ -1733,7 +1747,7 @@ public final class VgiServiceImpl implements VgiService {
                 maxWorkers);
     }
 
-    private FunctionInfo baseFunctionInfo(String name, FunctionMetadata md, String schemaName,
+    private static FunctionInfo baseFunctionInfo(String name, FunctionMetadata md, String schemaName,
                                            String type, byte[] arguments, byte[] outputSchema,
                                            boolean hasFinalize, int maxWorkers) {
         return new FunctionInfo(
@@ -1747,7 +1761,7 @@ public final class VgiServiceImpl implements VgiService {
                 stabilityWire(md.stability()),
                 nullHandlingWire(md.nullHandling()),
                 md.description(),
-                List.of(),
+                md.examples() == null ? List.of() : md.examples(),
                 md.categories() == null ? List.of() : md.categories(),
                 md.projectionPushdown(),
                 md.filterPushdown() ? Boolean.TRUE : null,

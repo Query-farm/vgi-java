@@ -3,7 +3,9 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.Arguments;
+import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.TypeBoundPredicate;
+import farm.query.vgi.protocol.FunctionExample;
 import farm.query.vgi.scalar.ScalarFn;
 import farm.query.vgi.scalar.Vector;
 import farm.query.vgi.types.ScalarHelpers;
@@ -14,11 +16,25 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
+import java.util.List;
+
 /** {@code add_values(col1, col2)} — sum two numeric columns, promoted output. */
 public final class AddValuesFunction extends ScalarFn {
 
     @Override public String name() { return "add_values"; }
     @Override public String description() { return "Adds two numeric values"; }
+
+    @Override public FunctionMetadata metadata() {
+        return FunctionMetadata.describe(description()).withExamples(List.of(
+                new FunctionExample(
+                        "SELECT add_values(a, b) FROM (VALUES (1, 2), (3, 4)) t(a, b)",
+                        "Add two integer columns row-wise.",
+                        "3\n7"),
+                new FunctionExample(
+                        "SELECT add_values(1.5, 2.5)",
+                        "Add two floating-point literals (promoted output).",
+                        null)));
+    }
 
     @Override
     protected ArrowType outputType(Schema inputSchema, Arguments arguments) {
