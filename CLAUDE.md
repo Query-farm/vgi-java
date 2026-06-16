@@ -287,6 +287,32 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-06-15)
+
+**2026-06-15 — re-greened CI after an upstream rename batch + bumped `VGI_REF`
+to HEAD (`3e4b68d`).** CI went red because the suite pins the `.test` files at
+`VGI_REF` but installs the `vgi` extension **live from community** (unpinned).
+Upstream advanced past the old pin (`4444d66`) with a cluster of rename commits
+that the community extension had already shipped, so the old tests called names
+the new extension no longer had:
+- `vgi_join_keys_limit` setting → `vgi_join_keys_threshold` (`0504226`)
+- `vgi_worker_subprocess_pool()` → `vgi_worker_pool()` (`8381b69`)
+- `vgi_worker_pool_flush()` scalar → **table** function (`f9e78f5`)
+
+All three are **extension-side SQL surface, not worker code** — no Java change
+was needed; the failures were stale pinned tests. Fix = bump `VGI_REF` to HEAD
+(`integration.yml`). HEAD also adds **`connection_string.test`** (bare
+connection-string / `?location=` ATTACH discovery, `e19e189`/`15fe529`); that
+feature **reuses the existing InvokeCatalogs RPC**, so the worker already
+satisfies it with no port. Verified the full source-built suite (185/185) *and*
+re-ran the four renamed tests + `connection_string.test` against the **actual CI
+path** — `INSTALL vgi FROM community` driving the local `haybarn-unittest` (the
+homebrew `/opt/homebrew/bin/haybarn-unittest`) + the Java worker — all green,
+proving the community build already carries the connection-string feature (the
+risk that gated bumping straight to HEAD). `HAYBARN_RELEASE` left at `rc7`
+(upstream's `rc10` bump is a Windows-MSVC build fix, not a runtime-ABI change;
+rc7 still passes against the current community extension).
+
 ## State of play (as of 2026-06-12)
 
 **2026-06-12 — HTTP table-function streaming sweep (state serialization).** The
