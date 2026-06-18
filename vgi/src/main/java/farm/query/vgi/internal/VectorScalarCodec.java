@@ -86,9 +86,15 @@ public final class VectorScalarCodec {
         }
         if (v instanceof VarBinaryVector vb) return vb.get(row);
         if (v instanceof LargeVarBinaryVector vb) return vb.get(row);
+        if (v instanceof UInt8Vector u) return u.get(row);
+        if (v instanceof UInt4Vector u) return u.get(row) & 0xFFFFFFFFL;
+        if (v instanceof UInt2Vector u) return (long) u.get(row);
+        if (v instanceof UInt1Vector u) return u.get(row) & 0xFFL;
         if (v instanceof DecimalVector d) return d.getObject(row);
         if (v instanceof Decimal256Vector d) return d.getObject(row);
         if (v instanceof DateDayVector d) return (long) d.get(row);
+        if (v instanceof TimeStampMicroTZVector ts) return ts.get(row);
+        if (v instanceof TimeStampMicroVector ts) return ts.get(row);
         if (v instanceof StructVector sv) {
             Map<String, Object> out = new LinkedHashMap<>();
             for (Field f : sv.getField().getChildren()) {

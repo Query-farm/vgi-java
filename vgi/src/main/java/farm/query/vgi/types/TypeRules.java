@@ -69,12 +69,12 @@ public final class TypeRules {
             return new ArrowType.FloatingPoint(
                     org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE);
         }
-        // Decimal: keep the same type. Callers do value+value, which the SQL
-        // rule says yields decimal(p+1, s); since p is often already 38 (the
-        // cap), staying within the same precision relies on the operation
-        // being effectively "double" rather than "multiply".
-        if (t instanceof ArrowType.Decimal) {
-            return t;
+        // Decimal: doubling/adding needs +1 digit of precision (2 * 10^p uses
+        // p+1 digits). DuckDB only consumes decimal128 over the Arrow C ABI,
+        // so cap precision at 38. Mirrors vgi-python's _promote_for_addition.
+        if (t instanceof ArrowType.Decimal d) {
+            int newP = Math.min(d.getPrecision() + 1, 38);
+            return new ArrowType.Decimal(newP, d.getScale(), 128);
         }
         return Schemas.INT64;
     }
@@ -139,6 +139,27 @@ public final class TypeRules {
             int next = Math.min(64, width * 2);
             return new ArrowType.Int(next, ai.getIsSigned() || bi.getIsSigned());
         }
+        // Decimal (possibly mixed with an integer): merge precision/scale by the
+        // DuckDB addition rule, then promote one more digit for overflow
+        // headroom. Capped at decimal128's 38-digit limit. Matches vgi-python's
+        // _promote_for_addition(pc.add(...).type) chain.
+        if (a instanceof ArrowType.Decimal || b instanceof ArrowType.Decimal) {
+            ArrowType.Decimal da = toDecimal(a);
+            ArrowType.Decimal db = toDecimal(b);
+            int scale = Math.max(da.getScale(), db.getScale());
+            int whole = Math.max(da.getPrecision() - da.getScale(),
+                    db.getPrecision() - db.getScale());
+            int precision = Math.min(38, whole + scale + 1 + 1);
+            return new ArrowType.Decimal(precision, Math.min(scale, precision), 128);
+        }
         return Schemas.INT64;
+    }
+
+    private static ArrowType.Decimal toDecimal(ArrowType t) {
+        if (t instanceof ArrowType.Decimal d) return d;
+        int digits = switch (t instanceof ArrowType.Int i ? i.getBitWidth() : 64) {
+            case 8 -> 3; case 16 -> 5; case 32 -> 10; default -> 19;
+        };
+        return new ArrowType.Decimal(digits, 0, 128);
     }
 }

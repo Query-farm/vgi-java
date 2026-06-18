@@ -152,6 +152,33 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
     }
 
     /**
+     * The set of column names referenced by the top-level filters (each
+     * filter's {@code column_name}). Mirrors vgi-python's
+     * {@code PushdownFilters.filtered_columns}.
+     *
+     * @return the referenced column names (insertion order; may contain {@code null} for unnamed conjunctions)
+     */
+    public java.util.Set<String> filteredColumns() {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        for (PushdownFilter f : filters) out.add(f.columnName());
+        return out;
+    }
+
+    /**
+     * Whether any top-level filter constrains column {@code name}. Mirrors
+     * vgi-python's {@code PushdownFilters.has_filter_for_column}.
+     *
+     * @param name the column name to check
+     * @return {@code true} when at least one top-level filter targets {@code name}
+     */
+    public boolean hasFilterForColumn(String name) {
+        for (PushdownFilter f : filters) {
+            if (Objects.equals(name, f.columnName())) return true;
+        }
+        return false;
+    }
+
+    /**
      * Return the top-level filters that directly target column {@code name}.
      * "Top-level" means an entry in {@link #filters()} — does not descend into
      * nested {@code And}/{@code Or}/{@code Struct}, since those don't admit a

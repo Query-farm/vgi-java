@@ -328,6 +328,8 @@ public final class Main {
                         Schemas.UTF8, "Hello"),
                 new SettingSpec("multiplier", "Value multiplier",
                         Schemas.INT64, 1L),
+                new SettingSpec("scale_factor", "Float value scale factor",
+                        Schemas.FLOAT64, 1.0),
                 new SettingSpec("threshold", "Filter threshold",
                         Schemas.INT64, 0L),
                 new SettingSpec("config", "Sequence configuration struct",
@@ -385,6 +387,8 @@ public final class Main {
                 new BernoulliFunction(),
                 new RandomBytesFunction(),
                 new ReturnSecretValueFunction(),
+                new farm.query.vgi.example.scalar.SecretFieldFunction(),
+                new farm.query.vgi.example.scalar.ScaleBySettingFunction(),
                 new UnnestTensorFunction()));
     }
 
@@ -463,6 +467,8 @@ public final class Main {
                 new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenPartitionMinNeqMax(),
                 new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenPartitionValuesNoAnnotation(),
                 new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenPartitionColumnAbsentFromBatch(),
+                new farm.query.vgi.example.table.TypedProbeFunction(),
+                new farm.query.vgi.example.table.FilteredColumnsEchoFunction(),
                 new farm.query.vgi.example.table.TxCachedValueFunction()));
     }
 

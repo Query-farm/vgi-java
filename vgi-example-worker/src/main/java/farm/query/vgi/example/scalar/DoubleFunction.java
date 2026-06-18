@@ -66,6 +66,10 @@ public final class DoubleFunction extends ScalarFn {
                 case IntVector iv -> iv.setSafe(i, (int) (ScalarHelpers.toLong(value, i) * 2));
                 case SmallIntVector s -> s.setSafe(i, (short) (ScalarHelpers.toLong(value, i) * 2));
                 case TinyIntVector t -> t.setSafe(i, (byte) (ScalarHelpers.toLong(value, i) * 2));
+                case org.apache.arrow.vector.UInt8Vector u -> u.setSafe(i, ScalarHelpers.toLong(value, i) * 2);
+                case org.apache.arrow.vector.UInt4Vector u -> u.setSafe(i, (int) (ScalarHelpers.toLong(value, i) * 2));
+                case org.apache.arrow.vector.UInt2Vector u -> u.setSafe(i, (int) (ScalarHelpers.toLong(value, i) * 2));
+                case org.apache.arrow.vector.UInt1Vector u -> u.setSafe(i, (int) (ScalarHelpers.toLong(value, i) * 2));
                 case DecimalVector d -> {
                     BigDecimal bd = ((DecimalVector) value).getObject(i);
                     BigDecimal doubled = bd.add(bd);

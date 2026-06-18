@@ -206,6 +206,10 @@ public final class ScalarHelpers {
         if (v instanceof IntVector i) return i.get(row);
         if (v instanceof SmallIntVector s) return s.get(row);
         if (v instanceof TinyIntVector t) return t.get(row);
+        if (v instanceof org.apache.arrow.vector.UInt8Vector u) return u.get(row);
+        if (v instanceof org.apache.arrow.vector.UInt4Vector u) return u.get(row) & 0xFFFFFFFFL;
+        if (v instanceof org.apache.arrow.vector.UInt2Vector u) return u.get(row);
+        if (v instanceof org.apache.arrow.vector.UInt1Vector u) return u.get(row) & 0xFFL;
         throw new ClassCastException("not an integer vector: " + v.getClass().getSimpleName());
     }
 
@@ -225,9 +229,11 @@ public final class ScalarHelpers {
         if (v instanceof IntVector i) return i.get(row);
         if (v instanceof SmallIntVector s) return s.get(row);
         if (v instanceof TinyIntVector t) return t.get(row);
+        if (v instanceof org.apache.arrow.vector.UInt8Vector u) return u.get(row);
+        if (v instanceof org.apache.arrow.vector.UInt4Vector u) return u.get(row) & 0xFFFFFFFFL;
+        if (v instanceof org.apache.arrow.vector.UInt2Vector u) return u.get(row);
+        if (v instanceof org.apache.arrow.vector.UInt1Vector u) return u.get(row) & 0xFFL;
         if (v instanceof org.apache.arrow.vector.DecimalVector d) {
-            int scale = ((org.apache.arrow.vector.types.pojo.ArrowType.Decimal)
-                    d.getField().getType()).getScale();
             java.math.BigDecimal bd = d.getObject(row);
             return bd == null ? 0.0 : bd.doubleValue();
         }
@@ -236,6 +242,24 @@ public final class ScalarHelpers {
             return bd == null ? 0.0 : bd.doubleValue();
         }
         throw new ClassCastException("not a numeric vector: " + v.getClass().getSimpleName());
+    }
+
+    /**
+     * Read a row as a {@link java.math.BigDecimal}, widening any numeric vector.
+     * Decimal vectors are read losslessly; integers and floats are coerced.
+     *
+     * @param v a numeric-typed vector
+     * @param row zero-based row index
+     * @return the value as a {@link java.math.BigDecimal} (never {@code null} for a non-null cell)
+     * @throws ClassCastException if {@code v} is not a numeric vector
+     */
+    public static java.math.BigDecimal toBigDecimal(FieldVector v, int row) {
+        if (v instanceof org.apache.arrow.vector.DecimalVector d) return d.getObject(row);
+        if (v instanceof org.apache.arrow.vector.Decimal256Vector d) return d.getObject(row);
+        if (v instanceof Float8Vector || v instanceof Float4Vector) {
+            return java.math.BigDecimal.valueOf(toDouble(v, row));
+        }
+        return java.math.BigDecimal.valueOf(toLong(v, row));
     }
 
     /**

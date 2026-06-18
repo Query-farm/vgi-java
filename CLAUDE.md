@@ -287,6 +287,58 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-06-18)
+
+**2026-06-18 — bumped CI to `VGI_REF=main` + `HAYBARN_RELEASE=haybarn-v1.5.4-rc1`
+and ported the 4 new fixtures / numeric-promotion fixes that `main` requires.**
+Tracking `main` (not a SHA) pulled in upstream commits (`4ea7f11`/`38ff3e3`
+"coverage-driven SQL tests" + `typed_probe`, table-fn count → 94) that were
+ahead of the Java worker. Seven tests went red; all now pass (verified locally
+against `~/Development/vgi/build/release/test/unittest`, full suite 185/185 with
+the `ci/wrappers/` catalog wrappers). Changes:
+
+- **Numeric promotion (`scalar/numeric_promotion.test`)** — `double`/`add_values`
+  now promote like vgi-python's `_promote_for_addition`:
+  - `TypeRules.promoteForAddition` decimal branch → `decimal128(min(p+1,38), s)`
+    (was identity); int/float branches already matched.
+  - `TypeRules.commonTypeForAddition` gained a decimal branch (merge precision/
+    scale by the DuckDB add rule, then +1 headroom, cap 38).
+  - `ScalarHelpers.toLong`/`toDouble` gained **unsigned** vector cases
+    (UInt1/2/4/8) + new `toBigDecimal`. `DoubleFunction.compute` gained UInt
+    output cases (so `double(10::UTINYINT)→USMALLINT`, `double(100::UINTEGER)→
+    UBIGINT` no longer hit the `default` throw); `AddValuesFunction.compute`
+    gained a `DecimalVector` output case.
+- **`scale_by_setting` scalar** (`settings/settings_types.test`) — float
+  counterpart of `multiply_by_setting`; `@Setting(default_="1.0") double
+  scale_factor`. The setting itself is registered in `Main.registerSettings`
+  (`SettingSpec("scale_factor", …, FLOAT64, 1.0)`) — **@Setting only *reads*; it
+  does not register the DuckDB setting**, that's `Worker.settings(...)`.
+- **`secret_field` scalar** (`secret/secret_fields.test`) — older
+  `ScalarFunction` interface (like `ReturnSecretValueFunction`); reads the
+  `vgi_example` secret struct's `port`+`secret_string` children → renders
+  `port=<port>;name=<secret_string>`.
+- **`typed_probe` table fn** (`table/typed_probe.test`) — typed const args with
+  worker-side defaults (TIMESTAMPTZ→`timestamp(us,UTC)`, INTERVAL→
+  `Interval(MONTH_DAY_NANO)`, BLOB→binary, UBIGINT→`Int(64,false)`, DOUBLE). Key
+  detail: **function arg defaults are NOT on the wire** (`ArgumentSpecSerializer`
+  encodes only name/type/flags), so named-const defaults are applied worker-side
+  in `createProducer` via `orElse`/`containsKey`, not by DuckDB. Added
+  timestamp/unsigned cases to `VectorScalarCodec.read` so the consts decode to
+  predictable `Long` micros / `Long` / `PeriodDuration` (intervals fall through
+  to `getObject`→`PeriodDuration`; collapse = months·30d + days·24h + nanos/1e6).
+- **`filtered_columns_echo` table fn** (`table/filtered_columns_pushdown.test`)
+  — reports `filtered_columns`/`has_filter_for_column`/`get_column_values('tag')`.
+  Added `PushdownFilters.filteredColumns()` + `hasFilterForColumn()` (top-level
+  `column_name` set, mirroring vgi-python); `getColumnValues` already existed.
+- **Counts:** scalar fns 39→41 (`secret_field`, `scale_by_setting`); table fns
+  92→94 (`typed_probe`, `filtered_columns_echo`). `function_registration.test`
+  for both kinds updated upstream to match.
+
+**`VGI_REF=main` is non-reproducible** — re-validate after upstream moves; the
+unpinned community `vgi` extension must also be ABI-compatible with the
+`v1.5.4-rc1` haybarn-unittest. Pin `VGI_REF` back to a SHA before treating CI as
+stable.
+
 ## State of play (as of 2026-06-15)
 
 **2026-06-15 — re-greened CI after an upstream rename batch + bumped `VGI_REF`

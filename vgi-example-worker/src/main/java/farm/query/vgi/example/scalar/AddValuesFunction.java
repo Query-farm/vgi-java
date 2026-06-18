@@ -54,6 +54,12 @@ public final class AddValuesFunction extends ScalarFn {
             switch (result) {
                 case BigIntVector b -> b.setSafe(i, ScalarHelpers.toLong(col1, i) + ScalarHelpers.toLong(col2, i));
                 case Float8Vector f -> f.setSafe(i, ScalarHelpers.toDouble(col1, i) + ScalarHelpers.toDouble(col2, i));
+                case org.apache.arrow.vector.DecimalVector d -> {
+                    java.math.BigDecimal sum = ScalarHelpers.toBigDecimal(col1, i)
+                            .add(ScalarHelpers.toBigDecimal(col2, i))
+                            .setScale(d.getScale(), java.math.RoundingMode.HALF_UP);
+                    d.setSafe(i, sum);
+                }
                 default -> throw new IllegalStateException("unexpected output type: " + result.getField().getType());
             }
         }
