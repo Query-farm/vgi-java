@@ -88,7 +88,7 @@ Two pins live in the workflow's `env:` block:
 | Pin | What | Why |
 |-----|------|-----|
 | `VGI_REF` | the `Query-farm/vgi` commit supplying the `.test` files | reproducibility — bump deliberately |
-| `HAYBARN_RELEASE` | the Haybarn release supplying `haybarn-unittest` | must be ABI-compatible with the community vgi extension (both `v1.5.3`) |
+| `HAYBARN_RELEASE` | the Haybarn release supplying `haybarn-unittest` | must be ABI-compatible with the community vgi extension (both `v1.5.4`) |
 
 **The coupling to know about:** the vgi extension is pulled live from the
 community channel (`INSTALL vgi FROM community`), which always serves the
