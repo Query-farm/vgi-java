@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Routes the single example worker binary into bad-enum mode: it serves the
+# normal `example` catalog but advertises an unrecognized null_handling enum
+# value ("WEIRD") for the `double` scalar, driving the C++ parser's strict-enum
+# rejection (test/sql/integration/bad_enum.test). Mirrors vgi-python's
+# vgi-fixture-bad-enum-worker. The worker binary is named via $VGI_WORKER_BIN.
+export VGI_WORKER_BAD_ENUM=1
+exec "${VGI_WORKER_BIN:?set VGI_WORKER_BIN to the example worker launcher}" "$@"

@@ -353,6 +353,31 @@ public final class Worker {
      */
     public Map<String, ExtraCatalog> extraCatalogs() { return extraCatalogs; }
 
+    private final Map<String, List<CatalogTable>> extraCatalogTables = new LinkedHashMap<>();
+
+    /**
+     * Register a catalog table owned by an auxiliary catalog. Such tables are
+     * enumerated only under that catalog's attaches (and never appear in the
+     * main catalog's listings). The scan functions they reference should be
+     * registered under the catalog's {@code functionNamePrefix} so they are
+     * likewise owned by the catalog.
+     *
+     * @param catalogName the owning auxiliary catalog name
+     * @param t the catalog table
+     * @return this builder
+     */
+    public Worker registerExtraCatalogTable(String catalogName, CatalogTable t) {
+        extraCatalogTables.computeIfAbsent(catalogName, k -> new ArrayList<>()).add(t);
+        return this;
+    }
+
+    /**
+     * Catalog tables owned by auxiliary catalogs, keyed by catalog name.
+     *
+     * @return the extra-catalog tables keyed by catalog name
+     */
+    public Map<String, List<CatalogTable>> extraCatalogTables() { return extraCatalogTables; }
+
     /**
      * Register a scalar function, callable from SQL and enumerated through
      * {@code catalog_schema_contents_functions}.

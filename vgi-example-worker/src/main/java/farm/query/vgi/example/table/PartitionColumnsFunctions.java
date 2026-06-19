@@ -351,4 +351,79 @@ public final class PartitionColumnsFunctions {
             }
         }
     }
+
+    // =====================================================================
+    // overlapping_range_partitioned(partitions, rows_per_partition := 10)
+    //   -> (key, value)
+    // =====================================================================
+
+    public static final class OverlappingRangePartitioned implements TableFunction {
+
+        static final Schema OUTPUT = Schemas.of(
+                EmitMetadata.partitionField("key", Schemas.INT64),
+                Schemas.nullable("value", Schemas.INT64));
+        private static final byte[] OUTPUT_IPC = SchemaUtil.serializeSchema(OUTPUT);
+
+        private static final FunctionSpec SPEC = FunctionSpec.builder("overlapping_range_partitioned")
+                .metadata(FunctionMetadata.describe(
+                        "Overlapping per-chunk integer ranges on ``key``. Declares OVERLAPPING_PARTITIONS (wire-level only; DuckDB falls back to HASH_GROUP_BY for now).")
+                        .withCategories("generator", "partitioning", "testing")
+                        .withPartitionKind(PartitionKind.OVERLAPPING_PARTITIONS))
+                .constArg("partitions", Schemas.INT64)
+                .named("rows_per_partition", Schemas.INT64, "10")
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
+
+        @Override public BindResponse onBind(TableBindParams p) {
+            return BindResponse.forSchema(OUTPUT_IPC);
+        }
+
+        @Override public long maxWorkers() { return 8L; }
+
+        @Override public TableProducerState createProducer(TableInitParams p) {
+            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
+            int partitions = (int) ex.positional(0, "partitions").asLong().required();
+            int rpp = (int) ex.named("rows_per_partition").asLong().orElse(10L);
+            String key = HexId.encode(p.executionId());
+            return new State(buildQueue(key, partitions), key, rpp);
+        }
+
+        public static final class State extends TableProducerState {
+            public String execKey;
+            public int rpp;
+            public transient ConcurrentLinkedQueue<Integer> queueRef;
+
+            public State() {}
+
+            State(ConcurrentLinkedQueue<Integer> q, String execKey, int rpp) {
+                this.queueRef = q;
+                this.execKey = execKey;
+                this.rpp = rpp;
+            }
+
+            private ConcurrentLinkedQueue<Integer> queue() {
+                if (queueRef == null) queueRef = QUEUES.get(execKey);
+                return queueRef;
+            }
+
+            @Override public void produceTick(OutputCollector out, CallContext ctx) {
+                Integer idx = queue() == null ? null : queue().poll();
+                if (idx == null) { out.finish(); return; }
+                // Stride of 500 (< rpp when callers want overlap) makes
+                // consecutive chunks share key values.
+                long base = (long) idx * 500L;
+                VectorSchemaRoot root = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                root.allocateNew();
+                BigIntVector kv = (BigIntVector) root.getVector("key");
+                BigIntVector vv = (BigIntVector) root.getVector("value");
+                for (int i = 0; i < rpp; i++) {
+                    kv.setSafe(i, base + i);
+                    vv.setSafe(i, (long) idx * 10L + i);
+                }
+                root.setRowCount(rpp);
+                out.emit(root, EmitMetadata.partitionValues(OUTPUT, root, null));
+            }
+        }
+    }
 }

@@ -254,6 +254,13 @@ public final class Main {
         String catalogNameOverride = System.getenv("VGI_WORKER_CATALOG_NAME");
         String catalogName = catalogNameOverride != null && !catalogNameOverride.isEmpty()
                 ? catalogNameOverride : "example";
+        // bad_enum fixture worker: advertise an unrecognized null_handling enum
+        // for the `double` scalar so the C++ parser's strict-enum rejection is
+        // exercised (test/sql/integration/bad_enum.test).
+        String badEnum = System.getenv("VGI_WORKER_BAD_ENUM");
+        if (badEnum != null && !badEnum.isEmpty()) {
+            farm.query.vgi.internal.VgiServiceImpl.enableBadEnum();
+        }
         String implVer = System.getenv("VGI_WORKER_IMPLEMENTATION_VERSION");
         String dataSpec = System.getenv("VGI_WORKER_DATA_VERSION_SPEC");
         if (farm.query.vgi.example.table.AttachOptionsFixture.CATALOG_NAME.equals(catalogName)) {
@@ -290,6 +297,7 @@ public final class Main {
             // the versioned/versioned_tables wrappers reuse this binary and
             // their vgi_catalogs() output must stay single-row.
             registerAccumulate(w);
+            registerNarrowBind(w);
         }
         registerViews(w);
         registerCatalogTables(w);
@@ -357,6 +365,7 @@ public final class Main {
                 new NullHandlingFunction(),
                 new MultiplyBySettingFunction(),
                 new RandomIntFunction(),
+                new farm.query.vgi.example.scalar.QuerySeedFunction(),
                 new SumValuesFunction(),
                 new WhoAmIFunction(),
                 new GeoDistanceStructFunction(),
@@ -463,6 +472,7 @@ public final class Main {
                 new farm.query.vgi.example.table.PartitionColumnsFunctions.RegionYearPartitioned(),
                 new farm.query.vgi.example.table.PartitionColumnsFunctions.PartitionedWithExplicitOverride(),
                 new farm.query.vgi.example.table.PartitionColumnsFunctions.DisjointRangePartitioned(),
+                new farm.query.vgi.example.table.PartitionColumnsFunctions.OverlappingRangePartitioned(),
                 new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenMissingPartitionValues(),
                 new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenPartitionMinNeqMax(),
                 new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenPartitionValuesNoAnnotation(),
@@ -951,6 +961,30 @@ public final class Main {
                 .registerTableBuffering(new farm.query.vgi.example.accumulate.AccumulateFunction())
                 .registerTable(new farm.query.vgi.example.accumulate.AccumulateReadFunction())
                 .registerTable(new farm.query.vgi.example.accumulate.AccumulateClearFunction());
+    }
+
+    private static void registerNarrowBind(Worker w) {
+        // Narrow-bind reproducer catalog: ATTACH 'narrow_bind' routes here. Its
+        // table `mismatch` advertises {id, val} but its scan binds {id} only —
+        // the inconsistency the fixed C++ client must refuse at bind rather than
+        // segfault. `consistent` advertises and binds {id, val} (positive
+        // control). The scan functions carry the `narrow_bind_` prefix so this
+        // catalog owns them (hidden from the example catalog's listings).
+        byte[] tableCols = farm.query.vgi.internal.SchemaUtil.serializeSchema(
+                farm.query.vgi.example.narrowbind.NarrowBindFunctions.TABLE_SCHEMA);
+        w.registerExtraCatalog(new Worker.ExtraCatalog(
+                        "narrow_bind", "vgi-fixture", "1.0.0",
+                        "narrow-bind reproducer catalog", "narrow_bind_"))
+                .registerTable(new farm.query.vgi.example.narrowbind.NarrowBindFunctions.NarrowScan())
+                .registerTable(new farm.query.vgi.example.narrowbind.NarrowBindFunctions.WideScan())
+                .registerExtraCatalogTable("narrow_bind", CatalogTable.builder("main", "mismatch", tableCols)
+                        .comment("narrow-bind reproducer table -> narrow_bind_narrow_scan")
+                        .scanFunction("narrow_bind_narrow_scan", List.of(3L), Map.of())
+                        .build())
+                .registerExtraCatalogTable("narrow_bind", CatalogTable.builder("main", "consistent", tableCols)
+                        .comment("narrow-bind reproducer table -> narrow_bind_wide_scan")
+                        .scanFunction("narrow_bind_wide_scan", List.of(3L), Map.of())
+                        .build());
     }
 
     private static void registerBuffering(Worker w) {

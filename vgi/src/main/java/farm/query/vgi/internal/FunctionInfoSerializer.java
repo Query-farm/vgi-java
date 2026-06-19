@@ -42,11 +42,11 @@ final class FunctionInfoSerializer {
             DictionaryIds.FUNCTION_TYPE, List.of("scalar", "table", "aggregate", "table_buffering"));
     private static final EnumDict STABILITY = new EnumDict("stability",
             DictionaryIds.STABILITY, List.of("CONSISTENT", "VOLATILE", "CONSISTENT_WITHIN_QUERY"));
-    private static final EnumDict NULL_HANDLING = new EnumDict("null_handling",
+    private static EnumDict NULL_HANDLING = new EnumDict("null_handling",
             DictionaryIds.NULL_HANDLING, List.of("DEFAULT", "SPECIAL"));
     private static final EnumDict ORDER_PRESERVATION = new EnumDict("order_preservation",
             DictionaryIds.ORDER_PRESERVATION,
-            List.of("NO_ORDER_PRESERVED", "INSERTION_ORDER", "FIXED_ORDER"));
+            List.of("NO_ORDER_GUARANTEE", "PRESERVES_ORDER", "FIXED_ORDER"));
     private static final EnumDict ORDER_DEPENDENT = new EnumDict("order_dependent",
             DictionaryIds.ORDER_DEPENDENT, List.of("NOT_ORDER_DEPENDENT", "ORDER_DEPENDENT"));
     private static final EnumDict DISTINCT_DEPENDENT = new EnumDict("distinct_dependent",
@@ -56,9 +56,24 @@ final class FunctionInfoSerializer {
             List.of("NOT_PARTITIONED", "SINGLE_VALUE_PARTITIONS",
                     "OVERLAPPING_PARTITIONS", "DISJOINT_PARTITIONS"));
 
-    private static final List<EnumDict> DICTS = List.of(
+    private static List<EnumDict> DICTS = List.of(
             FUNCTION_TYPE, STABILITY, NULL_HANDLING,
             ORDER_PRESERVATION, ORDER_DEPENDENT, DISTINCT_DEPENDENT, PARTITION_KIND);
+
+    /**
+     * Test-fixture hook: widen the {@code null_handling} dictionary so the
+     * {@code bad_enum} fixture worker can advertise an unrecognized enum value
+     * ("WEIRD") for one function, exercising the C++ parser's strict-enum
+     * rejection. No-op for production workers — only the dedicated bad-enum
+     * worker process (started with {@code VGI_WORKER_BAD_ENUM}) calls this, so
+     * the extra dictionary entry never reaches a normal catalog's wire schema.
+     */
+    static void enableBadEnumNullHandling() {
+        NULL_HANDLING = new EnumDict("null_handling", DictionaryIds.NULL_HANDLING,
+                List.of("DEFAULT", "SPECIAL", "WEIRD"));
+        DICTS = List.of(FUNCTION_TYPE, STABILITY, NULL_HANDLING,
+                ORDER_PRESERVATION, ORDER_DEPENDENT, DISTINCT_DEPENDENT, PARTITION_KIND);
+    }
 
     private static final Schema SCHEMA = new Schema(List.of(
             nullable("comment", UTF8),

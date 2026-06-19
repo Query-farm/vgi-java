@@ -47,13 +47,25 @@ public record FunctionMetadata(
      */
     public enum OrderPreservation {
         /** Planner is free to parallelise and reorder; output ordering is undefined. */
-        NO_ORDER_PRESERVED,
+        NO_ORDER_PRESERVED("NO_ORDER_GUARANTEE"),
         /** Insertion / production order is preserved within each parallel
          *  output stream; the planner can still parallelise. */
-        INSERTION_ORDER,
+        INSERTION_ORDER("PRESERVES_ORDER"),
         /** The planner serialises the entire pipeline onto a single worker so
          *  the function's output is observed in exact emission order. */
-        FIXED_ORDER
+        FIXED_ORDER("FIXED_ORDER");
+
+        private final String wireName;
+
+        OrderPreservation(String wireName) { this.wireName = wireName; }
+
+        /** The canonical on-wire {@code order_preservation} string (mirrors
+         *  vgi-python's {@code OrderPreservation} enum names, which the C++
+         *  parser validates against). The Java constant names follow DuckDB's
+         *  {@code OrderPreservationType} instead, so they differ.
+         *
+         *  @return the wire string for this value */
+        public String wireName() { return wireName; }
     }
 
     /**

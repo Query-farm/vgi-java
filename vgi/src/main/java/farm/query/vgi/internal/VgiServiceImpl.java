@@ -69,6 +69,20 @@ import farm.query.vgi.catalog.View;
  */
 public final class VgiServiceImpl implements VgiService {
 
+    /**
+     * Test-fixture hook: when enabled, the {@code double} scalar advertises an
+     * unrecognized {@code null_handling} value ("WEIRD") to drive the C++
+     * parser's strict-enum rejection ({@code bad_enum.test}). Enabled only by
+     * the dedicated bad-enum worker process via {@link #enableBadEnum()}.
+     */
+    static volatile boolean BAD_ENUM_MODE = false;
+
+    /** Turn on the {@code bad_enum} fixture behaviour (see {@link #BAD_ENUM_MODE}). */
+    public static void enableBadEnum() {
+        BAD_ENUM_MODE = true;
+        FunctionInfoSerializer.enableBadEnumNullHandling();
+    }
+
     private final Worker worker;
     private final Map<String, List<ScalarFunction>> scalars = new HashMap<>();
     private final Map<String, List<TableFunction>> tables = new HashMap<>();
@@ -1027,6 +1041,23 @@ public final class VgiServiceImpl implements VgiService {
         return name == null ? null : worker.extraCatalogs().get(name);
     }
 
+    /**
+     * Catalog tables owned by the auxiliary catalog of {@code attachPlain},
+     * filtered to {@code schema}. Empty when the attach is not an extra catalog
+     * or the catalog declares no tables.
+     */
+    private List<CatalogTable> extraCatalogTablesFor(byte[] attachPlain, String schema) {
+        Worker.ExtraCatalog extra = extraCatalogOf(attachPlain);
+        if (extra == null) return List.of();
+        List<CatalogTable> all = worker.extraCatalogTables().get(extra.name());
+        if (all == null) return List.of();
+        List<CatalogTable> out = new ArrayList<>();
+        for (CatalogTable t : all) {
+            if (schema == null || t.schema().equals(schema)) out.add(t);
+        }
+        return out;
+    }
+
     /** Whether a function name belongs to any registered auxiliary catalog. */
     private boolean ownedByExtraCatalog(String functionName) {
         for (Worker.ExtraCatalog extra : worker.extraCatalogs().values()) {
@@ -1052,11 +1083,13 @@ public final class VgiServiceImpl implements VgiService {
                 if (fn.name().startsWith(extra.functionNamePrefix())) owned++;
             }
         }
+        List<CatalogTable> ownedTables = worker.extraCatalogTables().get(extra.name());
+        long tableCount = ownedTables == null ? 0L : ownedTables.size();
         Map<String, Long> m = new java.util.LinkedHashMap<>();
         m.put("scalar_function", 0L);
         m.put("table_function", owned);
         m.put("aggregate_function", 0L);
-        m.put("table", 0L);
+        m.put("table", tableCount);
         m.put("view", 0L);
         m.put("macro", 0L);
         m.put("index", 0L);
@@ -1152,6 +1185,14 @@ public final class VgiServiceImpl implements VgiService {
     public ItemsResponse catalog_schema_contents_tables(
             byte[] attach_opaque_data, String name, byte[] transaction_opaque_data, CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        List<CatalogTable> extraTables = extraCatalogTablesFor(attach_opaque_data_plain, name);
+        if (extraCatalogOf(attach_opaque_data_plain) != null) {
+            List<byte[]> extraItems = new ArrayList<>();
+            for (CatalogTable t : extraTables) {
+                extraItems.add(TableInfoSerializer.serialize(toTableInfo(t)));
+            }
+            return new ItemsResponse(extraItems);
+        }
         List<byte[]> items = new ArrayList<>();
         String dv = catalogRegistry.dataVersion(attach_opaque_data_plain);
         boolean isVersionedTables = "versioned_tables".equals(worker.catalogName());
@@ -1192,6 +1233,18 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        if (extraCatalogOf(attach_opaque_data_plain) != null) {
+            for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
+                if (t.name().equals(name) && t.scanFunctionName() != null) {
+                    byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
+                            t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
+                            t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed());
+                    return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
+                            t.scanFunctionName(), argsBytes, List.of());
+                }
+            }
+            throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
+        }
         var at = catalogRegistry.effectiveAt(attach_opaque_data_plain, at_unit, at_value);
         // Columns-based time-travel + pushdown: resolve AT -> version and pass it
         // as a scan-function argument (the native columns-based AT mechanism).
@@ -1234,6 +1287,20 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        if (extraCatalogOf(attach_opaque_data_plain) != null) {
+            for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
+                if (t.name().equals(name) && t.scanFunctionName() != null) {
+                    farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
+                            t.scanFunctionName(),
+                            t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
+                            t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
+                            null, false);
+                    return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
+                }
+            }
+            throw new IllegalArgumentException(
+                    "scan_branches_get: unknown table " + schema_name + "." + name);
+        }
         // Explicitly declared multi-branch table — return its branches as-is
         // (an empty list deliberately reaches the C++ loud-fail path).
         List<farm.query.vgi.catalog.ScanBranch> branches =
@@ -1390,6 +1457,14 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        if (extraCatalogOf(attach_opaque_data_plain) != null) {
+            for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
+                if (t.name().equals(name)) {
+                    return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(t))));
+                }
+            }
+            return ItemsResponse.empty();
+        }
         if (catalogRegistry.isHiddenInVersionedTables(name, attach_opaque_data_plain)) return ItemsResponse.empty();
         var at = catalogRegistry.effectiveAt(attach_opaque_data_plain, at_unit, at_value);
         boolean isMultiBranch = worker.multiBranchTable(schema_name, name) != null;
@@ -1759,7 +1834,8 @@ public final class VgiServiceImpl implements VgiService {
                 arguments,
                 outputSchema,
                 stabilityWire(md.stability()),
-                nullHandlingWire(md.nullHandling()),
+                (BAD_ENUM_MODE && "scalar".equals(type) && "double".equals(name))
+                        ? "WEIRD" : nullHandlingWire(md.nullHandling()),
                 md.description(),
                 md.examples() == null ? List.of() : md.examples(),
                 md.categories() == null ? List.of() : md.categories(),
@@ -1768,7 +1844,7 @@ public final class VgiServiceImpl implements VgiService {
                 md.samplingPushdown() ? Boolean.TRUE : null,
                 md.lateMaterialization() ? Boolean.TRUE : null,
                 md.supportedExpressionFilters() == null ? List.of() : md.supportedExpressionFilters(),
-                md.orderPreservation() == null ? null : md.orderPreservation().name(),
+                md.orderPreservation() == null ? null : md.orderPreservation().wireName(),
                 maxWorkers,
                 md.supportsBatchIndex(),
                 md.partitionKind() == null ? "NOT_PARTITIONED" : md.partitionKind().name(),

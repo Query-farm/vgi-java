@@ -287,6 +287,74 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-06-19)
+
+**2026-06-19 — synced the upstream enum-validation + narrow-bind batch (vgi
+`28539a4`…`129aff1`, vgi-python `59e332b`/`595481d`); full launcher suite green
+(178 pass / 13 skip, incl. the new `bad_enum.test`).** `VGI_REF=main` advanced
+past the 2026-06-18 sync with five test-affecting commits. Rebuilt the C++
+unittest (`ninja -C build/release unittest`) to pick up the new `.test` files +
+fixes, then ported the worker side:
+
+- **`order_preservation` wire strings were wrong all along** (the dominant
+  fix). vgi `129aff1` routes *every* wire enum through `RequireKnownEnum`, which
+  now **throws** on an unrecognized value (previously only `function_type` was
+  validated; the rest silently defaulted). The Java serializer emitted the Java
+  enum *constant* names (`INSERTION_ORDER`/`NO_ORDER_PRESERVED`/`FIXED_ORDER`),
+  but the canonical wire names (vgi-python `OrderPreservation`, C++
+  `ParseVgiOrderPreservation`) are `PRESERVES_ORDER`/`NO_ORDER_GUARANTEE`/
+  `FIXED_ORDER`. This was a latent bug masked by the old silent default;
+  strict validation surfaced it as `unknown order_preservation 'INSERTION_ORDER'`
+  on `partition_columns.test`. Fix: `OrderPreservation` enum gained a
+  `wireName()` (constants stay DuckDB-aligned, wire string is canonical),
+  `FunctionInfoSerializer.ORDER_PRESERVATION` dict + `VgiServiceImpl` emit
+  `wireName()`. **Verified all other Java enum dicts match the C++ parsers**
+  (function_type accepts lowercase, stability/null_handling/partition_kind/
+  order_dependent/distinct_dependent all matched) — only order_preservation was
+  wrong.
+- **`query_seed` scalar** (`scalar/function_registration.test`, 41→42) — the
+  only `CONSISTENT_WITHIN_QUERY` fixture (`value+1000`, stability is what's under
+  test). `QuerySeedFunction` (ScalarFn, overrides `metadata()`).
+- **`overlapping_range_partitioned` table fn** (`table/partition_columns.test`,
+  table count 94→95) — the only `OVERLAPPING_PARTITIONS` fixture; clone of
+  `DisjointRangePartitioned` with stride 500. Both enum values already existed in
+  `Stability`/`PartitionKind`; the serializer dicts already carried them.
+- **`narrow_bind` reproducer catalog** (`narrow_bind_mismatch.test`) — a
+  MetaWorker sub-catalog (`ATTACH 'narrow_bind'` on the same `VGI_TEST_WORKER`
+  binary). Table `mismatch` advertises `{id, val}` but its scan
+  (`narrow_bind_narrow_scan`) binds `{id}` only → the fixed C++ refuses at bind
+  (`BinderException`) instead of segfaulting; `consistent`/`wide_scan` is the
+  positive control. **New mechanism: extra-catalog *tables*.**
+  `Worker.registerExtraCatalogTable(catalog, CatalogTable)` +
+  `extraCatalogTables()`; `VgiServiceImpl` gained `extraCatalogTablesFor(...)`
+  and an early extra-catalog branch in `catalog_schema_contents_tables` /
+  `catalog_table_get` / `catalog_table_scan_function_get` /
+  `catalog_table_scan_branches_get`, plus a `table` count in `extraSchemaCounts`.
+  The two scan functions carry the `narrow_bind_` prefix so the catalog owns them
+  (hidden from the example catalog, so example fn counts are unchanged). Gated to
+  `catalogName=="example"` in `Main.registerNarrowBind` (like accumulate).
+- **`bad_enum` fixture worker** (`bad_enum.test`, require-env
+  `VGI_BAD_ENUM_WORKER`) — advertises an unrecognized `null_handling` ("WEIRD")
+  for the `double` scalar. Implemented as an env-gated mode on the same binary:
+  `VGI_WORKER_BAD_ENUM=1` → `VgiServiceImpl.enableBadEnum()` flips a static
+  `BAD_ENUM_MODE` (so `double`'s `null_handling` serializes as "WEIRD") and calls
+  `FunctionInfoSerializer.enableBadEnumNullHandling()` (widens the
+  `null_handling` dict to include "WEIRD" so the dict-encode doesn't throw
+  worker-side). Inert for normal workers. New `ci/wrappers/vgi-worker-bad-enum`
+  + `VGI_BAD_ENUM_WORKER` wired into `ci/run-integration.sh`'s launch lane
+  (skipped over HTTP, like bad-protocol). `/tmp/run_test.sh` exports it too.
+- **`bool_in_union.test`** — upstream now `mode skip`s it (Haybarn/DuckDB Arrow
+  bug); no Java work, it no longer appears in the run as pass/skip.
+
+**Counts now: scalar fns 42, table fns 95.** Local launcher suite: 178 pass /
+13 skip / 0 fail against the freshly-built `~/Development/vgi/build/release/test/
+unittest`. The httpfs/duckdb submodule bumps in vgi `14ba0e9` are source-build
+refs only — CI's prebuilt `haybarn-v1.5.4-rc1` asset is unaffected, left as-is.
+**`VGI_REF=main` stays non-reproducible** — the community `vgi` extension CI
+installs live must already carry the `129aff1` strict-enum + `28539a4`
+narrow-bind fixes or `bad_enum`/`narrow_bind_mismatch` will fail on the CI lane;
+re-validate after upstream moves.
+
 ## State of play (as of 2026-06-18)
 
 **2026-06-18 — bumped CI to `VGI_REF=main` + `HAYBARN_RELEASE=haybarn-v1.5.4-rc1`
