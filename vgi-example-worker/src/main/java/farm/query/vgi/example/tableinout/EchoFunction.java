@@ -29,7 +29,9 @@ public final class EchoFunction extends PassthroughTIOFunction {
         // stays off — the InOut path always runs filters via a FILTER node.
         return FunctionMetadata.describe("Passthrough function that emits each input batch unchanged")
                 .withPushdown(true, false, false)
-                .withCategories("utility", "debug");
+                .withCategories("utility", "debug")
+                .withTag("category", "debug")
+                .withTag("type", "passthrough");
     }
 
     @Override public List<ArgSpec> argumentSpecs() {
