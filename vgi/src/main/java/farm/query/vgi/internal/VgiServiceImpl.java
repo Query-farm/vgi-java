@@ -1832,7 +1832,7 @@ public final class VgiServiceImpl implements VgiService {
                                            boolean hasFinalize, int maxWorkers) {
         return new FunctionInfo(
                 md.description().isEmpty() ? null : md.description(),
-                Map.of(),
+                md.tags() == null ? Map.of() : md.tags(),
                 name,
                 schemaName,
                 type,

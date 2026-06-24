@@ -4,7 +4,9 @@ package farm.query.vgi.function;
 
 import farm.query.vgi.protocol.FunctionExample;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Metadata describing a VGI function. Mirrors vgi-go {@code FunctionMetadata}.
@@ -23,6 +25,8 @@ import java.util.List;
  * @param lateMaterialization whether the function opts into DuckDB late materialization.
  * @param supportedExpressionFilters expression-filter function names this function can apply itself.
  * @param examples            documented usage examples surfaced on {@code FunctionInfo.examples}.
+ * @param tags                arbitrary worker-provided metadata tags surfaced on
+ *                            {@code FunctionInfo.tags} (e.g. {@code vgi.columns_md}).
  */
 public record FunctionMetadata(
         String description,
@@ -38,7 +42,17 @@ public record FunctionMetadata(
         PartitionKind partitionKind,
         boolean lateMaterialization,
         List<String> supportedExpressionFilters,
-        List<FunctionExample> examples) {
+        List<FunctionExample> examples,
+        Map<String, String> tags) {
+
+    /**
+     * Compact constructor: normalise {@code tags} to a non-null, defensively
+     * copied map so {@link #tags()} never returns {@code null} and callers can't
+     * mutate the metadata's tags through the original reference.
+     */
+    public FunctionMetadata {
+        tags = tags == null ? Map.of() : Map.copyOf(tags);
+    }
 
     /**
      * Wire enum for {@code FunctionInfo.order_preservation}. Mirrors the
@@ -113,7 +127,7 @@ public record FunctionMetadata(
                               List<String> categories, OrderPreservation orderPreservation) {
         this(description, stability, nullHandling, autoApplyFilters, projectionPushdown,
                 filterPushdown, samplingPushdown, categories, orderPreservation,
-                false, PartitionKind.NOT_PARTITIONED, false, List.of(), List.of());
+                false, PartitionKind.NOT_PARTITIONED, false, List.of(), List.of(), Map.of());
     }
 
     /**
@@ -175,7 +189,7 @@ public record FunctionMetadata(
     public FunctionMetadata withPushdown(boolean projection, boolean filter, boolean autoApply) {
         return new FunctionMetadata(description, stability, nullHandling, autoApply, projection, filter,
                 samplingPushdown, categories, orderPreservation, supportsBatchIndex, partitionKind,
-                lateMaterialization, supportedExpressionFilters, examples);
+                lateMaterialization, supportedExpressionFilters, examples, tags);
     }
 
     /**
@@ -186,7 +200,8 @@ public record FunctionMetadata(
     public FunctionMetadata withSamplingPushdown() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, true, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters, examples);
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
+                examples, tags);
     }
 
     /**
@@ -198,7 +213,8 @@ public record FunctionMetadata(
     public FunctionMetadata withCategories(String... cats) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, List.of(cats), orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters, examples);
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
+                examples, tags);
     }
 
     /**
@@ -210,7 +226,8 @@ public record FunctionMetadata(
     public FunctionMetadata withOrderPreservation(OrderPreservation op) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, op,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters, examples);
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
+                examples, tags);
     }
 
     /** Opt into {@code supports_batch_index}: every emitted batch must carry a
@@ -220,7 +237,7 @@ public record FunctionMetadata(
     public FunctionMetadata withBatchIndex() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                true, partitionKind, lateMaterialization, supportedExpressionFilters, examples);
+                true, partitionKind, lateMaterialization, supportedExpressionFilters, examples, tags);
     }
 
     /** Declare a non-default {@link PartitionKind} over the output schema's
@@ -231,7 +248,7 @@ public record FunctionMetadata(
     public FunctionMetadata withPartitionKind(PartitionKind kind) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, kind, lateMaterialization, supportedExpressionFilters, examples);
+                supportsBatchIndex, kind, lateMaterialization, supportedExpressionFilters, examples, tags);
     }
 
     /** Opt into DuckDB's late-materialization optimizer. Only meaningful for a
@@ -243,7 +260,7 @@ public record FunctionMetadata(
     public FunctionMetadata withLateMaterialization() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, true, supportedExpressionFilters, examples);
+                supportsBatchIndex, partitionKind, true, supportedExpressionFilters, examples, tags);
     }
 
     /** Declare the expression-filter function names this table function can
@@ -258,7 +275,7 @@ public record FunctionMetadata(
     public FunctionMetadata withSupportedExpressionFilters(String... names) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, List.of(names), examples);
+                supportsBatchIndex, partitionKind, lateMaterialization, List.of(names), examples, tags);
     }
 
     /** Declare the documented usage examples surfaced on {@code FunctionInfo.examples}.
@@ -271,6 +288,36 @@ public record FunctionMetadata(
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
                 supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples == null ? List.of() : examples);
+                examples == null ? List.of() : examples, tags);
+    }
+
+    /** Merge worker-provided metadata tags surfaced on {@code FunctionInfo.tags}
+     *  and reported through DuckDB's function {@code tags} map. Typical keys are
+     *  {@code vgi.columns_md} (required by lint rule VGI307 for table functions
+     *  with a dynamic schema) and {@code vgi.description_md}. The given tags are
+     *  merged into any already declared on this metadata (later keys overwrite
+     *  duplicates); existing tags not present in {@code more} are preserved. Any
+     *  tags the SDK derives internally and any prior worker tags are kept — this
+     *  never clobbers them wholesale.
+     *
+     *  @param more the tag key/value pairs to merge in.
+     *  @return a copy carrying the merged tags. */
+    public FunctionMetadata withTags(Map<String, String> more) {
+        Map<String, String> merged = new LinkedHashMap<>(tags);
+        if (more != null) merged.putAll(more);
+        return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
+                projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
+                examples, merged);
+    }
+
+    /** Add or overwrite a single metadata tag (e.g. {@code vgi.columns_md}),
+     *  merging with any tags already declared. See {@link #withTags(Map)}.
+     *
+     *  @param key   the tag key.
+     *  @param value the tag value.
+     *  @return a copy carrying the added tag. */
+    public FunctionMetadata withTag(String key, String value) {
+        return withTags(Map.of(key, value));
     }
 }
