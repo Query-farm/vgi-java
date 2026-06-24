@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * {@code profiling_demo(count BIGINT [const], batch_size := 1024, increment := 1)}
+ * {@code profiling_demo(count BIGINT [const], batch_size := 2048, increment := 1)}
  * — emits a sequence of {@code count} integers, but additionally publishes
  * per-execution {@code rows_produced} / {@code batches_emitted} / {@code
  * elapsed_ms} via the {@link TableFunction#dynamicToString} callback so
@@ -51,7 +51,7 @@ public final class ProfilingDemoFunction extends CountdownTableFunction {
         return FunctionMetadata.describe("Sequence generator publishing diagnostics under EXPLAIN ANALYZE");
     }
     @Override protected Schema outputSchema() { return OUTPUT_SCHEMA; }
-    @Override protected long defaultBatchSize() { return 1024L; }
+    @Override protected long defaultBatchSize() { return 2048L; }
     @Override protected List<ArgSpec> extraArgs() {
         return List.of(ArgSpec.named("increment", Schemas.INT64, "1"));
     }
@@ -59,7 +59,7 @@ public final class ProfilingDemoFunction extends CountdownTableFunction {
     @Override public TableProducerState createProducer(TableInitParams p) {
         ParameterExtractor ex = ParameterExtractor.of(p.arguments());
         long count = ex.positional(0, "count").asLong().required();
-        long batchSize = ex.named("batch_size").asLong().orElse(1024L);
+        long batchSize = ex.named("batch_size").asLong().orElse(2048L);
         long increment = ex.named("increment").asLong().orElse(1L);
         String execKey = key(p.executionId());
         ExecutionStats stats = STATS.computeIfAbsent(execKey, k -> new ExecutionStats());

@@ -19,7 +19,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
 
-/** {@code sequence(count BIGINT, batch_size := 1000, increment := 1)}. */
+/** {@code sequence(count BIGINT, batch_size := 2048, increment := 1)}. */
 public final class SequenceFunction extends CountdownTableFunction {
 
     private static final Schema OUTPUT_SCHEMA = Schemas.of(Schemas.nullable("n", Schemas.INT64));
@@ -53,7 +53,7 @@ public final class SequenceFunction extends CountdownTableFunction {
         ParameterExtractor p = ParameterExtractor.of(params.arguments());
         validate(p);
         long count = p.positional(0, "count").asLong().required();
-        long batchSize = p.named("batch_size").asLong().ge(1).orElse(1000L);
+        long batchSize = p.named("batch_size").asLong().ge(1).orElse(2048L);
         long increment = p.named("increment").asLong().ge(1).orElse(1L);
         return new SequenceState(new BatchState(count, batchSize), increment,
                 FilterApplier.from(params.pushdownFilters(), params.joinKeys()));

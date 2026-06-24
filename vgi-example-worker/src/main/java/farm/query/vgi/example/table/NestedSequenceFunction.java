@@ -31,7 +31,7 @@ import org.apache.arrow.vector.util.Text;
 import java.util.List;
 
 /**
- * {@code nested_sequence(count [, batch_size := 1000, history_size := 20])}
+ * {@code nested_sequence(count [, batch_size := 2048, history_size := 20])}
  * — emits {@code n}, {@code metadata: STRUCT(index, label)}, and
  * {@code history: LIST<BIGINT>}. Opts into projection + filter pushdown so
  * DuckDB can prune unwanted columns and push WHERE clauses.
@@ -70,7 +70,7 @@ public final class NestedSequenceFunction extends CountdownTableFunction {
     @Override public TableProducerState createProducer(TableInitParams params) {
         ParameterExtractor p = ParameterExtractor.of(params.arguments());
         long count = p.positional(0, "count").asLong().required();
-        long batchSize = p.named("batch_size").asLong().orElse(1000L);
+        long batchSize = p.named("batch_size").asLong().orElse(2048L);
         long historySize = p.named("history_size").asLong().orElse(20L);
         return new State(new BatchState(count, batchSize), historySize,
                 new CachedSchema(params.outputSchema()),

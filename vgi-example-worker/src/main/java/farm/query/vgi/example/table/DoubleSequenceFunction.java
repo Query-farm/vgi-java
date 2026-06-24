@@ -37,7 +37,7 @@ public final class DoubleSequenceFunction extends CountdownTableFunction {
     @Override public TableProducerState createProducer(TableInitParams params) {
         ParameterExtractor p = ParameterExtractor.of(params.arguments());
         long count = p.positional(0, "count").asLong().required();
-        long batchSize = p.named("batch_size").asLong().orElse(1000L);
+        long batchSize = p.named("batch_size").asLong().orElse(2048L);
         double increment = p.named("increment").asDouble().orElse(1.0);
         return new State(new BatchState(count, batchSize), increment);
     }

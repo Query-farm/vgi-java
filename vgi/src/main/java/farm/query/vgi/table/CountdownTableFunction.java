@@ -45,7 +45,7 @@ public abstract class CountdownTableFunction extends SimpleTableFunction {
      *
      * @return the default rows-per-batch
      */
-    protected long defaultBatchSize() { return 1000L; }
+    protected long defaultBatchSize() { return 2048L; }
 
     /**
      * Named-only arguments declared in addition to {@code count} + {@code batch_size}.
