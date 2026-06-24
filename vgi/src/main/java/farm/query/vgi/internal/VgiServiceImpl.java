@@ -989,7 +989,7 @@ public final class VgiServiceImpl implements VgiService {
         List<byte[]> items = new ArrayList<>();
         for (SchemaDesc s : workerSchemas()) {
             items.add(RecordCodec.serializeToBytes(
-                    new SchemaInfo(s.comment, Map.of(), attach_opaque_data, s.name, schemaCounts(s))));
+                    new SchemaInfo(s.comment, s.tags, attach_opaque_data, s.name, schemaCounts(s))));
         }
         return new ItemsResponse(items);
     }
@@ -1014,14 +1014,14 @@ public final class VgiServiceImpl implements VgiService {
         for (SchemaDesc s : workerSchemas()) {
             if (s.name.equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                        new SchemaInfo(s.comment, Map.of(), attach_opaque_data, name, schemaCounts(s)))));
+                        new SchemaInfo(s.comment, s.tags, attach_opaque_data, name, schemaCounts(s)))));
             }
         }
         return ItemsResponse.empty();
     }
 
     /** Schema descriptors registered with the worker (default + auxiliary). */
-    private record SchemaDesc(String name, String comment) {}
+    private record SchemaDesc(String name, String comment, Map<String, String> tags) {}
 
     /**
      * The auxiliary catalog an attach belongs to, or {@code null} for the main
@@ -1107,9 +1107,11 @@ public final class VgiServiceImpl implements VgiService {
     private List<SchemaDesc> workerSchemas() {
         List<SchemaDesc> result = new ArrayList<>();
         Map<String, String> comments = worker.schemaComments();
+        Map<String, Map<String, String>> tags = worker.schemaTags();
         String defaultSchema = worker.defaultSchema();
         result.add(new SchemaDesc(defaultSchema,
-                comments.getOrDefault(defaultSchema, "Default schema")));
+                comments.getOrDefault(defaultSchema, "Default schema"),
+                tags.getOrDefault(defaultSchema, Map.of())));
         // The minimal `versioned` fixture exposes only its default schema
         // (vgi-python parity); the example worker's auxiliary `data` schema is
         // not part of it. attach/versioning_http.test asserts exactly one schema.
@@ -1124,7 +1126,10 @@ public final class VgiServiceImpl implements VgiService {
         for (var m : worker.macros()) {
             if (!defaultSchema.equals(m.schema())) extras.add(m.schema());
         }
-        for (String s : extras) result.add(new SchemaDesc(s, comments.getOrDefault(s, "")));
+        for (String s : extras) {
+            result.add(new SchemaDesc(s, comments.getOrDefault(s, ""),
+                    tags.getOrDefault(s, Map.of())));
+        }
         return result;
     }
 

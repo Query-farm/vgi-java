@@ -40,6 +40,7 @@ public final class Worker {
     private final Map<String, String> catalogTags = new LinkedHashMap<>();
     private String defaultSchema = "main";
     private final Map<String, String> schemaComments = new LinkedHashMap<>();
+    private final Map<String, Map<String, String>> schemaTags = new LinkedHashMap<>();
     private String implementationVersion;
     private String dataVersionSpec;
     private final List<CatalogDataVersionRelease> releases = new ArrayList<>();
@@ -315,6 +316,29 @@ public final class Worker {
      * @return the per-schema comments keyed by schema name
      */
     public Map<String, String> schemaComments() { return schemaComments; }
+
+    /**
+     * Attach key/value metadata tags to a schema, surfaced via
+     * {@code catalog_schemas} / {@code catalog_schema_get} and reported through
+     * DuckDB's {@code duckdb_schemas().tags}. Typical keys are
+     * {@code vgi.description_llm} and {@code vgi.description_md}. Merged into any
+     * tags previously set for the schema (later calls overwrite duplicate keys).
+     *
+     * @param schema the schema name
+     * @param tags   schema tag key/value pairs to merge in
+     * @return this builder
+     */
+    public Worker schemaTags(String schema, Map<String, String> tags) {
+        schemaTags.computeIfAbsent(schema, k -> new LinkedHashMap<>()).putAll(tags);
+        return this;
+    }
+
+    /**
+     * Tags registered via {@link #schemaTags(String, Map)}.
+     *
+     * @return the per-schema tags keyed by schema name
+     */
+    public Map<String, Map<String, String>> schemaTags() { return schemaTags; }
 
     /**
      * An auxiliary catalog served by the same worker process next to the main
