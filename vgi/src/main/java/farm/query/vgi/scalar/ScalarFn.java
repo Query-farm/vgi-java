@@ -351,26 +351,30 @@ public abstract class ScalarFn implements ScalarFunction {
                 if (vec != null) {
                     String wire = vec.value().isEmpty() ? snake(p.getName()) : vec.value();
                     if (vec.varargs() && vec.any()) {
-                        argSpecs.add(new ArgSpec(wire, position++, new ArrowType.Null(), "",
+                        argSpecs.add(new ArgSpec(wire, position++, new ArrowType.Null(), vec.doc(),
                                 false, false, "", List.of(vec.typeBound()), true, true));
                         binders.add(new VarargsVectorBinder());
                     } else if (vec.varargs()) {
                         // Typed varargs: List<BigIntVector> → element type drives Arrow type
                         ArrowType eltType = varargsElementArrowType(p);
-                        argSpecs.add(ArgSpec.varargs(wire, position++, eltType));
+                        argSpecs.add(new ArgSpec(wire, position++, eltType, vec.doc(), true,
+                                false, "", List.of(), true, false));
                         binders.add(new VarargsVectorBinder());
                     } else if (vec.any()) {
-                        argSpecs.add(ArgSpec.any(wire, position++, List.of(vec.typeBound())));
+                        argSpecs.add(new ArgSpec(wire, position++, new ArrowType.Null(), vec.doc(),
+                                false, false, "", List.of(vec.typeBound()), false, true));
                         binders.add(new VectorBinder(p.getType()));
                     } else {
                         ArrowType t = vectorClassToArrow(p.getType());
-                        argSpecs.add(new ArgSpec(wire, position++, t));
+                        argSpecs.add(new ArgSpec(wire, position++, t, vec.doc(), false,
+                                false, "", List.of(), false, false));
                         binders.add(new VectorBinder(p.getType()));
                     }
                 } else if (c != null) {
                     String wire = c.value().isEmpty() ? snake(p.getName()) : c.value();
                     ArrowType t = javaTypeToArrow(p.getType());
-                    argSpecs.add(ArgSpec.positional(wire, position++, t));
+                    argSpecs.add(new ArgSpec(wire, position++, t, c.doc(), true,
+                                false, "", List.of(), false, false));
                     binders.add(new ConstBinder(p.getType(), constDeclIdx++));
                 } else if (s != null) {
                     String key = s.value().isEmpty() ? snake(p.getName()) : s.value();
