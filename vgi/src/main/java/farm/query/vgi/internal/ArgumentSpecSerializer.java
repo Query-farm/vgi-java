@@ -51,6 +51,8 @@ public final class ArgumentSpecSerializer {
             if (spec.varargs()) meta.put("vgi_varargs", "true");
             if (spec.anyType()) meta.put("vgi_type", "any");
             if (spec.tableInput()) meta.put("vgi_type", "table");
+            // Per-argument description (UTF-8; presence-only — omit when empty).
+            if (spec.doc() != null && !spec.doc().isEmpty()) meta.put("vgi_doc", spec.doc());
             FieldType ft = new FieldType(true, spec.arrowType(), null,
                     meta.isEmpty() ? null : meta);
             fields.add(new Field(spec.name(), ft, spec.children()));
