@@ -1664,9 +1664,15 @@ public final class VgiServiceImpl implements VgiService {
     private static farm.query.vgi.protocol.MacroInfo toMacroInfo(Macro m) {
         String macroType = m.macroType() == MacroType.SCALAR ? "scalar" : "table";
         byte[] defaults = MacroDefaultsEncoder.encode(m.parameterDefaults());
+        // arguments_schema: one nullable field per parameter (in order), field
+        // type from the default-value literal when known else Arrow null, and a
+        // vgi_doc field-metadata entry for each documented parameter. Last in
+        // the MacroInfo field order; additive + optional.
+        byte[] argumentsSchema = MacroArgumentsSchema.toIpcBytes(
+                m.parameters(), m.parameterDefaults(), m.parameterDocs());
         return new farm.query.vgi.protocol.MacroInfo(
                 m.comment(), m.tags(), m.name(), m.schema(), macroType,
-                m.parameters(), defaults, m.definition());
+                m.parameters(), defaults, m.definition(), argumentsSchema);
     }
 
     /**

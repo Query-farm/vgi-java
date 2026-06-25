@@ -26,6 +26,14 @@ import java.util.Map;
  * @param parameters               positional parameter names.
  * @param parameter_default_values IPC-encoded 1-row batch of named-parameter defaults, or {@code null}.
  * @param definition               the macro body / SQL definition.
+ * @param arguments_schema         optional Arrow schema (serialized as IPC bytes) with one
+ *                                 nullable field per parameter, in {@code parameters} order;
+ *                                 each field's type is the parameter's default-value type when
+ *                                 known (else Arrow null), and the {@code vgi_doc} field
+ *                                 metadata key carries the parameter's description (UTF-8,
+ *                                 presence-only). Mirrors the per-argument doc channel
+ *                                 functions expose. {@code null} when the worker supplied no
+ *                                 per-parameter docs (older workers). Last in field order.
  */
 public record MacroInfo(
         @Nullable String comment,
@@ -35,5 +43,6 @@ public record MacroInfo(
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String macro_type,
         List<String> parameters,
         @Nullable byte[] parameter_default_values,
-        String definition) implements ArrowSerializableRecord {
+        String definition,
+        @Nullable byte[] arguments_schema) implements ArrowSerializableRecord {
 }

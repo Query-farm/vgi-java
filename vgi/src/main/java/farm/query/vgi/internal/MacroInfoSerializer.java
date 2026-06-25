@@ -15,6 +15,7 @@ import static farm.query.vgi.internal.IpcStructBuilder.mapUtf8Utf8;
 import static farm.query.vgi.internal.IpcStructBuilder.nonNull;
 import static farm.query.vgi.internal.IpcStructBuilder.nullable;
 import static farm.query.vgi.internal.IpcStructBuilder.writeMap;
+import static farm.query.vgi.internal.IpcStructBuilder.writeNullableVarBinary;
 import static farm.query.vgi.internal.IpcStructBuilder.writeStringList;
 import static farm.query.vgi.internal.IpcStructBuilder.writeVarBinarySafe;
 import static farm.query.vgi.internal.IpcStructBuilder.writeVarChar;
@@ -40,7 +41,8 @@ public final class MacroInfoSerializer {
             MACRO_TYPE.field(false),
             listOfPrim("parameters", UTF8),
             nonNull("parameter_default_values", BINARY),
-            nonNull("definition", UTF8)));
+            nonNull("definition", UTF8),
+            nullable("arguments_schema", BINARY)));
 
     /**
      * Serialise {@code info} as the 1-row IPC stream the C++ extension reads for a catalog macro.
@@ -61,6 +63,7 @@ public final class MacroInfoSerializer {
             writeStringList(v.get("parameters"), info.parameters());
             writeVarBinarySafe(v.get("parameter_default_values"), info.parameter_default_values());
             writeVarChar(v.get("definition"), info.definition());
+            writeNullableVarBinary(v.get("arguments_schema"), info.arguments_schema());
         });
     }
 }

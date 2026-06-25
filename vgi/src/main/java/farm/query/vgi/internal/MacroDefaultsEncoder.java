@@ -76,6 +76,18 @@ public final class MacroDefaultsEncoder {
         }
     }
 
+    /**
+     * Infer the Arrow type a default-value SQL literal encodes to, using the
+     * same loose parsing {@link #encode} applies. Used by
+     * {@link MacroArgumentsSchema} to type each parameter field.
+     *
+     * @param literal the default-value SQL literal
+     * @return the Arrow type the literal encodes to
+     */
+    public static ArrowType arrowTypeForLiteral(String literal) {
+        return arrowTypeFor(parse(literal));
+    }
+
     private static Object parse(String literal) {
         if (literal == null) return null;
         String s = literal.trim();
