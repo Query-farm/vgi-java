@@ -101,6 +101,15 @@ public final class Main {
         return m;
     }
 
+    /** Build an ordered name→value map preserving insertion order. */
+    private static java.util.Map<String, String> orderedMap(String... kv) {
+        java.util.LinkedHashMap<String, String> m = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < kv.length; i += 2) {
+            m.put(kv[i], kv[i + 1]);
+        }
+        return m;
+    }
+
     /** Build a Field with optional {@code comment} and {@code default} metadata
      *  (read by the C++ extension at vgi_catalog_api.cpp:2061-2078). */
     private static Field col(String name,
@@ -1064,18 +1073,26 @@ public final class Main {
     private static void registerMacros(Worker w) {
         w.registerMacro(new Macro(
                         "main", "vgi_multiply", MacroType.SCALAR,
-                        List.of("x", "y"), "x * y", "Multiply two values"))
+                        List.of("x", "y"),
+                        Map.of(),
+                        orderedMap("x", "First factor", "y", "Second factor"),
+                        "x * y", "Multiply two values", Map.of()))
                 .registerMacro(new Macro(
                         "main", "vgi_clamp", MacroType.SCALAR,
                         List.of("val", "lo", "hi"),
                         clampDefaults(),
+                        orderedMap("val", "Value to clamp",
+                                "lo", "Lower bound (inclusive)",
+                                "hi", "Upper bound (inclusive)"),
                         "GREATEST(lo, LEAST(hi, val))",
-                        "Clamp a value between lo and hi (defaults: 0..100)"))
+                        "Clamp a value between lo and hi (defaults: 0..100)", Map.of()))
                 .registerMacro(new Macro(
                         "main", "vgi_range_table", MacroType.TABLE,
                         List.of("n"),
+                        Map.of(),
+                        orderedMap("n", "Number of rows to generate"),
                         "SELECT * FROM range(n)",
-                        "Table macro returning range of values"));
+                        "Table macro returning range of values", Map.of()));
     }
 
     private static void runWorker(Worker w, String[] args) {
