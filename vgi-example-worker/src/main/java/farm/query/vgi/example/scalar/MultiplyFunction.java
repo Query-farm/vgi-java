@@ -15,8 +15,8 @@ public final class MultiplyFunction extends ScalarFn {
     @Override public String description() { return "Multiplies a value by a constant factor"; }
 
     public void compute(
-            @Vector BigIntVector value,
-            @Const long factor,
+            @Vector(doc = "Integer value to multiply") BigIntVector value,
+            @Const(doc = "Multiplication factor") long factor,
             BigIntVector result) {
         int rows = value.getValueCount();
 
