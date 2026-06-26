@@ -17,6 +17,11 @@ import java.util.Map;
  * @param inputSchema the Arrow schema of the input stream (may be {@code null}
  *     or empty during catalog enumeration).
  * @param settings the session settings in effect for this bind.
+ * @param secrets the resolved secret bytes, or {@code null} when none were sent;
+ *     populated on the second bind pass of the two-phase secret bind.
+ * @param resolvedSecretsProvided {@code true} on the re-bind that follows a
+ *     first-pass secret-lookup request (see {@code BindResponse}); a function
+ *     requests secrets on the first pass and reads them once this is true.
  * @param attachOpaqueData the catalog attach's opaque identifier bytes, or
  *     {@code null} during catalog enumeration.
  * @param attachStorage a storage facade scoped to {@code attachOpaqueData} —
@@ -28,6 +33,8 @@ public record TableInOutBindParams(
         Arguments arguments,
         Schema inputSchema,
         Map<String, Object> settings,
+        byte[] secrets,
+        boolean resolvedSecretsProvided,
         byte[] attachOpaqueData,
         farm.query.vgi.storage.BoundStorage attachStorage) {
 
@@ -41,6 +48,6 @@ public record TableInOutBindParams(
      */
     public TableInOutBindParams(String functionName, Arguments arguments, Schema inputSchema,
                                  Map<String, Object> settings) {
-        this(functionName, arguments, inputSchema, settings, null, null);
+        this(functionName, arguments, inputSchema, settings, null, false, null, null);
     }
 }

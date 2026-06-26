@@ -161,7 +161,7 @@ public final class VgiServiceImpl implements VgiService {
     private record BoundBuffering(farm.query.vgi.buffering.TableBufferingFunction fn, Arguments args,
                                    Schema inputSchema, Schema outputSchema, Map<String, Object> settings,
                                    byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
-                                   byte[] attachId, byte[] bindOpaqueData)
+                                   byte[] secrets, byte[] attachId, byte[] bindOpaqueData)
             implements BoundEntry {}
 
     /**
@@ -278,13 +278,14 @@ public final class VgiServiceImpl implements VgiService {
         AuthContext auth = authOf(ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
+                request.secrets(), request.resolved_secrets_provided(),
                 attachPlain, attachScopedStorage(attachPlain)));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
         pendingBinds.put(bytesKey(token), new BoundBuffering(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
-                attachPlain, bindOpaque));
+                request.secrets(), attachPlain, bindOpaque));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -332,6 +333,7 @@ public final class VgiServiceImpl implements VgiService {
         TableInOutFunction fn = OverloadResolver.pick(tableInOuts.get(name), argCount, args, inputSchema);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
+                request.secrets(), request.resolved_secrets_provided(),
                 attachPlain, attachScopedStorage(attachPlain)));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
@@ -497,7 +499,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.tablesample_percentage(), request.tablesample_seed(),
                 request.order_by_column_name(), request.order_by_direction(),
                 request.order_by_null_order(), request.order_by_limit(),
-                execId, null, bb.attachId(), bb.bindOpaqueData(), null, null, storage);
+                execId, bb.secrets(), bb.attachId(), bb.bindOpaqueData(), null, null, storage);
         farm.query.vgi.buffering.TableBufferingFinalizeParams fparams =
                 new farm.query.vgi.buffering.TableBufferingFinalizeParams(
                         execId, request.finalize_state_id(), bb.attachId(), storage, initParams);
