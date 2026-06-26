@@ -24,6 +24,10 @@ import farm.query.vgirpc.schema.Nullable;
  *     a function-backed table reads it at init via {@code init_call.bind_call.at_value} so it can
  *     time-travel alongside filter/projection pushdown
  * @param at_value the time-travel AT clause value, or {@code null} when absent
+ * @param copy_from the {@code COPY ... FROM} context, present only when this bind opens a
+ *     COPY-FROM scan; {@code null} for every ordinary scan. Additive, nullable, name-keyed
+ *     nested-struct wire field — the C++ extension omits it entirely outside COPY, so both
+ *     wire shapes decode
  */
 public record BindRequest(
         String function_name,
@@ -36,4 +40,5 @@ public record BindRequest(
         byte[] transaction_opaque_data,
         boolean resolved_secrets_provided,
         @Nullable String at_unit,
-        @Nullable String at_value) implements ArrowSerializableRecord {}
+        @Nullable String at_value,
+        @Nullable CopyFromContext copy_from) implements ArrowSerializableRecord {}

@@ -365,6 +365,22 @@ public interface VgiService {
      */
     ItemsResponse catalog_schema_get(byte[] attach_opaque_data, String name, @Nullable byte[] transaction_opaque_data);
 
+    /**
+     * List the custom {@code COPY ... FROM} formats this catalog advertises
+     * (catalog-level, not schema-scoped). The VGI extension registers one DuckDB
+     * {@code CopyFunction} per returned item at ATTACH time so users can run
+     * {@code COPY target FROM 'path' (FORMAT <name>, opt val, ...)}. Default is
+     * empty, so catalogs without custom formats are unaffected. Additive RPC.
+     *
+     * @param attach_opaque_data      the attach handle
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @return one item per advertised {@code COPY ... FROM} format; default is empty
+     */
+    default ItemsResponse catalog_copy_from_formats(
+            byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data) {
+        return ItemsResponse.empty();
+    }
+
     // -----------------------------------------------------------------------
     // Catalog: schema contents
     // -----------------------------------------------------------------------

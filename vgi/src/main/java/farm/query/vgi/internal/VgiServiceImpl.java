@@ -149,7 +149,8 @@ public final class VgiServiceImpl implements VgiService {
                                Schema outputSchema, Map<String, Object> settings,
                                byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
                                byte[] secrets, byte[] attachId, byte[] bindOpaqueData,
-                               String atUnit, String atValue)
+                               String atUnit, String atValue,
+                               farm.query.vgi.protocol.CopyFromContext copyFrom)
             implements BoundEntry {}
 
     private record BoundTableInOut(TableInOutFunction fn, Arguments args, Schema inputSchema,
@@ -315,14 +316,16 @@ public final class VgiServiceImpl implements VgiService {
                 request.transaction_opaque_data(), request.attach_opaque_data(), auth);
         TableBindParams bindParams = new TableBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(), attachPlain,
-                transactionStore.view(txnPlain, attachPlain), attachScopedStorage(attachPlain));
+                transactionStore.view(txnPlain, attachPlain), attachScopedStorage(attachPlain),
+                request.copy_from());
         BindResponse upstream = fn.onBind(bindParams);
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
         pendingBinds.put(bytesKey(token), new BoundTable(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
-                request.secrets(), attachPlain, bindOpaque, request.at_unit(), request.at_value()));
+                request.secrets(), attachPlain, bindOpaque, request.at_unit(), request.at_value(),
+                request.copy_from()));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -436,7 +439,8 @@ public final class VgiServiceImpl implements VgiService {
                 bt.bindOpaqueData(),
                 bt.atUnit(),
                 bt.atValue(),
-                new farm.query.vgi.storage.BoundStorage(this.storage, execId, bt.attachId()));
+                new farm.query.vgi.storage.BoundStorage(this.storage, execId, bt.attachId()),
+                bt.copyFrom());
         TableProducerState state = bt.fn().createProducer(params);
         return RpcStream.producer(fnOutputSchema, state, header);
     }
@@ -499,7 +503,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.tablesample_percentage(), request.tablesample_seed(),
                 request.order_by_column_name(), request.order_by_direction(),
                 request.order_by_null_order(), request.order_by_limit(),
-                execId, bb.secrets(), bb.attachId(), bb.bindOpaqueData(), null, null, storage);
+                execId, bb.secrets(), bb.attachId(), bb.bindOpaqueData(), null, null, storage, null);
         farm.query.vgi.buffering.TableBufferingFinalizeParams fparams =
                 new farm.query.vgi.buffering.TableBufferingFinalizeParams(
                         execId, request.finalize_state_id(), bb.attachId(), storage, initParams);
@@ -1763,6 +1767,57 @@ public final class VgiServiceImpl implements VgiService {
         return new ItemsResponse(items);
     }
 
+    /**
+     * List the custom {@code COPY ... FROM} formats advertised by this catalog
+     * (catalog-level, not schema-scoped). Introspects the registered table
+     * functions for {@link farm.query.vgi.table.CopyFromFunction} instances and
+     * converts each into a {@code CopyFromFormatInfo}. Mirrors vgi-python's
+     * {@code ReadOnlyCatalogInterface.copy_from_formats}: the option schema
+     * reuses the same argument serialization as the function-enumeration path,
+     * so option types / defaults / {@code vgi_doc} descriptions surface
+     * identically to {@code vgi_function_arguments()}.
+     *
+     * <p>Auxiliary (prefix-owned) catalogs advertise no COPY formats — the
+     * format readers belong to the main catalog only.
+     *
+     * @param attach_opaque_data the attach token
+     * @param transaction_opaque_data the optional transaction token
+     * @return one serialised {@code CopyFromFormatInfo} per registered format reader
+     */
+    @Override
+    public ItemsResponse catalog_copy_from_formats(byte[] attach_opaque_data,
+                                                    byte[] transaction_opaque_data) {
+        // COPY formats are owned by the main catalog; an auxiliary catalog's
+        // attach advertises none (parallels catalog_schemas' extra-catalog gate).
+        if (extraCatalogOf(attach_opaque_data) != null) return ItemsResponse.empty();
+        boolean projReproAttach =
+                "projection_repro".equals(catalogRegistry.catalogName(attach_opaque_data));
+        List<byte[]> items = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (List<TableFunction> variants : tables.values()) {
+            for (TableFunction fn : variants) {
+                if (!(fn instanceof farm.query.vgi.table.CopyFromFunction cf)) continue;
+                // Same per-catalog ownership rules as the function listing.
+                if (!projReproAttach && fn.name().startsWith("proj_repro_")) continue;
+                if (projReproAttach && !fn.name().startsWith("proj_repro_")) continue;
+                if (!projReproAttach && ownedByExtraCatalog(fn.name())) continue;
+                String format = cf.copyFromFormat();
+                if (format == null || format.isEmpty() || !seen.add(format)) continue;
+                farm.query.vgi.function.FunctionMetadata md = fn.metadata();
+                items.add(CopyFromFormatInfoSerializer.serialize(
+                        new farm.query.vgi.protocol.CopyFromFormatInfo(
+                                cf.copyFromComment(),
+                                md.tags() == null ? Map.of() : md.tags(),
+                                format,
+                                fn.name(),
+                                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()),
+                                cf.copyFromDirection(),
+                                md.description() == null ? "" : md.description())));
+            }
+        }
+        return new ItemsResponse(items);
+    }
+
     private FunctionInfo toScalarFunctionInfo(ScalarFunction fn, String schemaName) {
         return scalarFunctionInfo(fn, schemaName);
     }
@@ -1783,6 +1838,15 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private FunctionInfo toTableFunctionInfo(TableFunction fn, String schemaName) {
+        if (fn instanceof farm.query.vgi.table.CopyFromFunction) {
+            // COPY-FROM readers have no static output schema — it's the COPY
+            // target's columns, supplied per-statement via the copy_from bind
+            // context. Calling onBind here would (intentionally) throw, so
+            // advertise an empty output schema, mirroring vgi-python's
+            // _function_to_info (which emits an empty schema for table funcs).
+            return baseFunctionInfo(fn, schemaName, "table",
+                    SchemaUtil.serializeSchema(new Schema(List.of())), false);
+        }
         BindResponse r = fn.onBind(new TableBindParams(fn.name(), Arguments.empty(), null, Map.of()));
         return baseFunctionInfo(fn, schemaName, "table", bindOutput(r), false);
     }

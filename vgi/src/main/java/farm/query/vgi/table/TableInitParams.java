@@ -45,6 +45,9 @@ import java.util.Map;
  * @param storage the per-execution shared-state facade (scoped to
  *     {@code executionId}, shard-pinned to the attach) — mirrors vgi-python's
  *     {@code params.storage}
+ * @param copyFrom the {@code COPY ... FROM} context, set only when this init drives a
+ *     COPY-FROM scan (see {@link farm.query.vgi.table.CopyFromFunction}); {@code null}
+ *     for every ordinary table-function init
  */
 public record TableInitParams(
         String functionName,
@@ -67,7 +70,8 @@ public record TableInitParams(
         byte[] bindOpaqueData,
         String atUnit,
         String atValue,
-        farm.query.vgi.storage.BoundStorage storage) {
+        farm.query.vgi.storage.BoundStorage storage,
+        farm.query.vgi.protocol.CopyFromContext copyFrom) {
 
     /**
      * Wrap the raw {@link #pushdownFilters} / {@link #joinKeys} bytes into a

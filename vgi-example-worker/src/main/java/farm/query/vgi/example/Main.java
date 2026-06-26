@@ -307,6 +307,7 @@ public final class Main {
             // their vgi_catalogs() output must stay single-row.
             registerAccumulate(w);
             registerNarrowBind(w);
+            registerCopyFrom(w);
         }
         registerViews(w);
         registerCatalogTables(w);
@@ -994,6 +995,11 @@ public final class Main {
                         .comment("narrow-bind reproducer table -> narrow_bind_wide_scan")
                         .scanFunction("narrow_bind_wide_scan", List.of(3L), Map.of())
                         .build());
+    }
+
+    /** Register the toy {@code COPY ... FROM} format reader ({@code example_lines}). */
+    private static void registerCopyFrom(Worker w) {
+        w.registerTable(new farm.query.vgi.example.copyfrom.ExampleLinesCopyFromFunction());
     }
 
     private static void registerBuffering(Worker w) {

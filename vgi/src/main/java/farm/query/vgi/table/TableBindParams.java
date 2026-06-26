@@ -24,6 +24,9 @@ import java.util.Map;
  * @param attachStorage a storage facade scoped to {@code attachId} — state that
  *     persists across queries within one ATTACH session; {@code null} when the
  *     bind has no attach context (catalog enumeration, cardinality/statistics)
+ * @param copyFrom the {@code COPY ... FROM} context, set only when this bind opens a
+ *     COPY-FROM scan (see {@link farm.query.vgi.table.CopyFromFunction}); {@code null}
+ *     for every ordinary table-function bind
  */
 public record TableBindParams(
         String functionName,
@@ -34,7 +37,8 @@ public record TableBindParams(
         boolean resolvedSecretsProvided,
         byte[] attachId,
         TransactionStorage transactionStorage,
-        farm.query.vgi.storage.BoundStorage attachStorage) {
+        farm.query.vgi.storage.BoundStorage attachStorage,
+        farm.query.vgi.protocol.CopyFromContext copyFrom) {
 
     /**
      * Convenience constructor with no secrets, attach id, or transaction storage.
@@ -46,7 +50,7 @@ public record TableBindParams(
      */
     public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
                             Map<String, Object> settings) {
-        this(functionName, arguments, inputSchema, settings, null, false, null, null, null);
+        this(functionName, arguments, inputSchema, settings, null, false, null, null, null, null);
     }
 
     /**
@@ -63,7 +67,7 @@ public record TableBindParams(
                             Map<String, Object> settings, byte[] secrets,
                             boolean resolvedSecretsProvided) {
         this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided,
-                null, null, null);
+                null, null, null, null);
     }
 
     /**
@@ -81,6 +85,6 @@ public record TableBindParams(
                             Map<String, Object> settings, byte[] secrets,
                             boolean resolvedSecretsProvided, byte[] attachId) {
         this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided,
-                attachId, null, null);
+                attachId, null, null, null);
     }
 }
