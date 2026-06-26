@@ -78,6 +78,11 @@ public final class SecretDemoFunction implements TableFunction {
                     // Descend into its children, skipping protocol fields
                     // that aren't user-supplied parameters.
                     if (v instanceof org.apache.arrow.vector.complex.StructVector sv) {
+                        // Secrets are keyed by name; select the vgi_example-typed one.
+                        FieldVector typeCol = sv.getChild("type");
+                        String secretType = (typeCol != null && !typeCol.isNull(0))
+                                ? String.valueOf(typeCol.getObject(0)) : "";
+                        if (!"vgi_example".equals(secretType)) continue;
                         for (Field child : f.getChildren()) {
                             String name = child.getName();
                             if (PROTOCOL_FIELDS.contains(name)) continue;
@@ -104,7 +109,7 @@ public final class SecretDemoFunction implements TableFunction {
 
     /** Protocol-supplied fields on a resolved secret struct (not user data). */
     private static final java.util.Set<String> PROTOCOL_FIELDS =
-            java.util.Set.of("name", "type", "provider");
+            java.util.Set.of("name", "type", "provider", "scope");
 
     /** Friendly Arrow type name (Utf8 → "string", Int64 → "int64", etc.). */
     private static String arrowTypeName(Field f) {

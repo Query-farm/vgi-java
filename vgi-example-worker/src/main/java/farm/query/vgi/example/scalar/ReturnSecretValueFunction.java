@@ -30,7 +30,7 @@ public final class ReturnSecretValueFunction implements ScalarFunction {
 
     private static final byte[] OUTPUT_SCHEMA_IPC = Schemas.singleResultIpc(Schemas.UTF8);
     private static final java.util.Set<String> PROTOCOL_FIELDS =
-            java.util.Set.of("name", "type", "provider");
+            java.util.Set.of("name", "type", "provider", "scope");
 
     private static final FunctionSpec SPEC = FunctionSpec.builder("return_secret_value")
             .description("Return a secret's value")
@@ -73,6 +73,11 @@ public final class ReturnSecretValueFunction implements ScalarFunction {
                     FieldVector vv = root.getVector(f.getName());
                     if (vv == null || vv.isNull(0)) continue;
                     if (vv instanceof org.apache.arrow.vector.complex.StructVector sv) {
+                        // Secrets are keyed by name; select the vgi_example-typed one.
+                        FieldVector typeCol = sv.getChild("type");
+                        String secretType = (typeCol != null && !typeCol.isNull(0))
+                                ? String.valueOf(typeCol.getObject(0)) : "";
+                        if (!"vgi_example".equals(secretType)) continue;
                         for (Field child : f.getChildren()) {
                             String name = child.getName();
                             if (PROTOCOL_FIELDS.contains(name)) continue;
