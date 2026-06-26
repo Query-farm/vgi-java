@@ -143,4 +143,56 @@ class VectorScalarCodecTest {
             assertEquals("def", VectorScalarCodec.read(vc, 1));
         }
     }
+
+    @Test
+    void readsSparseUnionAsTaggedUnionPreservingMemberName() {
+        // Sparse UNION(i BIGINT, s VARCHAR) — the wire form DuckDB emits for
+        // a SQL UNION. Row 0 has member 'i' active (type id 0), row 1 has
+        // member 's' active (type id 1).
+        List<Field> members = List.of(
+                new Field("i", new FieldType(true, new ArrowType.Int(64, true), null), null),
+                new Field("s", new FieldType(true, new ArrowType.Utf8(), null), null));
+        ArrowType.Union unionType = new ArrowType.Union(
+                org.apache.arrow.vector.types.UnionMode.Sparse, new int[]{0, 1});
+        FieldType ft = new FieldType(true, unionType, null);
+        try (org.apache.arrow.vector.complex.UnionVector uv =
+                     new org.apache.arrow.vector.complex.UnionVector(
+                             "u", alloc, ft, /*callBack=*/null)) {
+            uv.initializeChildrenFromFields(members);
+            uv.allocateNew();
+            // Resolve children through the same accessor production code uses
+            // (getVectorByType), so the type ids and child sub-vectors stay
+            // consistent regardless of Arrow's internal child ordering.
+            BigIntVector iChild = (BigIntVector) uv.getVectorByType(0);
+            VarCharVector sChild = (VarCharVector) uv.getVectorByType(1);
+            iChild.setInitialCapacity(2);
+            sChild.setInitialCapacity(2);
+
+            // Row 0: member i active (type id 0).
+            uv.getTypeBuffer().setByte(
+                    0L * org.apache.arrow.vector.complex.UnionVector.TYPE_WIDTH, (byte) 0);
+            iChild.setSafe(0, 1L);
+            // Row 1: member s active (type id 1).
+            uv.getTypeBuffer().setByte(
+                    1L * org.apache.arrow.vector.complex.UnionVector.TYPE_WIDTH, (byte) 1);
+            sChild.setSafe(1, new Text("x"));
+
+            iChild.setValueCount(2);
+            sChild.setValueCount(2);
+            uv.setValueCount(2);
+
+            Object r0 = VectorScalarCodec.read(uv, 0);
+            Object r1 = VectorScalarCodec.read(uv, 1);
+            assertTrue(r0 instanceof farm.query.vgi.function.TaggedUnion,
+                    "expected TaggedUnion, got " + r0);
+            assertTrue(r1 instanceof farm.query.vgi.function.TaggedUnion,
+                    "expected TaggedUnion, got " + r1);
+            farm.query.vgi.function.TaggedUnion t0 = (farm.query.vgi.function.TaggedUnion) r0;
+            farm.query.vgi.function.TaggedUnion t1 = (farm.query.vgi.function.TaggedUnion) r1;
+            assertEquals("i", t0.tag());
+            assertEquals(1L, t0.value());
+            assertEquals("s", t1.tag());
+            assertEquals("x", t1.value());
+        }
+    }
 }

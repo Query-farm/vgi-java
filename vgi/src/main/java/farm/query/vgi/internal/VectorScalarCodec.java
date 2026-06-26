@@ -24,11 +24,16 @@ import org.apache.arrow.vector.UInt4Vector;
 import org.apache.arrow.vector.UInt8Vector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.complex.DenseUnionVector;
 import org.apache.arrow.vector.complex.FixedSizeListVector;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.StructVector;
+import org.apache.arrow.vector.complex.UnionVector;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.util.Text;
+
+import farm.query.vgi.function.TaggedUnion;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -68,7 +73,8 @@ public final class VectorScalarCodec {
      * @return the normalised Java value, or {@code null} for a null cell (structs excepted)
      */
     public static Object read(FieldVector v, int row) {
-        if (!(v instanceof StructVector) && v.isNull(row)) return null;
+        if (!(v instanceof StructVector) && !(v instanceof UnionVector)
+                && !(v instanceof DenseUnionVector) && v.isNull(row)) return null;
         if (v instanceof BigIntVector b) return b.get(row);
         if (v instanceof IntVector i) return (long) i.get(row);
         if (v instanceof SmallIntVector s) return (long) s.get(row);
@@ -119,7 +125,58 @@ public final class VectorScalarCodec {
             for (int i = 0; i < width; i++) out.add(read(inner, start + i));
             return out;
         }
+        if (v instanceof DenseUnionVector du) {
+            byte typeId = du.getTypeId(row);
+            FieldVector child = (FieldVector) du.getVectorByType(typeId);
+            String tag = unionMemberName(du.getField(), typeId, child);
+            int offset = du.getOffset(row);
+            Object value = child == null ? null : read(child, offset);
+            return new TaggedUnion(tag, value);
+        }
+        if (v instanceof UnionVector uv) {
+            // Sparse union (DuckDB's wire form): the active member's value lives
+            // at the same row index in the type-id-selected child sub-vector.
+            int typeValue = uv.getTypeValue(row);
+            FieldVector child = (FieldVector) uv.getVectorByType(typeValue);
+            String tag = unionMemberName(uv.getField(), typeValue, child);
+            Object value = child == null ? null : read(child, row);
+            return new TaggedUnion(tag, value);
+        }
         return v.getObject(row);
+    }
+
+    /**
+     * Resolve the active union member's field name (the discriminator tag) for
+     * a given runtime type id.
+     *
+     * <p>The union {@link Field}'s declared children carry the authoritative
+     * member names (e.g. {@code "i"} / {@code "s"} for DuckDB's
+     * {@code UNION(i BIGINT, s VARCHAR)}); the {@link ArrowType.Union}'s
+     * {@code typeIds} array maps each declared child to its id, which we invert.
+     * The runtime child sub-vector's name is only a fallback — Arrow's
+     * canonical {@code UnionVector} renames children by minor type
+     * ({@code "bigint"}, {@code "varchar"}) when built outside an IPC round
+     * trip, so it is not reliable on its own.
+     *
+     * @param unionField the union's declared {@link Field}
+     * @param typeId     the active runtime type id
+     * @param child      the active child sub-vector (may be {@code null})
+     * @return the active member's field name
+     */
+    private static String unionMemberName(Field unionField, int typeId, FieldVector child) {
+        List<Field> children = unionField.getChildren();
+        if (unionField.getType() instanceof ArrowType.Union ut) {
+            int[] ids = ut.getTypeIds();
+            if (ids != null) {
+                for (int i = 0; i < ids.length; i++) {
+                    if (ids[i] == typeId && i < children.size()) {
+                        return children.get(i).getName();
+                    }
+                }
+            }
+        }
+        if (typeId >= 0 && typeId < children.size()) return children.get(typeId).getName();
+        return child != null ? child.getName() : String.valueOf(typeId);
     }
 
     /**

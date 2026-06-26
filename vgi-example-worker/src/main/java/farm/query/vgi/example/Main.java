@@ -489,6 +489,7 @@ public final class Main {
                 new farm.query.vgi.example.table.BrokenPartitionColumnsFunctions.BrokenPartitionColumnAbsentFromBatch(),
                 new farm.query.vgi.example.table.TypedProbeFunction(),
                 new farm.query.vgi.example.table.FilteredColumnsEchoFunction(),
+                new farm.query.vgi.example.table.UnionVarargsFunction(),
                 new farm.query.vgi.example.table.TxCachedValueFunction()));
     }
 
