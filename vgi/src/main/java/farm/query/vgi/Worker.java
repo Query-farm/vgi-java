@@ -13,6 +13,7 @@ import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgirpc.RpcServer;
 import farm.query.vgirpc.http.HttpServer;
 import farm.query.vgirpc.transport.StdioTransport;
+import farm.query.vgirpc.transport.TcpSocketTransport;
 import farm.query.vgirpc.transport.UnixSocketTransport;
 
 import java.io.IOException;
@@ -708,6 +709,56 @@ public final class Worker {
     }
 
     /**
+     * Block accepting TCP connections on {@code host}:{@code port}, dispatching
+     * each client on a virtual thread, implementing the VGI launcher protocol:
+     * the worker prints {@code TCP:<host>:<port>\n} to stdout once the listener
+     * is bound (the actual port, so {@code port == 0} ephemeral binds are
+     * discoverable), then serves until killed or the idle watchdog fires.
+     *
+     * <p>Raw TCP framing carries <strong>no authentication or encryption</strong>
+     * — bind it to loopback / a trusted network only; use {@link #runHttp} for
+     * untrusted networks.
+     *
+     * @param host          bind host ({@code "127.0.0.1"} for loopback)
+     * @param port          bind port; {@code 0} selects a free port
+     * @param idleTimeoutMs idle watchdog in milliseconds; {@code <= 0} disables it
+     * @throws IOException if the socket cannot be bound or served
+     */
+    public void runTcp(String host, int port, long idleTimeoutMs) throws IOException {
+        TcpSocketTransport.serveForever(host, port, buildServer(false), idleTimeoutMs,
+                (boundHost, boundPort) -> {
+                    System.out.println("TCP:" + boundHost + ":" + boundPort);
+                    System.out.flush();
+                });
+    }
+
+    /**
+     * Parsed {@code [HOST:]PORT} TCP bind spec. Host defaults to loopback.
+     *
+     * @param host bind host
+     * @param port bind port ({@code 0} = ephemeral)
+     */
+    public record TcpAddr(String host, int port) {}
+
+    /**
+     * Parse a {@code [HOST:]PORT} TCP bind spec as accepted by {@code --tcp}.
+     * A bare {@code PORT} binds {@code 127.0.0.1}; an empty host (leading
+     * {@code ":"}) also defaults to loopback.
+     *
+     * @param spec the {@code [HOST:]PORT} string
+     * @return the parsed host/port
+     */
+    public static TcpAddr parseTcpAddr(String spec) {
+        int idx = spec.lastIndexOf(':');
+        if (idx >= 0) {
+            String h = spec.substring(0, idx);
+            return new TcpAddr(h.isEmpty() ? "127.0.0.1" : h,
+                    Integer.parseInt(spec.substring(idx + 1)));
+        }
+        return new TcpAddr("127.0.0.1", Integer.parseInt(spec));
+    }
+
+    /**
      * Run as an HTTP server bound to {@code host}/{@code port}, blocking until shutdown.
      *
      * @param host bind host
@@ -723,8 +774,9 @@ public final class Worker {
      * the four flags every VGI worker accepts and runs the matching transport:
      * <ul>
      *   <li>{@code --unix <path>}: AF_UNIX socket (launcher protocol)
+     *   <li>{@code --tcp [<host>:]<port>}: TCP socket (launcher protocol)
      *   <li>{@code --http} with optional {@code --host}, {@code --port}: HTTP
-     *   <li>{@code --idle-timeout <seconds>}: passed to {@code runUnixSocket}
+     *   <li>{@code --idle-timeout <seconds>}: passed to {@code runUnixSocket} / {@code runTcp}
      *   <li>(default): stdio
      * </ul>
      * Also honours {@code VGI_WORKER_STDERR}: redirects {@link System#err} to
@@ -752,6 +804,7 @@ public final class Worker {
         String host = "127.0.0.1";
         int port = 0;
         String unixSocket = null;
+        String tcpAddr = null;
         long idleTimeoutMs = 0;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -759,6 +812,7 @@ public final class Worker {
                 case "--host" -> host = args[++i];
                 case "--port" -> port = Integer.parseInt(args[++i]);
                 case "--unix" -> unixSocket = args[++i];
+                case "--tcp" -> tcpAddr = args[++i];
                 case "--idle-timeout" -> idleTimeoutMs =
                         (long) (Double.parseDouble(args[++i]) * 1000.0);
                 default -> { System.err.println("unknown arg: " + args[i]); System.exit(2); }
@@ -767,6 +821,9 @@ public final class Worker {
         try {
             if (unixSocket != null) {
                 runUnixSocket(Path.of(unixSocket), idleTimeoutMs);
+            } else if (tcpAddr != null) {
+                TcpAddr a = parseTcpAddr(tcpAddr);
+                runTcp(a.host(), a.port(), idleTimeoutMs);
             } else if (http) {
                 HttpServer.Config.Builder b = HttpServer.Config.builder().host(host).port(port);
                 if (httpCustomizer != null) b = httpCustomizer.apply(b);

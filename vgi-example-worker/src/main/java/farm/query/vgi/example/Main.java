@@ -1100,6 +1100,7 @@ public final class Main {
         String host = "127.0.0.1";
         int port = 0;
         String unixSocket = null;
+        String tcpAddr = null;
         long idleTimeoutMs = 0;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -1107,6 +1108,7 @@ public final class Main {
                 case "--host" -> host = args[++i];
                 case "--port" -> port = Integer.parseInt(args[++i]);
                 case "--unix" -> unixSocket = args[++i];
+                case "--tcp" -> tcpAddr = args[++i];
                 case "--idle-timeout" ->
                         idleTimeoutMs = (long) (Double.parseDouble(args[++i]) * 1000.0);
                 // Launcher cache-key / fixture-parity flags. The vgi-python
@@ -1123,6 +1125,11 @@ public final class Main {
         if (unixSocket != null) {
             try { w.runUnixSocket(java.nio.file.Path.of(unixSocket), idleTimeoutMs); }
             catch (Exception e) { e.printStackTrace(); System.exit(1); }
+        } else if (tcpAddr != null) {
+            try {
+                Worker.TcpAddr a = Worker.parseTcpAddr(tcpAddr);
+                w.runTcp(a.host(), a.port(), idleTimeoutMs);
+            } catch (Exception e) { e.printStackTrace(); System.exit(1); }
         } else if (http) {
             try { w.runHttp(buildHttpConfig(host, port)); }
             catch (Exception e) { e.printStackTrace(); System.exit(1); }
