@@ -308,6 +308,7 @@ public final class Main {
             registerAccumulate(w);
             registerNarrowBind(w);
             registerCopyFrom(w);
+            registerCopyTo(w);
         }
         registerViews(w);
         registerCatalogTables(w);
@@ -1001,6 +1002,18 @@ public final class Main {
     /** Register the toy {@code COPY ... FROM} format reader ({@code example_lines}). */
     private static void registerCopyFrom(Worker w) {
         w.registerTable(new farm.query.vgi.example.copyfrom.ExampleLinesCopyFromFunction());
+    }
+
+    /**
+     * Register the toy {@code COPY ... TO} format writers ({@code example_lines_out}
+     * and its ordered variant {@code example_lines_ordered_out}). They are
+     * TableBufferingFunctions with no Source phase — see
+     * {@link farm.query.vgi.table.CopyToFunction}.
+     */
+    private static void registerCopyTo(Worker w) {
+        w.registerTableBufferings(List.of(
+                new farm.query.vgi.example.copyto.ExampleLinesCopyToFunction(),
+                new farm.query.vgi.example.copyto.ExampleLinesOrderedCopyToFunction()));
     }
 
     private static void registerBuffering(Worker w) {

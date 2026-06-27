@@ -162,7 +162,9 @@ public final class VgiServiceImpl implements VgiService {
     private record BoundBuffering(farm.query.vgi.buffering.TableBufferingFunction fn, Arguments args,
                                    Schema inputSchema, Schema outputSchema, Map<String, Object> settings,
                                    byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
-                                   byte[] secrets, byte[] attachId, byte[] bindOpaqueData)
+                                   byte[] secrets, byte[] attachId, byte[] bindOpaqueData,
+                                   byte[] inputSchemaIpc,
+                                   farm.query.vgi.protocol.CopyToContext copyTo)
             implements BoundEntry {}
 
     /**
@@ -286,7 +288,8 @@ public final class VgiServiceImpl implements VgiService {
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
         pendingBinds.put(bytesKey(token), new BoundBuffering(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
-                request.secrets(), attachPlain, bindOpaque));
+                request.secrets(), attachPlain, bindOpaque,
+                request.input_schema(), request.copy_to()));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -480,7 +483,8 @@ public final class VgiServiceImpl implements VgiService {
                             farm.query.vgi.storage.BoundStorage.packIntKey(-1),
                             RecordCodec.serializeToBytes(new BufferingInitState(
                                     bb.argumentsIpc(), bb.settingsIpc(),
-                                    bb.outputSchemaIpc(), bb.attachId())));
+                                    bb.outputSchemaIpc(), bb.attachId(),
+                                    bb.inputSchemaIpc(), bb.copyTo())));
             // No data stream — emit the header then immediate EOS.
             return RpcStream.producer(realOutputSchema,
                     new FinalizeProducerState(List.of()), header);
@@ -1378,7 +1382,7 @@ public final class VgiServiceImpl implements VgiService {
     private BufferingInitState bufferingInitState(farm.query.vgi.storage.BoundStorage storage) {
         byte[] payload = storage.stateGet(farm.query.vgi.storage.FrameworkNs.BUFFERING_INIT,
                 farm.query.vgi.storage.BoundStorage.packIntKey(-1));
-        if (payload == null) return new BufferingInitState(null, null, null, null);
+        if (payload == null) return new BufferingInitState(null, null, null, null, null, null);
         return RecordCodec.deserializeFromBytes(payload, BufferingInitState.class);
     }
 
@@ -1401,7 +1405,9 @@ public final class VgiServiceImpl implements VgiService {
                 request.function_name(), request.execution_id(), storage, request.batch_index(), ctx,
                 ArgumentsParser.parse(init.arguments()),
                 init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
-                init.attach_plain() != null ? init.attach_plain() : attachPlain);
+                init.attach_plain() != null ? init.attach_plain() : attachPlain,
+                init.input_schema() == null ? null : SchemaUtil.deserializeSchema(init.input_schema()),
+                init.copy_to());
         byte[] stateId;
         try (org.apache.arrow.vector.VectorSchemaRoot root =
                      BatchUtil.readSingleBatch(request.input_batch(), Allocators.root())) {
@@ -1429,7 +1435,9 @@ public final class VgiServiceImpl implements VgiService {
                 request.function_name(), request.execution_id(), storage, ctx,
                 ArgumentsParser.parse(init.arguments()),
                 init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
-                init.attach_plain() != null ? init.attach_plain() : attachPlain);
+                init.attach_plain() != null ? init.attach_plain() : attachPlain,
+                init.input_schema() == null ? null : SchemaUtil.deserializeSchema(init.input_schema()),
+                init.copy_to());
         List<byte[]> ids = fn.combine(
                 request.state_ids() == null ? List.of() : request.state_ids(), params);
         return new farm.query.vgi.protocol.TableBufferingCombineResponse(ids);
@@ -1802,7 +1810,8 @@ public final class VgiServiceImpl implements VgiService {
                 if (projReproAttach && !fn.name().startsWith("proj_repro_")) continue;
                 if (!projReproAttach && ownedByExtraCatalog(fn.name())) continue;
                 String format = cf.copyFromFormat();
-                if (format == null || format.isEmpty() || !seen.add(format)) continue;
+                String direction = cf.copyFromDirection();
+                if (format == null || format.isEmpty() || !seen.add(direction + ":" + format)) continue;
                 farm.query.vgi.function.FunctionMetadata md = fn.metadata();
                 items.add(CopyFromFormatInfoSerializer.serialize(
                         new farm.query.vgi.protocol.CopyFromFormatInfo(
@@ -1811,8 +1820,33 @@ public final class VgiServiceImpl implements VgiService {
                                 format,
                                 fn.name(),
                                 ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()),
-                                cf.copyFromDirection(),
-                                md.description() == null ? "" : md.description())));
+                                direction,
+                                md.description() == null ? "" : md.description(),
+                                /*ordered=*/false)));
+            }
+        }
+        // COPY ... TO writers are TableBufferingFunctions; enumerate them from
+        // the buffering registry, mirroring vgi-python's copy_from_formats
+        // (the RPC name is historical — it returns all directions). The reader
+        // and writer for a shared format name are keyed by direction.
+        for (List<farm.query.vgi.buffering.TableBufferingFunction> variants : bufferingFns.values()) {
+            for (farm.query.vgi.buffering.TableBufferingFunction fn : variants) {
+                if (!(fn instanceof farm.query.vgi.table.CopyToFunction ct)) continue;
+                if (!projReproAttach && ownedByExtraCatalog(fn.name())) continue;
+                String format = ct.copyToFormat();
+                String direction = ct.copyToDirection();
+                if (format == null || format.isEmpty() || !seen.add(direction + ":" + format)) continue;
+                farm.query.vgi.function.FunctionMetadata md = fn.metadata();
+                items.add(CopyFromFormatInfoSerializer.serialize(
+                        new farm.query.vgi.protocol.CopyFromFormatInfo(
+                                ct.copyToComment(),
+                                md.tags() == null ? Map.of() : md.tags(),
+                                format,
+                                fn.name(),
+                                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()),
+                                direction,
+                                md.description() == null ? "" : md.description(),
+                                /*ordered=*/fn.sinkOrderDependent())));
             }
         }
         return new ItemsResponse(items);

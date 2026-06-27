@@ -9,10 +9,12 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import java.util.List;
 
 import static farm.query.vgi.internal.IpcStructBuilder.BINARY;
+import static farm.query.vgi.internal.IpcStructBuilder.BOOL;
 import static farm.query.vgi.internal.IpcStructBuilder.UTF8;
 import static farm.query.vgi.internal.IpcStructBuilder.mapUtf8Utf8;
 import static farm.query.vgi.internal.IpcStructBuilder.nonNull;
 import static farm.query.vgi.internal.IpcStructBuilder.nullable;
+import static farm.query.vgi.internal.IpcStructBuilder.writeBool;
 import static farm.query.vgi.internal.IpcStructBuilder.writeMap;
 import static farm.query.vgi.internal.IpcStructBuilder.writeVarBinarySafe;
 import static farm.query.vgi.internal.IpcStructBuilder.writeVarChar;
@@ -33,7 +35,8 @@ final class CopyFromFormatInfoSerializer {
             nonNull("handler", UTF8),
             nonNull("options", BINARY),
             nonNull("direction", UTF8),
-            nonNull("description", UTF8)));
+            nonNull("description", UTF8),
+            nonNull("ordered", BOOL)));
 
     static byte[] serialize(CopyFromFormatInfo info) {
         DictionaryProvider.MapDictionaryProvider provider = new DictionaryProvider.MapDictionaryProvider();
@@ -45,6 +48,7 @@ final class CopyFromFormatInfoSerializer {
             writeVarBinarySafe(v.get("options"), info.options());
             writeVarChar(v.get("direction"), info.direction());
             writeVarChar(v.get("description"), info.description());
+            writeBool(v.get("ordered"), info.ordered());
         });
     }
 }

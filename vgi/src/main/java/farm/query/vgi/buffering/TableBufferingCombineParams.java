@@ -20,6 +20,10 @@ import farm.query.vgirpc.CallContext;
  * @param attachOpaqueData the catalog attach's opaque identifier bytes —
  *     {@code storage().rescope(attachOpaqueData())} reaches state that
  *     persists across queries within one ATTACH session.
+ * @param inputSchema the source input schema, rehydrated the same way; {@code null}
+ *     when the bind carried no input schema.
+ * @param copyTo the {@code COPY ... TO} context (destination path + format) when this
+ *     buffering execution backs a COPY-TO sink, or {@code null} for ordinary buffering.
  */
 public record TableBufferingCombineParams(
         String functionName,
@@ -28,4 +32,6 @@ public record TableBufferingCombineParams(
         CallContext ctx,
         farm.query.vgi.function.Arguments args,
         org.apache.arrow.vector.types.pojo.Schema outputSchema,
-        byte[] attachOpaqueData) {}
+        byte[] attachOpaqueData,
+        org.apache.arrow.vector.types.pojo.Schema inputSchema,
+        farm.query.vgi.protocol.CopyToContext copyTo) {}

@@ -28,6 +28,9 @@ import farm.query.vgirpc.schema.Nullable;
  *     COPY-FROM scan; {@code null} for every ordinary scan. Additive, nullable, name-keyed
  *     nested-struct wire field — the C++ extension omits it entirely outside COPY, so both
  *     wire shapes decode
+ * @param copy_to the {@code COPY ... TO} context, present only when this bind opens a
+ *     COPY-TO sink; {@code null} for every ordinary bind. Additive, nullable, name-keyed
+ *     nested-struct wire field, symmetric with {@code copy_from}
  */
 public record BindRequest(
         String function_name,
@@ -41,4 +44,5 @@ public record BindRequest(
         boolean resolved_secrets_provided,
         @Nullable String at_unit,
         @Nullable String at_value,
-        @Nullable CopyFromContext copy_from) implements ArrowSerializableRecord {}
+        @Nullable CopyFromContext copy_from,
+        @Nullable CopyToContext copy_to) implements ArrowSerializableRecord {}
