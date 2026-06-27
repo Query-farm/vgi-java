@@ -68,9 +68,15 @@ public class ExampleLinesCopyToFunction extends CopyToFunction {
                             true, true, ",", List.of(), false, false, false),
                     new ArgSpec("header", -1, Schemas.BOOL, "Write a header row of column names",
                             true, true, "false", List.of(), false, false, false),
+                    new ArgSpec("header_repeat", -1, Schemas.INT64,
+                            "When header=true, write the header line this many times",
+                            true, true, "1", List.of(), false, false, false),
                     new ArgSpec("on_exists", -1, Schemas.UTF8,
                             "Behavior when the destination file already exists",
-                            true, true, "overwrite", List.of(), false, false, false)));
+                            true, true, "overwrite", List.of(), false, false, false),
+                    new ArgSpec("fail_on_value", -1, Schemas.UTF8,
+                            "If non-empty, fail mid-write when a cell equals this value",
+                            true, true, "", List.of(), false, false, false)));
 
     @Override public FunctionSpec spec() { return SPEC; }
 
@@ -81,6 +87,22 @@ public class ExampleLinesCopyToFunction extends CopyToFunction {
     @Override
     public void write(VectorSchemaRoot batch, Arguments options, String filePath,
                       TableBufferingProcessParams params) {
+        // Mid-sink failure trigger: raise during a process() call when a cell
+        // matches fail_on_value. Exercises the in-flight teardown/recovery path.
+        String failOnValue = ParameterExtractor.of(options).named("fail_on_value").asString().orElse("");
+        if (!failOnValue.isEmpty()) {
+            List<FieldVector> vectors = batch.getFieldVectors();
+            int rows = batch.getRowCount();
+            for (FieldVector v : vectors) {
+                for (int r = 0; r < rows; r++) {
+                    Object value = v.getObject(r);
+                    if (value != null && value.toString().equals(failOnValue)) {
+                        throw new IllegalStateException(
+                                "example_lines_out: fail_on_value hit: '" + failOnValue + "'");
+                    }
+                }
+            }
+        }
         // state_append is atomic + race-safe across parallel sink threads/workers.
         params.storage().stateAppend(NS_SHARD, KEY, BatchUtil.writeSingleBatch(batch));
     }
@@ -91,6 +113,7 @@ public class ExampleLinesCopyToFunction extends CopyToFunction {
         String nullString = p.named("null_string").asString().required();
         String delimiter = p.named("delimiter").asString().orElse(",");
         boolean header = p.named("header").asBool().orElse(false);
+        int headerRepeat = (int) p.named("header_repeat").asLong().ge(0).le(3).orElse(1L);
         String onExists = p.named("on_exists").asString().oneOf("overwrite", "error").orElse("overwrite");
 
         Path dest = Path.of(filePath);
@@ -106,7 +129,7 @@ public class ExampleLinesCopyToFunction extends CopyToFunction {
             for (FunctionStorage.LogEntry e : shards) {
                 try (VectorSchemaRoot root = BatchUtil.readSingleBatch(e.value(), Allocators.root())) {
                     if (header && !wroteHeader) {
-                        fh.write(headerLine(root.getSchema(), delimiter));
+                        writeHeader(fh, root.getSchema(), delimiter, headerRepeat);
                         wroteHeader = true;
                     }
                     int rows = root.getRowCount();
@@ -123,15 +146,24 @@ public class ExampleLinesCopyToFunction extends CopyToFunction {
                     }
                 }
             }
-            // Empty COPY with header=true still emits the header row. The source
+            // Empty COPY with header=true still emits the header row(s). The source
             // column names ride the bind's input schema.
             if (header && !wroteHeader && params.inputSchema() != null) {
-                fh.write(headerLine(params.inputSchema(), delimiter));
+                writeHeader(fh, params.inputSchema(), delimiter, headerRepeat);
             }
         } catch (IOException e) {
             throw new UncheckedIOException("example_lines_out: cannot write " + filePath, e);
         }
         return rowsWritten;
+    }
+
+    private static void writeHeader(BufferedWriter fh, Schema schema, String delimiter, int repeat)
+            throws IOException {
+        // header=true writes the column-name line `header_repeat` times.
+        String line = headerLine(schema, delimiter);
+        for (int i = 0; i < repeat; i++) {
+            fh.write(line);
+        }
     }
 
     private static String headerLine(Schema schema, String delimiter) {

@@ -33,9 +33,15 @@ public final class ExampleLinesOrderedCopyToFunction extends ExampleLinesCopyToF
                             true, true, ",", List.of(), false, false, false),
                     new ArgSpec("header", -1, Schemas.BOOL, "Write a header row of column names",
                             true, true, "false", List.of(), false, false, false),
+                    new ArgSpec("header_repeat", -1, Schemas.INT64,
+                            "When header=true, write the header line this many times",
+                            true, true, "1", List.of(), false, false, false),
                     new ArgSpec("on_exists", -1, Schemas.UTF8,
                             "Behavior when the destination file already exists",
-                            true, true, "overwrite", List.of(), false, false, false)));
+                            true, true, "overwrite", List.of(), false, false, false),
+                    new ArgSpec("fail_on_value", -1, Schemas.UTF8,
+                            "If non-empty, fail mid-write when a cell equals this value",
+                            true, true, "", List.of(), false, false, false)));
 
     @Override public FunctionSpec spec() { return SPEC; }
 
