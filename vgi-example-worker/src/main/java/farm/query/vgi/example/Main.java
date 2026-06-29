@@ -417,6 +417,7 @@ public final class Main {
                 new SequenceFunction(),
                 new farm.query.vgi.example.table.SecretDemoFunction(),
                 new farm.query.vgi.example.table.ScopedSecretDemoFunction(),
+                new farm.query.vgi.example.table.MultiSecretDemoFunction(),
                 new farm.query.vgi.example.table.CannedDataFunction(),
                 new farm.query.vgi.example.table.ConstantColumnsFunction(),
                 new farm.query.vgi.example.table.RowIdSequenceFunction(),
