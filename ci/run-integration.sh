@@ -87,7 +87,12 @@ trap cleanup EXIT
 boot_http_worker() {
   local exe="$1" log pid port=""
   log="$(mktemp)"
-  VGI_WORKER_BIN="$VGI_WORKER_BIN" "$exe" --http --port 0 >"$log" 2>&1 &
+  # Start the worker with its cwd set to $STAGE — the directory the unittest runs
+  # from — so DuckDB's per-test temp dir (__TEST_DIR__ → duckdb_unittest_tempdir/
+  # <pid>) and the worker resolve the SAME relative path. Without this the http
+  # worker (a separate process started from the repo root) cannot create the
+  # COPY ... TO destination the test hands it as a relative path.
+  ( cd "$STAGE" && VGI_WORKER_BIN="$VGI_WORKER_BIN" exec "$exe" --http --port 0 ) >"$log" 2>&1 &
   pid=$!
   BG_PIDS+=("$pid")
   for _ in $(seq 1 60); do
