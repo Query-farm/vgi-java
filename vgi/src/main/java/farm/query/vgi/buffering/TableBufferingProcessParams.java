@@ -26,6 +26,8 @@ import farm.query.vgirpc.CallContext;
  *     when the bind carried no input schema.
  * @param copyTo the {@code COPY ... TO} context (destination path + format) when this
  *     buffering execution backs a COPY-TO sink, or {@code null} for ordinary buffering.
+ * @param secrets the resolved-secrets IPC bytes forwarded via the two-phase secret
+ *     bind, or {@code null}; a COPY-TO writer parses them via {@code Secrets.parse}.
  */
 public record TableBufferingProcessParams(
         String functionName,
@@ -37,4 +39,5 @@ public record TableBufferingProcessParams(
         org.apache.arrow.vector.types.pojo.Schema outputSchema,
         byte[] attachOpaqueData,
         org.apache.arrow.vector.types.pojo.Schema inputSchema,
-        farm.query.vgi.protocol.CopyToContext copyTo) {}
+        farm.query.vgi.protocol.CopyToContext copyTo,
+        byte[] secrets) {}

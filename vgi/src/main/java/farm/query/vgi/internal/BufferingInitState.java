@@ -21,6 +21,9 @@ import farm.query.vgirpc.schema.Nullable;
  *     COPY-TO writers read it in {@code close()} to write a header for an empty source
  * @param copy_to       the {@code COPY ... TO} context (destination path + format) when this
  *     buffering execution backs a COPY-TO sink, or {@code null} for ordinary buffering
+ * @param secrets       the bind request's resolved-secrets IPC bytes, or {@code null};
+ *     replayed onto the process/combine params so a COPY-TO writer's
+ *     {@code write()}/{@code close()} can read forwarded {@code CREATE SECRET} creds
  */
 public record BufferingInitState(
         byte[] arguments,
@@ -28,4 +31,5 @@ public record BufferingInitState(
         byte[] output_schema,
         byte[] attach_plain,
         @Nullable byte[] input_schema,
-        @Nullable CopyToContext copy_to) implements ArrowSerializableRecord {}
+        @Nullable CopyToContext copy_to,
+        @Nullable byte[] secrets) implements ArrowSerializableRecord {}

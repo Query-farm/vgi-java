@@ -13,6 +13,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
 
 /**
  * Base class for custom {@code COPY ... FROM} format readers. Mirrors
@@ -96,7 +97,39 @@ public abstract class CopyFromFunction implements TableFunction {
                     + "COPY <table> FROM '<path>' (FORMAT " + copyFromFormat()
                     + "), not as a table function.");
         }
+        // On the first bind pass, forward any requested secrets as a two-phase
+        // secret-scope request; the resolved values reach read() via params.secrets().
+        if (!params.resolvedSecretsProvided()) {
+            List<CopySecretLookup> lookups = secretLookups(params);
+            if (lookups != null && !lookups.isEmpty()) {
+                List<String> types = new java.util.ArrayList<>(lookups.size());
+                List<String> scopes = new java.util.ArrayList<>(lookups.size());
+                List<String> names = new java.util.ArrayList<>(lookups.size());
+                for (CopySecretLookup l : lookups) {
+                    types.add(l.secretType());
+                    scopes.add(l.scope() == null ? "" : l.scope());
+                    names.add(l.name() == null ? "" : l.name());
+                }
+                return new BindResponse(cf.expected_schema(), new byte[0], types, scopes, names);
+            }
+        }
         return BindResponse.forSchema(cf.expected_schema());
+    }
+
+    /**
+     * Secret-bind hook: forward {@code CREATE SECRET} credentials for
+     * secret-backed cloud sources (S3/GCS/HTTP/…). Override to request the secrets
+     * the reader needs — typically scoped by the source path
+     * ({@code params.copyFrom().file_path()}). The framework's two-phase secret
+     * bind resolves each lookup and surfaces the resolved values on
+     * {@code params.secrets()} at {@link #read} time. Defaults to none. Mirrors
+     * vgi-python's {@code CopyFromFunction.on_secrets}.
+     *
+     * @param params the bind-time parameters (carries {@code copyFrom()})
+     * @return the secrets to resolve; empty (the default) requests none
+     */
+    public List<CopySecretLookup> secretLookups(TableBindParams params) {
+        return List.of();
     }
 
     /**

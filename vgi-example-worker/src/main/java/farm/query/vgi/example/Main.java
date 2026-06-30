@@ -1000,9 +1000,10 @@ public final class Main {
                         .build());
     }
 
-    /** Register the toy {@code COPY ... FROM} format reader ({@code example_lines}). */
+    /** Register the {@code COPY ... FROM} format readers (delimited + secret-forwarding). */
     private static void registerCopyFrom(Worker w) {
         w.registerTable(new farm.query.vgi.example.copyfrom.ExampleLinesCopyFromFunction());
+        w.registerTable(new farm.query.vgi.example.copyfrom.SecretLinesCopyFromFunction());
     }
 
     /**
@@ -1014,7 +1015,8 @@ public final class Main {
     private static void registerCopyTo(Worker w) {
         w.registerTableBufferings(List.of(
                 new farm.query.vgi.example.copyto.ExampleLinesCopyToFunction(),
-                new farm.query.vgi.example.copyto.ExampleLinesOrderedCopyToFunction()));
+                new farm.query.vgi.example.copyto.ExampleLinesOrderedCopyToFunction(),
+                new farm.query.vgi.example.copyto.SecretLinesCopyToFunction()));
     }
 
     private static void registerBuffering(Worker w) {

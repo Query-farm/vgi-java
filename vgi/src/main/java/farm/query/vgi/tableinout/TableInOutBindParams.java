@@ -27,6 +27,9 @@ import java.util.Map;
  * @param attachStorage a storage facade scoped to {@code attachOpaqueData} —
  *     state that persists across queries within one ATTACH session;
  *     {@code null} during catalog enumeration.
+ * @param copyTo the {@code COPY ... TO} context (destination path + format) set
+ *     only when this bind opens a COPY-TO sink; {@code null} otherwise. A COPY-TO
+ *     writer scopes its {@code secretLookups} request to {@code copyTo.file_path()}.
  */
 public record TableInOutBindParams(
         String functionName,
@@ -36,7 +39,8 @@ public record TableInOutBindParams(
         byte[] secrets,
         boolean resolvedSecretsProvided,
         byte[] attachOpaqueData,
-        farm.query.vgi.storage.BoundStorage attachStorage) {
+        farm.query.vgi.storage.BoundStorage attachStorage,
+        farm.query.vgi.protocol.CopyToContext copyTo) {
 
     /**
      * Convenience constructor with no attach context (catalog enumeration).
@@ -48,6 +52,26 @@ public record TableInOutBindParams(
      */
     public TableInOutBindParams(String functionName, Arguments arguments, Schema inputSchema,
                                  Map<String, Object> settings) {
-        this(functionName, arguments, inputSchema, settings, null, false, null, null);
+        this(functionName, arguments, inputSchema, settings, null, false, null, null, null);
+    }
+
+    /**
+     * Convenience constructor without the {@code copyTo} context (non-COPY binds).
+     *
+     * @param functionName the bound function's name as invoked in SQL.
+     * @param arguments the resolved positional/named arguments.
+     * @param inputSchema the Arrow schema of the input stream.
+     * @param settings the session settings in effect for this bind.
+     * @param secrets the resolved secret bytes, or {@code null}.
+     * @param resolvedSecretsProvided whether resolved secrets were supplied.
+     * @param attachOpaqueData the catalog attach's opaque identifier bytes, or {@code null}.
+     * @param attachStorage a storage facade scoped to {@code attachOpaqueData}, or {@code null}.
+     */
+    public TableInOutBindParams(String functionName, Arguments arguments, Schema inputSchema,
+                                 Map<String, Object> settings, byte[] secrets,
+                                 boolean resolvedSecretsProvided, byte[] attachOpaqueData,
+                                 farm.query.vgi.storage.BoundStorage attachStorage) {
+        this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided,
+                attachOpaqueData, attachStorage, null);
     }
 }

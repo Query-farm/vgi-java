@@ -282,7 +282,7 @@ public final class VgiServiceImpl implements VgiService {
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(),
-                attachPlain, attachScopedStorage(attachPlain)));
+                attachPlain, attachScopedStorage(attachPlain), request.copy_to()));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
@@ -484,7 +484,7 @@ public final class VgiServiceImpl implements VgiService {
                             RecordCodec.serializeToBytes(new BufferingInitState(
                                     bb.argumentsIpc(), bb.settingsIpc(),
                                     bb.outputSchemaIpc(), bb.attachId(),
-                                    bb.inputSchemaIpc(), bb.copyTo())));
+                                    bb.inputSchemaIpc(), bb.copyTo(), bb.secrets())));
             // No data stream — emit the header then immediate EOS.
             return RpcStream.producer(realOutputSchema,
                     new FinalizeProducerState(List.of()), header);
@@ -1382,7 +1382,7 @@ public final class VgiServiceImpl implements VgiService {
     private BufferingInitState bufferingInitState(farm.query.vgi.storage.BoundStorage storage) {
         byte[] payload = storage.stateGet(farm.query.vgi.storage.FrameworkNs.BUFFERING_INIT,
                 farm.query.vgi.storage.BoundStorage.packIntKey(-1));
-        if (payload == null) return new BufferingInitState(null, null, null, null, null, null);
+        if (payload == null) return new BufferingInitState(null, null, null, null, null, null, null);
         return RecordCodec.deserializeFromBytes(payload, BufferingInitState.class);
     }
 
@@ -1407,7 +1407,7 @@ public final class VgiServiceImpl implements VgiService {
                 init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
                 init.attach_plain() != null ? init.attach_plain() : attachPlain,
                 init.input_schema() == null ? null : SchemaUtil.deserializeSchema(init.input_schema()),
-                init.copy_to());
+                init.copy_to(), init.secrets());
         byte[] stateId;
         try (org.apache.arrow.vector.VectorSchemaRoot root =
                      BatchUtil.readSingleBatch(request.input_batch(), Allocators.root())) {
@@ -1437,7 +1437,7 @@ public final class VgiServiceImpl implements VgiService {
                 init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
                 init.attach_plain() != null ? init.attach_plain() : attachPlain,
                 init.input_schema() == null ? null : SchemaUtil.deserializeSchema(init.input_schema()),
-                init.copy_to());
+                init.copy_to(), init.secrets());
         List<byte[]> ids = fn.combine(
                 request.state_ids() == null ? List.of() : request.state_ids(), params);
         return new farm.query.vgi.protocol.TableBufferingCombineResponse(ids);

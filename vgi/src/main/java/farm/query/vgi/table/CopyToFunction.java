@@ -91,15 +91,49 @@ public abstract class CopyToFunction implements TableBufferingFunction {
     public String copyToDirection() { return "to"; }
 
     /**
-     * A sink produces no rows — bind to an empty output schema. Final;
-     * subclasses customise {@link #write} / {@link #close}, not the bind.
+     * Secret-bind hook: forward {@code CREATE SECRET} credentials for
+     * secret-backed cloud writes (S3/GCS/HTTP/…). Override to request the secrets
+     * the writer needs — typically scoped by the destination path
+     * ({@code params.copyTo().file_path()}). The framework's two-phase secret bind
+     * resolves each lookup from the caller's secret store and surfaces the resolved
+     * values on {@code params.secrets()} at {@link #write} / {@link #close} time.
+     * Defaults to none, so a writer that never touched credentials is unaffected.
+     * Mirrors vgi-python's {@code CopyToFunction.on_secrets}.
+     *
+     * @param params the bind-time parameters (carries {@code copyTo()})
+     * @return the secrets to resolve; empty (the default) requests none
+     */
+    public List<CopySecretLookup> secretLookups(TableInOutBindParams params) {
+        return List.of();
+    }
+
+    /**
+     * A sink produces no rows — bind to an empty output schema. Final; subclasses
+     * customise {@link #write} / {@link #close} / {@link #secretLookups}, not the
+     * bind itself. On the first bind pass this forwards any {@link #secretLookups}
+     * as a two-phase secret-scope request.
      *
      * @param params the bind-time parameters (input schema = the source columns)
-     * @return a bind response carrying an empty output schema
+     * @return a bind response (empty output schema, or a secret-scope request)
      */
     @Override
     public final BindResponse onBind(TableInOutBindParams params) {
-        return BindResponse.forSchema(SchemaUtil.serializeSchema(new Schema(List.of())));
+        byte[] emptySchema = SchemaUtil.serializeSchema(new Schema(List.of()));
+        if (!params.resolvedSecretsProvided()) {
+            List<CopySecretLookup> lookups = secretLookups(params);
+            if (lookups != null && !lookups.isEmpty()) {
+                List<String> types = new java.util.ArrayList<>(lookups.size());
+                List<String> scopes = new java.util.ArrayList<>(lookups.size());
+                List<String> names = new java.util.ArrayList<>(lookups.size());
+                for (CopySecretLookup l : lookups) {
+                    types.add(l.secretType());
+                    scopes.add(l.scope() == null ? "" : l.scope());
+                    names.add(l.name() == null ? "" : l.name());
+                }
+                return new BindResponse(emptySchema, new byte[0], types, scopes, names);
+            }
+        }
+        return BindResponse.forSchema(emptySchema);
     }
 
     /**
