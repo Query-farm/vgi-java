@@ -156,7 +156,7 @@ public final class VgiServiceImpl implements VgiService {
     private record BoundTableInOut(TableInOutFunction fn, Arguments args, Schema inputSchema,
                                     Schema outputSchema, Map<String, Object> settings,
                                     byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
-                                    byte[] attachId)
+                                    byte[] secrets, byte[] attachId)
             implements BoundEntry {}
 
     private record BoundBuffering(farm.query.vgi.buffering.TableBufferingFunction fn, Arguments args,
@@ -344,7 +344,8 @@ public final class VgiServiceImpl implements VgiService {
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         pendingBinds.put(bytesKey(token), new BoundTableInOut(fn, args, inputSchema, outputSchema, settings,
-                request.arguments(), request.settings(), upstream.output_schema(), attachPlain));
+                request.arguments(), request.settings(), upstream.output_schema(),
+                request.secrets(), attachPlain));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -465,7 +466,8 @@ public final class VgiServiceImpl implements VgiService {
         TableInOutInitParams params = new TableInOutInitParams(
                 bio.fn().name(), bio.args(), inputSchema, fnOutputSchema,
                 bio.settings(), Allocators.root(),
-                new farm.query.vgi.storage.BoundStorage(this.storage, execId, bio.attachId()));
+                new farm.query.vgi.storage.BoundStorage(this.storage, execId, bio.attachId()),
+                bio.secrets());
         TableInOutExchangeState state = bio.fn().createExchange(params);
         return RpcStream.exchange(inputSchema, fnOutputSchema, state, header);
     }
@@ -685,7 +687,8 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public AggregateBindResponse aggregate_bind(AggregateBindRequest request) {
-        return aggregateRunner.bind(request.function_name(), request.input_schema(), request.arguments());
+        return aggregateRunner.bind(request.function_name(), request.input_schema(), request.arguments(),
+                request.secrets());
     }
 
     /**
@@ -1893,8 +1896,25 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
-        return baseFunctionInfo(fn, schemaName, "aggregate",
+        FunctionInfo base = baseFunctionInfo(fn, schemaName, "aggregate",
                 SchemaUtil.serializeSchema(fn.outputSchema()), false);
+        var required = fn.requiredSecrets();
+        if (required == null || required.isEmpty()) return base;
+        // Re-stamp required_secrets (baseFunctionInfo hardcodes an empty list);
+        // the C++ extension pre-resolves these and delivers them on
+        // AggregateBindRequest.secrets.
+        return new FunctionInfo(
+                base.comment(), base.tags(), base.name(), base.schema_name(), base.function_type(),
+                base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
+                base.description(), base.examples(), base.categories(), base.projection_pushdown(),
+                base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
+                base.supported_expression_filters(),
+                base.order_preservation(), base.max_workers(), base.supports_batch_index(),
+                base.partition_kind(), base.order_dependent(), base.distinct_dependent(),
+                base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
+                base.source_order_dependent(), base.sink_order_dependent(),
+                base.requires_input_batch_index(),
+                base.required_settings(), required);
     }
 
     private FunctionInfo toBufferingFunctionInfo(

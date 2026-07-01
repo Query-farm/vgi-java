@@ -37,7 +37,10 @@ public final class SecretDemoFunction implements TableFunction {
             Schemas.nullable("key", Schemas.UTF8),
             Schemas.nullable("value", Schemas.UTF8),
             Schemas.nullable("arrow_type", Schemas.UTF8)));
-    private static final byte[] OUTPUT_SCHEMA_IPC =
+
+    /** IPC-serialised output schema {@code (key, value, arrow_type)}, all Utf8.
+     *  Reused by the {@code secret_demo_table} catalog registration. */
+    public static final byte[] OUTPUT_SCHEMA_IPC =
             SchemaUtil.serializeSchema(OUTPUT_SCHEMA);
 
     private static final FunctionSpec SPEC = FunctionSpec.builder("secret_demo")

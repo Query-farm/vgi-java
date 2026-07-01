@@ -62,6 +62,39 @@ public interface AggregateFunction<S> extends FunctionDescriptor {
     }
 
     /**
+     * Secrets-aware variant of {@link #bindOutputSchema(Schema, farm.query.vgi.function.Arguments)}.
+     * Aggregates that declare {@link #requiredSecrets()} receive the statically
+     * pre-resolved secret values here so the output type can be chosen from a
+     * secret field. Aggregates have no two-phase secret bind (matches the
+     * Python reference, where a two-phase {@code params.secrets.get()} inside an
+     * aggregate {@code on_bind} raises); the secret is read at bind only, never
+     * at update/finalize. Default delegates to the args-only overload.
+     *
+     * @param inputSchema the bound input schema for this call
+     * @param args the bind-time const arguments
+     * @param secrets the statically resolved secrets, parsed from
+     *     {@code AggregateBindRequest.secrets}
+     * @return the resolved single-field output schema
+     */
+    default Schema bindOutputSchema(Schema inputSchema, farm.query.vgi.function.Arguments args,
+                                     farm.query.vgi.Secrets secrets) {
+        return bindOutputSchema(inputSchema, args);
+    }
+
+    /**
+     * Secrets this aggregate needs the extension to pre-resolve and deliver on
+     * {@code AggregateBindRequest.secrets}. Surfaced on the wire as
+     * {@code FunctionInfo.required_secrets}; the C++ extension resolves each
+     * declared secret up front (there is no two-phase retry for aggregates).
+     * Default: no secrets required.
+     *
+     * @return the required-secret declarations, or an empty list
+     */
+    default java.util.List<farm.query.vgi.protocol.FunctionRequiredSecret> requiredSecrets() {
+        return java.util.List.of();
+    }
+
+    /**
      * Build a fresh per-group state.
      *
      * @return a new, empty accumulator for one group

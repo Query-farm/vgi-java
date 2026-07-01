@@ -53,16 +53,20 @@ public final class AggregateRunner {
      * @param functionName  the aggregate to bind
      * @param inputSchemaIpc IPC-encoded input schema, or {@code null}
      * @param argumentsIpc   IPC-encoded bind arguments, or {@code null}/empty
+     * @param secretsIpc     IPC-encoded pre-resolved secret values, or {@code null}/empty
      * @return the bind response carrying the output schema and execution id
      */
-    public AggregateBindResponse bind(String functionName, byte[] inputSchemaIpc, byte[] argumentsIpc) {
+    public AggregateBindResponse bind(String functionName, byte[] inputSchemaIpc, byte[] argumentsIpc,
+                                       byte[] secretsIpc) {
         AggregateFunction<?> fn = registry.get(functionName);
         if (fn == null) throw new IllegalArgumentException("Unknown aggregate: " + functionName);
         Schema inputSchema = inputSchemaIpc == null ? null : SchemaUtil.deserializeSchema(inputSchemaIpc);
         farm.query.vgi.function.Arguments bindArgs = (argumentsIpc == null || argumentsIpc.length == 0)
                 ? farm.query.vgi.function.Arguments.empty()
                 : ArgumentsParser.parse(argumentsIpc);
-        byte[] outputSchemaIpc = SchemaUtil.serializeSchema(fn.bindOutputSchema(inputSchema, bindArgs));
+        farm.query.vgi.Secrets secrets = farm.query.vgi.Secrets.parse(secretsIpc);
+        byte[] outputSchemaIpc = SchemaUtil.serializeSchema(
+                fn.bindOutputSchema(inputSchema, bindArgs, secrets));
         byte[] executionId = newExecutionId();
         if (argumentsIpc != null && argumentsIpc.length > 0) {
             store.saveArgs(executionId, functionName, argumentsIpc);

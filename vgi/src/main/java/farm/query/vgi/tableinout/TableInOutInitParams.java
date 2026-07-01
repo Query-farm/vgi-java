@@ -22,6 +22,9 @@ import java.util.Map;
  * @param allocator the allocator the exchange must use for all output vectors.
  * @param storage the per-execution shared-state facade (shard-pinned to the
  *     attach) — mirrors vgi-python's {@code params.storage}.
+ * @param secrets the resolved-secrets IPC blob delivered by the two-phase bind,
+ *     or {@code null}/empty when no secret was resolved. Parse with
+ *     {@link farm.query.vgi.Secrets#parse(byte[])}.
  */
 public record TableInOutInitParams(
         String functionName,
@@ -30,5 +33,6 @@ public record TableInOutInitParams(
         Schema outputSchema,
         Map<String, Object> settings,
         BufferAllocator allocator,
-        farm.query.vgi.storage.BoundStorage storage) {
+        farm.query.vgi.storage.BoundStorage storage,
+        byte[] secrets) {
 }

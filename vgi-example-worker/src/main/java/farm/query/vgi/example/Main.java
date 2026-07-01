@@ -65,6 +65,7 @@ import farm.query.vgi.example.aggregate.CountFunction;
 import farm.query.vgi.example.aggregate.GenericSumFunction;
 import farm.query.vgi.example.aggregate.ListAggFunction;
 import farm.query.vgi.example.aggregate.PercentileFunction;
+import farm.query.vgi.example.aggregate.SecretTypedSumFunction;
 import farm.query.vgi.example.aggregate.StubAggregates;
 import farm.query.vgi.example.aggregate.SumAllFunction;
 import farm.query.vgi.example.aggregate.SumFunction;
@@ -73,6 +74,7 @@ import farm.query.vgi.CatalogDataVersionRelease;
 import farm.query.vgi.example.tableinout.EchoFunction;
 import farm.query.vgi.example.tableinout.EchoWitnessFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
+import farm.query.vgi.example.tableinout.SecretInOutFunction;
 import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
 import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
 import farm.query.vgi.example.tableinout.RepeatInputsFunction;
@@ -510,7 +512,8 @@ public final class Main {
                 new StubAggregates.WindowSum(),
                 new StubAggregates.WindowSumBatch(),
                 new StubAggregates.WindowMedian(),
-                new StubAggregates.WindowListagg()));
+                new StubAggregates.WindowListagg(),
+                new SecretTypedSumFunction()));
     }
 
     private static void registerTableInOuts(Worker w) {
@@ -522,7 +525,8 @@ public final class Main {
                 new RepeatInputsFunction(),
                 new FilterBySettingFunction(),
                 new SlowCancellableInoutFunction(),
-                new UnnestTensorRowsFunction()));
+                new UnnestTensorRowsFunction(),
+                new SecretInOutFunction()));
     }
 
     private static void registerViews(Worker w) {
@@ -575,6 +579,22 @@ public final class Main {
                 Schemas.nullable("n", Schemas.INT64)))),
                         "Function-backed table over the no-arg ten_thousand function",
                         "ten_thousand"))
+                // Function-backed table whose backing function (secret_demo)
+                // performs a two-phase secret lookup in onBind. inlineScanFunction
+                // is false so the C++ extension binds the scan function and
+                // derives the schema through the secret-scope-request → resolved
+                // retry path (an inlined schema would skip that). The backing
+                // function name (secret_demo) intentionally differs from the
+                // table name. See secret/secret_function_backed_table.test.
+                .registerCatalogTable(new CatalogTable(
+                        "data", "secret_demo_table",
+                        farm.query.vgi.example.table.SecretDemoFunction.OUTPUT_SCHEMA_IPC,
+                        "Function-backed table over the secret-using secret_demo function",
+                        Map.of(),
+                        "secret_demo",
+                        List.of(),
+                        Map.of(),
+                        null, null, false, /*inlineScanFunction=*/false))
                 .registerCatalogTable(new CatalogTable(
                         "data", "numbers",
                         SchemaUtil.serializeSchema(

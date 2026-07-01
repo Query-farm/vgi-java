@@ -167,7 +167,32 @@ final class FunctionInfoSerializer {
             writeBool(v.get("sink_order_dependent"), info.sink_order_dependent());
             writeBool(v.get("requires_input_batch_index"), info.requires_input_batch_index());
             writeStringList(v.get("required_settings"), info.required_settings());
-            writeStringList(v.get("required_secrets"), List.of());
+            writeRequiredSecrets(v.get("required_secrets"), info.required_secrets());
         });
+    }
+
+    /**
+     * Write the {@code required_secrets} list-of-struct into row 0. Each struct
+     * carries {@code (secret_type, scope, secret_name)}; {@code scope} /
+     * {@code secret_name} are nullable.
+     */
+    private static void writeRequiredSecrets(
+            org.apache.arrow.vector.FieldVector v,
+            List<farm.query.vgi.protocol.FunctionRequiredSecret> secrets) {
+        org.apache.arrow.vector.complex.ListVector lv = (org.apache.arrow.vector.complex.ListVector) v;
+        org.apache.arrow.vector.complex.impl.UnionListWriter w = lv.getWriter();
+        w.startList();
+        if (secrets != null) {
+            for (farm.query.vgi.protocol.FunctionRequiredSecret s : secrets) {
+                if (s == null) continue;
+                w.struct().start();
+                w.struct().varChar("secret_type").writeVarChar(s.secret_type());
+                if (s.scope() != null) w.struct().varChar("scope").writeVarChar(s.scope());
+                if (s.secret_name() != null) w.struct().varChar("secret_name").writeVarChar(s.secret_name());
+                w.struct().end();
+            }
+        }
+        w.endList();
+        w.setValueCount(1);
     }
 }
