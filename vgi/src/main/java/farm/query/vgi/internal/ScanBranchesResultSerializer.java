@@ -43,7 +43,10 @@ public final class ScanBranchesResultSerializer {
             new Field("function_name", new FieldType(false, UTF8, null), null),
             new Field("arguments", new FieldType(false, BINARY, null), null),
             new Field("branch_filter", new FieldType(true, UTF8, null), null),
-            new Field("writable", new FieldType(false, BOOL, null), null)));
+            new Field("writable", new FieldType(false, BOOL, null), null),
+            new Field("source_catalog", new FieldType(true, UTF8, null), null),
+            new Field("source_schema", new FieldType(true, UTF8, null), null),
+            new Field("source_table", new FieldType(true, UTF8, null), null)));
 
     private static final Schema RESULT_SCHEMA = new Schema(List.of(
             new Field("branches", new FieldType(false, new ArrowType.List(), null),
@@ -101,11 +104,20 @@ public final class ScanBranchesResultSerializer {
             if (b.branchFilter() == null) bf.setNull(0);
             else bf.setSafe(0, new Text(b.branchFilter()));
             ((BitVector) root.getVector("writable")).setSafe(0, b.writable() ? 1 : 0);
+            setNullableString(root, "source_catalog", b.sourceCatalog());
+            setNullableString(root, "source_schema", b.sourceSchema());
+            setNullableString(root, "source_table", b.sourceTable());
             root.setRowCount(1);
             return writeStream(root);
         } catch (Exception e) {
             throw new RuntimeException("ScanBranchesResultSerializer.encodeBranch", e);
         }
+    }
+
+    private static void setNullableString(VectorSchemaRoot root, String col, String value) {
+        VarCharVector v = (VarCharVector) root.getVector(col);
+        if (value == null) v.setNull(0);
+        else v.setSafe(0, new Text(value));
     }
 
     private static byte[] writeStream(VectorSchemaRoot root) throws Exception {

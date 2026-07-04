@@ -37,6 +37,7 @@ public record CatalogAttachResult(
         String default_schema,
         List<byte[]> settings,
         List<byte[]> secret_types,
+        List<byte[]> attach_catalogs,
         @Nullable String comment,
         Map<String, String> tags,
         boolean supports_column_statistics,

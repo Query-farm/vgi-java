@@ -869,7 +869,7 @@ public final class VgiServiceImpl implements VgiService {
                     1L,
                     true,  // attach_opaque_data_required
                     "main",
-                    List.of(), List.of(),
+                    List.of(), List.of(), List.of(),
                     extra.schemaComment(),
                     Map.of(),
                     false,
@@ -895,6 +895,10 @@ public final class VgiServiceImpl implements VgiService {
         List<byte[]> secretTypes = new ArrayList<>();
         for (farm.query.vgi.SecretTypeSpec spec : worker.secretTypeSpecs()) {
             secretTypes.add(SecretTypeSpecSerializer.serialize(spec));
+        }
+        List<byte[]> attachCatalogs = new ArrayList<>();
+        for (farm.query.vgi.protocol.AttachCatalogInfo info : worker.attachCatalogInfos()) {
+            attachCatalogs.add(farm.query.vgirpc.marshal.RecordCodec.serializeToBytes(info));
         }
         // Resolve client-supplied / default version specs. Reject specs the
         // worker can't satisfy with a clear error (the C++ extension
@@ -922,6 +926,7 @@ public final class VgiServiceImpl implements VgiService {
                 worker.defaultSchema(),
                 settings,
                 secretTypes,
+                attachCatalogs,
                 worker.catalogComment(),
                 tags,
                 true,
@@ -1312,7 +1317,7 @@ public final class VgiServiceImpl implements VgiService {
                             t.scanFunctionName(),
                             t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
                             t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
-                            null, false);
+                            null, false, null, null, null);
                     return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
                 }
             }
@@ -1336,7 +1341,7 @@ public final class VgiServiceImpl implements VgiService {
             farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
                     "tt_pushdown_cols_scan",
                     List.of((Object) (long) resolveTtVersion(at.unit(), at.value())),
-                    Map.of(), null, false);
+                    Map.of(), null, false, null, null, null);
             return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
         }
         for (CatalogTable t : worker.catalogTables()) {
@@ -1347,7 +1352,7 @@ public final class VgiServiceImpl implements VgiService {
                         resolved.scanFunctionName(),
                         resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
                         resolved.scanFunctionNamed() == null ? Map.of() : resolved.scanFunctionNamed(),
-                        null, false);
+                        null, false, null, null, null);
                 return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
             }
         }

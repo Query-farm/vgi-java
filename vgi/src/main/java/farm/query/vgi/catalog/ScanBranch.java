@@ -19,23 +19,42 @@ import java.util.Map;
  *                       branch before pushdown; {@code null} = unconstrained
  * @param writable      declares this branch the INSERT target (at most one per
  *                       table; enforced C++-side)
+ * @param sourceCatalog catalog-table branch only — companion catalog name;
+ *                       {@code null} for function branches
+ * @param sourceSchema  catalog-table branch only — source schema; {@code null}
+ *                       for function branches
+ * @param sourceTable   catalog-table branch only — base table name; its
+ *                       presence selects the catalog-table kind; {@code null}
+ *                       for function branches
  */
 public record ScanBranch(
         String functionName,
         List<Object> positional,
         Map<String, Object> named,
         String branchFilter,
-        boolean writable) {
+        boolean writable,
+        String sourceCatalog,
+        String sourceSchema,
+        String sourceTable) {
 
     /**
-     * Validates that {@code functionName} is present and defensively copies the
-     * argument collections, normalizing {@code null} to empty.
+     * Validates the branch and defensively copies the argument collections,
+     * normalizing {@code null} to empty. A branch is either a <em>function</em>
+     * branch ({@code functionName} set) or a <em>catalog-table</em> branch
+     * ({@code functionName} empty and {@code sourceTable} set — it scans
+     * {@code sourceCatalog.sourceSchema.sourceTable} in a companion catalog).
      *
-     * @throws IllegalArgumentException if {@code functionName} is null or empty
+     * @throws IllegalArgumentException if neither {@code functionName} nor
+     *         {@code sourceTable} is present
      */
     public ScanBranch {
-        if (functionName == null || functionName.isEmpty()) {
-            throw new IllegalArgumentException("ScanBranch.functionName is required");
+        boolean catalogTable = sourceTable != null && !sourceTable.isEmpty();
+        if (!catalogTable && (functionName == null || functionName.isEmpty())) {
+            throw new IllegalArgumentException(
+                    "ScanBranch requires functionName (function branch) or sourceTable (catalog-table branch)");
+        }
+        if (functionName == null) {
+            functionName = "";
         }
         positional = positional == null ? List.of() : List.copyOf(positional);
         named = named == null ? Map.of() : Map.copyOf(named);
@@ -49,7 +68,7 @@ public record ScanBranch(
      * @return the branch
      */
     public static ScanBranch of(String functionName, Object... positional) {
-        return new ScanBranch(functionName, List.of(positional), Map.of(), null, false);
+        return new ScanBranch(functionName, List.of(positional), Map.of(), null, false, null, null, null);
     }
 
     /**
@@ -61,7 +80,7 @@ public record ScanBranch(
      * @return the branch
      */
     public static ScanBranch filtered(String functionName, String branchFilter, Object... positional) {
-        return new ScanBranch(functionName, List.of(positional), Map.of(), branchFilter, false);
+        return new ScanBranch(functionName, List.of(positional), Map.of(), branchFilter, false, null, null, null);
     }
 
     /**
@@ -72,6 +91,22 @@ public record ScanBranch(
      * @return the writable branch
      */
     public static ScanBranch writable(String functionName, Object... positional) {
-        return new ScanBranch(functionName, List.of(positional), Map.of(), null, true);
+        return new ScanBranch(functionName, List.of(positional), Map.of(), null, true, null, null, null);
+    }
+
+    /**
+     * Catalog-table branch (lakehouse federation): scans the base table
+     * {@code sourceCatalog.sourceSchema.sourceTable} in a companion catalog
+     * instead of calling a table function.
+     *
+     * @param sourceCatalog companion catalog name (an {@code AttachCatalogInfo} alias)
+     * @param sourceSchema  source schema
+     * @param sourceTable   base table name
+     * @param branchFilter  optional SQL filter AND'd into every scan; {@code null} = none
+     * @return the catalog-table branch
+     */
+    public static ScanBranch catalogTable(
+            String sourceCatalog, String sourceSchema, String sourceTable, String branchFilter) {
+        return new ScanBranch("", List.of(), Map.of(), branchFilter, false, sourceCatalog, sourceSchema, sourceTable);
     }
 }

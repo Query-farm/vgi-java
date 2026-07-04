@@ -57,6 +57,7 @@ public final class Worker {
     private final List<AggregateFunction<?>> aggregates = new ArrayList<>();
     private final List<SettingSpec> settings = new ArrayList<>();
     private final List<SecretTypeSpec> secretTypes = new ArrayList<>();
+    private final List<farm.query.vgi.protocol.AttachCatalogInfo> attachCatalogs = new ArrayList<>();
     private final List<AttachOptionSpec> attachOptions = new ArrayList<>();
     private final List<View> views = new ArrayList<>();
 
@@ -566,6 +567,27 @@ public final class Worker {
      * @return the registered secret-type specs, in registration order
      */
     public List<SecretTypeSpec> secretTypeSpecs() { return secretTypes; }
+
+    /**
+     * Advertise companion catalogs (lakehouse federation) that the client should
+     * ATTACH when this VGI catalog attaches. Surfaced via
+     * {@code catalog_attach.attach_catalogs}; the C++ extension attaches each at
+     * VGI-attach time so multi-branch catalog-table branches can resolve them.
+     *
+     * @param catalogs the companion catalogs to advertise
+     * @return this builder
+     */
+    public Worker attachCatalogs(farm.query.vgi.protocol.AttachCatalogInfo... catalogs) {
+        for (farm.query.vgi.protocol.AttachCatalogInfo c : catalogs) attachCatalogs.add(c);
+        return this;
+    }
+
+    /**
+     * Companion catalogs advertised at attach time.
+     *
+     * @return the registered companion catalogs, in registration order
+     */
+    public List<farm.query.vgi.protocol.AttachCatalogInfo> attachCatalogInfos() { return attachCatalogs; }
 
     /**
      * Declare the options this worker accepts in DuckDB's
