@@ -7,6 +7,7 @@ import farm.query.vgi.VgiService;
 import farm.query.vgi.Worker;
 import farm.query.vgi.aggregate.AggregateFunction;
 import farm.query.vgi.function.Arguments;
+import farm.query.vgi.function.ConstraintEnforcer;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.protocol.AggregateBindRequest;
 import farm.query.vgi.protocol.AggregateBindResponse;
@@ -278,6 +279,7 @@ public final class VgiServiceImpl implements VgiService {
                                         int argCount, byte[] token, CallContext ctx) {
         farm.query.vgi.buffering.TableBufferingFunction fn =
                 OverloadResolver.pick(bufferingFns.get(name), argCount, args, inputSchema);
+        ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         AuthContext auth = authOf(ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
@@ -313,6 +315,7 @@ public final class VgiServiceImpl implements VgiService {
                                     Schema inputSchema, Map<String, Object> settings,
                                     int argCount, byte[] token, CallContext ctx) {
         TableFunction fn = OverloadResolver.pick(tables.get(name), argCount, args, inputSchema);
+        ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         AuthContext auth = authOf(ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
         byte[] txnPlain = sealer.unsealTransaction(
@@ -337,6 +340,7 @@ public final class VgiServiceImpl implements VgiService {
                                          Schema inputSchema, Map<String, Object> settings,
                                          int argCount, byte[] token, CallContext ctx) {
         TableInOutFunction fn = OverloadResolver.pick(tableInOuts.get(name), argCount, args, inputSchema);
+        ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(),

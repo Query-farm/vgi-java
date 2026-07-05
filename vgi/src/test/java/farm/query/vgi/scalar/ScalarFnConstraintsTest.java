@@ -95,4 +95,15 @@ class ScalarFnConstraintsTest {
         assertThrows(IllegalArgumentException.class, () -> fn.onBind(new ScalarBindParams(
                 "format_number", new Arguments(List.of(-1L), Map.of()), null, Map.of())));
     }
+
+    @Test
+    void sharedEnforcerRejectsOutOfRangeConst() {
+        // The shared ConstraintEnforcer is what every bind path now calls
+        // (scalar/table/table-in-out/buffering/aggregate) — verify it directly.
+        List<ArgSpec> specs = new FormatNumber().argumentSpecs();
+        farm.query.vgi.function.ConstraintEnforcer.enforce(new Arguments(List.of(2L), Map.of()), specs);
+        assertThrows(IllegalArgumentException.class, () ->
+                farm.query.vgi.function.ConstraintEnforcer.enforce(
+                        new Arguments(List.of(99L), Map.of()), specs));
+    }
 }

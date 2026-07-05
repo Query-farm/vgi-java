@@ -4,6 +4,7 @@ package farm.query.vgi.scalar;
 
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.Arguments;
+import farm.query.vgi.function.ConstraintEnforcer;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.TypeBoundPredicate;
@@ -165,7 +166,7 @@ public abstract class ScalarFn implements ScalarFunction {
         // produce their domain-specific error before the framework's generic one.
         Schema out = outputSchema(params.inputSchema(), params.arguments());
         enforceTypeBounds(params.inputSchema(), argumentSpecs());
-        enforceConstraints(params.arguments(), argumentSpecs());
+        ConstraintEnforcer.enforce(params.arguments(), argumentSpecs());
         Field f = out.getFields().get(0);
         if (f.getType() instanceof ArrowType.Null && f.getChildren().isEmpty()) {
             return BindResponse.forSchema(Schemas.singleResultAnyIpc());
@@ -219,89 +220,6 @@ public abstract class ScalarFn implements ScalarFunction {
         return switch (bound) {
             case IS_ADDABLE -> TypeRules.isAddable(t);
         };
-    }
-
-    /**
-     * Bind-time enforcement of const-argument value constraints (closed choice
-     * set, numeric range, and regex pattern). Const arguments are bind-time
-     * scalars, so a value that violates a declared constraint is rejected here
-     * (mirroring the Python SDK) rather than silently reaching {@code compute()}.
-     * A null const value skips its value constraints; column arguments and type
-     * bounds are handled by {@link #enforceTypeBounds}.
-     */
-    private void enforceConstraints(Arguments args, List<ArgSpec> specs) {
-        int constIdx = 0;
-        for (ArgSpec spec : specs) {
-            if (!spec.isConst()) continue;
-            ArgSpec.Constraints c = spec.constraints();
-            if (c != null && !c.isEmpty()) {
-                Object value = constIdx < args.positional().size()
-                        ? args.positional().get(constIdx)
-                        : null;
-                validateConstValue(spec.name(), c, value);
-            }
-            constIdx++;
-        }
-    }
-
-    private static void validateConstValue(String name, ArgSpec.Constraints c, Object value) {
-        if (value == null) return;  // null / absent skips value constraints
-        Double num = asDouble(value);
-        if (num != null) {
-            if (c.ge() != null && num < c.ge().doubleValue()) {
-                throw constraintError(name, "must be >= " + formatBound(c.ge()));
-            }
-            if (c.le() != null && num > c.le().doubleValue()) {
-                throw constraintError(name, "must be <= " + formatBound(c.le()));
-            }
-            if (c.gt() != null && num <= c.gt().doubleValue()) {
-                throw constraintError(name, "must be > " + formatBound(c.gt()));
-            }
-            if (c.lt() != null && num >= c.lt().doubleValue()) {
-                throw constraintError(name, "must be < " + formatBound(c.lt()));
-            }
-        }
-        if (c.choices() != null && !c.choices().isEmpty() && !choiceMatches(c.choices(), value)) {
-            throw constraintError(name, "must be one of " + c.choices());
-        }
-        if (c.pattern() != null && !c.pattern().isEmpty() && value instanceof String s) {
-            try {
-                if (!java.util.regex.Pattern.matches(c.pattern(), s)) {
-                    throw constraintError(name, "must match pattern " + c.pattern());
-                }
-            } catch (java.util.regex.PatternSyntaxException ignored) {
-                // An invalid declared regex must not reject the caller.
-            }
-        }
-    }
-
-    private static Double asDouble(Object value) {
-        return value instanceof Number n ? n.doubleValue() : null;
-    }
-
-    private static boolean choiceMatches(List<Object> choices, Object value) {
-        Double vn = asDouble(value);
-        for (Object choice : choices) {
-            Double cn = asDouble(choice);
-            if (cn != null && vn != null) {
-                if (cn.doubleValue() == vn.doubleValue()) return true;
-            } else if (java.util.Objects.equals(choice, value)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static String formatBound(Number n) {
-        double d = n.doubleValue();
-        if (Double.isFinite(d) && d == Math.rint(d)) {
-            return Long.toString((long) d);
-        }
-        return Double.toString(d);
-    }
-
-    private static IllegalArgumentException constraintError(String name, String detail) {
-        return new IllegalArgumentException("argument '" + name + "' " + detail);
     }
 
     /**

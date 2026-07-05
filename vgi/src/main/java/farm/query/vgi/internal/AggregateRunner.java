@@ -65,6 +65,7 @@ public final class AggregateRunner {
                 ? farm.query.vgi.function.Arguments.empty()
                 : ArgumentsParser.parse(argumentsIpc);
         farm.query.vgi.Secrets secrets = farm.query.vgi.Secrets.parse(secretsIpc);
+        farm.query.vgi.function.ConstraintEnforcer.enforce(bindArgs, fn.argumentSpecs());
         byte[] outputSchemaIpc = SchemaUtil.serializeSchema(
                 fn.bindOutputSchema(inputSchema, bindArgs, secrets));
         byte[] executionId = newExecutionId();
