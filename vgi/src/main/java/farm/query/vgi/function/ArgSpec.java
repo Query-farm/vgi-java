@@ -33,6 +33,9 @@ import java.util.List;
  * @param anyType     {@code true} for an "any" parameter ({@code vgi_type=any}).
  * @param tableInput  {@code true} for a TABLE-typed input ({@code vgi_type=table}).
  * @param children    child {@link Field}s for nested Arrow types; empty otherwise.
+ * @param constraints discovery-facing validation constraints (choices / numeric
+ *                    bounds / regex) surfaced through {@code vgi_function_arguments()};
+ *                    {@link Constraints#NONE} when unconstrained.
  */
 public record ArgSpec(
         String name,
@@ -46,12 +49,14 @@ public record ArgSpec(
         boolean varargs,
         boolean anyType,
         boolean tableInput,
-        List<Field> children) {
+        List<Field> children,
+        Constraints constraints) {
 
-    /** Canonical constructor: rejects positional + hasDefault. DuckDB's binder
+    /** Canonical constructor: rejects positional + hasDefault (DuckDB's binder
      *  does not apply per-positional defaults — declaring one is dead metadata
-     *  at the SQL call site. Use {@link #named(String, ArrowType, String)} for
-     *  defaultable arguments (kwarg-style {@code arg => value}). */
+     *  at the SQL call site; use {@link #named(String, ArrowType, String)} for
+     *  defaultable kwarg-style arguments) and normalises a {@code null}
+     *  {@code constraints} to {@link Constraints#NONE}. */
     public ArgSpec {
         if (position >= 0 && hasDefault) {
             throw new IllegalArgumentException(
@@ -59,6 +64,87 @@ public record ArgSpec(
                             + " cannot have hasDefault=true: DuckDB's binder does not apply"
                             + " positional defaults. Use a named-only ArgSpec (position=-1)"
                             + " if you need a default value.");
+        }
+        if (constraints == null) {
+            constraints = Constraints.NONE;
+        }
+    }
+
+    /**
+     * Discovery-facing per-argument validation constraints, surfaced as Arrow
+     * field metadata by {@code ArgumentSpecSerializer} and read by the C++
+     * {@code vgi_function_arguments()} diagnostic. Mirrors the per-argument
+     * constraint fields on vgi-python's {@code Param} / {@code ConstParam}.
+     *
+     * <p>Every field is optional ({@code null} = absent). The serializer encodes
+     * them presence-only: {@code choices} → {@code vgi_choices} (JSON array),
+     * {@code ge}/{@code le}/{@code gt}/{@code lt} → a single {@code vgi_range}
+     * interval-notation string, {@code pattern} → {@code vgi_pattern} (raw regex).
+     *
+     * @param choices closed set of allowed values, or {@code null}.
+     * @param ge      inclusive lower bound ({@code value >= ge}), or {@code null}.
+     * @param le      inclusive upper bound ({@code value <= le}), or {@code null}.
+     * @param gt      exclusive lower bound ({@code value > gt}), or {@code null}.
+     * @param lt      exclusive upper bound ({@code value < lt}), or {@code null}.
+     * @param pattern regex the value must match, or {@code null}.
+     */
+    public record Constraints(
+            List<Object> choices,
+            Number ge,
+            Number le,
+            Number gt,
+            Number lt,
+            String pattern) {
+
+        /** The empty constraint set (every field absent). */
+        public static final Constraints NONE =
+                new Constraints(null, null, null, null, null, null);
+
+        /** Defensive copy of {@code choices} so the record stays immutable. */
+        public Constraints {
+            if (choices != null) {
+                choices = List.copyOf(choices);
+            }
+        }
+
+        /** {@return {@code true} when no constraint at all is present}. */
+        public boolean isEmpty() {
+            return choices == null && ge == null && le == null && gt == null
+                    && lt == null && (pattern == null || pattern.isEmpty());
+        }
+
+        /**
+         * Numeric bounds only (no choices / pattern), any of which may be
+         * {@code null}.
+         *
+         * @param ge inclusive lower bound, or {@code null}.
+         * @param le inclusive upper bound, or {@code null}.
+         * @param gt exclusive lower bound, or {@code null}.
+         * @param lt exclusive upper bound, or {@code null}.
+         * @return a bounds-only {@link Constraints}.
+         */
+        public static Constraints range(Number ge, Number le, Number gt, Number lt) {
+            return new Constraints(null, ge, le, gt, lt, null);
+        }
+
+        /**
+         * Closed-set constraint only.
+         *
+         * @param choices the allowed values.
+         * @return a choices-only {@link Constraints}.
+         */
+        public static Constraints choices(List<Object> choices) {
+            return new Constraints(choices, null, null, null, null, null);
+        }
+
+        /**
+         * Regex constraint only.
+         *
+         * @param pattern the regex the value must match.
+         * @return a pattern-only {@link Constraints}.
+         */
+        public static Constraints pattern(String pattern) {
+            return new Constraints(null, null, null, null, null, pattern);
         }
     }
 
@@ -82,7 +168,47 @@ public record ArgSpec(
                     List<TypeBoundPredicate> typeBound,
                     boolean varargs, boolean anyType, boolean tableInput) {
         this(name, position, arrowType, doc, isConst, hasDefault, defaultValue,
-                typeBound, varargs, anyType, tableInput, List.of());
+                typeBound, varargs, anyType, tableInput, List.of(), Constraints.NONE);
+    }
+
+    /**
+     * Full constructor with explicit {@code children} but no constraints
+     * (delegates with {@link Constraints#NONE}).
+     *
+     * @param name         SQL parameter name.
+     * @param position     zero-based positional slot, or {@code -1} for named-only.
+     * @param arrowType    declared Arrow type.
+     * @param doc          human-readable parameter description.
+     * @param isConst      {@code true} for a compile-time-constant argument.
+     * @param hasDefault   {@code true} when {@code defaultValue} applies (named-only).
+     * @param defaultValue default literal used when {@code hasDefault}.
+     * @param typeBound    bind-time predicates applied to an "any"-typed argument.
+     * @param varargs      {@code true} when the argument absorbs trailing positionals.
+     * @param anyType      {@code true} for an "any" parameter.
+     * @param tableInput   {@code true} for a TABLE-typed input.
+     * @param children     child {@link Field}s for nested Arrow types.
+     */
+    public ArgSpec(String name, int position, ArrowType arrowType, String doc,
+                    boolean isConst, boolean hasDefault, String defaultValue,
+                    List<TypeBoundPredicate> typeBound,
+                    boolean varargs, boolean anyType, boolean tableInput,
+                    List<Field> children) {
+        this(name, position, arrowType, doc, isConst, hasDefault, defaultValue,
+                typeBound, varargs, anyType, tableInput, children, Constraints.NONE);
+    }
+
+    /**
+     * Return a copy of this spec carrying {@code newConstraints} (a {@code null}
+     * argument normalises to {@link Constraints#NONE}). All other components are
+     * preserved.
+     *
+     * @param newConstraints the discovery constraints to attach.
+     * @return a new {@link ArgSpec} with the given constraints.
+     */
+    public ArgSpec withConstraints(Constraints newConstraints) {
+        return new ArgSpec(name, position, arrowType, doc, isConst, hasDefault,
+                defaultValue, typeBound, varargs, anyType, tableInput, children,
+                newConstraints == null ? Constraints.NONE : newConstraints);
     }
 
     /**

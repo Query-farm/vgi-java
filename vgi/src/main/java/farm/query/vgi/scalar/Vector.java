@@ -41,4 +41,23 @@ public @interface Vector {
      *  inputs, reported as a function-named SQL-typed error on violation;
      *  empty means unconstrained} */
     TypeBoundPredicate[] typeBound() default {};
+    /** {@return the closed set of allowed values surfaced for agent discovery
+     *  ({@code vgi_choices}); empty means no restriction. Declared as strings —
+     *  workers needing non-string choices attach an
+     *  {@link farm.query.vgi.function.ArgSpec.Constraints} directly} */
+    String[] choices() default {};
+    /** {@return inclusive lower bound ({@code value >= ge}) for agent discovery
+     *  ({@code vgi_range}); {@link Double#NaN} means unbounded} */
+    double ge() default Double.NaN;
+    /** {@return inclusive upper bound ({@code value <= le}); {@link Double#NaN}
+     *  means unbounded} */
+    double le() default Double.NaN;
+    /** {@return exclusive lower bound ({@code value > gt}); {@link Double#NaN}
+     *  means unbounded} */
+    double gt() default Double.NaN;
+    /** {@return exclusive upper bound ({@code value < lt}); {@link Double#NaN}
+     *  means unbounded} */
+    double lt() default Double.NaN;
+    /** {@return regex the value must match ({@code vgi_pattern}); empty for none} */
+    String pattern() default "";
 }

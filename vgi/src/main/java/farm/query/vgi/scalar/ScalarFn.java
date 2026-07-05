@@ -350,31 +350,37 @@ public abstract class ScalarFn implements ScalarFunction {
                 OutputLength ol = p.getAnnotation(OutputLength.class);
                 if (vec != null) {
                     String wire = vec.value().isEmpty() ? snake(p.getName()) : vec.value();
+                    ArgSpec.Constraints vc = constraintsOf(vec.choices(), vec.ge(),
+                            vec.le(), vec.gt(), vec.lt(), vec.pattern());
                     if (vec.varargs() && vec.any()) {
                         argSpecs.add(new ArgSpec(wire, position++, new ArrowType.Null(), vec.doc(),
-                                false, false, "", List.of(vec.typeBound()), true, true));
+                                false, false, "", List.of(vec.typeBound()), true, true)
+                                .withConstraints(vc));
                         binders.add(new VarargsVectorBinder());
                     } else if (vec.varargs()) {
                         // Typed varargs: List<BigIntVector> → element type drives Arrow type
                         ArrowType eltType = varargsElementArrowType(p);
                         argSpecs.add(new ArgSpec(wire, position++, eltType, vec.doc(), true,
-                                false, "", List.of(), true, false));
+                                false, "", List.of(), true, false).withConstraints(vc));
                         binders.add(new VarargsVectorBinder());
                     } else if (vec.any()) {
                         argSpecs.add(new ArgSpec(wire, position++, new ArrowType.Null(), vec.doc(),
-                                false, false, "", List.of(vec.typeBound()), false, true));
+                                false, false, "", List.of(vec.typeBound()), false, true)
+                                .withConstraints(vc));
                         binders.add(new VectorBinder(p.getType()));
                     } else {
                         ArrowType t = vectorClassToArrow(p.getType());
                         argSpecs.add(new ArgSpec(wire, position++, t, vec.doc(), false,
-                                false, "", List.of(), false, false));
+                                false, "", List.of(), false, false).withConstraints(vc));
                         binders.add(new VectorBinder(p.getType()));
                     }
                 } else if (c != null) {
                     String wire = c.value().isEmpty() ? snake(p.getName()) : c.value();
                     ArrowType t = javaTypeToArrow(p.getType());
+                    ArgSpec.Constraints cc = constraintsOf(c.choices(), c.ge(), c.le(),
+                            c.gt(), c.lt(), c.pattern());
                     argSpecs.add(new ArgSpec(wire, position++, t, c.doc(), true,
-                                false, "", List.of(), false, false));
+                                false, "", List.of(), false, false).withConstraints(cc));
                     binders.add(new ConstBinder(p.getType(), constDeclIdx++));
                 } else if (s != null) {
                     String key = s.value().isEmpty() ? snake(p.getName()) : s.value();
@@ -647,5 +653,27 @@ public abstract class ScalarFn implements ScalarFunction {
             sb.append(Character.toLowerCase(c));
         }
         return sb.toString();
+    }
+
+    /**
+     * Build an {@link ArgSpec.Constraints} from the discovery attributes on a
+     * {@link Vector} / {@link Const} annotation. Absent attributes use their
+     * "unset" sentinel: an empty {@code choices} array, {@link Double#NaN} for a
+     * bound, and an empty {@code pattern}. Returns {@link ArgSpec.Constraints#NONE}
+     * when nothing is declared.
+     */
+    private static ArgSpec.Constraints constraintsOf(String[] choices, double ge,
+            double le, double gt, double lt, String pattern) {
+        List<Object> choiceList = (choices == null || choices.length == 0)
+                ? null : new ArrayList<>(Arrays.asList(choices));
+        String pat = (pattern == null || pattern.isEmpty()) ? null : pattern;
+        ArgSpec.Constraints c = new ArgSpec.Constraints(
+                choiceList,
+                Double.isNaN(ge) ? null : ge,
+                Double.isNaN(le) ? null : le,
+                Double.isNaN(gt) ? null : gt,
+                Double.isNaN(lt) ? null : lt,
+                pat);
+        return c.isEmpty() ? ArgSpec.Constraints.NONE : c;
     }
 }
