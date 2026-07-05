@@ -44,7 +44,7 @@ public final class FormatNumberFunctions {
         @Override public String description() { return "Format number with specified precision"; }
 
         public void compute(
-                @Const long precision,
+                @Const(ge = 0, le = 10) long precision,
                 @Vector Float8Vector value,
                 VarCharVector result) {
             format(value, (int) precision, "", result);
@@ -56,7 +56,7 @@ public final class FormatNumberFunctions {
         @Override public String description() { return "Format number with precision and prefix"; }
 
         public void compute(
-                @Const long precision,
+                @Const(ge = 0, le = 10) long precision,
                 @Const String prefix,
                 @Vector Float8Vector value,
                 VarCharVector result) {

@@ -3,6 +3,7 @@
 package farm.query.vgi.scalar;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.function.Arguments;
 import farm.query.vgi.internal.ArgumentSpecSerializer;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VarCharVector;
@@ -10,9 +11,11 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * The discovery constraints declared on {@link Const} / {@link Vector}
@@ -78,5 +81,18 @@ class ScalarFnConstraintsTest {
         assertEquals("[0, 10]", schema.findField("precision").getMetadata().get("vgi_range"));
         // value is unconstrained → no vgi_range key.
         assertNull(schema.findField("value").getMetadata().get("vgi_range"));
+    }
+
+    @Test
+    void constBoundViolationRejectedAtBind() {
+        FormatNumber fn = new FormatNumber();
+        // In-range precision binds cleanly (null inputSchema → type-bound check skipped).
+        fn.onBind(new ScalarBindParams(
+                "format_number", new Arguments(List.of(2L), Map.of()), null, Map.of()));
+        // A const value outside [0, 10] is rejected at bind, not silently used.
+        assertThrows(IllegalArgumentException.class, () -> fn.onBind(new ScalarBindParams(
+                "format_number", new Arguments(List.of(99L), Map.of()), null, Map.of())));
+        assertThrows(IllegalArgumentException.class, () -> fn.onBind(new ScalarBindParams(
+                "format_number", new Arguments(List.of(-1L), Map.of()), null, Map.of())));
     }
 }
