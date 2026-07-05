@@ -1084,6 +1084,16 @@ public final class Main {
                 List.of(ScanBranch.of("sequence", 50L),
                         ScanBranch.of("read_parquet", "/tmp/vgi_hetero_branch.parquet")));
 
+        // VGI sequence(50) + native iceberg_scan (test creates the iceberg table
+        // via COPY … TO (FORMAT iceberg); gated by VGI_TEST_ICEBERG). Declares
+        // required_extensions=["iceberg"] so the C++ rewriter auto-loads it.
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_iceberg", colN)
+                        .comment("Multi-branch: sequence(50) + iceberg_scan — used by multi_branch_iceberg.test").build(),
+                List.of(ScanBranch.of("sequence", 50L),
+                        ScanBranch.of("iceberg_scan", "/tmp/vgi_iceberg_branch")),
+                List.of("iceberg"));
+
         // VGI sequence(50) + read_csv_auto (read_csv has no filter pushdown).
         w.registerMultiBranchTable(
                 CatalogTable.builder("data", "multi_branch_nopushdown", colN)

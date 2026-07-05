@@ -1329,7 +1329,8 @@ public final class VgiServiceImpl implements VgiService {
         List<farm.query.vgi.catalog.ScanBranch> branches =
                 worker.multiBranchTable(schema_name, name);
         if (branches != null) {
-            return ScanBranchesResultSerializer.serialize(branches, List.of());
+            return ScanBranchesResultSerializer.serialize(branches,
+                    worker.multiBranchRequiredExtensions(schema_name, name));
         }
         // Every other scannable table wraps its single scan function as one
         // branch. The C++ capability cache is per-attach, not per-table, so we

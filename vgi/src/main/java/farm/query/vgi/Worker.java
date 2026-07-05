@@ -95,6 +95,8 @@ public final class Worker {
     private final List<CatalogTable> catalogTables = new ArrayList<>();
     private final Map<String, List<farm.query.vgi.catalog.ScanBranch>> multiBranchTables =
             new LinkedHashMap<>();
+    private final Map<String, List<String>> multiBranchRequiredExtensions =
+            new LinkedHashMap<>();
 
     /**
      * Register a catalog table.
@@ -128,9 +130,29 @@ public final class Worker {
      */
     public Worker registerMultiBranchTable(CatalogTable stub,
             List<farm.query.vgi.catalog.ScanBranch> branches) {
+        return registerMultiBranchTable(stub, branches, List.of());
+    }
+
+    /**
+     * Register a multi-branch table declaring the DuckDB extensions the C++
+     * rewriter must auto-load before binding any branch (e.g. {@code "iceberg"}
+     * for an {@code iceberg_scan} arm, {@code "parquet"} for {@code read_parquet}
+     * where it isn't autoloaded). Surfaced as the {@code required_extensions}
+     * field of the {@code catalog_table_scan_branches_get} response.
+     *
+     * @param stub               the catalog table to enumerate (its inline scan is dropped)
+     * @param branches           the branches whose {@code UNION_ALL} forms the scan
+     * @param requiredExtensions DuckDB extension names the branches depend on
+     * @return this builder
+     */
+    public Worker registerMultiBranchTable(CatalogTable stub,
+            List<farm.query.vgi.catalog.ScanBranch> branches,
+            List<String> requiredExtensions) {
         catalogTables.add(stub.withRpcScanFunction());
-        multiBranchTables.put(stub.schema() + "." + stub.name(),
-                branches == null ? List.of() : List.copyOf(branches));
+        String key = stub.schema() + "." + stub.name();
+        multiBranchTables.put(key, branches == null ? List.of() : List.copyOf(branches));
+        multiBranchRequiredExtensions.put(key,
+                requiredExtensions == null ? List.of() : List.copyOf(requiredExtensions));
         return this;
     }
 
@@ -143,6 +165,18 @@ public final class Worker {
      */
     public List<farm.query.vgi.catalog.ScanBranch> multiBranchTable(String schema, String name) {
         return multiBranchTables.get(schema + "." + name);
+    }
+
+    /**
+     * DuckDB extensions the C++ rewriter must auto-load for a multi-branch
+     * table's branches, or an empty list when none were declared.
+     *
+     * @param schema the schema name
+     * @param name   the table name
+     * @return the required-extension names, never {@code null}
+     */
+    public List<String> multiBranchRequiredExtensions(String schema, String name) {
+        return multiBranchRequiredExtensions.getOrDefault(schema + "." + name, List.of());
     }
 
     /**
