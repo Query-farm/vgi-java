@@ -2,6 +2,7 @@
 
 package farm.query.vgi.example.table;
 
+import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.function.FunctionSpec;
@@ -96,7 +97,8 @@ public final class MakeSeriesFunctions {
     public static final class Count implements TableFunction {
         private static final FunctionSpec SPEC = FunctionSpec.builder("make_series")
                 .description("Generate integers from 0 to count-1")
-                .constArg("count", Schemas.INT64)
+                .arg(ArgSpec.positional("count", 0, Schemas.INT64)
+                        .withConstraints(ArgSpec.Constraints.range(0, null, null, null)))
                 .build();
 
         @Override public FunctionSpec spec() { return SPEC; }
@@ -147,7 +149,8 @@ public final class MakeSeriesFunctions {
                 .description("Generate integers from start to stop-1 with step")
                 .constArg("start", Schemas.INT64)
                 .constArg("stop", Schemas.INT64)
-                .constArg("step", Schemas.INT64)
+                .arg(ArgSpec.positional("step", 2, Schemas.INT64)
+                        .withConstraints(ArgSpec.Constraints.range(1, null, null, null)))
                 .build();
 
         @Override public FunctionSpec spec() { return SPEC; }
