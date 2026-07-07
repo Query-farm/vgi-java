@@ -1,0 +1,81 @@
+# Copyright 2026 Query Farm LLC - https://query.farm
+#
+# Cross-language HTTP landing-surface conformance for the Java example worker.
+# Boots the example worker over HTTP and drives the shared conformance runner
+# (vendored under ci/landing/) which validates:
+#   * GET /describe.json against describe.schema.json (the cross-language shape),
+#   * GET / serves the pinned shared landing.html (vgi-landing-asset marker),
+#   * GET /?format=json returns a JSON status,
+#   * GET /describe/{catalog}/{schema}/{table}.json returns valid columns.
+#
+# The Python ExampleWorker golden is intentionally NOT enforced here — Java's
+# example worker exposes a different catalog, so only schema + marker + columns
+# are checked. See ~/Development/vgi/docs/http-landing-contract.md.
+name: Landing conformance
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: landing-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # vgi-rpc-java commit built from source (composite include) for the worker's
+  # HTTP landing surface. Keep in sync with integration.yml's VGI_RPC_JAVA_REF;
+  # drop once a vgirpc release with the landing surface is published and pinned.
+  VGI_RPC_JAVA_REF: v0.13.0
+
+jobs:
+  landing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout vgi-java
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned vgi-rpc-java
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: ${{ env.VGI_RPC_JAVA_REF }}
+          path: vgi-rpc-java
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install conformance deps
+        run: python -m pip install --upgrade jsonschema
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build example worker
+        run: ./gradlew --no-daemon :vgi-example-worker:installDist
+        env:
+          VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
+
+      - name: Run landing conformance
+        run: ci/landing/run.sh
+        env:
+          VGI_WORKER_BIN: ${{ github.workspace }}/vgi-example-worker/build/install/vgi-example-worker/bin/vgi-example-worker
+          PYTHON: python
+          JAVA_TOOL_OPTIONS: --enable-native-access=ALL-UNNAMED

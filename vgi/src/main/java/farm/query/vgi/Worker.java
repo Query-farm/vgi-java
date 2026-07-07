@@ -722,6 +722,34 @@ public final class Worker {
     public List<SettingSpec> settingSpecs() { return settings; }
 
     /**
+     * The registered scalar functions (for landing-surface introspection).
+     *
+     * @return the scalar functions, in registration order
+     */
+    public List<ScalarFunction> scalars() { return scalars; }
+
+    /**
+     * The registered table functions (for landing-surface introspection).
+     *
+     * @return the table functions, in registration order
+     */
+    public List<TableFunction> tables() { return tables; }
+
+    /**
+     * The registered table-in-out functions (for landing-surface introspection).
+     *
+     * @return the table-in-out functions, in registration order
+     */
+    public List<TableInOutFunction> tableInOuts() { return tableInOuts; }
+
+    /**
+     * The registered aggregate functions (for landing-surface introspection).
+     *
+     * @return the aggregate functions, in registration order
+     */
+    public List<AggregateFunction<?>> aggregates() { return aggregates; }
+
+    /**
      * @param sealOpaqueData HTTP-only AEAD sealing of attach / transaction
      *        opaque data. Disabled for stdio / AF_UNIX, where OS process
      *        ownership already enforces caller identity. When the caller
@@ -916,7 +944,12 @@ public final class Worker {
      */
     public void runHttp(HttpServer.Config config) throws Exception {
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(Worker.class);
-        HttpServer http = new HttpServer(buildServer(true), config);
+        // Attach the standardized landing surface (describe.json + lazy column
+        // endpoints) unless the caller already supplied a provider.
+        HttpServer.Config effective = config.describeProvider() != null
+                ? config
+                : config.withDescribeProvider(new farm.query.vgi.http.WorkerDescribeProvider(this));
+        HttpServer http = new HttpServer(buildServer(true), effective);
         http.start();
         System.out.println("PORT:" + http.port());
         System.out.flush();
