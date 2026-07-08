@@ -88,6 +88,21 @@ public final class MacroDefaultsEncoder {
         return arrowTypeFor(parse(literal));
     }
 
+    /**
+     * Parse a default-value SQL literal to its typed Java value, using the same
+     * loose parsing {@link #encode} applies ({@code 0}/{@code 100} → {@link Long},
+     * decimals → {@link Double}, {@code 'foo'} → {@link String}, {@code true}/
+     * {@code false} → {@link Boolean}, else the literal text). Lets callers render
+     * the default as its typed JSON scalar (e.g. {@code 0} → {@code "0"}), matching
+     * the Python reference producer's {@code json.dumps(default)}.
+     *
+     * @param literal the default-value SQL literal
+     * @return the typed value the literal encodes to
+     */
+    public static Object valueForLiteral(String literal) {
+        return parse(literal);
+    }
+
     private static Object parse(String literal) {
         if (literal == null) return null;
         String s = literal.trim();

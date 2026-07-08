@@ -11,9 +11,13 @@ import farm.query.vgi.Worker;
 import farm.query.vgi.aggregate.AggregateFunction;
 import farm.query.vgi.buffering.TableBufferingFunction;
 import farm.query.vgi.catalog.CatalogTable;
+import farm.query.vgi.catalog.Macro;
+import farm.query.vgi.catalog.MacroType;
 import farm.query.vgi.catalog.View;
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.Arguments;
+import farm.query.vgi.internal.MacroArgumentsSchema;
+import farm.query.vgi.internal.MacroDefaultsEncoder;
 import farm.query.vgi.internal.SchemaUtil;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.scalar.ScalarBindParams;
@@ -26,10 +30,12 @@ import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgi.types.TypeRules;
 import farm.query.vgirpc.http.DescribeProvider;
 import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -409,7 +415,60 @@ public final class WorkerDescribeProvider implements DescribeProvider {
             functions.add(function(fn.name(), "table_in_out", fn.metadata().description(),
                     fn.argumentSpecs(), bufferingReturns(fn)));
         }
+        // Catalog macros (scalar + table) fold into the same functions array: a
+        // scalar macro is invoked exactly like a scalar function in SQL, a table
+        // macro like a table function, so the landing page lists a catalog's full
+        // callable surface (VGI workers commonly expose "functions" as declarative
+        // macros). Mirrors vgi-python's describe_json._build_schemas.
+        for (Macro m : worker.macros()) {
+            if (hidden(m.name(), extraPrefixes)) continue;
+            functions.add(macro(m));
+        }
+        // Deterministic ordering across functions + macros (both fold into the
+        // same scalar/table/aggregate/table_in_out buckets), matching the Python
+        // reference producer's sort by (type, name).
+        functions.sort(Comparator.comparing((Map<String, Object> d) -> (String) d.get("type"))
+                .thenComparing(d -> (String) d.get("name")));
         return functions;
+    }
+
+    /** Render a catalog macro as a functions-array entry: a scalar macro maps to
+     *  {@code "scalar"}, a table macro to {@code "table"}. Macros carry no
+     *  {@code returns} (the body's type is only known after DuckDB expands it). */
+    private static Map<String, Object> macro(Macro m) {
+        Map<String, Object> fn = new LinkedHashMap<>();
+        fn.put("name", m.name());
+        fn.put("type", m.macroType() == MacroType.SCALAR ? "scalar" : "table");
+        fn.put("doc", m.comment() == null ? "" : m.comment());
+        fn.put("args", macroArgs(m));
+        return fn;
+    }
+
+    /** One arg per macro parameter, in declaration order. A parameter's type is
+     *  the Arrow type of its default value when one is known (rendered via the
+     *  same {@link TypeRules#sqlTypeName} mapping function args use), else
+     *  {@code "ANY"}. Defaulted parameters are optional and callable by name, so
+     *  they carry {@code named: true} and the default as its typed JSON scalar. */
+    private static List<Map<String, Object>> macroArgs(Macro m) {
+        Map<String, String> defaults = m.parameterDefaults() == null ? Map.of() : m.parameterDefaults();
+        Schema schema = MacroArgumentsSchema.build(m.parameters(), defaults, m.parameterDocs());
+        List<Map<String, Object>> args = new ArrayList<>();
+        for (Field f : schema.getFields()) {
+            String name = f.getName();
+            Map<String, Object> arg = new LinkedHashMap<>();
+            arg.put("name", name);
+            ArrowType type = f.getType();
+            arg.put("type", type instanceof ArrowType.Null ? "ANY" : TypeRules.sqlTypeName(type));
+            Map<String, String> md = f.getMetadata();
+            String doc = md == null ? null : md.get("vgi_doc");
+            if (doc != null && !doc.isEmpty()) arg.put("desc", doc);
+            if (defaults.containsKey(name)) {
+                arg.put("named", true);
+                arg.put("default", GSON.toJson(MacroDefaultsEncoder.valueForLiteral(defaults.get(name))));
+            }
+            args.add(arg);
+        }
+        return args;
     }
 
     private static boolean hidden(String name, Set<String> extraPrefixes) {

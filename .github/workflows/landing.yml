@@ -29,7 +29,7 @@ env:
   # vgi-rpc-java commit built from source (composite include) for the worker's
   # HTTP landing surface. Keep in sync with integration.yml's VGI_RPC_JAVA_REF;
   # drop once a vgirpc release with the landing surface is published and pinned.
-  VGI_RPC_JAVA_REF: v0.13.0
+  VGI_RPC_JAVA_REF: v0.14.0
 
 jobs:
   landing:
