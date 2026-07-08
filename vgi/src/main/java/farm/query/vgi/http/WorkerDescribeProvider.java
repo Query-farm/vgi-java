@@ -234,11 +234,15 @@ public final class WorkerDescribeProvider implements DescribeProvider {
             }
         }
 
+        Map<String, String> schemaComments = worker.schemaComments();
+
         int nSchemas = 0, nTables = 0, nViews = 0, nFunctions = 0;
         List<Map<String, Object>> schemas = new ArrayList<>();
         for (String schemaName : schemaNames) {
             Map<String, Object> sch = new LinkedHashMap<>();
             sch.put("name", schemaName);
+            String schemaDoc = schemaComments.get(schemaName);
+            if (schemaDoc != null && !schemaDoc.isEmpty()) sch.put("doc", schemaDoc);
 
             List<Map<String, Object>> tables = new ArrayList<>();
             for (CatalogTable t : worker.catalogTables()) {
