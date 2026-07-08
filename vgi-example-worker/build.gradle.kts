@@ -10,7 +10,7 @@ dependencies {
     // (spatial &&, list_contains, ...) against emitted batches — mirrors
     // vgi-python's `vgi._duckdb` expression-filter evaluator. arrow-c-data
     // bridges an Arrow batch into the engine via the C Data interface.
-    implementation("farm.query.haybarn:haybarn_jdbc:1.5.3")
+    implementation("farm.query.haybarn:haybarn_jdbc:1.5.4-rc1")
     implementation("org.apache.arrow:arrow-c-data:18.1.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
