@@ -167,7 +167,8 @@ public final class CatalogRegistry {
             // (catalog_table_scan_function_get bakes the resolved version into a
             // scan-function argument). Pass them through unchanged instead of
             // rejecting the AT clause.
-            if ("tt_pushdown_fn".equals(t.name()) || "tt_pushdown_cols".equals(t.name())) return t;
+            if ("tt_pushdown_fn".equals(t.name()) || "tt_pushdown_cols".equals(t.name())
+                    || "cache_versioned".equals(t.name())) return t;
             throw new IllegalArgumentException("table " + t.name() + " does not support time travel");
         }
         int version = -1;

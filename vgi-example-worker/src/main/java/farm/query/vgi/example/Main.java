@@ -167,6 +167,23 @@ public final class Main {
                 null);
     }
 
+    /**
+     * Scratch directory holding the parquet/csv files the native-branch and
+     * required-field-filter fixtures delegate to. The tests write them via
+     * {@code ${VGI_TEST_BRANCH_DIR}}, so the worker must read the same env and
+     * produce a byte-identical path. Defaults to the OS temp dir (hardcoding
+     * {@code /tmp} breaks on Windows). Mirrors vgi-python's {@code _BRANCH_DIR}.
+     */
+    private static final String BRANCH_DIR = branchDir();
+
+    private static String branchDir() {
+        String dir = System.getenv("VGI_TEST_BRANCH_DIR");
+        if (dir == null || dir.isEmpty()) dir = System.getProperty("java.io.tmpdir");
+        dir = dir.replace('\\', '/');
+        while (dir.endsWith("/")) dir = dir.substring(0, dir.length() - 1);
+        return dir;
+    }
+
     /** Decode a hex string to bytes (WKB literals for geometry statistics). */
     private static byte[] wkb(String hex) {
         byte[] out = new byte[hex.length() / 2];
@@ -429,6 +446,26 @@ public final class Main {
                 new farm.query.vgi.example.table.ProjReproFullSchemaFunction.Strict(),
                 new farm.query.vgi.example.table.ExpressionFilterTestFunction(),
                 new farm.query.vgi.example.table.SpatialFilterExampleFunction(),
+                // Result-cache fixtures (advertise vgi.cache.* on the first emitted
+                // batch) — see farm.query.vgi.example.table.CacheFunctions.
+                new farm.query.vgi.example.table.CacheFunctions.CacheableNumbers(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheNonce(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheNoStore(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheScopedTxn(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheBig(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheRevalidatable(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheWhoami(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheVersioned(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheProjection(),
+                new farm.query.vgi.example.table.CacheFunctions.CachePoison(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheExternalFail(),
+                new farm.query.vgi.example.table.CacheFunctions.CacheBench(),
+                new farm.query.vgi.example.table.CacheParallelFunctions.CacheParallel(),
+                new farm.query.vgi.example.table.CacheParallelFunctions.CacheOrdered(),
+                new farm.query.vgi.example.table.CacheParallelFunctions.CacheInterleaved(),
+                new farm.query.vgi.example.table.CacheTypesFunction(),
+                new farm.query.vgi.example.table.CacheFilteredFunction(),
+                new farm.query.vgi.example.table.CachePartitionedFunction(),
                 new farm.query.vgi.example.table.StubFunctions.VersionedDataScan(),
                 new farm.query.vgi.example.table.StubFunctions.ColorsScan(),
                 new farm.query.vgi.example.table.StubFunctions.DepartmentsScan(),
@@ -495,6 +532,10 @@ public final class Main {
                 new farm.query.vgi.example.table.FilteredColumnsEchoFunction(),
                 new farm.query.vgi.example.table.UnionVarargsFunction(),
                 new farm.query.vgi.example.table.TxCachedValueFunction()));
+
+        // cache_multicol backs example.data.cache_multicol but is not itself a
+        // callable table function (matches the canonical fixture set).
+        w.registerUnlistedTable(new farm.query.vgi.example.table.CacheFunctions.CacheMultiCol());
     }
 
     private static void registerAggregates(Worker w) {
@@ -617,9 +658,9 @@ public final class Main {
                         "A large sequence of integers from 0 to 1,000,000",
                         Map.of(),
                         "sequence",
-                        List.of((Object) 1_000_001L),
+                        List.of((Object) 1_000_000L),
                         Map.of(),
-                        1_000_001L, 1_000_001L, true, /*inlineScanFunction=*/true))
+                        1_000_000L, 1_000_000L, true, /*inlineScanFunction=*/true))
                 .registerCatalogTable(CatalogTable.functionBacked(
                 "data", "cardinality_inlined_table",
                 SchemaUtil.serializeSchema(
@@ -703,6 +744,74 @@ public final class Main {
                 wkb("010100000000000000000000000000000000000000"),   // POINT(0 0)
                 wkb("010100000000000000000010400000000000001040"),   // POINT(4 4)
                 false, 25L))))
+                // Result-cache fixtures, exposed as function-backed tables so the
+                // catalog-attached path (SELECT ... FROM ex.data.<name>) exercises
+                // the C++ result cache. See table/CacheFunctions.java.
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cacheable_numbers",
+                        cols(col("n", Schemas.INT64, true)),
+                        "Cacheable 10-row result advertising vgi.cache.ttl",
+                        "cacheable_numbers"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_nonce",
+                        cols(col("nonce", Schemas.INT64, true)),
+                        "One-row cacheable result whose value changes per real invocation",
+                        "cache_nonce"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_multicol",
+                        cols(col("a", Schemas.INT64, true), col("b", Schemas.INT64, true),
+                                col("c", Schemas.INT64, true)),
+                        "Multi-column cacheable result (projection-coverage reuse)",
+                        "cache_multicol"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_no_store",
+                        cols(col("n", Schemas.INT64, true)),
+                        "Advertises vgi.cache.no_store — must never be cached",
+                        "cache_no_store"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_scoped_txn",
+                        cols(col("n", Schemas.INT64, true), col("nonce", Schemas.INT64, true)),
+                        "Advertises vgi.cache.scope=transaction",
+                        "cache_scoped_txn"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_filtered",
+                        cols(col("n", Schemas.INT64, true)),
+                        "Cacheable sequence with static filter pushdown (filter_bytes keying)",
+                        "cache_filtered"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_big",
+                        cols(col("n", Schemas.INT64, true)),
+                        "Large multi-batch cacheable result (advertises vgi.cache.ttl)",
+                        "cache_big"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_ordered",
+                        cols(col("n", Schemas.INT64, true)),
+                        "Multi-worker order-sensitive cacheable result (batch_index; "
+                        + "parallel capture, ordered serve)",
+                        "cache_ordered"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_revalidatable",
+                        cols(col("nonce", Schemas.INT64, true)),
+                        "Always-revalidate result (304 not_modified reuses stored bytes)",
+                        "cache_revalidatable"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_whoami",
+                        cols(col("who", Schemas.UTF8, true)),
+                        "Cacheable result echoing the caller's auth principal (identity-scoped)",
+                        "cache_whoami"))
+                // Time-travel + cacheable: AT (VERSION => n) is resolved to the
+                // cache_versioned_scan version arg in VgiServiceImpl.
+                .registerCatalogTable(CatalogTable.builder("data", "cache_versioned",
+                        cols(col("v", Schemas.INT64, true)))
+                        .rpcScanFunction()
+                        .comment("Version-specific cacheable rows (AT-keyed cache isolation)")
+                        .build())
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_projection",
+                        cols(col("a", Schemas.INT64, true), col("b", Schemas.INT64, true),
+                                col("c", Schemas.INT64, true)),
+                        "Projection-pushdown cacheable result (SELECT a vs b are distinct keys)",
+                        "cache_projection"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_poison",
+                        cols(col("n", Schemas.INT64, true)),
+                        "Cacheable first batch then a mid-stream error (never-partial check)",
+                        "cache_poison"))
+                .registerCatalogTable(CatalogTable.functionBacked("data", "cache_external_fail",
+                        cols(col("n", Schemas.INT64, true)),
+                        "Cacheable first batch then an unresolvable external-location pointer",
+                        "cache_external_fail"))
+                // NB: cache_bench is intentionally NOT a data Table — it takes a
+                // required positional arg (rows) a function-backed Table can't supply
+                // at bind. Its tests use the direct vgi_table_function() path.
                 .registerCatalogTable(new CatalogTable(
                         "data", "funny_numbers",
                         cols(col("n", Schemas.INT64, true)),
@@ -822,7 +931,7 @@ public final class Main {
                 .registerCatalogTable(CatalogTable.builder("data", "rff_parquet",
                         cols(bboxCol("bbox"), col("other", Schemas.INT64, true)))
                         .scanFunction("read_parquet",
-                                List.of((Object) "/tmp/rff_seg.parquet"), Map.of())
+                                List.of((Object) (BRANCH_DIR + "/rff_seg.parquet")), Map.of())
                         .rpcScanFunction()
                         .comment("rff_parquet — native read_parquet delegation with bbox.* required filters.")
                         .requiredFieldFilterPaths(List.of(
@@ -838,7 +947,7 @@ public final class Main {
                                 col("theme", Schemas.UTF8, true),
                                 col("type", Schemas.UTF8, true)))
                         .scanFunction("read_parquet",
-                                List.of((Object) "/tmp/rff_hive/*/*/*.parquet"),
+                                List.of((Object) (BRANCH_DIR + "/rff_hive/*/*/*.parquet")),
                                 Map.of("hive_partitioning", (Object) Boolean.TRUE))
                         .rpcScanFunction()
                         .comment("rff_hive — native read_parquet over Hive glob with bbox.* required filters.")
@@ -855,7 +964,7 @@ public final class Main {
                                 col("theme", Schemas.UTF8, true),
                                 col("type", Schemas.UTF8, true)))
                         .scanFunction("read_parquet",
-                                List.of((Object) "/tmp/rff_hive/*/*/*.parquet"),
+                                List.of((Object) (BRANCH_DIR + "/rff_hive/*/*/*.parquet")),
                                 Map.of("hive_partitioning", (Object) Boolean.TRUE))
                         .rpcScanFunction()
                         .comment("rff_hive_mixed — native read_parquet, top-level 'id' + bbox.* required filters.")
@@ -1082,7 +1191,7 @@ public final class Main {
                 CatalogTable.builder("data", "multi_branch_hetero", colN)
                         .comment("Multi-branch: sequence(50) + read_parquet — used by multi_branch_heterogeneous.test").build(),
                 List.of(ScanBranch.of("sequence", 50L),
-                        ScanBranch.of("read_parquet", "/tmp/vgi_hetero_branch.parquet")));
+                        ScanBranch.of("read_parquet", BRANCH_DIR + "/vgi_hetero_branch.parquet")));
 
         // VGI sequence(50) + native iceberg_scan (test creates the iceberg table
         // via COPY … TO (FORMAT iceberg); gated by VGI_TEST_ICEBERG). Declares
@@ -1091,7 +1200,7 @@ public final class Main {
                 CatalogTable.builder("data", "multi_branch_iceberg", colN)
                         .comment("Multi-branch: sequence(50) + iceberg_scan — used by multi_branch_iceberg.test").build(),
                 List.of(ScanBranch.of("sequence", 50L),
-                        ScanBranch.of("iceberg_scan", "/tmp/vgi_iceberg_branch")),
+                        ScanBranch.of("iceberg_scan", BRANCH_DIR + "/vgi_iceberg_branch")),
                 List.of("iceberg"));
 
         // VGI sequence(50) + read_csv_auto (read_csv has no filter pushdown).
@@ -1099,15 +1208,15 @@ public final class Main {
                 CatalogTable.builder("data", "multi_branch_nopushdown", colN)
                         .comment("Multi-branch: VGI + read_csv — used by multi_branch_pushdown_incapable.test").build(),
                 List.of(ScanBranch.of("sequence", 50L),
-                        ScanBranch.of("read_csv_auto", "/tmp/vgi_nopushdown_branch.csv")));
+                        ScanBranch.of("read_csv_auto", BRANCH_DIR + "/vgi_nopushdown_branch.csv")));
 
         // Three read_parquet arms with mismatched columns — by-name reconcile.
         w.registerMultiBranchTable(
                 CatalogTable.builder("data", "multi_branch_recon", colAB)
                         .comment("Multi-branch: column reconciliation — used by multi_branch_reconciliation.test").build(),
-                List.of(ScanBranch.of("read_parquet", "/tmp/vgi_recon_a_b.parquet"),
-                        ScanBranch.of("read_parquet", "/tmp/vgi_recon_b_a.parquet"),
-                        ScanBranch.of("read_parquet", "/tmp/vgi_recon_a_only.parquet")));
+                List.of(ScanBranch.of("read_parquet", BRANCH_DIR + "/vgi_recon_a_b.parquet"),
+                        ScanBranch.of("read_parquet", BRANCH_DIR + "/vgi_recon_b_a.parquet"),
+                        ScanBranch.of("read_parquet", BRANCH_DIR + "/vgi_recon_a_only.parquet")));
 
         // Empty branch list — exercises the C++ loud-fail at the wire layer.
         w.registerMultiBranchTable(

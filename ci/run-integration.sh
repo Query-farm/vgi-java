@@ -71,6 +71,12 @@ mkdir -p "$STAGE/test/sql/integration"
 #   http   — boot the worker as an HTTP server and attach over http:// (mirrors
 #            vgi's `make test_http`).
 export VGI_WORKER_BIN
+# Scratch dir for the native-branch / required-field-filter fixtures. The tests
+# COPY their parquet/csv here and the worker's scan branches read the same path
+# back, so both sides must name the SAME directory (upstream gates those 6 tests
+# behind `require-env VGI_TEST_BRANCH_DIR`; unset, they silently skip).
+export VGI_TEST_BRANCH_DIR="${VGI_TEST_BRANCH_DIR:-$(mktemp -d)}"
+echo "branch scratch dir: $VGI_TEST_BRANCH_DIR"
 # An empty VGI_RPC_SHM_SIZE_BYTES must not reach the C++ client (it would try to
 # attach a zero-size segment); only a real value enables the shm side channel.
 [ -n "${VGI_RPC_SHM_SIZE_BYTES:-}" ] || unset VGI_RPC_SHM_SIZE_BYTES

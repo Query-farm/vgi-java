@@ -542,6 +542,31 @@ public final class VgiServiceImpl implements VgiService {
         throw new IllegalArgumentException("Unsupported at_unit: " + atUnit);
     }
 
+    /**
+     * Resolve an AT clause to one of the {@code cache_versioned} fixture's data
+     * versions (1..3): no AT -> current version (3); {@code VERSION => n} -> {@code n};
+     * {@code TIMESTAMP} -> year &le; 2020 maps to 1, &le; 2021 to 2, else 3. Mirrors
+     * the vgi-python {@code resolve_version} fixture helper.
+     */
+    private static int resolveCacheVersion(String atUnit, String atValue) {
+        if (atUnit == null || atUnit.isEmpty()) return 3;
+        int version;
+        if ("version".equalsIgnoreCase(atUnit)) {
+            try { version = Integer.parseInt(atValue); }
+            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + atValue); }
+        } else if ("timestamp".equalsIgnoreCase(atUnit)) {
+            int year;
+            try { year = Integer.parseInt(atValue.substring(0, Math.min(4, atValue.length()))); }
+            catch (RuntimeException e) { throw new IllegalArgumentException("Unknown timestamp: " + atValue); }
+            if (year < 2020) throw new IllegalArgumentException("table did not exist before 2020");
+            version = year <= 2020 ? 1 : (year <= 2021 ? 2 : 3);
+        } else {
+            throw new IllegalArgumentException("Unsupported at_unit: " + atUnit);
+        }
+        if (version < 1 || version > 3) throw new IllegalArgumentException("Unknown version: " + version);
+        return version;
+    }
+
     private static Schema projectSchema(Schema full, List<Integer> projectionIds) {
         List<org.apache.arrow.vector.types.pojo.Field> picked = new ArrayList<>(projectionIds.size());
         for (int idx : projectionIds) {
@@ -1281,6 +1306,14 @@ public final class VgiServiceImpl implements VgiService {
             return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
                     "tt_pushdown_cols_scan", argsBytes, List.of());
         }
+        // cache_versioned: AT -> version arg, like versioned_data, but the scan
+        // function advertises cache metadata (for the AT cache-isolation test).
+        if ("data".equals(schema_name) && "cache_versioned".equals(name)) {
+            byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
+                    List.of((Object) (long) resolveCacheVersion(at.unit(), at.value())), Map.of());
+            return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
+                    "cache_versioned_scan", argsBytes, List.of());
+        }
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
                 CatalogTable resolved = catalogRegistry.resolveVersion(t, at.unit(), at.value());
@@ -1346,6 +1379,13 @@ public final class VgiServiceImpl implements VgiService {
             farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
                     "tt_pushdown_cols_scan",
                     List.of((Object) (long) resolveTtVersion(at.unit(), at.value())),
+                    Map.of(), null, false, null, null, null);
+            return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
+        }
+        if ("data".equals(schema_name) && "cache_versioned".equals(name)) {
+            farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
+                    "cache_versioned_scan",
+                    List.of((Object) (long) resolveCacheVersion(at.unit(), at.value())),
                     Map.of(), null, false, null, null, null);
             return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
         }
@@ -1749,6 +1789,7 @@ public final class VgiServiceImpl implements VgiService {
                     // proj_repro_* fixtures live in the example worker binary
                     // but only belong to the projection_repro catalog. Show
                     // them only when that catalog was attached.
+                    if (worker.unlistedTables().contains(fn.name())) continue;
                     if (!isProjReproAttach && fn.name().startsWith("proj_repro_")) continue;
                     if (isProjReproAttach && !fn.name().startsWith("proj_repro_")) continue;
                     if (extraAttach == null && ownedByExtraCatalog(fn.name())) continue;

@@ -52,6 +52,7 @@ public final class Worker {
     private byte[] opaqueDataKey;
     private final List<ScalarFunction> scalars = new ArrayList<>();
     private final List<TableFunction> tables = new ArrayList<>();
+    private final java.util.Set<String> unlistedTables = new java.util.HashSet<>();
     private final List<TableInOutFunction> tableInOuts = new ArrayList<>();
     private final List<farm.query.vgi.buffering.TableBufferingFunction> bufferingFns = new ArrayList<>();
     private final List<AggregateFunction<?>> aggregates = new ArrayList<>();
@@ -510,6 +511,31 @@ public final class Worker {
         for (TableFunction f : fns) tables.add(f);
         return this;
     }
+
+    /**
+     * Register a table function that is dispatchable but <em>not</em> advertised
+     * in the catalog's function listing, so DuckDB never registers it as a
+     * callable table function. Use this for the scan function behind a
+     * function-backed {@link farm.query.vgi.catalog.CatalogTable} that should
+     * surface only as a table (mirrors vgi-python, where a {@code Table(function=F)}
+     * does not imply {@code F} is in the catalog's {@code functions} list).
+     *
+     * @param fn the table function to register for dispatch only
+     * @return this builder
+     */
+    public Worker registerUnlistedTable(TableFunction fn) {
+        tables.add(fn);
+        unlistedTables.add(fn.name());
+        return this;
+    }
+
+    /**
+     * Names registered via {@link #registerUnlistedTable}: dispatchable, but
+     * omitted from {@code catalog_schema_contents_functions}.
+     *
+     * @return the unlisted table-function names
+     */
+    public java.util.Set<String> unlistedTables() { return unlistedTables; }
 
     /**
      * Register several aggregate functions; equivalent to calling

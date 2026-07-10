@@ -287,6 +287,85 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-07-10)
+
+**2026-07-10 — ported the upstream result-cache feature (vgi `02a52ad`, vgi-python
+`33740fe`) plus two smaller syncs; full launcher suite green (237 pass / 23 skip /
+0 fail, was 194/28/38).** The dominant piece is the **table-function result cache**:
+the C++ extension now caches a complete cacheable scan and replays it, gated on a
+worker advertising `vgi.cache.*` on its **first emitted batch**. 35 new
+`cache/*.test` files drove the port.
+
+- **`vgi/cache/CacheControl`** (new package) — the `vgi.cache.*` vocabulary
+  (`ttl`/`expires`/`scope`/`no_store`/`etag`/`last_modified`/`revalidatable`/
+  `stale_*`/`not_modified`) + the request-side `IF_NONE_MATCH_KEY` /
+  `IF_MODIFIED_SINCE_KEY`. Builder → `toMetadata()` → `Map<String,String>`.
+  **No OutputCollector change was needed** — `emit(root, customMetadata)` already
+  existed, so `CacheControl` is purely a metadata renderer, and conditional
+  revalidation reads the validator straight off the tick's `AnnotatedBatch
+  .customMetadata()` (override `produceTick(AnnotatedBatch, …)`). That is the whole
+  framework delta; contrast vgi-python, which had to thread `cache_control=` through
+  three collector classes and `_merge_cache_control`.
+- **19 fixtures** in `example/table/`: `CacheFunctions` (13 simple),
+  `CacheParallelFunctions` (`cache_parallel`/`cache_ordered`/`cache_interleaved` —
+  per-execution `ConcurrentLinkedQueue` fan-out, the `PartitionedSequenceFunction`
+  pattern, not `BoundStorage.queuePush`), `CacheTypesFunction` (STRUCT/LIST/
+  DECIMAL/TIMESTAMP + NULLs through the spill blob), `CacheFilteredFunction`,
+  `CachePartitionedFunction`.
+- **`cache_multicol` is a table but NOT a table function.** vgi-python's
+  `Table(function=F)` doesn't imply `F` is in the catalog's `functions` list, but
+  Java's `registerTables` both dispatches *and* lists. New
+  **`Worker.registerUnlistedTable(fn)`** + `unlistedTables()` (skipped in
+  `catalog_schema_contents_functions`) closes the gap — without it the table-fn
+  count is 122, not the asserted **121**. (Upstream's inventory comment reads
+  103 → 121, i.e. +18 functions for 19 fixtures; that one is the difference.)
+- **14 cache data tables** in `Main.registerCatalogTable`, plus `cache_versioned`
+  (columns-based, AT → `cache_versioned_scan(version)` via a `resolveCacheVersion`
+  special-case in **both** `catalog_table_scan_function_get` and
+  `_scan_branches_get`, and a pass-through in `CatalogRegistry.resolveVersion`) —
+  the `tt_pushdown_cols` precedent exactly.
+- **`table/positional_args.test` (new) needed no framework fix.** Java's
+  `CatalogTable` already threads `scanFunctionPositional` into the scan RPC, so the
+  vgi-python bug `43974b5` fixes never existed here. The failure was a fixture
+  mismatch: `example.data.large_sequence` passed `sequence(1_000_001)`; upstream
+  pins 1,000,000 rows / max 999,999. Fixed the arg + cardinality.
+- **`VGI_TEST_BRANCH_DIR`** (vgi-python `395b71d`) — the native-branch + `rff_*`
+  fixtures hardcoded `/tmp/...`; upstream now gates those **6** tests behind
+  `require-env VGI_TEST_BRANCH_DIR` and has the worker read the same env, so they
+  were silently *skipping*. `Main.BRANCH_DIR` reads it (default `java.io.tmpdir`),
+  and both `ci/run-integration.sh` and `/tmp/run_test.sh` export it. Worker and
+  test must name the **same** directory — the paths are compared byte-for-byte.
+  This turned 5 of those 6 into passes; `multi_branch_iceberg` still needs
+  `VGI_TEST_ICEBERG`.
+
+Verified inline **and** under shm (`VGI_RPC_SHM_SIZE_BYTES=67108864`), both
+identical. `cache/identity_isolation.test` + `cache/http_symmetry.test` skip on the
+launch lane (`require-env VGI_HTTP_TRANSPORT`); `cache/parallel_2gb.test_slow` isn't
+a `.test`. No CI changes beyond the branch dir.
+
+**vgi-rpc-java: ported the intermediary/wire surface (vgi-rpc `1a96b88`, `9434c7d`,
+`59952c3`, `13d9dc9`).** These are additive public API, not needed by any
+integration test:
+- `wire/Wire` gained `readRequest`/`writeRequest` (+ `Request` record),
+  `buildErrorStream`, `findStateToken` (walks *concatenated* IPC streams — a
+  producer init response is a header stream followed by the data stream),
+  `findProtocolVersion`, `readUnaryResult`/`writeUnaryResult` (+ `UnaryResult`).
+  Covered by `WireIntermediaryTest`.
+- `http/ContentCodec.decode(data, contentEncoding, maxOutputSize)` — zstd/gzip,
+  comma-list decoded in reverse; `HttpServer.UPLOAD_URL_{METHOD,PARAMS_SCHEMA,
+  RESPONSE_SCHEMA}` + `MAX_UPLOAD_URL_COUNT` made public.
+- **Not ported, deliberately:** vgi-rpc `2858d29` (HEAD `/health` → 405) is a
+  Falcon-specific bug. Jetty's `HttpServlet.doHead` synthesizes HEAD from `doGet`;
+  verified `HEAD /health` already returns 200 with the same capability headers.
+  vgi-rpc `8ea49aa` (raw-TCP transport) and `42701df` (shm request-batch
+  resolution + per-connection segment cache) were already in Java (`36aae83`,
+  `ShmSession`/`d95a67b`).
+
+> **Harness note:** `/tmp/run_test.sh` was wiped again and is reconstructed to use
+> the repo's committed `ci/wrappers/` (not the old `/tmp/vgi-worker-*`) against
+> `~/Development/vgi/build/release/test/unittest`. It also exports
+> `VGI_TEST_BRANCH_DIR`.
+
 ## State of play (as of 2026-06-19)
 
 **2026-06-19 — synced the upstream enum-validation + narrow-bind batch (vgi
