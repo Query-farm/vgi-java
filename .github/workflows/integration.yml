@@ -36,10 +36,7 @@ env:
   # The vgi-rpc-java commit built from source (composite include) for the worker's
   # HTTP features. Drop once a vgirpc release with these features is published and
   # pinned in vgi/build.gradle.kts.
-  # 823dca2 = "fix(http): deliver the init request's batch metadata to a producer's
-  # first tick" — required by cache/revalidate.test on the http lane (the C++ client
-  # sends vgi.cache.if_none_match there). Move back to a tag once it ships in a release.
-  VGI_RPC_JAVA_REF: 823dca2ed6b5b5d47175916f016c7f72511de688
+  VGI_RPC_JAVA_REF: v0.16.0
 
 jobs:
   integration:

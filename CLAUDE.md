@@ -182,8 +182,8 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 ## Releasing (Maven Central)
 
 Published: **`farm.query:vgi`** (this repo) and **`farm.query:vgirpc`** /
-`vgirpc-oauth` (the sibling). Latest as of 2026-06-13: **vgi 0.2.0 → vgirpc
-0.10.2**. To cut a release: bump `version` in `build.gradle.kts`, push, then
+`vgirpc-oauth` (the sibling). Latest as of 2026-07-10: **vgi 0.17.0 → vgirpc
+0.16.0**. To cut a release: bump `version` in `build.gradle.kts`, push, then
 create a GitHub Release whose tag is the version (`v0.2.0` for `0.2.0`). The
 `release.yml` workflow (trigger: `release: published`) verifies tag == version,
 runs tests, and publishes. Both repos now set
@@ -360,9 +360,9 @@ integration test:
   The subprocess transport delivers per-call signals there, so `cache_revalidatable`
   never saw `vgi.cache.if_none_match`, never answered 304, and recomputed. Only
   `cache/revalidate.test` on the **http lane** caught it (launch + shm were green) —
-  a reminder that the http lane is load-bearing, not redundant. `integration.yml`'s
-  `VGI_RPC_JAVA_REF` therefore pins that **commit**, not `v0.15.0`; move it back to a
-  tag once a vgirpc release ships the fix.
+  a reminder that the http lane is load-bearing, not redundant. Shipped in **vgirpc
+  0.16.0**, which `vgi/build.gradle.kts` and `integration.yml`'s `VGI_RPC_JAVA_REF`
+  (`v0.16.0`) both now pin.
 - **Not ported, deliberately:** vgi-rpc `2858d29` (HEAD `/health` → 405) is a
   Falcon-specific bug. Jetty's `HttpServlet.doHead` synthesizes HEAD from `doGet`;
   verified `HEAD /health` already returns 200 with the same capability headers.
