@@ -354,6 +354,15 @@ integration test:
 - `http/ContentCodec.decode(data, contentEncoding, maxOutputSize)` — zstd/gzip,
   comma-list decoded in reverse; `HttpServer.UPLOAD_URL_{METHOD,PARAMS_SCHEMA,
   RESPONSE_SCHEMA}` + `MAX_UPLOAD_URL_COUNT` made public.
+- **`HttpStreamHandler` bug found by the port** (vgirpc `823dca2`): the stateless
+  http producer path handed `state.process()` a synthetic **empty** `AnnotatedBatch`
+  with `Map.of()` metadata, dropping the `/init` request batch's `custom_metadata`.
+  The subprocess transport delivers per-call signals there, so `cache_revalidatable`
+  never saw `vgi.cache.if_none_match`, never answered 304, and recomputed. Only
+  `cache/revalidate.test` on the **http lane** caught it (launch + shm were green) —
+  a reminder that the http lane is load-bearing, not redundant. `integration.yml`'s
+  `VGI_RPC_JAVA_REF` therefore pins that **commit**, not `v0.15.0`; move it back to a
+  tag once a vgirpc release ships the fix.
 - **Not ported, deliberately:** vgi-rpc `2858d29` (HEAD `/health` → 405) is a
   Falcon-specific bug. Jetty's `HttpServlet.doHead` synthesizes HEAD from `doGet`;
   verified `HEAD /health` already returns 200 with the same capability headers.
