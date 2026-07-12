@@ -37,7 +37,11 @@ import java.util.Map;
  * @param cardinality_max             upper-bound row count, or {@code null}.
  * @param column_statistics           IPC-encoded inline column statistics, or {@code null}.
  * @param bind_result                 IPC-encoded cached bind result, or {@code null}.
- * @param required_field_filter_paths dotted field paths that must be filtered before scan.
+ * @param required_filters            required WHERE-filter groups in conjunctive
+ *                                    normal form: an AND of OR-groups, each inner
+ *                                    group a list of dotted column paths satisfied
+ *                                    when any one of its paths has a filter. Empty
+ *                                    means no enforcement. Trailing wire field.
  */
 public record TableInfo(
         @Nullable String comment,
@@ -63,5 +67,5 @@ public record TableInfo(
         @Nullable Long cardinality_max,
         @Nullable byte[] column_statistics,
         @Nullable byte[] bind_result,
-        List<String> required_field_filter_paths) {
+        List<List<String>> required_filters) {
 }

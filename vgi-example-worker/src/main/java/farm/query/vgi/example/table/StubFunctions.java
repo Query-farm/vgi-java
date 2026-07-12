@@ -149,11 +149,11 @@ public final class StubFunctions {
                 List.of(children));
     }
 
-    /** {@code rff_simple_scan()} — flat (a, b) for required_field_filter_paths. */
+    /** {@code rff_simple_scan()} — flat (a, b) for required_filters. */
     public static final class RffSimpleScan extends Stub {
         public RffSimpleScan() {
             super("rff_simple_scan",
-                    "rff_simple — flat columns (a, b) for required_field_filter_paths tests",
+                    "rff_simple — flat columns (a, b) for required_filters tests",
                     new Schema(List.of(
                             Schemas.nullable("a", Schemas.INT64),
                             Schemas.nullable("b", Schemas.INT64))),
@@ -165,7 +165,7 @@ public final class StubFunctions {
     public static final class RffStructScan extends Stub {
         public RffStructScan() {
             super("rff_struct_scan",
-                    "rff_struct — STRUCT(s.a, s.b) + other for required_field_filter_paths tests",
+                    "rff_struct — STRUCT(s.a, s.b) + other for required_filters tests",
                     new Schema(List.of(
                             structOf("s",
                                     Schemas.nullable("a", Schemas.INT64),
@@ -179,7 +179,7 @@ public final class StubFunctions {
     public static final class RffNestedScan extends Stub {
         public RffNestedScan() {
             super("rff_nested_scan",
-                    "rff_nested — nested STRUCT(wrapper.mid.leaf) for required_field_filter_paths tests",
+                    "rff_nested — nested STRUCT(wrapper.mid.leaf) for required_filters tests",
                     new Schema(List.of(
                             structOf("wrapper",
                                     structOf("mid",
@@ -206,7 +206,7 @@ public final class StubFunctions {
     public static final class RffNoneScan extends Stub {
         public RffNoneScan() {
             super("rff_none_scan",
-                    "rff_none — control table with no required_field_filter_paths",
+                    "rff_none — control table with no required_filters",
                     new Schema(List.of(
                             Schemas.nullable("a", Schemas.INT64),
                             Schemas.nullable("b", Schemas.INT64))),

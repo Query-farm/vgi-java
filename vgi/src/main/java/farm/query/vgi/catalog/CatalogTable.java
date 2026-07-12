@@ -2,6 +2,7 @@
 
 package farm.query.vgi.catalog;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +35,11 @@ import java.util.Map;
  * @param checkConstraints          CHECK constraint SQL expressions
  * @param foreignKeys               foreign-key constraints
  * @param statistics                per-column statistics for the optimizer
- * @param requiredFieldFilterPaths  dotted column paths the optimizer must see in
- *                                  every scan's WHERE clause
+ * @param requiredFilters           required WHERE-filter groups in conjunctive
+ *                                  normal form (an AND of OR-groups of dotted
+ *                                  column paths); a group is satisfied when any
+ *                                  one of its paths is filtered. Empty = no
+ *                                  enforcement
  */
 public record CatalogTable(
         String schema,
@@ -55,7 +59,35 @@ public record CatalogTable(
         List<String> checkConstraints,
         List<ForeignKey> foreignKeys,
         List<ColumnStatistics> statistics,
-        List<String> requiredFieldFilterPaths) {
+        List<List<String>> requiredFilters) {
+
+    /**
+     * Validates and defensively copies a required-filters CNF list: rejects
+     * empty OR-groups and empty path strings, mirroring the vgi-python
+     * descriptor validation. {@code null} normalises to an empty list.
+     *
+     * @param groups the CNF groups to validate, or {@code null}
+     * @return an immutable, validated copy
+     * @throws IllegalArgumentException if a group is empty or a path is empty
+     */
+    static List<List<String>> normalizeRequiredFilters(List<List<String>> groups) {
+        if (groups == null) return List.of();
+        List<List<String>> out = new ArrayList<>(groups.size());
+        for (List<String> group : groups) {
+            if (group == null || group.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "requiredFilters must not contain empty groups");
+            }
+            for (String path : group) {
+                if (path == null || path.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "requiredFilters must not contain empty strings");
+                }
+            }
+            out.add(List.copyOf(group));
+        }
+        return List.copyOf(out);
+    }
 
     /**
      * Foreign-key constraint declaration. Wire shape uses column NAMES
@@ -194,7 +226,7 @@ public record CatalogTable(
         private List<String> checkConstraints = List.of();
         private List<ForeignKey> foreignKeys = List.of();
         private List<ColumnStatistics> statistics = List.of();
-        private List<String> requiredFieldFilterPaths = List.of();
+        private List<List<String>> requiredFilters = List.of();
 
         Builder(String schema, String name, byte[] columns) {
             this.schema = schema;
@@ -344,13 +376,18 @@ public record CatalogTable(
         }
 
         /**
-         * Sets the dotted column paths the optimizer must see in any scan's WHERE.
+         * Sets the required WHERE-filter groups (conjunctive normal form): the
+         * outer list is an AND of OR-groups, each inner group a list of dotted
+         * column paths satisfied when any one of its paths is filtered. So
+         * {@code [["accession_number"], ["ticker", "cik"]]} means "accession_number
+         * AND one of (ticker, cik)".
          *
-         * @param paths required filter paths; {@code null} becomes empty
+         * @param groups required filter groups; {@code null} becomes empty
          * @return this builder
+         * @throws IllegalArgumentException if a group is empty or a path is empty
          */
-        public Builder requiredFieldFilterPaths(List<String> paths) {
-            this.requiredFieldFilterPaths = paths == null ? List.of() : List.copyOf(paths);
+        public Builder requiredFilters(List<List<String>> groups) {
+            this.requiredFilters = normalizeRequiredFilters(groups);
             return this;
         }
 
@@ -364,7 +401,7 @@ public record CatalogTable(
                     scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                     cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                     primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                    requiredFieldFilterPaths);
+                    requiredFilters);
         }
     }
 
@@ -380,7 +417,7 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 estimate, max, true, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                requiredFieldFilterPaths);
+                requiredFilters);
     }
 
     /**
@@ -395,7 +432,7 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, false,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                requiredFieldFilterPaths);
+                requiredFilters);
     }
 
     /**
@@ -419,7 +456,7 @@ public record CatalogTable(
                 check == null ? List.of() : check,
                 fks == null ? List.of() : fks,
                 statistics,
-                requiredFieldFilterPaths);
+                requiredFilters);
     }
 
     /**
@@ -435,21 +472,25 @@ public record CatalogTable(
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys,
                 stats == null ? List.of() : stats,
-                requiredFieldFilterPaths);
+                requiredFilters);
     }
 
     /**
-     * Returns a copy with the dotted column paths the optimizer must see in any
-     * scan's WHERE clause.
+     * Returns a copy with the required WHERE-filter groups (conjunctive normal
+     * form): the outer list is an AND of OR-groups, each inner group a list of
+     * dotted column paths satisfied when any one of its paths is filtered. So
+     * {@code [["accession_number"], ["ticker", "cik"]]} means "accession_number
+     * AND one of (ticker, cik)".
      *
-     * @param paths required filter paths; {@code null} becomes empty
-     * @return a new table with the required filter paths applied
+     * @param groups required filter groups; {@code null} becomes empty
+     * @return a new table with the required filter groups applied
+     * @throws IllegalArgumentException if a group is empty or a path is empty
      */
-    public CatalogTable withRequiredFieldFilterPaths(List<String> paths) {
+    public CatalogTable withRequiredFilters(List<List<String>> groups) {
         return new CatalogTable(schema, name, columns, comment, tags,
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                paths == null ? List.of() : List.copyOf(paths));
+                normalizeRequiredFilters(groups));
     }
 }

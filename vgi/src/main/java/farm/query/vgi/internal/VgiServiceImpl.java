@@ -1634,7 +1634,7 @@ public final class VgiServiceImpl implements VgiService {
                 t.inlineCardinality() ? t.cardinalityMax() : null,
                 inlineStats,
                 null,
-                t.requiredFieldFilterPaths() == null ? List.of() : t.requiredFieldFilterPaths());
+                t.requiredFilters() == null ? List.of() : t.requiredFilters());
     }
 
     /**

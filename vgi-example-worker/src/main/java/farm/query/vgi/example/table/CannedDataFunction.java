@@ -340,7 +340,7 @@ public final class CannedDataFunction implements TableFunction {
                 {1L, "P002", "Frontend UI"},
                 {2L, "P003", "Sales Portal"}});
 
-        // rff_* — required_field_filter_paths fixtures (rff_simple / rff_struct /
+        // rff_* — required_filters fixtures (rff_simple / rff_struct /
         // rff_nested / rff_multi / rff_none). The required-path enforcement lives
         // in the C++ optimizer; these just supply the scan data DuckDB filters.
         SCHEMAS.put("rff_simple", new Schema(List.of(

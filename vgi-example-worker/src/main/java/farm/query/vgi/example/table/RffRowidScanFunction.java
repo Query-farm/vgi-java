@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * {@code rff_rowid_scan()} — backs {@code example.data.rff_rowid}, a table with a
  * virtual row-id column alongside a {@code bbox} STRUCT whose four corners are
- * declared {@code required_field_filter_paths}. Backs
+ * declared {@code required_filters}. Backs
  * {@code test/sql/integration/table/required_field_filter_paths_rowid.test}.
  *
  * <p>Emits 10 rows: {@code row_id} 0..9, {@code bbox.xmin = row index} (the other

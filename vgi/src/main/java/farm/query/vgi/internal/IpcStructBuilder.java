@@ -148,6 +148,22 @@ public final class IpcStructBuilder {
         return listOf(name, outerItem);
     }
 
+    /**
+     * Non-null {@code list<list<utf8>>} (inner items nullable). Mirrors
+     * {@link #listOfListOfInt32(String)} for the string variant — used by
+     * {@code TableInfo.required_filters} (conjunctive normal form: an AND of
+     * OR-groups of dotted column paths).
+     *
+     * @param name field name
+     * @return the nested-list field
+     */
+    public static Field listOfListOfUtf8(String name) {
+        Field inner = new Field("item", new FieldType(true, UTF8, null), null);
+        Field outerItem = new Field("item",
+                new FieldType(true, new ArrowType.List(), null), List.of(inner));
+        return listOf(name, outerItem);
+    }
+
     /* ============ value writers — operate on row 0 ============ */
 
     /**
@@ -294,6 +310,29 @@ public final class IpcStructBuilder {
             for (List<Integer> inner : values) {
                 w.list().startList();
                 if (inner != null) for (Integer i : inner) if (i != null) w.list().integer().writeInt(i);
+                w.list().endList();
+            }
+        }
+        w.endList();
+        w.setValueCount(1);
+    }
+
+    /**
+     * Write a list of string lists into row 0 of a nested {@code ListVector}.
+     * Nulls are skipped. Mirrors {@link #writeListListInt32} for the string
+     * variant (e.g. {@code TableInfo.required_filters}).
+     *
+     * @param v      the target nested list vector
+     * @param values the inner lists, or {@code null} for an empty list
+     */
+    public static void writeListListString(FieldVector v, List<List<String>> values) {
+        ListVector lv = (ListVector) v;
+        UnionListWriter w = lv.getWriter();
+        w.startList();
+        if (values != null) {
+            for (List<String> inner : values) {
+                w.list().startList();
+                if (inner != null) for (String s : inner) if (s != null) w.list().varChar().writeVarChar(s);
                 w.list().endList();
             }
         }
