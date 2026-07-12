@@ -340,7 +340,7 @@ public final class CannedDataFunction implements TableFunction {
                 {1L, "P002", "Frontend UI"},
                 {2L, "P003", "Sales Portal"}});
 
-        // rff_* — required_filters fixtures (rff_simple / rff_struct /
+        // rff_* — required_filters fixtures (rff_simple / rff_or / rff_struct /
         // rff_nested / rff_multi / rff_none). The required-path enforcement lives
         // in the C++ optimizer; these just supply the scan data DuckDB filters.
         SCHEMAS.put("rff_simple", new Schema(List.of(
@@ -352,6 +352,14 @@ public final class CannedDataFunction implements TableFunction {
                 f("a", Schemas.INT64, true),
                 f("b", Schemas.INT64, true))));
         ROWS.put("rff_none", new Object[][]{{1L, 10L}, {2L, 20L}, {3L, 30L}});
+
+        // rff_or reuses the rff_simple (a, b) shape — a genuine OR-group
+        // [["a", "b"]] enforced by the C++ optimizer, satisfied by a filter on
+        // either column.
+        SCHEMAS.put("rff_or", new Schema(List.of(
+                f("a", Schemas.INT64, true),
+                f("b", Schemas.INT64, true))));
+        ROWS.put("rff_or", new Object[][]{{1L, 10L}, {2L, 20L}, {3L, 30L}});
 
         SCHEMAS.put("rff_struct", new Schema(List.of(
                 rffStructField("s"),
