@@ -30,6 +30,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.StringJoiner;
 
 /**
@@ -99,13 +100,20 @@ public class SumAllColumnsBufferingFunction extends AbstractBufferAndDrain {
         return new SumProducer(params);
     }
 
-    /** Sums all buffered batches per the (numeric) output schema, emits one row. */
-    private static final class SumProducer extends BufferingFinalizeProducer {
+    /** Sums all buffered batches per the (numeric) output schema, emits one row.
+     *  Package-visible so {@link CachedSumAllColumnsFunction}'s producer can
+     *  reuse the summing tick and only re-stamp {@link #emitMetadata()}. */
+    static class SumProducer extends BufferingFinalizeProducer {
         private boolean emitted = false;
 
-        private SumProducer() {}
+        protected SumProducer() {}
 
         SumProducer(TableBufferingFinalizeParams params) { super(params); }
+
+        /** Per-batch custom metadata for the finalize emit ({@code null} = none);
+         *  the cacheable subclass advertises {@code vgi.cache.*} here.
+         *  @return the metadata map, or {@code null}. */
+        protected Map<String, String> emitMetadata() { return null; }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
             if (emitted) { out.finish(); return; }
@@ -139,7 +147,7 @@ public class SumAllColumnsBufferingFunction extends AbstractBufferAndDrain {
                 }
             }
             result.setRowCount(1);
-            out.emit(result);
+            out.emit(result, emitMetadata());
             emitted = true;
         }
     }

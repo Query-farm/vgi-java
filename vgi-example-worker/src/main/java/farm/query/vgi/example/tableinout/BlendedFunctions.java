@@ -2,6 +2,7 @@
 
 package farm.query.vgi.example.tableinout;
 
+import farm.query.vgi.cache.CacheControl;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.SchemaUtil;
@@ -426,6 +427,110 @@ public final class BlendedFunctions {
                         payload = Base64.getEncoder().encodeToString(raw.array());
                     }
                     out.emit(outRoot, Map.of(RowTransformFunction.PARENT_ROW_KEY, payload));
+                }
+            };
+        }
+    }
+
+    /**
+     * {@code cached_double(x INT64) -> doubled} — cacheable blended 1-&gt;1 map
+     * advertising {@code vgi.cache.ttl} on every output batch. Backs the
+     * exchange-mode result cache on BOTH call shapes served by the same
+     * registration: the streaming column form (per-input-batch memoization)
+     * and the correlated LATERAL form (per-chunk memoization).
+     */
+    public static final class CachedDoubleFunction implements RowTransformFunction {
+
+        private static final Schema OUTPUT = new Schema(List.of(
+                new Field("doubled", new FieldType(true, Schemas.INT64, null), null)));
+
+        private static final FunctionSpec SPEC = FunctionSpec.builder("cached_double")
+                .metadata(FunctionMetadata.describe(
+                                "Cacheable blended map x -> x*2 (advertises vgi.cache.ttl)")
+                        .withCategories("blended", "cache", "test"))
+                .arg("x", Schemas.INT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
+
+        @Override public BindResponse onBind(TableInOutBindParams params) {
+            return BindResponse.forSchema(SchemaUtil.serializeSchema(OUTPUT));
+        }
+
+        @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
+            return new TableInOutExchangeState() {
+                @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                    VectorSchemaRoot in = input.root();
+                    BigIntVector xs = (BigIntVector) in.getVector("x");
+                    int rows = in.getRowCount();
+                    VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                    outRoot.allocateNew();
+                    BigIntVector doubled = (BigIntVector) outRoot.getVector("doubled");
+                    for (int i = 0; i < rows; i++) {
+                        if (xs.isNull(i)) doubled.setNull(i);
+                        else doubled.setSafe(i, xs.get(i) * 2);
+                    }
+                    outRoot.setRowCount(rows);
+                    out.emit(outRoot, CacheControl.ttl(300).toMetadata());
+                }
+            };
+        }
+    }
+
+    /**
+     * {@code cached_reval_double(x INT64) -> doubled} — blended map with the
+     * always-revalidate (304) contract: advertises
+     * {@code CacheControl(ttl=0, etag, revalidatable)} so every repeat sends a
+     * conditional request; on a matching {@code vgi.cache.if_none_match} it
+     * answers a 0-row {@code not_modified} batch and the LATERAL operator
+     * replays the stored entry. The etag derives from the worker-input content
+     * so it is stable across identical repeats.
+     */
+    public static final class CachedRevalidatingDoubleFunction implements RowTransformFunction {
+
+        private static final Schema OUTPUT = new Schema(List.of(
+                new Field("doubled", new FieldType(true, Schemas.INT64, null), null)));
+
+        private static final FunctionSpec SPEC = FunctionSpec.builder("cached_reval_double")
+                .metadata(FunctionMetadata.describe(
+                                "Blended map x->x*2 with always-revalidate (304 not_modified) contract")
+                        .withCategories("blended", "cache", "test"))
+                .arg("x", Schemas.INT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
+
+        @Override public BindResponse onBind(TableInOutBindParams params) {
+            return BindResponse.forSchema(SchemaUtil.serializeSchema(OUTPUT));
+        }
+
+        @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
+            return new TableInOutExchangeState() {
+                @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                    VectorSchemaRoot in = input.root();
+                    String etag = CachedEchoFunctions.contentEtag(in);
+                    String ifNoneMatch = input.customMetadata() == null
+                            ? null : input.customMetadata().get(CacheControl.IF_NONE_MATCH_KEY);
+                    if (etag.equals(ifNoneMatch)) {
+                        VectorSchemaRoot empty = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                        empty.setRowCount(0);
+                        out.emit(empty, CacheControl.builder()
+                                .notModified(true).ttl(0).etag(etag).revalidatable(true)
+                                .build().toMetadata());
+                        return;
+                    }
+                    BigIntVector xs = (BigIntVector) in.getVector("x");
+                    int rows = in.getRowCount();
+                    VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                    outRoot.allocateNew();
+                    BigIntVector doubled = (BigIntVector) outRoot.getVector("doubled");
+                    for (int i = 0; i < rows; i++) {
+                        if (xs.isNull(i)) doubled.setNull(i);
+                        else doubled.setSafe(i, xs.get(i) * 2);
+                    }
+                    outRoot.setRowCount(rows);
+                    out.emit(outRoot, CacheControl.builder()
+                            .ttl(0).etag(etag).revalidatable(true).build().toMetadata());
                 }
             };
         }

@@ -88,7 +88,11 @@ public final class ScalarStreamState extends ExchangeState implements PortableSt
         ScalarProcessParams params = new ScalarProcessParams(
                 functionName, cachedArguments, cachedOutputSchema, cachedSettings, secrets);
         VectorSchemaRoot result = fn.process(params, input.root(), Allocators.root());
-        out.emit(result);
+        // Result-cache opt-in: a scalar declaring cacheControl() rides its
+        // vgi.cache.* keys on the emit path's per-batch custom_metadata, so the
+        // extension can memoize the output per distinct input value.
+        farm.query.vgi.cache.CacheControl cc = fn.cacheControl();
+        out.emit(result, cc == null ? null : cc.toMetadata());
     }
 
     /**

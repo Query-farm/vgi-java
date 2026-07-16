@@ -72,6 +72,7 @@ import farm.query.vgi.example.aggregate.SumFunction;
 import farm.query.vgi.example.aggregate.WeightedSumFunction;
 import farm.query.vgi.CatalogDataVersionRelease;
 import farm.query.vgi.example.tableinout.BlendedFunctions;
+import farm.query.vgi.example.tableinout.CachedEchoFunctions;
 import farm.query.vgi.example.tableinout.EchoFunction;
 import farm.query.vgi.example.tableinout.EchoWitnessFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
@@ -430,6 +431,10 @@ public final class Main {
                 new ReturnSecretValueFunction(),
                 new farm.query.vgi.example.scalar.SecretFieldFunction(),
                 new farm.query.vgi.example.scalar.ScaleBySettingFunction(),
+                // Cacheable scalars — per-value memoization (scalar/per_value*.test).
+                new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedDoubleScalarFunction(),
+                new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedAddConstScalarFunction(),
+                new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedLabelScalarFunction(),
                 new UnnestTensorFunction()));
     }
 
@@ -574,14 +579,20 @@ public final class Main {
                 new SubstreamPartialSumFunction(),
                 // Blended ("UNNEST-style") RowTransformFunctions — positional
                 // args ARE the per-row input columns (blended.test,
-                // lateral_batch.test).
+                // lateral_batch.test, cache/exchange_*.test).
                 new BlendedFunctions.GeoEncodeFunction(),
                 new BlendedFunctions.GeoEncode3Function(),
                 new BlendedFunctions.RowSumFunction(),
                 new BlendedFunctions.BlendedDropFunction(),
                 new BlendedFunctions.BlendedExplodeFunction(),
                 new BlendedFunctions.ProjectableBlendedFunction(),
-                new BlendedFunctions.HostileProvenanceFunction()));
+                new BlendedFunctions.HostileProvenanceFunction(),
+                new BlendedFunctions.CachedDoubleFunction(),
+                new BlendedFunctions.CachedRevalidatingDoubleFunction(),
+                // Exchange-mode result-cache classics (cache/exchange_streaming
+                // + exchange_revalidate).
+                new CachedEchoFunctions.CachedEchoFunction(),
+                new CachedEchoFunctions.CachedRevalidatingEchoFunction()));
     }
 
     private static void registerViews(Worker w) {
@@ -1178,6 +1189,7 @@ public final class Main {
         w.registerTableBufferings(List.of(
                 new farm.query.vgi.example.buffering.BufferInputFunction(),
                 new farm.query.vgi.example.buffering.SumAllColumnsBufferingFunction(),
+                new farm.query.vgi.example.buffering.CachedSumAllColumnsFunction(),
                 new farm.query.vgi.example.buffering.DistributedSumBufferingFunction(),
                 new farm.query.vgi.example.buffering.ExceptionProcessFunction(),
                 new farm.query.vgi.example.buffering.ExceptionFinalizeFunction(),

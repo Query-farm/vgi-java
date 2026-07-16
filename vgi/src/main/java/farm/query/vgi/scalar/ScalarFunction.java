@@ -34,4 +34,17 @@ public interface ScalarFunction extends FunctionDescriptor {
      * @return a freshly allocated output root the caller will close.
      */
     VectorSchemaRoot process(ScalarProcessParams params, VectorSchemaRoot input, BufferAllocator alloc);
+
+    /**
+     * Result-cache opt-in. When non-null, the returned {@code vgi.cache.*}
+     * metadata rides every output batch's {@code custom_metadata} (NOT the
+     * schema — the IPC stream fixes the schema at open), so the extension can
+     * memoize the scalar's output per distinct input value. Only a pure,
+     * deterministic scalar should advertise this — a non-pure scalar would
+     * serve stale rows. Mirrors vgi-python's {@code ScalarFunction.CACHE_CONTROL}.
+     *
+     * @return the cache-control to advertise, or {@code null} (default) for a
+     *     non-cacheable scalar.
+     */
+    default farm.query.vgi.cache.CacheControl cacheControl() { return null; }
 }
