@@ -71,6 +71,7 @@ import farm.query.vgi.example.aggregate.SumAllFunction;
 import farm.query.vgi.example.aggregate.SumFunction;
 import farm.query.vgi.example.aggregate.WeightedSumFunction;
 import farm.query.vgi.CatalogDataVersionRelease;
+import farm.query.vgi.example.tableinout.BlendedFunctions;
 import farm.query.vgi.example.tableinout.EchoFunction;
 import farm.query.vgi.example.tableinout.EchoWitnessFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
@@ -570,7 +571,17 @@ public final class Main {
                 new UnnestTensorRowsFunction(),
                 new SecretInOutFunction(),
                 // Per-substream streaming finalize (parallel_finalize.test).
-                new SubstreamPartialSumFunction()));
+                new SubstreamPartialSumFunction(),
+                // Blended ("UNNEST-style") RowTransformFunctions — positional
+                // args ARE the per-row input columns (blended.test,
+                // lateral_batch.test).
+                new BlendedFunctions.GeoEncodeFunction(),
+                new BlendedFunctions.GeoEncode3Function(),
+                new BlendedFunctions.RowSumFunction(),
+                new BlendedFunctions.BlendedDropFunction(),
+                new BlendedFunctions.BlendedExplodeFunction(),
+                new BlendedFunctions.ProjectableBlendedFunction(),
+                new BlendedFunctions.HostileProvenanceFunction()));
     }
 
     private static void registerViews(Worker w) {

@@ -43,6 +43,28 @@ final class OverloadResolver {
 
         List<T> matching = new ArrayList<>();
         for (T v : variants) {
+            // Blended ("UNNEST-style"): the positional params ARE the per-row
+            // input columns, absent from the wire arguments, so resolve by
+            // INPUT-COLUMN count against the declared POSITIONAL arity —
+            // geo_encode(52,13) -> the 2-positional overload, geo_encode(52,13,100)
+            // -> the 3-positional one. Named (-1 position) specs never count
+            // toward arity. Varargs matches any input-column count >= the fixed
+            // positional count. Mirrors vgi-python's _match_function_arguments.
+            if (v instanceof farm.query.vgi.tableinout.RowTransformFunction) {
+                List<ArgSpec> specs = argSpecs(v);
+                int fixed = 0;
+                boolean varargs = false;
+                if (specs != null) {
+                    for (ArgSpec s : specs) {
+                        if (s.position() < 0) continue;
+                        if (s.varargs()) varargs = true;
+                        else fixed++;
+                    }
+                }
+                int inputCols = inputSchema == null ? 0 : inputSchema.getFields().size();
+                if (varargs ? inputCols >= fixed : inputCols == fixed) matching.add(v);
+                continue;
+            }
             int n = countArgs(v);
             if (n == argCount) { matching.add(v); continue; }
             if (hasVarargs(v) && argCount >= n) matching.add(v);

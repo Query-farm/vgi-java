@@ -125,6 +125,13 @@ final class FunctionInfoSerializer {
             nonNull("source_order_dependent", BOOL),
             nonNull("sink_order_dependent", BOOL),
             nonNull("requires_input_batch_index", BOOL),
+            // input_from_args landed in the C++ FunctionInfoSchema between
+            // requires_input_batch_index and required_settings (blended
+            // "UNNEST-style" table-in-out — vgi_protocol_schemas.hpp). Only
+            // RowTransformFunction registrations set it; the C++ side reads it
+            // by name with value_or(false) but validates the item schema
+            // strictly, so the field must be present.
+            nonNull("input_from_args", BOOL),
             listOfPrim("required_settings", UTF8),
             listOf("required_secrets", new Field("item",
                     new FieldType(true, new ArrowType.Struct(), null),
@@ -166,6 +173,7 @@ final class FunctionInfoSerializer {
             writeBool(v.get("source_order_dependent"), info.source_order_dependent());
             writeBool(v.get("sink_order_dependent"), info.sink_order_dependent());
             writeBool(v.get("requires_input_batch_index"), info.requires_input_batch_index());
+            writeBool(v.get("input_from_args"), info.input_from_args());
             writeStringList(v.get("required_settings"), info.required_settings());
             writeRequiredSecrets(v.get("required_secrets"), info.required_secrets());
         });

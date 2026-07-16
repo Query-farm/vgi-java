@@ -1958,9 +1958,10 @@ public final class VgiServiceImpl implements VgiService {
         // C++ rejects input_from_args && has_finalize, and RowTransformFunction
         // pins hasFinalize() to false, so the pair stays consistent.
         FunctionInfo base = baseFunctionInfo(fn, schemaName, "table", bindOutput(r), fn.hasFinalize());
-        // Re-stamp the TIO-specific max_workers baseFunctionInfo hardcodes to 1:
-        // 0 = the C++ parallel-by-default per-substream fan-out; 1 would be the
-        // A3 serial opt-out (a single shared worker).
+        // Re-stamp the TIO-specific fields baseFunctionInfo hardcodes:
+        // max_workers (0 = the C++ parallel-by-default per-substream fan-out;
+        // 1 would be the A3 serial opt-out AND disqualify the exchange-mode
+        // result cache) and input_from_args for blended registrations.
         return new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_name(), base.function_type(),
                 base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
@@ -1972,6 +1973,7 @@ public final class VgiServiceImpl implements VgiService {
                 base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
                 base.source_order_dependent(), base.sink_order_dependent(),
                 base.requires_input_batch_index(),
+                fn instanceof farm.query.vgi.tableinout.RowTransformFunction,
                 base.required_settings(), base.required_secrets());
     }
 
@@ -1993,7 +1995,7 @@ public final class VgiServiceImpl implements VgiService {
                 base.partition_kind(), base.order_dependent(), base.distinct_dependent(),
                 base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
                 base.source_order_dependent(), base.sink_order_dependent(),
-                base.requires_input_batch_index(),
+                base.requires_input_batch_index(), base.input_from_args(),
                 base.required_settings(), required);
     }
 
@@ -2015,6 +2017,7 @@ public final class VgiServiceImpl implements VgiService {
                 base.partition_kind(), base.order_dependent(), base.distinct_dependent(),
                 base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
                 fn.sourceOrderDependent(), fn.sinkOrderDependent(), fn.requiresInputBatchIndex(),
+                base.input_from_args(),
                 base.required_settings(), base.required_secrets());
     }
 
@@ -2067,6 +2070,7 @@ public final class VgiServiceImpl implements VgiService {
                 false,  // source_order_dependent — only meaningful for TableBuffering
                 false,  // sink_order_dependent
                 false,  // requires_input_batch_index
+                false,  // input_from_args — re-stamped true for RowTransformFunction
                 List.of(),
                 List.of());
     }

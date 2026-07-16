@@ -46,6 +46,11 @@ import java.util.Map;
  * @param source_order_dependent       whether the source (finalize) phase is order-dependent.
  * @param sink_order_dependent         whether the sink (process) phase is order-dependent.
  * @param requires_input_batch_index   whether the sink phase requires a monotone input batch index.
+ * @param input_from_args              blended ("UNNEST-style") table-in-out: the positional args
+ *                                     ARE the per-row input columns (real typed args, no TABLE
+ *                                     placeholder), so one registration serves the literal /
+ *                                     column / LATERAL call shapes. Set from
+ *                                     {@link farm.query.vgi.tableinout.RowTransformFunction}.
  * @param required_settings            session settings that must be present.
  * @param required_secrets             secrets the function needs to resolve.
  */
@@ -79,6 +84,7 @@ public record FunctionInfo(
         boolean source_order_dependent,
         boolean sink_order_dependent,
         boolean requires_input_batch_index,
+        boolean input_from_args,
         List<String> required_settings,
         List<FunctionRequiredSecret> required_secrets) implements ArrowSerializableRecord {
 }
