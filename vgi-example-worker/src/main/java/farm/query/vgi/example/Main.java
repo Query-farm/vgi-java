@@ -76,6 +76,7 @@ import farm.query.vgi.example.tableinout.EchoWitnessFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
 import farm.query.vgi.example.tableinout.SecretInOutFunction;
 import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
+import farm.query.vgi.example.tableinout.SubstreamPartialSumFunction;
 import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
 import farm.query.vgi.example.tableinout.RepeatInputsFunction;
 import farm.query.vgi.types.Schemas;
@@ -567,7 +568,9 @@ public final class Main {
                 new FilterBySettingFunction(),
                 new SlowCancellableInoutFunction(),
                 new UnnestTensorRowsFunction(),
-                new SecretInOutFunction()));
+                new SecretInOutFunction(),
+                // Per-substream streaming finalize (parallel_finalize.test).
+                new SubstreamPartialSumFunction()));
     }
 
     private static void registerViews(Worker w) {

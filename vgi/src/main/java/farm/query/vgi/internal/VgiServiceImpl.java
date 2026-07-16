@@ -471,7 +471,17 @@ public final class VgiServiceImpl implements VgiService {
                 bio.fn().name(), bio.args(), inputSchema, fnOutputSchema,
                 bio.settings(), Allocators.root(),
                 new farm.query.vgi.storage.BoundStorage(this.storage, execId, bio.attachId()),
-                bio.secrets());
+                bio.secrets(), request.substream_id());
+        if ("FINALIZE".equalsIgnoreCase(request.phase())) {
+            // Per-substream streaming FINALIZE: a producer-mode init issued on
+            // the substream's connection after input EOS, carrying the SAME
+            // execution_id as the INPUT phase — so params.storage() sees the
+            // state the exchange accumulated. The user's finish() batches are
+            // materialized here and streamed one per producer tick (the same
+            // shape vgi-python's BufferedFinalizeState drains from storage).
+            return RpcStream.producer(fnOutputSchema,
+                    new FinalizeProducerState(bio.fn().finish(params)), header);
+        }
         TableInOutExchangeState state = bio.fn().createExchange(params);
         return RpcStream.exchange(inputSchema, fnOutputSchema, state, header);
     }
@@ -1941,9 +1951,28 @@ public final class VgiServiceImpl implements VgiService {
 
     private FunctionInfo toTableInOutFunctionInfo(TableInOutFunction fn, String schemaName) {
         BindResponse r = fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        // Exchange-only: TIO has no finalize phase (Sink+Source lives in the
-        // buffering interface), so DuckDB never issues a FINALIZE-phase RPC.
-        return baseFunctionInfo(fn, schemaName, "table", bindOutput(r), /*hasFinalize=*/false);
+        // has_finalize drives the C++ per-substream FINALIZE-phase init after
+        // input EOS (parallel streaming finalize). Blended (RowTransformFunction)
+        // registrations additionally advertise input_from_args, entering the
+        // C++ in-out registration branch with real-typed positional args; the
+        // C++ rejects input_from_args && has_finalize, and RowTransformFunction
+        // pins hasFinalize() to false, so the pair stays consistent.
+        FunctionInfo base = baseFunctionInfo(fn, schemaName, "table", bindOutput(r), fn.hasFinalize());
+        // Re-stamp the TIO-specific max_workers baseFunctionInfo hardcodes to 1:
+        // 0 = the C++ parallel-by-default per-substream fan-out; 1 would be the
+        // A3 serial opt-out (a single shared worker).
+        return new FunctionInfo(
+                base.comment(), base.tags(), base.name(), base.schema_name(), base.function_type(),
+                base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
+                base.description(), base.examples(), base.categories(), base.projection_pushdown(),
+                base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
+                base.supported_expression_filters(),
+                base.order_preservation(), (int) fn.maxWorkers(), base.supports_batch_index(),
+                base.partition_kind(), base.order_dependent(), base.distinct_dependent(),
+                base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
+                base.source_order_dependent(), base.sink_order_dependent(),
+                base.requires_input_batch_index(),
+                base.required_settings(), base.required_secrets());
     }
 
     private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {

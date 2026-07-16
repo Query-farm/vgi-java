@@ -31,6 +31,14 @@ import java.util.List;
  * @param tablesample_percentage  TABLESAMPLE percentage, or {@code null}.
  * @param tablesample_seed        TABLESAMPLE seed, or {@code null}.
  * @param finalize_state_id       finalize-phase state identifier for buffering sources.
+ * @param substream_id            stable, CLIENT-minted id for a parallel streaming
+ *     table-in-out substream, identical across this substream's init / every
+ *     process tick / finalize. Unlike the worker-minted {@code execution_id} it
+ *     survives an HTTP load balancer dispatching each request to an arbitrary
+ *     backend, so a finalize landing on a different backend can still key the
+ *     substream's accumulated state (in shared storage) by it. {@code null} when
+ *     the client did not supply one (serial path, non-table-in-out functions,
+ *     old clients).
  */
 public record InitRequest(
         byte[] bind_call,
@@ -48,4 +56,5 @@ public record InitRequest(
         Long order_by_limit,
         Double tablesample_percentage,
         Long tablesample_seed,
-        byte[] finalize_state_id) implements ArrowSerializableRecord {}
+        byte[] finalize_state_id,
+        byte[] substream_id) implements ArrowSerializableRecord {}

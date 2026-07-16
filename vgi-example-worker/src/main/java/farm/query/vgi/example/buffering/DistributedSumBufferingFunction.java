@@ -22,7 +22,7 @@ public final class DistributedSumBufferingFunction extends SumAllColumnsBufferin
     // Only the {@code data} table arg (no {@code logging}) — matches the
     // canonical SingleTableArguments the distributed variant declares.
     private static final FunctionSpec SPEC = FunctionSpec.builder("sum_all_columns_simple_distributed")
-            .metadata(FunctionMetadata.describe("Distributed sum using simple callback API")
+            .metadata(FunctionMetadata.describe("Distributed sum using the buffered (Sink+Combine+Source) model")
                     .withCategories("aggregation", "numeric", "distributed"))
             .table("data")
             .build();
