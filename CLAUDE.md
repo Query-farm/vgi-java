@@ -7,9 +7,10 @@
 
 Java port of the VGI protocol (DuckDB extension that lets external workers
 serve catalog data over Arrow IPC). Driven by passing the integration suite
-at `~/Development/vgi/test/sql/integration/`. Currently **185/185 passing**
-(`schema_reconcile.test` skips via an upstream require-env gate — the writable
-path is out of scope; see "State of play").
+at `~/Development/vgi/test/sql/integration/`. Currently **255 pass / 0 fail /
+23 skip** on the local launch lane (the skips are all env-gated lanes:
+http-worker attach tests, bearer auth, containers, iceberg, dynamic
+aggregates, `schema_reconcile.test`'s writable path; see "State of play").
 
 ## Canonical references
 
@@ -286,6 +287,65 @@ The table / table-in-out / buffering / aggregate kinds **still use the
 older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
+
+## State of play (as of 2026-07-16)
+
+**2026-07-16 — ported the vgi-python 0.15→0.16 delta (11 upstream commits,
+`59a300a`…`82bc93f`): substream_id + parallel per-substream finalize (Phase A),
+blended RowTransformFunction (Phase B), batched-LATERAL provenance, and the
+exchange-mode result cache (M1/M2/M3) + scalar per-value memoization. Full
+launcher suite 255 pass / 0 fail / 23 skip (was 36/219/23 against the current
+`~/Development/vgi` build — the missing `FunctionInfo.input_from_args` wire
+field failed the strict `catalog_schema_contents_functions` item-schema check
+suite-wide).** Landed as three commits; key Java-side decisions:
+
+- **`FunctionInfo.input_from_args`** sits between `requires_input_batch_index`
+  and `required_settings` (C++ `FunctionInfoSchema`); the C++ reads it by name
+  with `value_or(false)` but validates the item schema strictly, so every
+  worker must emit it.
+- **Blended signal = `tableinout/RowTransformFunction`** (interface, mirrors
+  Python's subclassing-is-the-signal). Positional ArgSpecs are the per-row
+  input columns; the C++ bind builds the input schema from the declared arg
+  names (varargs → `col0..colN-1`, read positionally) and casts every call
+  shape to the declared arg types, so exchanges read `Float8Vector` etc.
+  directly. `OverloadResolver` arity-filters blended variants by INPUT-COLUMN
+  count against positional (non-named) specs. Provenance for the batched
+  correlated LATERAL rides `RowTransformFunction.parentRows(...)` →
+  `vgi_rpc.parent_row#b64` (raw LE int32[], base64).
+- **TIO is parallel-by-default now**: `TableInOutFunction.maxWorkers()`
+  (default 0) replaces the hardcoded `max_workers=1` in
+  `toTableInOutFunctionInfo`. The old 1 was the A3 serial opt-out AND
+  disqualified every TIO function from the exchange-mode result cache
+  (`parallel_safe` gate in `VgiTableInOutInitGlobal`) — `cache/
+  exchange_streaming.test` was the failure that surfaced it.
+- **Streaming TIO FINALIZE phase is back** (it was removed as HTTP-unsafe):
+  `hasFinalize()` + `finish(params)`; `initTableInOut` serves a
+  `phase=FINALIZE` init as a producer over the materialized `finish()`
+  batches via the wire-portable `FinalizeProducerState`. The FINALIZE init
+  carries the INPUT phase's `execution_id`, so `params.storage()`
+  (execution-scoped, `FrameworkNs.TIO_STATE`) hands finalize the exchange's
+  accumulated state — that's `substream_partial_sum`. `InitRequest` gained
+  trailing `substream_id` (client-minted, stable per substream), surfaced as
+  `TableInOutInitParams.substreamId`.
+- **Cache/scalar opt-ins were nearly framework-free**: exchange fixtures emit
+  `vgi.cache.*` via the existing `emit(root, customMetadata)`; revalidation
+  validators are read straight off the exchange input's
+  `AnnotatedBatch.customMetadata()` (no ProcessParams threading like Python's
+  `540db11`); scalars got `ScalarFunction.cacheControl()` +
+  `ScalarStreamState` riding it per batch. Buffered finalize needed only an
+  `emitMetadata()` hook on `SumProducer`.
+- **Counts now: scalar fns 45, table-type fns 134** (13 new TIO/blended/cache
+  fixtures + 3 cached scalars).
+- **Not ported, deliberately:** Python's `resolve_metadata` blended foot-gun
+  guards (reflection-driven; no Java analogue — the C++ still rejects
+  `input_from_args && has_finalize`). The C++ side's `describe.json` landing
+  contract is schema-validated, not content-pinned, so no landing update.
+
+Verified inline **and** under `VGI_RPC_SHM_SIZE_BYTES=67108864` (delta tests).
+Unit tests (`:vgi:test`, `:vgi-example-worker:test`) green; `:vgi:javadoc`
+clean on the changed files; `:vgi:compileJava` also verified against the
+*published* vgirpc (`VGI_RPC_JAVA_DIR=/nonexistent`) — no new rpc-layer API
+was needed.
 
 ## State of play (as of 2026-07-10)
 
