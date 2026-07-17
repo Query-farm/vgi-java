@@ -127,10 +127,19 @@ public final class BlendedFunctions {
         }
     }
 
-    /** Shared geo_encode exchange: renders lat[:lon[:alt]] per row, null-propagating. */
-    static final class GeoState extends TableInOutExchangeState {
-        private final int precision;
-        private final boolean altitude;
+    /** Shared geo_encode exchange: renders lat[:lon[:alt]] per row, null-propagating.
+     *  Public mutable fields + no-arg ctor: over HTTP the state round-trips
+     *  through a continuation token ({@code StateSerializer} skips synthetic
+     *  fields and default-fills constructor args, so captured locals / final
+     *  ctor-only state silently rehydrate to defaults). */
+    public static final class GeoState extends TableInOutExchangeState {
+        /** Rounding precision (named arg, baked at init). */
+        public int precision;
+        /** Whether the 3-positional overload's altitude column participates. */
+        public boolean altitude;
+
+        /** No-arg constructor for HTTP state-token deserialization. */
+        public GeoState() {}
 
         GeoState(int precision, boolean altitude) {
             this.precision = precision;
@@ -191,30 +200,42 @@ public final class BlendedFunctions {
         }
 
         @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-            boolean absolute = params.arguments().namedBool("absolute", false);
-            return new TableInOutExchangeState() {
-                @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-                    VectorSchemaRoot in = input.root();
-                    List<FieldVector> cols = in.getFieldVectors();
-                    int rows = in.getRowCount();
-                    VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-                    outRoot.allocateNew();
-                    Float8Vector sums = (Float8Vector) outRoot.getVector("row_sum");
-                    for (int i = 0; i < rows; i++) {
-                        double acc = 0.0;
-                        boolean isNull = false;
-                        for (FieldVector col : cols) {
-                            if (col.isNull(i)) { isNull = true; break; }
-                            double v = ((Float8Vector) col).get(i);
-                            acc += absolute ? Math.abs(v) : v;
-                        }
-                        if (isNull) sums.setNull(i);
-                        else sums.setSafe(i, acc);
+            return new RowSumState(params.arguments().namedBool("absolute", false));
+        }
+
+        /** Named (not anonymous) so the {@code absolute} flag survives the HTTP
+         *  state-token round-trip — an anonymous class captures it as a
+         *  synthetic field, which {@code StateSerializer} skips. */
+        public static final class RowSumState extends TableInOutExchangeState {
+            /** Sum absolute values (named arg, baked at init). */
+            public boolean absolute;
+
+            /** No-arg constructor for HTTP state-token deserialization. */
+            public RowSumState() {}
+
+            RowSumState(boolean absolute) { this.absolute = absolute; }
+
+            @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                VectorSchemaRoot in = input.root();
+                List<FieldVector> cols = in.getFieldVectors();
+                int rows = in.getRowCount();
+                VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                outRoot.allocateNew();
+                Float8Vector sums = (Float8Vector) outRoot.getVector("row_sum");
+                for (int i = 0; i < rows; i++) {
+                    double acc = 0.0;
+                    boolean isNull = false;
+                    for (FieldVector col : cols) {
+                        if (col.isNull(i)) { isNull = true; break; }
+                        double v = ((Float8Vector) col).get(i);
+                        acc += absolute ? Math.abs(v) : v;
                     }
-                    outRoot.setRowCount(rows);
-                    out.emit(outRoot);
+                    if (isNull) sums.setNull(i);
+                    else sums.setSafe(i, acc);
                 }
-            };
+                outRoot.setRowCount(rows);
+                out.emit(outRoot);
+            }
         }
     }
 
@@ -243,13 +264,19 @@ public final class BlendedFunctions {
         }
 
         @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-            return new TableInOutExchangeState() {
-                @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-                    VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-                    outRoot.setRowCount(0);
-                    out.emit(outRoot);
-                }
-            };
+            return new DropState();
+        }
+
+        /** Named + no-arg for the HTTP state-token round-trip. */
+        public static final class DropState extends TableInOutExchangeState {
+            /** No-arg constructor for HTTP state-token deserialization. */
+            public DropState() {}
+
+            @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                outRoot.setRowCount(0);
+                out.emit(outRoot);
+            }
         }
     }
 
@@ -282,35 +309,41 @@ public final class BlendedFunctions {
         }
 
         @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-            return new TableInOutExchangeState() {
-                @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-                    VectorSchemaRoot in = input.root();
-                    BigIntVector counts = (BigIntVector) in.getVector("n");
-                    int rows = in.getRowCount();
-                    List<Long> values = new ArrayList<>();
-                    List<Integer> parents = new ArrayList<>();
-                    for (int row = 0; row < rows; row++) {
-                        long fan = counts.isNull(row) ? 0 : Math.max(0, counts.get(row));
-                        for (long j = 0; j < fan; j++) {
-                            values.add(j);
-                            parents.add(row);
-                        }
+            return new ExplodeState();
+        }
+
+        /** Named + no-arg for the HTTP state-token round-trip. */
+        public static final class ExplodeState extends TableInOutExchangeState {
+            /** No-arg constructor for HTTP state-token deserialization. */
+            public ExplodeState() {}
+
+            @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                VectorSchemaRoot in = input.root();
+                BigIntVector counts = (BigIntVector) in.getVector("n");
+                int rows = in.getRowCount();
+                List<Long> values = new ArrayList<>();
+                List<Integer> parents = new ArrayList<>();
+                for (int row = 0; row < rows; row++) {
+                    long fan = counts.isNull(row) ? 0 : Math.max(0, counts.get(row));
+                    for (long j = 0; j < fan; j++) {
+                        values.add(j);
+                        parents.add(row);
                     }
-                    VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-                    outRoot.allocateNew();
-                    BigIntVector iVec = (BigIntVector) outRoot.getVector("i");
-                    for (int j = 0; j < values.size(); j++) iVec.setSafe(j, values.get(j));
-                    outRoot.setRowCount(values.size());
-                    // Whole-chunk fan-out: one emit for the whole input batch,
-                    // carrying the per-output-row parent index. (Identity
-                    // provenance is omitted for 1->1 maps — the extension
-                    // assumes it — but here the row count changes.)
-                    int[] parentRows = new int[parents.size()];
-                    for (int j = 0; j < parentRows.length; j++) parentRows[j] = parents.get(j);
-                    out.emit(outRoot, RowTransformFunction.parentRows(
-                            parentRows, values.size(), null));
                 }
-            };
+                VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                outRoot.allocateNew();
+                BigIntVector iVec = (BigIntVector) outRoot.getVector("i");
+                for (int j = 0; j < values.size(); j++) iVec.setSafe(j, values.get(j));
+                outRoot.setRowCount(values.size());
+                // Whole-chunk fan-out: one emit for the whole input batch,
+                // carrying the per-output-row parent index. (Identity
+                // provenance is omitted for 1->1 maps — the extension
+                // assumes it — but here the row count changes.)
+                int[] parentRows = new int[parents.size()];
+                for (int j = 0; j < parentRows.length; j++) parentRows[j] = parents.get(j);
+                out.emit(outRoot, RowTransformFunction.parentRows(
+                        parentRows, values.size(), null));
+            }
         }
     }
 
@@ -344,27 +377,40 @@ public final class BlendedFunctions {
         }
 
         @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-            Schema outSchema = params.outputSchema();
-            return new TableInOutExchangeState() {
-                @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-                    VectorSchemaRoot in = input.root();
-                    BigIntVector xs = (BigIntVector) in.getVector("x");
-                    int rows = in.getRowCount();
-                    VectorSchemaRoot outRoot = VectorSchemaRoot.create(outSchema, Allocators.root());
-                    outRoot.allocateNew();
-                    for (Field f : outSchema.getFields()) {
-                        long factor = "a".equals(f.getName()) ? 10 : 100;
-                        BigIntVector dst = (BigIntVector) outRoot.getVector(f.getName());
-                        for (int i = 0; i < rows; i++) {
-                            if (xs.isNull(i)) dst.setNull(i);
-                            else dst.setSafe(i, xs.get(i) * factor);
-                        }
+            return new ProjectableState(params.outputSchema());
+        }
+
+        /** Named (not anonymous) so the projection-narrowed output schema
+         *  survives the HTTP state-token round-trip ({@code StateSerializer}
+         *  has an Arrow {@link Schema} codec, but skips a captured local's
+         *  synthetic field entirely). */
+        public static final class ProjectableState extends TableInOutExchangeState {
+            /** The (possibly projection-narrowed) output schema to emit. */
+            public Schema outSchema;
+
+            /** No-arg constructor for HTTP state-token deserialization. */
+            public ProjectableState() {}
+
+            ProjectableState(Schema outSchema) { this.outSchema = outSchema; }
+
+            @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                VectorSchemaRoot in = input.root();
+                BigIntVector xs = (BigIntVector) in.getVector("x");
+                int rows = in.getRowCount();
+                VectorSchemaRoot outRoot = VectorSchemaRoot.create(outSchema, Allocators.root());
+                outRoot.allocateNew();
+                for (Field f : outSchema.getFields()) {
+                    long factor = "a".equals(f.getName()) ? 10 : 100;
+                    BigIntVector dst = (BigIntVector) outRoot.getVector(f.getName());
+                    for (int i = 0; i < rows; i++) {
+                        if (xs.isNull(i)) dst.setNull(i);
+                        else dst.setSafe(i, xs.get(i) * factor);
                     }
-                    outRoot.setRowCount(rows);
-                    // 1->1 identity map: no provenance needed.
-                    out.emit(outRoot);
                 }
-            };
+                outRoot.setRowCount(rows);
+                // 1->1 identity map: no provenance needed.
+                out.emit(outRoot);
+            }
         }
     }
 
@@ -397,38 +443,49 @@ public final class BlendedFunctions {
         }
 
         @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-            String mode = params.arguments().namedString("mode", "range");
-            return new TableInOutExchangeState() {
-                @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-                    VectorSchemaRoot in = input.root();
-                    BigIntVector xs = (BigIntVector) in.getVector("x");
-                    int rows = in.getRowCount();
-                    VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-                    outRoot.allocateNew();
-                    BigIntVector hv = (BigIntVector) outRoot.getVector("hv");
-                    for (int i = 0; i < rows; i++) {
-                        if (xs.isNull(i)) hv.setNull(i);
-                        else hv.setSafe(i, xs.get(i));
-                    }
-                    outRoot.setRowCount(rows);
-                    String payload;
-                    if ("base64".equals(mode)) {
-                        payload = "@@@ this is not base64 @@@";
-                    } else if ("length".equals(mode)) {
-                        // One int32 too many for the emitted row count.
-                        payload = Base64.getEncoder().encodeToString(new byte[(rows + 1) * 4]);
-                    } else {
-                        // "range" — every parent index == rows (one past the last
-                        // valid index rows-1). Set via the raw metadata so it
-                        // bypasses the helper's length-only check and reaches the
-                        // C++ range check unfiltered.
-                        ByteBuffer raw = ByteBuffer.allocate(rows * 4).order(ByteOrder.LITTLE_ENDIAN);
-                        for (int i = 0; i < rows; i++) raw.putInt(rows);
-                        payload = Base64.getEncoder().encodeToString(raw.array());
-                    }
-                    out.emit(outRoot, Map.of(RowTransformFunction.PARENT_ROW_KEY, payload));
+            return new HostileState(params.arguments().namedString("mode", "range"));
+        }
+
+        /** Named (not anonymous) so {@code mode} survives the HTTP state-token
+         *  round-trip. */
+        public static final class HostileState extends TableInOutExchangeState {
+            /** Poison mode: {@code range} | {@code length} | {@code base64}. */
+            public String mode;
+
+            /** No-arg constructor for HTTP state-token deserialization. */
+            public HostileState() {}
+
+            HostileState(String mode) { this.mode = mode; }
+
+            @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                VectorSchemaRoot in = input.root();
+                BigIntVector xs = (BigIntVector) in.getVector("x");
+                int rows = in.getRowCount();
+                VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                outRoot.allocateNew();
+                BigIntVector hv = (BigIntVector) outRoot.getVector("hv");
+                for (int i = 0; i < rows; i++) {
+                    if (xs.isNull(i)) hv.setNull(i);
+                    else hv.setSafe(i, xs.get(i));
                 }
-            };
+                outRoot.setRowCount(rows);
+                String payload;
+                if ("base64".equals(mode)) {
+                    payload = "@@@ this is not base64 @@@";
+                } else if ("length".equals(mode)) {
+                    // One int32 too many for the emitted row count.
+                    payload = Base64.getEncoder().encodeToString(new byte[(rows + 1) * 4]);
+                } else {
+                    // "range" — every parent index == rows (one past the last
+                    // valid index rows-1). Set via the raw metadata so it
+                    // bypasses the helper's length-only check and reaches the
+                    // C++ range check unfiltered.
+                    ByteBuffer raw = ByteBuffer.allocate(rows * 4).order(ByteOrder.LITTLE_ENDIAN);
+                    for (int i = 0; i < rows; i++) raw.putInt(rows);
+                    payload = Base64.getEncoder().encodeToString(raw.array());
+                }
+                out.emit(outRoot, Map.of(RowTransformFunction.PARENT_ROW_KEY, payload));
+            }
         }
     }
 
@@ -458,22 +515,28 @@ public final class BlendedFunctions {
         }
 
         @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-            return new TableInOutExchangeState() {
-                @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-                    VectorSchemaRoot in = input.root();
-                    BigIntVector xs = (BigIntVector) in.getVector("x");
-                    int rows = in.getRowCount();
-                    VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-                    outRoot.allocateNew();
-                    BigIntVector doubled = (BigIntVector) outRoot.getVector("doubled");
-                    for (int i = 0; i < rows; i++) {
-                        if (xs.isNull(i)) doubled.setNull(i);
-                        else doubled.setSafe(i, xs.get(i) * 2);
-                    }
-                    outRoot.setRowCount(rows);
-                    out.emit(outRoot, CacheControl.ttl(300).toMetadata());
+            return new CachedDoubleState();
+        }
+
+        /** Named + no-arg for the HTTP state-token round-trip. */
+        public static final class CachedDoubleState extends TableInOutExchangeState {
+            /** No-arg constructor for HTTP state-token deserialization. */
+            public CachedDoubleState() {}
+
+            @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                VectorSchemaRoot in = input.root();
+                BigIntVector xs = (BigIntVector) in.getVector("x");
+                int rows = in.getRowCount();
+                VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                outRoot.allocateNew();
+                BigIntVector doubled = (BigIntVector) outRoot.getVector("doubled");
+                for (int i = 0; i < rows; i++) {
+                    if (xs.isNull(i)) doubled.setNull(i);
+                    else doubled.setSafe(i, xs.get(i) * 2);
                 }
-            };
+                outRoot.setRowCount(rows);
+                out.emit(outRoot, CacheControl.ttl(300).toMetadata());
+            }
         }
     }
 
@@ -505,34 +568,40 @@ public final class BlendedFunctions {
         }
 
         @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-            return new TableInOutExchangeState() {
-                @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-                    VectorSchemaRoot in = input.root();
-                    String etag = CachedEchoFunctions.contentEtag(in);
-                    String ifNoneMatch = input.customMetadata() == null
-                            ? null : input.customMetadata().get(CacheControl.IF_NONE_MATCH_KEY);
-                    if (etag.equals(ifNoneMatch)) {
-                        VectorSchemaRoot empty = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-                        empty.setRowCount(0);
-                        out.emit(empty, CacheControl.builder()
-                                .notModified(true).ttl(0).etag(etag).revalidatable(true)
-                                .build().toMetadata());
-                        return;
-                    }
-                    BigIntVector xs = (BigIntVector) in.getVector("x");
-                    int rows = in.getRowCount();
-                    VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
-                    outRoot.allocateNew();
-                    BigIntVector doubled = (BigIntVector) outRoot.getVector("doubled");
-                    for (int i = 0; i < rows; i++) {
-                        if (xs.isNull(i)) doubled.setNull(i);
-                        else doubled.setSafe(i, xs.get(i) * 2);
-                    }
-                    outRoot.setRowCount(rows);
-                    out.emit(outRoot, CacheControl.builder()
-                            .ttl(0).etag(etag).revalidatable(true).build().toMetadata());
+            return new CachedRevalDoubleState();
+        }
+
+        /** Named + no-arg for the HTTP state-token round-trip. */
+        public static final class CachedRevalDoubleState extends TableInOutExchangeState {
+            /** No-arg constructor for HTTP state-token deserialization. */
+            public CachedRevalDoubleState() {}
+
+            @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                VectorSchemaRoot in = input.root();
+                String etag = CachedEchoFunctions.contentEtag(in);
+                String ifNoneMatch = input.customMetadata() == null
+                        ? null : input.customMetadata().get(CacheControl.IF_NONE_MATCH_KEY);
+                if (etag.equals(ifNoneMatch)) {
+                    VectorSchemaRoot empty = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                    empty.setRowCount(0);
+                    out.emit(empty, CacheControl.builder()
+                            .notModified(true).ttl(0).etag(etag).revalidatable(true)
+                            .build().toMetadata());
+                    return;
                 }
-            };
+                BigIntVector xs = (BigIntVector) in.getVector("x");
+                int rows = in.getRowCount();
+                VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                outRoot.allocateNew();
+                BigIntVector doubled = (BigIntVector) outRoot.getVector("doubled");
+                for (int i = 0; i < rows; i++) {
+                    if (xs.isNull(i)) doubled.setNull(i);
+                    else doubled.setSafe(i, xs.get(i) * 2);
+                }
+                outRoot.setRowCount(rows);
+                out.emit(outRoot, CacheControl.builder()
+                        .ttl(0).etag(etag).revalidatable(true).build().toMetadata());
+            }
         }
     }
 }

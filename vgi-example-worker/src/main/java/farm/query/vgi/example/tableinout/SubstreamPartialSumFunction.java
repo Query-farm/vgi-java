@@ -93,7 +93,13 @@ public final class SubstreamPartialSumFunction implements TableInOutFunction {
         return List.of(root);
     }
 
-    /** Accumulate column-0 sums; persist the running total after every batch. */
+    /** Accumulate column-0 sums; persist the running total after every batch.
+     *  Launch/shm-transport state: it holds a live {@link BoundStorage}, which
+     *  cannot round-trip an HTTP continuation token — fine today because the
+     *  only test driving this fixture (parallel_finalize.test) attaches with
+     *  {@code pool false} and skips on the http lane. An HTTP-portable version
+     *  needs an execution-scoped storage rebind (the
+     *  {@code BufferingStorageHolder} pattern). */
     static final class State extends TableInOutExchangeState {
         private final BoundStorage storage;
         private final Schema outputSchema;
