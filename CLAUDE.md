@@ -183,8 +183,8 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 ## Releasing (Maven Central)
 
 Published: **`farm.query:vgi`** (this repo) and **`farm.query:vgirpc`** /
-`vgirpc-oauth` (the sibling). Latest as of 2026-07-10: **vgi 0.17.0 → vgirpc
-0.16.0**. To cut a release: bump `version` in `build.gradle.kts`, push, then
+`vgirpc-oauth` (the sibling). Latest as of 2026-07-21: **vgi 0.20.0 → vgirpc
+0.17.0**. To cut a release: bump `version` in `build.gradle.kts`, push, then
 create a GitHub Release whose tag is the version (`v0.2.0` for `0.2.0`). The
 `release.yml` workflow (trigger: `release: published`) verifies tag == version,
 runs tests, and publishes. Both repos now set
@@ -287,6 +287,54 @@ The table / table-in-out / buffering / aggregate kinds **still use the
 older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
+
+## State of play (as of 2026-07-21)
+
+**2026-07-21 — moved to vgirpc 0.17.0 and ported the per-partition result
+cache fixtures.** Two independent drifts had turned all three integration lanes
+red on `main` before any of this; both are fixed here.
+
+- **vgirpc 0.17.0** (client-authoritative HTTP codec negotiation, `identity` as
+  a first-class accept token, `Config.supportedEncodings` as the producible set,
+  `DEFAULT_ZSTD_LEVEL` 3 → 1, and 415 for a request body whose
+  `Content-Encoding` names an unadvertised codec). Nothing in this repo calls
+  the changed API — the example worker only sets `VGI_HTTP_DISABLE_ZSTD`, which
+  0.17.0 keeps as a preset on the default set — so the move is pin-only:
+  `vgi/build.gradle.kts` (`farm.query:vgirpc:0.17.0`, the coordinate the
+  **release** build resolves from Maven Central) plus `VGI_RPC_JAVA_REF` in
+  `integration.yml` (was `v0.16.0`) and `landing.yml` (was `v0.15.0`), the ref
+  CI builds from source through the composite include.
+- **Per-partition result cache fixtures** (upstream vgi `7443263`). The four
+  `cache_partition_*` table functions live in
+  `table/CachePartitionScopeFunctions.java`; `CacheControl` gained
+  `partitionScope(boolean)` → `vgi.cache.partition_scope`. They back
+  `cache/partition_scope{,_ops,_shapes}.test`, and their absence was also what
+  made `table/function_registration.test` count 134 instead of 138.
+  `partition_scope_identity.test` is HTTP-bearer-gated and stays skipped on
+  every CI lane.
+  - `cache_partition_scope` — 5 countries, single worker, auto-extracted pv.
+  - `cache_partition_parallel` — work-queue fan-out (process-local
+    `ConcurrentLinkedQueue` keyed by execution id, as `CacheParallelFunctions`
+    does — *not* `params.storage`, which is what vgi-python uses) plus one NULL
+    partition; explicit pv pins the NULL scalar's type.
+  - `cache_partition_multicol` — `(region, year)`; the years are
+    non-contiguous on purpose so DuckDB keeps the pushed `IN` an IN filter
+    instead of rewriting it to a non-enumerable BETWEEN.
+  - `cache_partition_proj` — projection pushdown; explicit pv survives
+    `country` being projected out.
+  - All four are `filter=true, autoApply=true` and call `FilterApplier` on each
+    batch: DuckDB does not re-apply a pushed predicate above the scan, so a
+    fall-through worker scan has to be row-exact itself. `partition_scope` is
+    advertised on **every** batch, not just the first, so the opt-in still
+    latches when the leading partition filters away to zero rows.
+- **The other half of the red was upstream's**, fixed upstream, not here: the
+  compute-ladder scalars (`passthru`, `collatz_steps`, `sha256_hex`,
+  `hash_rounds`) shipped in all five SDK workers before
+  `scalar/function_registration.test` knew about them, so every SDK counted 49
+  against an expected 45. Query-farm/vgi `b9f3895` bumped the inventory. Since
+  `integration.yml` pins `VGI_REF: main`, an upstream fixture landing ahead of
+  (or behind) the Java port shows up here as a red lane with no local cause —
+  check `~/Development/vgi` HEAD before assuming the break is ours.
 
 ## State of play (as of 2026-07-16)
 
