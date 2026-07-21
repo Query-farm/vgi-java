@@ -34,6 +34,10 @@ import farm.query.vgi.example.scalar.SumValuesFunction;
 import farm.query.vgi.example.scalar.TypeInfoFunctions;
 import farm.query.vgi.example.tensor.UnnestTensorFunction;
 import farm.query.vgi.example.scalar.UpperCaseFunction;
+import farm.query.vgi.example.scalar.PassthruFunction;
+import farm.query.vgi.example.scalar.CollatzStepsFunction;
+import farm.query.vgi.example.scalar.Sha256HexFunction;
+import farm.query.vgi.example.scalar.HashRoundsFunction;
 import farm.query.vgi.example.scalar.WhoAmIFunction;
 import farm.query.vgi.example.table.DictFilterEchoFunction;
 import farm.query.vgi.example.table.LateMaterializationFunction;
@@ -395,6 +399,10 @@ public final class Main {
                 new DoubleFunction(),
                 new HashSeedFunction(),
                 new UpperCaseFunction(),
+                new PassthruFunction(),
+                new CollatzStepsFunction(),
+                new Sha256HexFunction(),
+                new HashRoundsFunction(),
                 new NullHandlingFunction(),
                 new MultiplyBySettingFunction(),
                 new RandomIntFunction(),
