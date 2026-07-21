@@ -52,6 +52,11 @@ public final class CacheControl {
     public static final String STALE_IF_ERROR_KEY = "vgi.cache.stale_if_error";
     /** 304-equivalent, set on a 0-row batch replying to a conditional request. */
     public static final String NOT_MODIFIED_KEY = "vgi.cache.not_modified";
+    /**
+     * Opt in to per-partition caching: the client ALSO stores the result split by
+     * partition value. Only meaningful on a {@code SINGLE_VALUE_PARTITIONS} function.
+     */
+    public static final String PARTITION_SCOPE_KEY = "vgi.cache.partition_scope";
 
     /**
      * Request-side key: the client's stored ETag, delivered on the first tick's
@@ -78,6 +83,7 @@ public final class CacheControl {
     private final Integer staleWhileRevalidate;
     private final Integer staleIfError;
     private final boolean notModified;
+    private final boolean partitionScope;
 
     private CacheControl(Builder b) {
         if (!VALID_SCOPES.contains(b.scope)) {
@@ -97,6 +103,7 @@ public final class CacheControl {
         this.staleWhileRevalidate = b.staleWhileRevalidate;
         this.staleIfError = b.staleIfError;
         this.notModified = b.notModified;
+        this.partitionScope = b.partitionScope;
     }
 
     private static void requireNonNegative(String name, Integer value) {
@@ -146,6 +153,7 @@ public final class CacheControl {
         if (staleWhileRevalidate != null) md.put(STALE_WHILE_REVALIDATE_KEY, Integer.toString(staleWhileRevalidate));
         if (staleIfError != null) md.put(STALE_IF_ERROR_KEY, Integer.toString(staleIfError));
         if (notModified) md.put(NOT_MODIFIED_KEY, "1");
+        if (partitionScope) md.put(PARTITION_SCOPE_KEY, "1");
         return md;
     }
 
@@ -178,6 +186,7 @@ public final class CacheControl {
         private Integer staleWhileRevalidate;
         private Integer staleIfError;
         private boolean notModified;
+        private boolean partitionScope;
 
         private Builder() {}
 
@@ -262,6 +271,20 @@ public final class CacheControl {
          * @return this builder
          */
         public Builder notModified(boolean notModified) { this.notModified = notModified; return this; }
+
+        /**
+         * Opt in to per-partition caching: on a {@code SINGLE_VALUE_PARTITIONS}
+         * function the client ADDITIONALLY stores the result split by partition
+         * value, so a later {@code =}/{@code IN} scan on the partition column(s)
+         * serves the requested partitions without calling the worker. Additive —
+         * the whole-scan entry is still stored and served.
+         *
+         * @param partitionScope the flag
+         * @return this builder
+         */
+        public Builder partitionScope(boolean partitionScope) {
+            this.partitionScope = partitionScope; return this;
+        }
 
         /**
          * Validate and freeze.

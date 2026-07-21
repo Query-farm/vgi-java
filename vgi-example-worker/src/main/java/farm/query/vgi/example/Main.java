@@ -481,6 +481,12 @@ public final class Main {
                 new farm.query.vgi.example.table.CacheTypesFunction(),
                 new farm.query.vgi.example.table.CacheFilteredFunction(),
                 new farm.query.vgi.example.table.CachePartitionedFunction(),
+                // Per-partition result-cache fixtures (vgi.cache.partition_scope) —
+                // back cache/partition_scope{,_ops,_shapes}.test.
+                new farm.query.vgi.example.table.CachePartitionScopeFunctions.CachePartitionScope(),
+                new farm.query.vgi.example.table.CachePartitionScopeFunctions.CachePartitionParallel(),
+                new farm.query.vgi.example.table.CachePartitionScopeFunctions.CachePartitionMultiCol(),
+                new farm.query.vgi.example.table.CachePartitionScopeFunctions.CachePartitionProj(),
                 new farm.query.vgi.example.table.StubFunctions.VersionedDataScan(),
                 new farm.query.vgi.example.table.StubFunctions.ColorsScan(),
                 new farm.query.vgi.example.table.StubFunctions.DepartmentsScan(),
