@@ -495,6 +495,12 @@ public final class BlendedFunctions {
      * exchange-mode result cache on BOTH call shapes served by the same
      * registration: the streaming column form (per-input-batch memoization)
      * and the correlated LATERAL form (per-chunk memoization).
+     *
+     * <p>Also advertises {@code vgi.cache.per_value} so the per-VALUE memo tier
+     * has coverage in the {@code per_value_*} tests. That is a TEST choice, not
+     * production advice: {@code x*2} is far too cheap to memoize per value (the
+     * probe plus decode costs more than the call). See
+     * {@link CacheControl.Builder#perValue(boolean)}.
      */
     public static final class CachedDoubleFunction implements RowTransformFunction {
 
@@ -503,7 +509,8 @@ public final class BlendedFunctions {
 
         private static final FunctionSpec SPEC = FunctionSpec.builder("cached_double")
                 .metadata(FunctionMetadata.describe(
-                                "Cacheable blended map x -> x*2 (advertises vgi.cache.ttl)")
+                                "Cacheable blended map x -> x*2 "
+                                + "(advertises vgi.cache.ttl + per_value)")
                         .withCategories("blended", "cache", "test"))
                 .arg("x", Schemas.INT64)
                 .build();
@@ -535,7 +542,11 @@ public final class BlendedFunctions {
                     else doubled.setSafe(i, xs.get(i) * 2);
                 }
                 outRoot.setRowCount(rows);
-                out.emit(outRoot, CacheControl.ttl(300).toMetadata());
+                out.emit(outRoot, CacheControl.builder()
+                        .ttl(300)
+                        .perValue(true)
+                        .build()
+                        .toMetadata());
             }
         }
     }

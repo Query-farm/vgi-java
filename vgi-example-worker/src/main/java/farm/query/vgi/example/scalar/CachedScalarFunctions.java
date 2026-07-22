@@ -18,10 +18,22 @@ import java.nio.charset.StandardCharsets;
  * so the C++ side memoizes the output per distinct input value. Mirrors
  * vgi-python's {@code CachedDoubleScalarFunction} /
  * {@code CachedAddConstScalarFunction} / {@code CachedLabelScalarFunction}.
+ *
+ * <p>All three opt in to {@code vgi.cache.per_value} as a deliberate TEST
+ * choice, not as production advice: the per-value memo tier is an explicit
+ * worker advertisement (default OFF) because a per-value serve only pays back
+ * when one call costs more than a cache probe plus a decode. Doubling a BIGINT
+ * is nowhere near that expensive — these fixtures set the flag so the tier has
+ * coverage. See {@link CacheControl.Builder#perValue(boolean)}.
  */
 public final class CachedScalarFunctions {
 
     private CachedScalarFunctions() {}
+
+    /** The {@code ttl} + {@code per_value} advertisement shared by the fixtures. */
+    private static CacheControl perValueTtl() {
+        return CacheControl.builder().ttl(300).perValue(true).build();
+    }
 
     /**
      * {@code cached_double_scalar(value INT64) -> INT64} — a deterministic 1:1
@@ -34,7 +46,7 @@ public final class CachedScalarFunctions {
         @Override public String description() {
             return "Doubles a BIGINT value (advertises vgi.cache.ttl for per-value memo)";
         }
-        @Override public CacheControl cacheControl() { return CacheControl.ttl(300); }
+        @Override public CacheControl cacheControl() { return perValueTtl(); }
 
         /**
          * Double each input value; nulls propagate.
@@ -65,7 +77,7 @@ public final class CachedScalarFunctions {
         @Override public String description() {
             return "value + const addend (advertises vgi.cache.ttl)";
         }
-        @Override public CacheControl cacheControl() { return CacheControl.ttl(300); }
+        @Override public CacheControl cacheControl() { return perValueTtl(); }
 
         /**
          * Add the const addend to each value; nulls propagate.
@@ -97,7 +109,7 @@ public final class CachedScalarFunctions {
         @Override public String description() {
             return "value -> 'lbl-<value>' or NULL for negatives (advertises vgi.cache.ttl)";
         }
-        @Override public CacheControl cacheControl() { return CacheControl.ttl(300); }
+        @Override public CacheControl cacheControl() { return perValueTtl(); }
 
         /**
          * Label non-negative values; NULL for negatives and null inputs.

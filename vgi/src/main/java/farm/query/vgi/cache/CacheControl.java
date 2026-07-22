@@ -57,6 +57,13 @@ public final class CacheControl {
      * partition value. Only meaningful on a {@code SINGLE_VALUE_PARTITIONS} function.
      */
     public static final String PARTITION_SCOPE_KEY = "vgi.cache.partition_scope";
+    /**
+     * Opt in to per-<em>value</em> memoization: the client ALSO memoizes each
+     * distinct input tuple's output. Only meaningful for an exchange-mode map
+     * (a scalar, or a blended table-in-out called via correlated {@code LATERAL}).
+     * Default OFF — see {@link Builder#perValue(boolean)} for why.
+     */
+    public static final String PER_VALUE_KEY = "vgi.cache.per_value";
 
     /**
      * Request-side key: the client's stored ETag, delivered on the first tick's
@@ -84,6 +91,7 @@ public final class CacheControl {
     private final Integer staleIfError;
     private final boolean notModified;
     private final boolean partitionScope;
+    private final boolean perValue;
 
     private CacheControl(Builder b) {
         if (!VALID_SCOPES.contains(b.scope)) {
@@ -104,6 +112,7 @@ public final class CacheControl {
         this.staleIfError = b.staleIfError;
         this.notModified = b.notModified;
         this.partitionScope = b.partitionScope;
+        this.perValue = b.perValue;
     }
 
     private static void requireNonNegative(String name, Integer value) {
@@ -154,6 +163,7 @@ public final class CacheControl {
         if (staleIfError != null) md.put(STALE_IF_ERROR_KEY, Integer.toString(staleIfError));
         if (notModified) md.put(NOT_MODIFIED_KEY, "1");
         if (partitionScope) md.put(PARTITION_SCOPE_KEY, "1");
+        if (perValue) md.put(PER_VALUE_KEY, "1");
         return md;
     }
 
@@ -187,6 +197,7 @@ public final class CacheControl {
         private Integer staleIfError;
         private boolean notModified;
         private boolean partitionScope;
+        private boolean perValue;
 
         private Builder() {}
 
@@ -284,6 +295,37 @@ public final class CacheControl {
          */
         public Builder partitionScope(boolean partitionScope) {
             this.partitionScope = partitionScope; return this;
+        }
+
+        /**
+         * Opt in to per-<em>value</em> memoization: the client ADDITIONALLY
+         * memoizes each distinct worker-input tuple's output, keyed on that
+         * tuple, so the same value is served without calling the worker on a
+         * later chunk or a later query. Only meaningful for an exchange-mode
+         * map — a scalar, or a blended table-in-out invoked through a
+         * correlated {@code LATERAL}.
+         *
+         * <p><strong>Defaults off, and should stay off unless one call is
+         * genuinely expensive.</strong> A per-value serve is not free: it costs
+         * a key probe, a decode of the stored value and a row-assembly step,
+         * for every distinct value. That only pays back when it is cheaper than
+         * simply asking the worker. For a cheap arithmetic map it is a large net
+         * loss — the probe-and-assemble path measures roughly 50x the cost of
+         * the worker call it replaces. The engine cannot tell an expensive call
+         * from a cheap one, which is why this is an explicit advertisement
+         * rather than a heuristic: only the function author knows. Turn it on
+         * for a model inference, a geocode, or a rate-limited remote fetch,
+         * where one call dwarfs a cache probe.
+         *
+         * <p>Independent of whole-result cacheability: a function can be worth
+         * caching by {@code ttl} without per-value memoization paying off, and
+         * vice versa.
+         *
+         * @param perValue the flag
+         * @return this builder
+         */
+        public Builder perValue(boolean perValue) {
+            this.perValue = perValue; return this;
         }
 
         /**
