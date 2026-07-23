@@ -451,7 +451,10 @@ public final class Main {
         // shapes bind and dispatch through different call sites, so each needs
         // its own pair — scalar (scalar/same_name_schemas.test), table-in-out +
         // buffered (table_in_out/same_name_schemas.test) and aggregate
-        // (aggregate/same_name_schemas.test).
+        // (aggregate/same_name_schemas.test). The cacheable producer pair
+        // additionally probes the RESULT CACHE keying (cache/same_name_schemas.test):
+        // a schema-less cache key cross-served one schema's memoized rows to the
+        // other.
         w.registerScalar("main",
                         new farm.query.vgi.example.scalar.SameNameFunctions.MainSchema())
          .registerScalar("data",
@@ -467,7 +470,11 @@ public final class Main {
          .registerAggregate("main",
                         new farm.query.vgi.example.aggregate.SameNameAggFunctions.MainSchema())
          .registerAggregate("data",
-                        new farm.query.vgi.example.aggregate.SameNameAggFunctions.DataSchema());
+                        new farm.query.vgi.example.aggregate.SameNameAggFunctions.DataSchema())
+         .registerTable("main",
+                        new farm.query.vgi.example.table.SameNameCachedFunctions.MainSchema())
+         .registerTable("data",
+                        new farm.query.vgi.example.table.SameNameCachedFunctions.DataSchema());
     }
 
     private static void registerTables(Worker w) {

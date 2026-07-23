@@ -288,6 +288,37 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-07-23, result-cache same-name)
+
+**Cache-key schema disambiguation.** The extension fixed a result-cache-key bug:
+two same-named functions in different schemas of one catalog produced
+byte-identical cache keys and cross-served each other's memoized results (the
+caching-layer twin of the `(schema, name)` dispatch bug). The fix is
+extension-internal (adds the owning schema to the cache key); it's proven by a new
+cross-language integration test (`cache/same_name_schemas.test`) that needs a
+cacheable fixture every SDK worker exposes.
+
+- **New fixture pair** `table/SameNameCachedFunctions` (`MainSchema` / `DataSchema`)
+  — a one-row producer `test_same_name_cached()` emitting a single VARCHAR `tag`
+  equal to its owning schema, advertising `vgi.cache.ttl` (300s) via
+  `CacheControl.ttl(...).toMetadata()` on its first batch (same mechanism as the
+  other `CacheFunctions` producers). Registered in BOTH `main` and `data` of
+  `example` via the existing `registerTable(schema, fn)` overload (each schema is a
+  distinct registration homed in its schema, per the strict exact-dispatch model);
+  the distinct tag makes a mis-route/cross-serve visible. The
+  `vgi_result_cache() WHERE function='test_same_name_cached'` count=2 assertion is
+  load-bearing: two entries stored (fixture advertises cache metadata) AND kept
+  apart by schema (the extension fix).
+- **Counts:** `table/function_registration.test` 142 → **144** (+2 producers;
+  already 144 upstream in `Query-farm/vgi@main`); describe `example` now **216**
+  functions (main 211 + data 5). Landing golden untouched here — the Java worker's
+  golden isn't enforced (different catalog); landing conformance (schema + marker +
+  columns) still passes.
+- **Local (all green):** launch 249 cases / 10122 assertions / 30 skip; shm same;
+  http cache dir 47 cases / 1260 assertions / 6 skip. Unit tests + published-module
+  javadoc pass; example-worker javadoc has 2 pre-existing errors
+  (`ProfilingDemoFunction`, `SlowCancellableFunction`) unrelated to this change.
+
 ## State of play (as of 2026-07-23, protocol 1.2.0)
 
 **1.1.0 put the schema on the bind request; 1.2.0 puts it on the unary RPCs
