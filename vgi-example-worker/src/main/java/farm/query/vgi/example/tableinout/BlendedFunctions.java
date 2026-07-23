@@ -615,4 +615,91 @@ public final class BlendedFunctions {
             }
         }
     }
+
+    /**
+     * {@code cached_explode(n BIGINT) -> i} — cacheable blended 1-&gt;N fan-out
+     * advertising {@code vgi.cache.per_value}.
+     *
+     * <p>Same shape as {@code blended_explode} (emit {@code 0..n-1} per input
+     * row, with per-output-row provenance) but opting into the per-value memo
+     * tier, so it exercises the columnar arena at the cardinalities the 1:1
+     * {@code cached_double} cannot reach: {@code n=0} is a NEGATIVE memo (a
+     * length-0 slot), {@code n>1} a 1:N slot whose rows must survive the
+     * store's gather, the [cached|fresh] splice, and (for disk) the per-slot
+     * Arrow-IPC round trip. Deterministic, so tests assert exact values and
+     * equivalence with per-value off.
+     *
+     * <p>Rows are emitted round-robin across parents (round {@code k} emits
+     * value {@code k} for every parent with {@code n>k}), so within one chunk a
+     * given parent's output rows are NON-contiguous — a store gather that
+     * assumed contiguous runs would corrupt the result. Mirrors vgi-python's
+     * {@code CachedExplodeFunction}; driven by
+     * {@code cache/per_value_multi_batch.test} and
+     * {@code cache/per_value_negative_memo.test}.
+     *
+     * <p>A TEST choice, not production advice: memoizing a trivial fan-out is a
+     * net loss; the point is deterministic coverage of the 1:N and
+     * negative-memo paths.
+     */
+    public static final class CachedExplodeFunction implements RowTransformFunction {
+
+        private static final Schema OUTPUT = new Schema(List.of(
+                new Field("i", new FieldType(true, Schemas.INT64, null), null)));
+
+        private static final FunctionSpec SPEC = FunctionSpec.builder("cached_explode")
+                .metadata(FunctionMetadata.describe(
+                                "Cacheable blended 1->N fan-out (per_value) — 1:0 / 1:1 / 1:N by input")
+                        .withCategories("blended", "cache", "test"))
+                .arg("n", Schemas.INT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
+
+        @Override public BindResponse onBind(TableInOutBindParams params) {
+            return BindResponse.forSchema(SchemaUtil.serializeSchema(OUTPUT));
+        }
+
+        @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
+            return new CachedExplodeState();
+        }
+
+        /** Named + no-arg for the HTTP state-token round-trip. */
+        public static final class CachedExplodeState extends TableInOutExchangeState {
+            /** No-arg constructor for HTTP state-token deserialization. */
+            public CachedExplodeState() {}
+
+            @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+                VectorSchemaRoot in = input.root();
+                BigIntVector counts = (BigIntVector) in.getVector("n");
+                int rows = in.getRowCount();
+                long maxFan = 0;
+                long[] fanOut = new long[rows];
+                for (int row = 0; row < rows; row++) {
+                    long fan = counts.isNull(row) ? 0 : Math.max(0, counts.get(row));
+                    fanOut[row] = fan;
+                    maxFan = Math.max(maxFan, fan);
+                }
+                // Round-robin across parents: interleaved, NOT grouped by parent.
+                List<Long> values = new ArrayList<>();
+                List<Integer> parents = new ArrayList<>();
+                for (long k = 0; k < maxFan; k++) {
+                    for (int row = 0; row < rows; row++) {
+                        if (fanOut[row] > k) {
+                            values.add(k);
+                            parents.add(row);
+                        }
+                    }
+                }
+                VectorSchemaRoot outRoot = VectorSchemaRoot.create(OUTPUT, Allocators.root());
+                outRoot.allocateNew();
+                BigIntVector iVec = (BigIntVector) outRoot.getVector("i");
+                for (int j = 0; j < values.size(); j++) iVec.setSafe(j, values.get(j));
+                outRoot.setRowCount(values.size());
+                int[] parentRows = new int[parents.size()];
+                for (int j = 0; j < parentRows.length; j++) parentRows[j] = parents.get(j);
+                out.emit(outRoot, RowTransformFunction.parentRows(parentRows, values.size(),
+                        CacheControl.builder().ttl(300).perValue(true).build().toMetadata()));
+            }
+        }
+    }
 }

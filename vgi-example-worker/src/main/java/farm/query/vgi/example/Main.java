@@ -610,6 +610,7 @@ public final class Main {
                 new BlendedFunctions.ProjectableBlendedFunction(),
                 new BlendedFunctions.HostileProvenanceFunction(),
                 new BlendedFunctions.CachedDoubleFunction(),
+                new BlendedFunctions.CachedExplodeFunction(),
                 new BlendedFunctions.CachedRevalidatingDoubleFunction(),
                 // Exchange-mode result-cache classics (cache/exchange_streaming
                 // + exchange_revalidate).
