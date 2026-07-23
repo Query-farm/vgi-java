@@ -288,6 +288,32 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-07-23, later)
+
+**The http lane's 7 "new" failures were 7 lost skips.** The republished
+community extension surfaces the worker's own exception text where it used to
+throw a generic `VGI HTTP RPC error`, and the sqllogictest harness skips any
+test whose error message contains **`HTTP`** (`skip_error_messages`, default
+`["HTTP", "Unable to connect"]`). The previous green http run reports
+`skip on error_message matching 'HTTP': 7` — the same seven. So the lane had
+never actually exercised them, and both underlying gaps were real:
+
+- **COPY FROM** buffers the whole source on the first tick, then emitted the
+  last batch without finishing. On HTTP an unfinished producer needs a
+  continuation token, and `CopyFromProducerState` holds the live
+  `TableInitParams` (allocator + storage view) — `StateSerializer` walks
+  non-transient fields with Jackson and recurses into the SQLite handle. Fixed
+  by finishing in the same tick as the last batch.
+- **`substream_partial_sum`**'s exchange state held a `BoundStorage` outright.
+  Its javadoc already said this couldn't ride a token and was "fine today
+  because ... it skips on the http lane" — which is exactly the skip that went
+  away. Now keyed into a process-local map (the `CacheParallelFunctions`
+  `execKey` shape).
+
+**If an http-lane test starts failing with no local cause, check whether it was
+previously skipping**: `gh run view --job <id> --log | grep "skip on error"`.
+A test that only ever "passed" by skipping is not covered.
+
 ## State of play (as of 2026-07-23)
 
 **2026-07-23 — protocol 1.1.0: functions resolve by (schema, name).** Upstream
