@@ -31,18 +31,18 @@ import java.util.Map;
  */
 public final class AggregateRunner {
 
-    private final Map<String, AggregateFunction<?>> registry;
     private final AggregateStateStore store;
 
     /**
-     * Creates a runner over a fixed aggregate registry.
+     * Creates a runner over the worker's shared storage.
      *
-     * @param registry registered aggregates keyed by function name
-     * @param storage  shared worker storage backing per-execution state
+     * <p>The runner holds no function registry: a name is unique only within a
+     * schema, so resolving it is the caller's job ({@code VgiServiceImpl}
+     * resolves {@code (catalog, schema, name)} and passes the function in).
+     *
+     * @param storage shared worker storage backing per-execution state
      */
-    public AggregateRunner(Map<String, AggregateFunction<?>> registry,
-                           farm.query.vgi.storage.FunctionStorage storage) {
-        this.registry = registry;
+    public AggregateRunner(farm.query.vgi.storage.FunctionStorage storage) {
         this.store = new AggregateStateStore(storage);
     }
 
@@ -50,16 +50,15 @@ public final class AggregateRunner {
      * Handle {@code aggregate_bind}: resolve the function, compute its output
      * schema, mint an execution id, and persist bind-time arguments.
      *
-     * @param functionName  the aggregate to bind
+     * @param fn            the resolved aggregate
+     * @param functionName  the aggregate's registered name (state keys, diagnostics)
      * @param inputSchemaIpc IPC-encoded input schema, or {@code null}
      * @param argumentsIpc   IPC-encoded bind arguments, or {@code null}/empty
      * @param secretsIpc     IPC-encoded pre-resolved secret values, or {@code null}/empty
      * @return the bind response carrying the output schema and execution id
      */
-    public AggregateBindResponse bind(String functionName, byte[] inputSchemaIpc, byte[] argumentsIpc,
-                                       byte[] secretsIpc) {
-        AggregateFunction<?> fn = registry.get(functionName);
-        if (fn == null) throw new IllegalArgumentException("Unknown aggregate: " + functionName);
+    public AggregateBindResponse bind(AggregateFunction<?> fn, String functionName, byte[] inputSchemaIpc,
+                                       byte[] argumentsIpc, byte[] secretsIpc) {
         Schema inputSchema = inputSchemaIpc == null ? null : SchemaUtil.deserializeSchema(inputSchemaIpc);
         farm.query.vgi.function.Arguments bindArgs = (argumentsIpc == null || argumentsIpc.length == 0)
                 ? farm.query.vgi.function.Arguments.empty()
@@ -79,13 +78,15 @@ public final class AggregateRunner {
      * Handle {@code aggregate_update}: load each group's state, fold the input
      * batch (split by the {@code __vgi_group_id} column) into it, and save.
      *
-     * @param functionName the aggregate
+     * @param resolved     the resolved aggregate
+     * @param functionName the aggregate's registered name (state keys, diagnostics)
      * @param executionId  the execution scope from {@code bind}
      * @param inputBatch   IPC batch of argument columns plus {@code __vgi_group_id}
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public void update(String functionName, byte[] executionId, byte[] inputBatch) {
-        AggregateFunction fn = lookup(functionName);
+    public void update(AggregateFunction<?> resolved, String functionName, byte[] executionId,
+                        byte[] inputBatch) {
+        AggregateFunction fn = resolved;
         BufferAllocator alloc = Allocators.root();
         BatchUtil.withReadBatch(inputBatch, alloc, root -> {
             if (root == null || root.getRowCount() == 0) return null;
@@ -142,13 +143,15 @@ public final class AggregateRunner {
      * partial state into its {@code target_group_id}. Sources are left intact
      * (freed later by the destructor) since one leaf may feed several targets.
      *
-     * @param functionName the aggregate
+     * @param resolved     the resolved aggregate
+     * @param functionName the aggregate's registered name (state keys, diagnostics)
      * @param executionId  the execution scope from {@code bind}
      * @param mergeBatch   IPC batch with {@code source_group_id}/{@code target_group_id} columns
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public void combine(String functionName, byte[] executionId, byte[] mergeBatch) {
-        AggregateFunction fn = lookup(functionName);
+    public void combine(AggregateFunction<?> resolved, String functionName, byte[] executionId,
+                         byte[] mergeBatch) {
+        AggregateFunction fn = resolved;
         BufferAllocator alloc = Allocators.root();
         BatchUtil.withReadBatch(mergeBatch, alloc, root -> {
             if (root == null || root.getRowCount() == 0) return null;
@@ -221,16 +224,18 @@ public final class AggregateRunner {
      * Handle {@code aggregate_finalize}: produce one output row per requested
      * group id, calling {@code finalizeEmpty} for groups with no accumulated state.
      *
-     * @param functionName   the aggregate
+     * @param resolved       the resolved aggregate
+     * @param functionName   the aggregate's registered name (state keys, diagnostics)
      * @param executionId    the execution scope from {@code bind}
      * @param groupIdsBatch  IPC batch with a {@code group_id} column listing groups to finalize
      * @param outputSchemaIpc IPC-encoded output schema (single result column)
      * @return the finalize response carrying the result batch
      */
     public AggregateFinalizeResponse finalizeRequest(
-            String functionName, byte[] executionId, byte[] groupIdsBatch, byte[] outputSchemaIpc) {
+            AggregateFunction<?> resolved, String functionName, byte[] executionId,
+            byte[] groupIdsBatch, byte[] outputSchemaIpc) {
         @SuppressWarnings({"unchecked", "rawtypes"})
-        AggregateFunction fn = lookup(functionName);
+        AggregateFunction fn = resolved;
         Schema outputSchema = SchemaUtil.deserializeSchema(outputSchemaIpc);
 
         long[] gids = readGroupIds(groupIdsBatch);
@@ -263,21 +268,17 @@ public final class AggregateRunner {
      * Handle {@code aggregate_destructor}: free the persisted state for the
      * listed group ids.
      *
-     * @param functionName  the aggregate
+     * @param resolved      the resolved aggregate (unused beyond proving the
+     *     request named a function this worker actually declares)
+     * @param functionName  the aggregate's registered name (state keys)
      * @param executionId   the execution scope from {@code bind}
      * @param groupIdsBatch IPC batch with a {@code group_id} column
      */
-    public void destructor(String functionName, byte[] executionId, byte[] groupIdsBatch) {
+    public void destructor(AggregateFunction<?> resolved, String functionName, byte[] executionId,
+                            byte[] groupIdsBatch) {
         long[] gids = readGroupIds(groupIdsBatch);
         if (gids.length == 0) return;
         store.deleteStates(executionId, functionName, gids);
-    }
-
-    @SuppressWarnings("rawtypes")
-    private AggregateFunction lookup(String functionName) {
-        AggregateFunction<?> fn = registry.get(functionName);
-        if (fn == null) throw new IllegalStateException("aggregate: unknown function " + functionName);
-        return fn;
     }
 
     private static long[] readGroupIds(byte[] batch) {

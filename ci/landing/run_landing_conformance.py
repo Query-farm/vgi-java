@@ -63,7 +63,7 @@ def check(
     """Return a list of failure strings (empty == conformant)."""
     base = base_url.rstrip("/")
     fails: list[str] = []
-    schema = json.loads(schema_path.read_text())
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
     columns_schema = {**schema, **schema["$defs"]["columns"]}
 
     # 1) describe.json — schema-valid.
@@ -105,11 +105,17 @@ def check(
     # 4) Golden diff (cross-language equality).
     if golden_path is not None:
         got = _canonical(normalize(doc))
-        want = golden_path.read_text() if golden_path.exists() else None
+        want = golden_path.read_text(encoding="utf-8") if golden_path.exists() else None
         if want is None:
             fails.append(f"golden {golden_path} does not exist (run with --update)")
         elif got.strip() != want.strip():
-            fails.append(f"describe.json does not match golden {golden_path.name} (normalized diff)")
+            import difflib
+
+            diff = list(
+                difflib.unified_diff(want.strip().splitlines(), got.strip().splitlines(), "golden", "live", lineterm="")
+            )
+            snippet = "\n".join(diff[:40])
+            fails.append(f"describe.json does not match golden {golden_path.name}:\n{snippet}")
 
     return fails
 
@@ -127,7 +133,7 @@ def main() -> int:
             ap.error("--update requires --golden")
         _, body, _ = _get(f"{args.url.rstrip('/')}/describe.json")
         args.golden.parent.mkdir(parents=True, exist_ok=True)
-        args.golden.write_text(_canonical(normalize(json.loads(body))) + "\n")
+        args.golden.write_text(_canonical(normalize(json.loads(body))) + "\n", encoding="utf-8")
         print(f"wrote golden {args.golden}")
         return 0
 

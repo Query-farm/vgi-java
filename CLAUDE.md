@@ -7,7 +7,7 @@
 
 Java port of the VGI protocol (DuckDB extension that lets external workers
 serve catalog data over Arrow IPC). Driven by passing the integration suite
-at `~/Development/vgi/test/sql/integration/`. Currently **267 pass / 0 fail /
+at `~/Development/vgi/test/sql/integration/`. Currently **269 pass / 0 fail /
 22 skip** on the local launch lane (the skips are all env-gated lanes:
 bearer auth, containers, iceberg, dynamic aggregates, the http-transport
 variants, `schema_reconcile.test`'s writable path; see "State of play").
@@ -287,6 +287,48 @@ The table / table-in-out / buffering / aggregate kinds **still use the
 older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
+
+## State of play (as of 2026-07-23, protocol 1.2.0)
+
+**1.1.0 put the schema on the bind request; 1.2.0 puts it on the unary RPCs
+that re-resolve a function by name.** Those had no schema field, so a name
+declared in two schemas bound correctly and then ran the *other* schema's
+implementation at process/update/finalize — a wrong-but-plausible answer that
+the exact-dispatch model turns into a loud raise instead.
+
+- **`schema_name` added to 8 request records** (`vgi/protocol/`): the five
+  aggregate requests (`Aggregate{Bind,Update,Combine,Finalize,Destructor}Request`)
+  and the three buffering ones (`TableBuffering{Process,Combine,Destructor}Request`).
+  Nullable, name-keyed, appended last. The Java SDK has no window/streaming
+  aggregate RPC surface, so 8 of vgi-python's 15 apply.
+- **`AggregateRunner` no longer holds a registry.** A name is unique only within
+  a schema, so resolving it is not the runner's job: every aggregate handler in
+  `VgiServiceImpl` now calls `resolveAggregate(name, schema, attach)` — which
+  runs through the same `scopeCandidates` as bind — and passes the resolved
+  function in. `bufferingFn` gained the same `(schema, attach, ctx)` resolution.
+  Both raise on a cross-schema collision rather than picking the first match.
+- **Transport split** (matches upstream): the aggregate RPCs and
+  `table_buffering_destructor` are unary and stateless — the request is the only
+  carrier, so it must name the schema. `table_buffering_process`/`_combine` ride
+  a bound connection whose init already carried the schema, but take the field
+  for uniformity.
+- **Three new fixture pairs**, each declared in BOTH `main` and `data` of
+  `example`, tagging output with its own schema:
+  `tableinout/SameNameTransformFunctions` (`test_same_name_transform`),
+  `buffering/SameNameBufferedFunctions` (`test_same_name_buffered`, tagged in the
+  SINK phase so a sink-side mis-route shows), `aggregate/SameNameAggFunctions`
+  (`test_same_name_agg`, tagged at finalize while accumulation is in update, so a
+  partial mis-route shows; the test covers window mode too). New
+  `registerTableInOut/​TableBuffering/​Aggregate(schema, fn)` overloads on
+  `Worker`. Driven by `{table_in_out,aggregate}/same_name_schemas.test`.
+- **Counts:** `table/function_registration.test` 138 → 142,
+  `aggregate/function_registration.test` 15 → 17, describe `example` now 214
+  functions (main 210 + data 4). Landing golden untouched here — the Java
+  worker's golden isn't enforced (different catalog); the vendored runner was
+  refreshed from upstream (encoding + a richer golden-diff message).
+- **Local:** launch 269 cases / 10587 assertions, shm same, http 240 /
+  10105, `:vgi:test` 271 (3 new aggregate dispatch tests in
+  `SchemaScopedDispatchTest`), javadoc clean, landing PASS.
 
 ## State of play (as of 2026-07-23, strict homes)
 

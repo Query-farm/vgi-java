@@ -3,7 +3,11 @@
 package farm.query.vgi.internal;
 
 import farm.query.vgi.Worker;
+import farm.query.vgi.aggregate.AggregateFunction;
 import farm.query.vgi.function.Arguments;
+import farm.query.vgi.function.FunctionSpec;
+import farm.query.vgi.protocol.AggregateBindRequest;
+import farm.query.vgi.protocol.AggregateBindResponse;
 import farm.query.vgi.protocol.BindRequest;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.protocol.CatalogAttachRequest;
@@ -13,8 +17,12 @@ import farm.query.vgi.scalar.ScalarFn;
 import farm.query.vgi.scalar.Vector;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
+
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -203,6 +211,76 @@ class SchemaScopedDispatchTest {
         // One entry, not two: the auxiliary catalog's same-named scalar is not
         // advertised under the main catalog's attach.
         assertEquals(1, listedFunctionCount(svc, mainAttach.attach_opaque_data(), "main"));
+    }
+
+    /** Aggregate probes: the same registered name, one per schema, distinguished
+     *  by the output field name their bind resolves to. */
+    private abstract static class AggProbe implements AggregateFunction<long[]> {
+        @Override public org.apache.arrow.vector.types.pojo.Schema outputSchema() {
+            return Schemas.of(Schemas.nullable(tag(), Schemas.INT64));
+        }
+
+        abstract String tag();
+
+        @Override public long[] newState() { return new long[1]; }
+
+        @Override public void update(Map<Long, long[]> states, long[] groupIds, VectorSchemaRoot input) {}
+
+        @Override public void combine(long[] target, long[] source) {}
+
+        @Override public void finalize(FieldVector result, int rowIndex, long[] state) {}
+    }
+
+    private static final class MainAgg extends AggProbe {
+        private static final FunctionSpec SPEC = FunctionSpec.builder("probe_agg").build();
+        @Override public FunctionSpec spec() { return SPEC; }
+        @Override String tag() { return "from_main"; }
+    }
+
+    private static final class DataAgg extends AggProbe {
+        private static final FunctionSpec SPEC = FunctionSpec.builder("probe_agg").build();
+        @Override public FunctionSpec spec() { return SPEC; }
+        @Override String tag() { return "from_data"; }
+    }
+
+    private static VgiServiceImpl aggService() {
+        return service(Worker.builder()
+                .catalogName("probe_catalog")
+                .registerAggregate("main", new MainAgg())
+                .registerAggregate("data", new DataAgg()));
+    }
+
+    @Test
+    void aggregateBindResolvesBySchema() {
+        // Every aggregate RPC is unary and re-resolves by name, so the schema on
+        // the request is the only thing routing it (protocol 1.2.0).
+        VgiServiceImpl svc = aggService();
+        assertEquals("from_main", aggTag(svc.aggregate_bind(aggBind("main"))));
+        assertEquals("from_data", aggTag(svc.aggregate_bind(aggBind("data"))));
+    }
+
+    @Test
+    void aggregateBindRaisesOnACrossSchemaCollisionWithNoSchema() {
+        VgiServiceImpl svc = aggService();
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> svc.aggregate_bind(aggBind(null)));
+        assertTrue(e.getMessage().contains("more than one schema"), e.getMessage());
+    }
+
+    @Test
+    void aggregateBindRaisesOnASchemaThatDoesNotDeclareIt() {
+        VgiServiceImpl svc = aggService();
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> svc.aggregate_bind(aggBind("nowhere")));
+        assertTrue(e.getMessage().contains("not registered in schema 'nowhere'"), e.getMessage());
+    }
+
+    private static AggregateBindRequest aggBind(String schemaName) {
+        return new AggregateBindRequest("probe_agg", null, null, null, null, null, schemaName);
+    }
+
+    private static String aggTag(AggregateBindResponse resp) {
+        return SchemaUtil.deserializeSchema(resp.output_schema()).getFields().get(0).getName();
     }
 
     private static int listedFunctionCount(VgiServiceImpl svc, byte[] attach, String schema) {

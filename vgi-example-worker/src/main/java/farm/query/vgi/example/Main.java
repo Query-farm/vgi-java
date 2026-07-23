@@ -445,14 +445,29 @@ public final class Main {
                 new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedAddConstScalarFunction(),
                 new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedLabelScalarFunction(),
                 new UnnestTensorFunction()));
-        // Schema-disambiguation probe: the SAME registered name in two schemas
+        // Schema-disambiguation probes: the SAME registered name in two schemas
         // of this catalog, backed by two different implementations. A
-        // schema-qualified call must reach the one the caller named
-        // (scalar/same_name_schemas.test).
+        // schema-qualified call must reach the one the caller named. The four
+        // shapes bind and dispatch through different call sites, so each needs
+        // its own pair — scalar (scalar/same_name_schemas.test), table-in-out +
+        // buffered (table_in_out/same_name_schemas.test) and aggregate
+        // (aggregate/same_name_schemas.test).
         w.registerScalar("main",
                         new farm.query.vgi.example.scalar.SameNameFunctions.MainSchema())
          .registerScalar("data",
-                        new farm.query.vgi.example.scalar.SameNameFunctions.DataSchema());
+                        new farm.query.vgi.example.scalar.SameNameFunctions.DataSchema())
+         .registerTableInOut("main",
+                        new farm.query.vgi.example.tableinout.SameNameTransformFunctions.MainSchema())
+         .registerTableInOut("data",
+                        new farm.query.vgi.example.tableinout.SameNameTransformFunctions.DataSchema())
+         .registerTableBuffering("main",
+                        new farm.query.vgi.example.buffering.SameNameBufferedFunctions.MainSchema())
+         .registerTableBuffering("data",
+                        new farm.query.vgi.example.buffering.SameNameBufferedFunctions.DataSchema())
+         .registerAggregate("main",
+                        new farm.query.vgi.example.aggregate.SameNameAggFunctions.MainSchema())
+         .registerAggregate("data",
+                        new farm.query.vgi.example.aggregate.SameNameAggFunctions.DataSchema());
     }
 
     private static void registerTables(Worker w) {

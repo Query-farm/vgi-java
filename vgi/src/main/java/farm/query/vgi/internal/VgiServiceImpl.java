@@ -225,10 +225,10 @@ public final class VgiServiceImpl implements VgiService {
         for (AggregateFunction<?> f : aggregates) this.aggregates.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
         for (var f : worker.bufferingFunctions())
             this.bufferingFns.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
-        // Aggregate runner expects flat name → fn (no overloads in scope yet).
-        Map<String, AggregateFunction<?>> aggFlat = new HashMap<>();
-        for (var e : this.aggregates.entrySet()) aggFlat.put(e.getKey(), e.getValue().get(0));
-        this.aggregateRunner = new AggregateRunner(aggFlat, storage);
+        // The runner resolves nothing by name: a name is unique only within a
+        // schema, so every aggregate RPC handler resolves (catalog, schema,
+        // name) here and hands the function in.
+        this.aggregateRunner = new AggregateRunner(storage);
         this.catalogRegistry = new CatalogRegistry(worker);
         ServiceLocator.setCurrent(new ServiceLocator(this.scalars));
     }
@@ -870,8 +870,37 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public AggregateBindResponse aggregate_bind(AggregateBindRequest request) {
-        return aggregateRunner.bind(request.function_name(), request.input_schema(), request.arguments(),
+        return aggregateRunner.bind(
+                resolveAggregate(request.function_name(), request.schema_name(),
+                        request.attach_opaque_data()),
+                request.function_name(), request.input_schema(), request.arguments(),
                 request.secrets());
+    }
+
+    /**
+     * Resolve an aggregate to the implementation declared where the caller is
+     * looking. Every aggregate RPC is unary and stateless — there is no bound
+     * connection carrying the binding, so each request re-resolves the function
+     * by name, and the schema on the request is the only thing keeping a name
+     * declared in two schemas from running the wrong one *after* a bind that
+     * resolved correctly.
+     *
+     * @param name the registered aggregate name
+     * @param schemaName the declaring schema named by the request, or {@code null}
+     * @param attachOpaqueData the attach token, naming the catalog
+     */
+    private AggregateFunction<?> resolveAggregate(String name, String schemaName, byte[] attachOpaqueData) {
+        List<AggregateFunction<?>> all = aggregates.get(name);
+        if (all == null || all.isEmpty()) {
+            throw new IllegalArgumentException("Unknown aggregate: " + name);
+        }
+        // Aggregate RPCs carry no CallContext, so a sealed attach that needs a
+        // principal simply doesn't resolve to an auxiliary catalog — which is
+        // the main catalog, the correct answer for every aggregate today.
+        List<AggregateFunction<?>> scoped = scopeCandidates(
+                all, name, schemaName, attachExtraCatalogName(attachOpaqueData, null),
+                /*copyHandler=*/false);
+        return scoped.get(0);
     }
 
     /**
@@ -882,7 +911,10 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public farm.query.vgi.protocol.AggregateUpdateResponse aggregate_update(AggregateUpdateRequest request) {
-        aggregateRunner.update(request.function_name(), request.execution_id(), request.input_batch());
+        aggregateRunner.update(
+                resolveAggregate(request.function_name(), request.schema_name(),
+                        request.attach_opaque_data()),
+                request.function_name(), request.execution_id(), request.input_batch());
         return new farm.query.vgi.protocol.AggregateUpdateResponse();
     }
 
@@ -894,7 +926,10 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public farm.query.vgi.protocol.AggregateCombineResponse aggregate_combine(AggregateCombineRequest request) {
-        aggregateRunner.combine(request.function_name(), request.execution_id(), request.merge_batch());
+        aggregateRunner.combine(
+                resolveAggregate(request.function_name(), request.schema_name(),
+                        request.attach_opaque_data()),
+                request.function_name(), request.execution_id(), request.merge_batch());
         return new farm.query.vgi.protocol.AggregateCombineResponse();
     }
 
@@ -907,6 +942,8 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public AggregateFinalizeResponse aggregate_finalize(AggregateFinalizeRequest request) {
         return aggregateRunner.finalizeRequest(
+                resolveAggregate(request.function_name(), request.schema_name(),
+                        request.attach_opaque_data()),
                 request.function_name(), request.execution_id(),
                 request.group_ids_batch(), request.output_schema());
     }
@@ -919,7 +956,12 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public farm.query.vgi.protocol.AggregateDestructorResponse aggregate_destructor(AggregateDestructorRequest request) {
+        // Resolved for the same reason the other RPCs are: the state it frees is
+        // keyed by (execution, function), and a mis-resolved destructor would
+        // free another schema's implementation's state.
         aggregateRunner.destructor(
+                resolveAggregate(request.function_name(), request.schema_name(),
+                        request.attach_opaque_data()),
                 request.function_name(), request.execution_id(), request.group_ids_batch());
         return new farm.query.vgi.protocol.AggregateDestructorResponse();
     }
@@ -1588,12 +1630,27 @@ public final class VgiServiceImpl implements VgiService {
     // Table buffering (Sink+Source) lifecycle
     // -----------------------------------------------------------------------
 
-    private farm.query.vgi.buffering.TableBufferingFunction bufferingFn(String name) {
+    /**
+     * Resolve a table-buffering function to the implementation declared where
+     * the caller is looking. The Sink-phase {@code process} / {@code combine}
+     * RPCs re-resolve by name on every call, so without the request's schema a
+     * name declared in two schemas would run the wrong implementation right
+     * after a bind that resolved correctly — the mis-route is invisible in the
+     * bind and shows up only in the rows.
+     *
+     * @param name the registered function name
+     * @param schemaName the declaring schema named by the request, or {@code null}
+     * @param attachOpaqueData the attach token, naming the catalog
+     * @param ctx the per-call RPC context (auth principal for unsealing)
+     */
+    private farm.query.vgi.buffering.TableBufferingFunction bufferingFn(
+            String name, String schemaName, byte[] attachOpaqueData, CallContext ctx) {
         var list = bufferingFns.get(name);
         if (list == null || list.isEmpty()) {
             throw new IllegalArgumentException("Unknown buffering function: " + name);
         }
-        return list.get(0);
+        return scopeCandidates(list, name, schemaName,
+                attachExtraCatalogName(attachOpaqueData, ctx), /*copyHandler=*/false).get(0);
     }
 
     /**
@@ -1628,7 +1685,8 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.TableBufferingProcessResponse table_buffering_process(
             farm.query.vgi.protocol.TableBufferingProcessRequest request, CallContext ctx) {
-        var fn = bufferingFn(request.function_name());
+        var fn = bufferingFn(request.function_name(), request.schema_name(),
+                request.attach_opaque_data(), ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
                 this.storage, request.execution_id(), attachPlain);
@@ -1658,7 +1716,8 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.TableBufferingCombineResponse table_buffering_combine(
             farm.query.vgi.protocol.TableBufferingCombineRequest request, CallContext ctx) {
-        var fn = bufferingFn(request.function_name());
+        var fn = bufferingFn(request.function_name(), request.schema_name(),
+                request.attach_opaque_data(), ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
                 this.storage, request.execution_id(), attachPlain);

@@ -39,7 +39,7 @@ public final class Worker {
      *  a function name is not a unique key, because the same name may be
      *  registered in more than one catalog schema, so dispatch resolves
      *  {@code (schema_name, function_name)}. */
-    public static final String VGI_PROTOCOL_VERSION = "1.1.0";
+    public static final String VGI_PROTOCOL_VERSION = "1.2.0";
 
     private String catalogName = "vgi";
     private String catalogComment = "";
@@ -536,6 +536,49 @@ public final class Worker {
      */
     public Worker registerTable(String schemaName, TableFunction fn) {
         tables.add(fn);
+        return home(fn, null, schemaName);
+    }
+
+    /**
+     * Register a table-in-out function into a named schema of this worker's
+     * catalog (rather than {@link #defaultSchema()}). See
+     * {@link #registerScalar(String, ScalarFunction)}.
+     *
+     * @param schemaName the schema to declare the function in
+     * @param fn the table-in-out function to register
+     * @return this builder
+     */
+    public Worker registerTableInOut(String schemaName, TableInOutFunction fn) {
+        tableInOuts.add(fn);
+        return home(fn, null, schemaName);
+    }
+
+    /**
+     * Register a table-buffering function into a named schema of this worker's
+     * catalog (rather than {@link #defaultSchema()}). See
+     * {@link #registerScalar(String, ScalarFunction)}.
+     *
+     * @param schemaName the schema to declare the function in
+     * @param fn the table-buffering function to register
+     * @return this builder
+     */
+    public Worker registerTableBuffering(String schemaName,
+            farm.query.vgi.buffering.TableBufferingFunction fn) {
+        bufferingFns.add(fn);
+        return home(fn, null, schemaName);
+    }
+
+    /**
+     * Register an aggregate function into a named schema of this worker's
+     * catalog (rather than {@link #defaultSchema()}). See
+     * {@link #registerScalar(String, ScalarFunction)}.
+     *
+     * @param schemaName the schema to declare the function in
+     * @param fn the aggregate function to register
+     * @return this builder
+     */
+    public Worker registerAggregate(String schemaName, AggregateFunction<?> fn) {
+        aggregates.add(fn);
         return home(fn, null, schemaName);
     }
 
