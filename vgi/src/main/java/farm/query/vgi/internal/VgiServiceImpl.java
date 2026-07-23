@@ -241,7 +241,14 @@ public final class VgiServiceImpl implements VgiService {
      * Bind a function call: resolve the overload, run its {@code onBind}, and
      * cache the result under a fresh opaque token for the matching {@link #init}.
      *
-     * @param request the bind request (function name, input schema, arguments, settings, opaque data)
+     * <p>A function name is not a unique key: the same name may be registered
+     * in more than one catalog schema, and two auxiliary catalogs served by
+     * this same process may each declare it. {@link #scopeCandidates} narrows
+     * the by-name overload list to the ones declared where the caller is
+     * looking — the catalog it attached and the schema the bind request names
+     * — before argument-signature resolution runs.
+     *
+     * @param request the bind request (function name, owning schema, input schema, arguments, settings, opaque data)
      * @param ctx the per-call RPC context (auth principal for opaque-data unsealing)
      * @return the bind response carrying the opaque token and output schema
      * @throws IllegalArgumentException if no function of that name is registered
@@ -259,26 +266,78 @@ public final class VgiServiceImpl implements VgiService {
         int argCount = args.positional().size()
                 + (inputSchema == null ? 0 : inputSchema.getFields().size());
 
+        String schemaName = request.schema_name();
+        String catalogName = attachExtraCatalogName(request.attach_opaque_data(), ctx);
+
         if (scalars.containsKey(name)) {
-            return bindScalar(request, name, args, inputSchema, settings, argCount, token);
+            return bindScalar(request, name, scopeCandidates(scalars.get(name), schemaName, catalogName),
+                    args, inputSchema, settings, argCount, token);
         }
         if (tables.containsKey(name)) {
-            return bindTable(request, name, args, inputSchema, settings, argCount, token, ctx);
+            return bindTable(request, name, scopeCandidates(tables.get(name), schemaName, catalogName),
+                    args, inputSchema, settings, argCount, token, ctx);
         }
         if (tableInOuts.containsKey(name)) {
-            return bindTableInOut(request, name, args, inputSchema, settings, argCount, token, ctx);
+            return bindTableInOut(request, name, scopeCandidates(tableInOuts.get(name), schemaName, catalogName),
+                    args, inputSchema, settings, argCount, token, ctx);
         }
         if (bufferingFns.containsKey(name)) {
-            return bindBuffering(request, name, args, inputSchema, settings, argCount, token, ctx);
+            return bindBuffering(request, name, scopeCandidates(bufferingFns.get(name), schemaName, catalogName),
+                    args, inputSchema, settings, argCount, token, ctx);
         }
         throw new IllegalArgumentException("Unknown function: " + name);
     }
 
-    private BindResponse bindBuffering(BindRequest request, String name, Arguments args,
+    /**
+     * The auxiliary catalog this attach belongs to, or {@code null} for the
+     * main catalog (and for any attach we can't resolve — an unsealable token,
+     * or a bind that carries none at all, such as a COPY handler).
+     */
+    private String attachExtraCatalogName(byte[] attachOpaqueData, CallContext ctx) {
+        if (worker.extraCatalogs().isEmpty() || attachOpaqueData == null) return null;
+        try {
+            Worker.ExtraCatalog extra = extraCatalogOf(sealer.unsealAttach(attachOpaqueData, authOf(ctx)));
+            return extra == null ? null : extra.name();
+        } catch (RuntimeException notOurs) {
+            return null;
+        }
+    }
+
+    /**
+     * Narrow a by-name overload list to the functions declared where the caller
+     * is looking. A single candidate is returned untouched — there is nothing
+     * to disambiguate, and the C++ extension only ever offers a function the
+     * catalog it attached actually advertised.
+     *
+     * <p>With several candidates, the catalog filter runs first (an auxiliary
+     * catalog's attach sees only its own functions), then the schema filter.
+     * Each filter is skipped when it would eliminate everything: a bind whose
+     * schema we can't match — an unlisted scan function has no catalog entry,
+     * so the extension sends no schema at all — still resolves by name, exactly
+     * as it did before protocol 1.1.0.
+     */
+    private <T> List<T> scopeCandidates(List<T> all, String schemaName, String catalogName) {
+        if (all == null || all.size() <= 1) return all;
+        List<T> byCatalog = new ArrayList<>();
+        for (T fn : all) {
+            if (java.util.Objects.equals(worker.catalogOf(fn), catalogName)) byCatalog.add(fn);
+        }
+        if (byCatalog.isEmpty()) byCatalog = all;
+        if (schemaName == null || schemaName.isEmpty()) return byCatalog;
+        List<T> bySchema = new ArrayList<>();
+        for (T fn : byCatalog) {
+            if (schemaName.equalsIgnoreCase(worker.schemaOf(fn))) bySchema.add(fn);
+        }
+        return bySchema.isEmpty() ? byCatalog : bySchema;
+    }
+
+    private BindResponse bindBuffering(BindRequest request, String name,
+                                        List<farm.query.vgi.buffering.TableBufferingFunction> candidates,
+                                        Arguments args,
                                         Schema inputSchema, Map<String, Object> settings,
                                         int argCount, byte[] token, CallContext ctx) {
         farm.query.vgi.buffering.TableBufferingFunction fn =
-                OverloadResolver.pick(bufferingFns.get(name), argCount, args, inputSchema);
+                OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         AuthContext auth = authOf(ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
@@ -296,10 +355,11 @@ public final class VgiServiceImpl implements VgiService {
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
 
-    private BindResponse bindScalar(BindRequest request, String name, Arguments args,
+    private BindResponse bindScalar(BindRequest request, String name, List<ScalarFunction> candidates,
+                                     Arguments args,
                                      Schema inputSchema, Map<String, Object> settings,
                                      int argCount, byte[] token) {
-        ScalarFunction fn = OverloadResolver.pick(scalars.get(name), argCount, args, inputSchema);
+        ScalarFunction fn = OverloadResolver.pick(candidates, argCount, args, inputSchema);
         BindResponse upstream = fn.onBind(new ScalarBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided()));
         Schema outputSchema = upstream.output_schema() == null
@@ -311,10 +371,11 @@ public final class VgiServiceImpl implements VgiService {
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
 
-    private BindResponse bindTable(BindRequest request, String name, Arguments args,
+    private BindResponse bindTable(BindRequest request, String name, List<TableFunction> candidates,
+                                    Arguments args,
                                     Schema inputSchema, Map<String, Object> settings,
                                     int argCount, byte[] token, CallContext ctx) {
-        TableFunction fn = OverloadResolver.pick(tables.get(name), argCount, args, inputSchema);
+        TableFunction fn = OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         AuthContext auth = authOf(ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
@@ -336,10 +397,11 @@ public final class VgiServiceImpl implements VgiService {
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
 
-    private BindResponse bindTableInOut(BindRequest request, String name, Arguments args,
+    private BindResponse bindTableInOut(BindRequest request, String name, List<TableInOutFunction> candidates,
+                                         Arguments args,
                                          Schema inputSchema, Map<String, Object> settings,
                                          int argCount, byte[] token, CallContext ctx) {
-        TableInOutFunction fn = OverloadResolver.pick(tableInOuts.get(name), argCount, args, inputSchema);
+        TableInOutFunction fn = OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
@@ -1115,37 +1177,54 @@ public final class VgiServiceImpl implements VgiService {
         return out;
     }
 
-    /** Whether a function name belongs to any registered auxiliary catalog. */
+    /**
+     * Whether a function name belongs to any registered auxiliary catalog by
+     * the legacy name-prefix rule. Explicit ownership (registered through
+     * {@code registerExtraCatalog*}) is per instance, not per name — two
+     * catalogs may declare the very same name — and is checked separately in
+     * {@link #visibleIn}.
+     */
     private boolean ownedByExtraCatalog(String functionName) {
         for (Worker.ExtraCatalog extra : worker.extraCatalogs().values()) {
-            if (functionName.startsWith(extra.functionNamePrefix())) return true;
+            if (matchesPrefix(functionName, extra)) return true;
         }
         return false;
     }
 
     /**
-     * Object counts for an auxiliary catalog's single {@code main} schema: only
-     * its owned table functions; zero counts let the C++ extension skip the
-     * corresponding contents RPCs entirely.
+     * Object counts for an auxiliary catalog's single {@code main} schema: the
+     * functions it owns (by prefix or explicit registration) plus its tables.
+     * Zero counts let the C++ extension skip the corresponding contents RPCs
+     * entirely, so a count that under-reports makes the function unreachable.
      */
     private Map<String, Long> extraSchemaCounts(Worker.ExtraCatalog extra) {
-        long owned = 0;
+        long scalarCount = 0;
+        long tableFnCount = 0;
+        long aggregateCount = 0;
+        for (var v : scalars.values()) {
+            for (ScalarFunction fn : v) if (visibleIn(fn, fn.name(), "main", extra)) scalarCount++;
+        }
         for (var v : tables.values()) {
             for (TableFunction fn : v) {
-                if (fn.name().startsWith(extra.functionNamePrefix())) owned++;
+                if (worker.unlistedTables().contains(fn.name())) continue;
+                if (visibleIn(fn, fn.name(), "main", extra)) tableFnCount++;
             }
         }
+        for (var v : tableInOuts.values()) {
+            for (TableInOutFunction fn : v) if (visibleIn(fn, fn.name(), "main", extra)) tableFnCount++;
+        }
         for (var v : bufferingFns.values()) {
-            for (var fn : v) {
-                if (fn.name().startsWith(extra.functionNamePrefix())) owned++;
-            }
+            for (var fn : v) if (visibleIn(fn, fn.name(), "main", extra)) tableFnCount++;
+        }
+        for (var v : aggregates.values()) {
+            for (var fn : v) if (visibleIn(fn, fn.name(), "main", extra)) aggregateCount++;
         }
         List<CatalogTable> ownedTables = worker.extraCatalogTables().get(extra.name());
         long tableCount = ownedTables == null ? 0L : ownedTables.size();
         Map<String, Long> m = new java.util.LinkedHashMap<>();
-        m.put("scalar_function", 0L);
-        m.put("table_function", owned);
-        m.put("aggregate_function", 0L);
+        m.put("scalar_function", scalarCount);
+        m.put("table_function", tableFnCount);
+        m.put("aggregate_function", aggregateCount);
         m.put("table", tableCount);
         m.put("view", 0L);
         m.put("macro", 0L);
@@ -1183,11 +1262,27 @@ public final class VgiServiceImpl implements VgiService {
         for (var m : worker.macros()) {
             if (!defaultSchema.equals(m.schema())) extras.add(m.schema());
         }
+        // ...and schemas that hold nothing but functions: a function registered
+        // through registerScalar(schema, fn) lives in a schema DuckDB must be
+        // told about, or the qualified call has nowhere to resolve.
+        for (var v : scalars.values()) for (var fn : v) addFunctionSchema(fn, defaultSchema, extras);
+        for (var v : tables.values()) for (var fn : v) addFunctionSchema(fn, defaultSchema, extras);
+        for (var v : tableInOuts.values()) for (var fn : v) addFunctionSchema(fn, defaultSchema, extras);
+        for (var v : bufferingFns.values()) for (var fn : v) addFunctionSchema(fn, defaultSchema, extras);
+        for (var v : aggregates.values()) for (var fn : v) addFunctionSchema(fn, defaultSchema, extras);
         for (String s : extras) {
             result.add(new SchemaDesc(s, comments.getOrDefault(s, ""),
                     tags.getOrDefault(s, Map.of())));
         }
         return result;
+    }
+
+    /** Add {@code fn}'s owning schema to {@code extras} when it is an auxiliary
+     *  schema of this worker's own catalog. */
+    private void addFunctionSchema(Object fn, String defaultSchema, java.util.Set<String> extras) {
+        if (worker.catalogOf(fn) != null) return;
+        String schema = worker.schemaOf(fn);
+        if (!defaultSchema.equals(schema)) extras.add(schema);
     }
 
     /**
@@ -1205,15 +1300,21 @@ public final class VgiServiceImpl implements VgiService {
         long scalarCount = 0;
         long tableFnCount = 0;
         long aggregateCount = 0;
-        if (s.name.equals(worker.defaultSchema())) {
-            for (var v : scalars.values()) scalarCount += v.size();
-            for (var v : tables.values()) {
-                for (TableFunction fn : v) {
-                    if (!ownedByExtraCatalog(fn.name())) tableFnCount++;
-                }
-            }
-            for (var v : tableInOuts.values()) tableFnCount += v.size();
-            for (var v : aggregates.values()) aggregateCount += v.size();
+        // Per schema, not per catalog: a function registered in an auxiliary
+        // schema counts there and only there. A zero count is a hard guarantee
+        // to the C++ extension, so it must agree with what
+        // catalog_schema_contents_functions will list for the same schema.
+        for (var v : scalars.values()) {
+            for (ScalarFunction fn : v) if (visibleIn(fn, fn.name(), s.name, null)) scalarCount++;
+        }
+        for (var v : tables.values()) {
+            for (TableFunction fn : v) if (visibleIn(fn, fn.name(), s.name, null)) tableFnCount++;
+        }
+        for (var v : tableInOuts.values()) {
+            for (TableInOutFunction fn : v) if (visibleIn(fn, fn.name(), s.name, null)) tableFnCount++;
+        }
+        for (var v : aggregates.values()) {
+            for (var fn : v) if (visibleIn(fn, fn.name(), s.name, null)) aggregateCount++;
         }
         m.put("scalar_function", scalarCount);
         m.put("table_function", tableFnCount);
@@ -1753,11 +1854,16 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     /**
-     * List the functions in the default schema, filtered by function type.
+     * List the functions declared in a schema, filtered by function type.
      * Table, table-in-out and buffering functions all surface as table functions.
      *
+     * <p>Functions land in {@link Worker#defaultSchema()} unless registered
+     * into a named schema, so a name may appear in more than one schema with a
+     * different implementation behind each — which is why the bind request
+     * carries the schema.
+     *
      * @param attach_opaque_data the attach token
-     * @param name the schema name (only the default schema carries functions)
+     * @param name the schema to list
      * @param type function type filter ({@code scalar} / {@code table} / {@code aggregate}); {@code null} returns all
      * @param transaction_opaque_data the optional transaction token
      * @param ctx the per-call RPC context
@@ -1768,7 +1874,6 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, String name, String type, byte[] transaction_opaque_data,
             CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
-        if (!worker.defaultSchema().equals(name)) return ItemsResponse.empty();
         boolean wantScalar = type == null
                 || type.equalsIgnoreCase("scalar")
                 || type.equalsIgnoreCase("SCALAR_FUNCTION");
@@ -1779,10 +1884,13 @@ public final class VgiServiceImpl implements VgiService {
                 || type.equalsIgnoreCase("aggregate")
                 || type.equalsIgnoreCase("AGGREGATE_FUNCTION");
         List<byte[]> items = new ArrayList<>();
-        Worker.ExtraCatalog extraOnlyTables = extraCatalogOf(attach_opaque_data_plain);
-        if (wantScalar && extraOnlyTables == null) {
+        // MetaWorker-style routing: an auxiliary catalog's attach sees only the
+        // functions it owns; the main catalog hides them.
+        Worker.ExtraCatalog extraAttach = extraCatalogOf(attach_opaque_data_plain);
+        if (wantScalar) {
             for (List<ScalarFunction> variants : scalars.values()) {
                 for (ScalarFunction fn : variants) {
+                    if (!visibleIn(fn, fn.name(), name, extraAttach)) continue;
                     items.add(FunctionInfoSerializer.serialize(toScalarFunctionInfo(fn, name)));
                 }
             }
@@ -1790,10 +1898,6 @@ public final class VgiServiceImpl implements VgiService {
         if (wantTable) {
             String attachCatName = catalogRegistry.catalogName(attach_opaque_data_plain);
             boolean isProjReproAttach = "projection_repro".equals(attachCatName);
-            // MetaWorker-style routing: an auxiliary catalog's attach sees only
-            // its owned (prefix-matched) functions; the main catalog hides them.
-            Worker.ExtraCatalog extraAttach = attachCatName == null
-                    ? null : worker.extraCatalogs().get(attachCatName);
             for (List<TableFunction> variants : tables.values()) {
                 for (TableFunction fn : variants) {
                     // proj_repro_* fixtures live in the example worker binary
@@ -1802,8 +1906,7 @@ public final class VgiServiceImpl implements VgiService {
                     if (worker.unlistedTables().contains(fn.name())) continue;
                     if (!isProjReproAttach && fn.name().startsWith("proj_repro_")) continue;
                     if (isProjReproAttach && !fn.name().startsWith("proj_repro_")) continue;
-                    if (extraAttach == null && ownedByExtraCatalog(fn.name())) continue;
-                    if (extraAttach != null && !fn.name().startsWith(extraAttach.functionNamePrefix())) continue;
+                    if (!visibleIn(fn, fn.name(), name, extraAttach)) continue;
                     items.add(FunctionInfoSerializer.serialize(toTableFunctionInfo(fn, name)));
                 }
             }
@@ -1813,8 +1916,7 @@ public final class VgiServiceImpl implements VgiService {
             // apart by argument shape).
             for (List<TableInOutFunction> variants : tableInOuts.values()) {
                 for (TableInOutFunction fn : variants) {
-                    if (extraAttach == null && ownedByExtraCatalog(fn.name())) continue;
-                    if (extraAttach != null && !fn.name().startsWith(extraAttach.functionNamePrefix())) continue;
+                    if (!visibleIn(fn, fn.name(), name, extraAttach)) continue;
                     items.add(FunctionInfoSerializer.serialize(toTableInOutFunctionInfo(fn, name)));
                 }
             }
@@ -1823,20 +1925,52 @@ public final class VgiServiceImpl implements VgiService {
             // C++ buffering operator.
             for (var variants : bufferingFns.values()) {
                 for (var fn : variants) {
-                    if (extraAttach == null && ownedByExtraCatalog(fn.name())) continue;
-                    if (extraAttach != null && !fn.name().startsWith(extraAttach.functionNamePrefix())) continue;
+                    if (!visibleIn(fn, fn.name(), name, extraAttach)) continue;
                     items.add(FunctionInfoSerializer.serialize(toBufferingFunctionInfo(fn, name)));
                 }
             }
         }
-        if (wantAggregate && extraOnlyTables == null) {
+        if (wantAggregate) {
             for (List<AggregateFunction<?>> variants : aggregates.values()) {
                 for (AggregateFunction<?> fn : variants) {
+                    if (!visibleIn(fn, fn.name(), name, extraAttach)) continue;
                     items.add(FunctionInfoSerializer.serialize(toAggregateFunctionInfo(fn, name)));
                 }
             }
         }
         return new ItemsResponse(items);
+    }
+
+    /**
+     * Whether a registered function is listed in {@code schemaName} for this
+     * attach. Registration is per (catalog, schema): a function declared in the
+     * {@code data} schema must not appear in {@code main}'s listing, or DuckDB
+     * would register it twice and a schema-qualified call could reach the wrong
+     * implementation.
+     *
+     * <p>{@code extraAttach} is the auxiliary catalog the caller attached, or
+     * {@code null} for the main one. An auxiliary catalog owns a function either
+     * explicitly (registered through {@code registerExtraCatalog*}) or by the
+     * legacy name prefix; a prefix-owned function lives in that catalog's single
+     * {@code main} schema.
+     */
+    private boolean visibleIn(Object fn, String fnName, String schemaName, Worker.ExtraCatalog extraAttach) {
+        String home = worker.catalogOf(fn);
+        if (extraAttach == null) {
+            return home == null
+                    && !ownedByExtraCatalog(fnName)
+                    && worker.schemaOf(fn).equals(schemaName);
+        }
+        if (home != null) {
+            return home.equals(extraAttach.name()) && worker.schemaOf(fn).equals(schemaName);
+        }
+        return matchesPrefix(fnName, extraAttach) && "main".equals(schemaName);
+    }
+
+    /** Legacy name-prefix ownership; an empty/absent prefix owns nothing. */
+    private static boolean matchesPrefix(String fnName, Worker.ExtraCatalog extra) {
+        String prefix = extra.functionNamePrefix();
+        return prefix != null && !prefix.isEmpty() && fnName.startsWith(prefix);
     }
 
     /**

@@ -32,8 +32,9 @@ import java.util.Map;
  * distinct rows <em>and</em> key distinct entries.
  *
  * <p>Named-with-default {@code rows} (not positional) so it can back the catalog
- * data table {@code example.data.cache_filtered} — filter pushdown is wired on
- * the catalog scan path, not the direct {@code vgi_table_function} path.
+ * data table {@code example.data.cache_filtered}: filter pushdown is wired on the
+ * catalog scan path, which is now the only way in — {@code vgi_table_function()}
+ * was removed, and every VGI function is reached through {@code ATTACH}.
  */
 public final class CacheFilteredFunction extends SimpleTableFunction {
 

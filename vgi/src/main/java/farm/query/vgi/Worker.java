@@ -33,8 +33,13 @@ import java.util.Map;
 public final class Worker {
 
     /** VGI protocol surface version. Mirrors vgi-python {@code protocol_version.txt}.
-     *  Emitted as the {@code vgi_rpc.protocol_version} per-request metadata key. */
-    public static final String VGI_PROTOCOL_VERSION = "1.0.0";
+     *  Emitted as the {@code vgi_rpc.protocol_version} per-request metadata key.
+     *
+     *  <p>1.1.0 added the nullable {@code schema_name} field to the bind request:
+     *  a function name is not a unique key, because the same name may be
+     *  registered in more than one catalog schema, so dispatch resolves
+     *  {@code (schema_name, function_name)}. */
+    public static final String VGI_PROTOCOL_VERSION = "1.1.0";
 
     private String catalogName = "vgi";
     private String catalogComment = "";
@@ -440,6 +445,57 @@ public final class Worker {
     public Map<String, List<CatalogTable>> extraCatalogTables() { return extraCatalogTables; }
 
     /**
+     * Where a registered function is declared: the catalog that owns it
+     * ({@code null} = this worker's own catalog) and the schema inside it.
+     *
+     * @param catalogName the owning auxiliary catalog, or {@code null} for the main catalog
+     * @param schemaName  the owning schema
+     */
+    private record FunctionHome(String catalogName, String schemaName) {}
+
+    /**
+     * Explicit (catalog, schema) placement per registered function instance.
+     * Keyed by identity: two distinct instances may share a registered name —
+     * that is exactly the collision schema-scoped dispatch exists to break.
+     * Functions absent from this map live in {@link #defaultSchema()} of the
+     * main catalog, which is where DuckDB registers them.
+     */
+    private final Map<Object, FunctionHome> functionHomes = new java.util.IdentityHashMap<>();
+
+    private Worker home(Object fn, String catalogName, String schemaName) {
+        functionHomes.put(fn, new FunctionHome(catalogName, schemaName));
+        return this;
+    }
+
+    /**
+     * The catalog schema {@code fn} is declared in — the schema DuckDB
+     * registers it into and therefore the one a bind request names. Defaults
+     * to {@link #defaultSchema()} for functions registered without a schema.
+     *
+     * @param fn a registered function instance
+     * @return the owning schema name, never {@code null}
+     */
+    public String schemaOf(Object fn) {
+        FunctionHome h = functionHomes.get(fn);
+        return h == null || h.schemaName() == null ? defaultSchema : h.schemaName();
+    }
+
+    /**
+     * The auxiliary catalog {@code fn} is declared in, or {@code null} when it
+     * belongs to this worker's own catalog. Auxiliary ownership can also be
+     * expressed by name prefix through
+     * {@link ExtraCatalog#functionNamePrefix()}; this covers the case a prefix
+     * cannot — two catalogs declaring the very same function name.
+     *
+     * @param fn a registered function instance
+     * @return the owning auxiliary catalog name, or {@code null} for the main catalog
+     */
+    public String catalogOf(Object fn) {
+        FunctionHome h = functionHomes.get(fn);
+        return h == null ? null : h.catalogName();
+    }
+
+    /**
      * Register a scalar function, callable from SQL and enumerated through
      * {@code catalog_schema_contents_functions}.
      *
@@ -449,6 +505,54 @@ public final class Worker {
     public Worker registerScalar(ScalarFunction fn) {
         scalars.add(fn);
         return this;
+    }
+
+    /**
+     * Register a scalar function into a named schema of this worker's catalog
+     * (rather than {@link #defaultSchema()}). The same function name may be
+     * registered in more than one schema: DuckDB registers one entry per
+     * schema, and bind requests carry the schema so each call reaches the
+     * implementation the caller named.
+     *
+     * @param schemaName the schema to declare the function in
+     * @param fn the scalar function to register
+     * @return this builder
+     */
+    public Worker registerScalar(String schemaName, ScalarFunction fn) {
+        scalars.add(fn);
+        return home(fn, null, schemaName);
+    }
+
+    /**
+     * Register a table function into a named schema of this worker's catalog
+     * (rather than {@link #defaultSchema()}). See
+     * {@link #registerScalar(String, ScalarFunction)}.
+     *
+     * @param schemaName the schema to declare the function in
+     * @param fn the table function to register
+     * @return this builder
+     */
+    public Worker registerTable(String schemaName, TableFunction fn) {
+        tables.add(fn);
+        return home(fn, null, schemaName);
+    }
+
+    /**
+     * Register a scalar function owned by an auxiliary catalog, in a named
+     * schema of it. The function is listed only under that catalog's attaches
+     * and hidden from the main catalog's, exactly like the prefix-owned
+     * functions of {@link ExtraCatalog#functionNamePrefix()} — but the
+     * ownership is explicit, so two auxiliary catalogs can declare the SAME
+     * function name and still dispatch apart (the attach names the catalog).
+     *
+     * @param catalogName the owning auxiliary catalog (see {@link #registerExtraCatalog})
+     * @param schemaName the schema inside that catalog
+     * @param fn the scalar function to register
+     * @return this builder
+     */
+    public Worker registerExtraCatalogScalar(String catalogName, String schemaName, ScalarFunction fn) {
+        scalars.add(fn);
+        return home(fn, catalogName, schemaName);
     }
 
     /**

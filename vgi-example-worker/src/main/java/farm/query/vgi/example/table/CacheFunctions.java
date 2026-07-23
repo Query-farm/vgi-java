@@ -701,8 +701,8 @@ public final class CacheFunctions {
     // =====================================================================
 
     /**
-     * Caller-controlled result size via a <em>positional</em> argument, so the
-     * direct path {@code vgi_table_function(w, 'cache_bench', [rows])} honours it.
+     * Caller-controlled result size via a <em>positional</em> argument, so a
+     * schema-qualified call ({@code example.cache_bench(rows)}) sizes the result.
      * Backs the scaling bench and the disk-streaming / entry-cap guards.
      */
     public static final class CacheBench extends SimpleTableFunction {

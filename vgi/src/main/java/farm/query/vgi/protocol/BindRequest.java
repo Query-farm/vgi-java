@@ -31,6 +31,14 @@ import farm.query.vgirpc.schema.Nullable;
  * @param copy_to the {@code COPY ... TO} context, present only when this bind opens a
  *     COPY-TO sink; {@code null} for every ordinary bind. Additive, nullable, name-keyed
  *     nested-struct wire field, symmetric with {@code copy_from}
+ * @param schema_name the catalog schema that owns the function being bound. A worker may
+ *     register the same function name in more than one schema, so the bare name is not a
+ *     unique key — dispatch resolves {@code (schema_name, function_name)}. The C++
+ *     extension sets it from the schema entry the function actually resolved in (the
+ *     table's schema for a function-backed scan, else the catalog's default schema).
+ *     {@code null} for callers with no schema to name — COPY handler binds, which are
+ *     advertised at catalog level — where lookup falls back to the bare name. Additive,
+ *     nullable, name-keyed wire field; protocol 1.1.0
  */
 public record BindRequest(
         String function_name,
@@ -45,4 +53,5 @@ public record BindRequest(
         @Nullable String at_unit,
         @Nullable String at_value,
         @Nullable CopyFromContext copy_from,
-        @Nullable CopyToContext copy_to) implements ArrowSerializableRecord {}
+        @Nullable CopyToContext copy_to,
+        @Nullable String schema_name) implements ArrowSerializableRecord {}

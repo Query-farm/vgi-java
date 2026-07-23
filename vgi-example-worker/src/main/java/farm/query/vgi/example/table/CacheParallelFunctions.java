@@ -27,9 +27,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 /**
  * Multi-worker / order-sensitive result-cache fixtures. Each fans work out over
  * a per-execution queue so a cached scan captures one substream per worker
- * thread; {@code cache_ordered} and {@code cache_interleaved} additionally tag
- * each batch with {@code vgi_batch_index} so the cache's serve path must
- * reassemble source order. Mirrors vgi-python's {@code cache.py}.
+ * thread; {@code cache_ordered} additionally tags each batch with
+ * {@code vgi_batch_index} so the cache's serve path must reassemble source
+ * order. Mirrors vgi-python's {@code cache.py}.
  */
 public final class CacheParallelFunctions {
 
@@ -45,19 +45,15 @@ public final class CacheParallelFunctions {
      * @param key       the per-execution key
      * @param rows      total rows to cover
      * @param chunk     rows per chunk
-     * @param descending enqueue highest partition id first, so emission order
-     *                   differs from {@code batch_index} order
      * @return the shared queue for this execution
      */
-    private static ConcurrentLinkedQueue<long[]> buildQueue(String key, long rows, long chunk,
-                                                              boolean descending) {
+    private static ConcurrentLinkedQueue<long[]> buildQueue(String key, long rows, long chunk) {
         return QUEUES.computeIfAbsent(key, k -> {
             java.util.ArrayList<long[]> items = new java.util.ArrayList<>();
             long partitionId = 0;
             for (long start = 0; start < rows; start += chunk) {
                 items.add(new long[] {partitionId++, start, Math.min(start + chunk, rows)});
             }
-            if (descending) java.util.Collections.reverse(items);
             return new ConcurrentLinkedQueue<>(items);
         });
     }
@@ -155,7 +151,7 @@ public final class CacheParallelFunctions {
             long batchSize = ex.named("batch_size").asLong().orElse(24000L);
             long chunk = Math.max(1, (rows + MAX_CHUNKS - 1) / MAX_CHUNKS);
             String key = HexId.encode(p.executionId());
-            return new State(buildQueue(key, rows, chunk, false), key, batchSize);
+            return new State(buildQueue(key, rows, chunk), key, batchSize);
         }
 
         /** Per-worker chunk cursor with a caller-controlled batch width. */
@@ -222,70 +218,10 @@ public final class CacheParallelFunctions {
             long rows = ex.named("rows").asLong().orElse(200000L);
             long chunk = ex.named("chunk_size").asLong().orElse(1000L);
             String key = HexId.encode(p.executionId());
-            return new State(buildQueue(key, rows, chunk, false), key);
+            return new State(buildQueue(key, rows, chunk), key);
         }
 
         /** Per-worker chunk cursor emitting {@code batch_index}-tagged batches. */
-        public static final class State extends ChunkState {
-            /** Required no-arg constructor for state deserialization. */
-            public State() {}
-
-            State(ConcurrentLinkedQueue<long[]> q, String execKey) { super(q, execKey); }
-
-            @Override public void produceTick(OutputCollector out, CallContext ctx) {
-                if (!advance()) { out.finish(); return; }
-                int n = (int) Math.min(BATCH_SIZE, currentEnd - currentIdx);
-                long start = currentIdx;
-                Map<String, String> md = new LinkedHashMap<>(EmitMetadata.batchIndex(partitionId));
-                Map<String, String> cc = advertiseOnce();
-                if (cc != null) md.putAll(cc);
-                BatchUtil.emit(OUTPUT, n, out, md, (root, rows, ignored) -> {
-                    BigIntVector v = (BigIntVector) root.getVector("n");
-                    for (int i = 0; i < rows; i++) v.setSafe(i, start + i);
-                });
-                currentIdx += n;
-            }
-        }
-    }
-
-    // =====================================================================
-    // cache_interleaved(rows, chunk_size := 20000) -> n int64
-    // =====================================================================
-
-    /**
-     * {@code batch_index}-tagged cacheable sequence emitted OUT OF ORDER: chunks
-     * are popped highest-partition-first, so the live scan returns rows in
-     * descending-block order while a cached serve stable-sorts by
-     * {@code batch_index} back to {@code 0,1,…,rows-1}. That gap proves the serve
-     * path genuinely reorders real multi-batch output.
-     */
-    public static final class CacheInterleaved extends SimpleTableFunction {
-
-        private static final Schema OUTPUT = single("n");
-        private static final long BATCH_SIZE = 2048;
-
-        private static final FunctionSpec SPEC = FunctionSpec.builder("cache_interleaved")
-                .metadata(FunctionMetadata.describe(
-                        "Parallel batch_index-tagged cacheable sequence; cache serve reassembles order")
-                        .withCategories("generator", "cache", "testing")
-                        .withBatchIndex())
-                .constArg("rows", Schemas.INT64)
-                .named("chunk_size", Schemas.INT64, "20000")
-                .build();
-
-        @Override public FunctionSpec spec() { return SPEC; }
-        @Override protected Schema outputSchema() { return OUTPUT; }
-        @Override public long maxWorkers() { return 8L; }
-
-        @Override public TableProducerState createProducer(TableInitParams p) {
-            ParameterExtractor ex = ParameterExtractor.of(p.arguments());
-            long rows = ex.positional(0, "rows").asLong().required();
-            long chunk = ex.named("chunk_size").asLong().orElse(20000L);
-            String key = HexId.encode(p.executionId());
-            return new State(buildQueue(key, rows, chunk, /*descending=*/true), key);
-        }
-
-        /** Per-worker chunk cursor; {@code n} is the global row index. */
         public static final class State extends ChunkState {
             /** Required no-arg constructor for state deserialization. */
             public State() {}

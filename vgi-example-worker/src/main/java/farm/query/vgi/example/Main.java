@@ -333,6 +333,7 @@ public final class Main {
             // their vgi_catalogs() output must stay single-row.
             registerAccumulate(w);
             registerNarrowBind(w);
+            registerTwinCatalogs(w);
             registerCopyFrom(w);
             registerCopyTo(w);
         }
@@ -444,6 +445,14 @@ public final class Main {
                 new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedAddConstScalarFunction(),
                 new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedLabelScalarFunction(),
                 new UnnestTensorFunction()));
+        // Schema-disambiguation probe: the SAME registered name in two schemas
+        // of this catalog, backed by two different implementations. A
+        // schema-qualified call must reach the one the caller named
+        // (scalar/same_name_schemas.test).
+        w.registerScalar("main",
+                        new farm.query.vgi.example.scalar.SameNameFunctions.MainSchema())
+         .registerScalar("data",
+                        new farm.query.vgi.example.scalar.SameNameFunctions.DataSchema());
     }
 
     private static void registerTables(Worker w) {
@@ -477,7 +486,6 @@ public final class Main {
                 new farm.query.vgi.example.table.CacheFunctions.CacheBench(),
                 new farm.query.vgi.example.table.CacheParallelFunctions.CacheParallel(),
                 new farm.query.vgi.example.table.CacheParallelFunctions.CacheOrdered(),
-                new farm.query.vgi.example.table.CacheParallelFunctions.CacheInterleaved(),
                 new farm.query.vgi.example.table.CacheTypesFunction(),
                 new farm.query.vgi.example.table.CacheFilteredFunction(),
                 new farm.query.vgi.example.table.CachePartitionedFunction(),
@@ -850,7 +858,8 @@ public final class Main {
                         "cache_external_fail"))
                 // NB: cache_bench is intentionally NOT a data Table — it takes a
                 // required positional arg (rows) a function-backed Table can't supply
-                // at bind. Its tests use the direct vgi_table_function() path.
+                // at bind. Its tests call it as a table function on the attached
+                // catalog (example.cache_bench(rows)).
                 .registerCatalogTable(new CatalogTable(
                         "data", "funny_numbers",
                         cols(col("n", Schemas.INT64, true)),
@@ -1178,6 +1187,32 @@ public final class Main {
                         .comment("narrow-bind reproducer table -> narrow_bind_wide_scan")
                         .scanFunction("narrow_bind_wide_scan", List.of(3L), Map.of())
                         .build());
+    }
+
+    private static void registerTwinCatalogs(Worker w) {
+        // Two catalogs served by this same process whose `main` schemas both
+        // declare `test_same_name_catalog`. Neither the function name nor the
+        // schema name tells them apart — only the attach does — so ownership is
+        // declared explicitly rather than by the name-prefix shortcut the other
+        // auxiliary catalogs use (a prefix cannot separate identical names).
+        // Driven by scalar/same_name_catalogs.test.
+        String prefixless = "";
+        w.registerExtraCatalog(new Worker.ExtraCatalog(
+                        farm.query.vgi.example.scalar.TwinCatalogFunctions.CATALOG_A,
+                        "vgi-fixture", "1.0.0",
+                        "Colliding function name served by twin_a", prefixless))
+                .registerExtraCatalog(new Worker.ExtraCatalog(
+                        farm.query.vgi.example.scalar.TwinCatalogFunctions.CATALOG_B,
+                        "vgi-fixture", "1.0.0",
+                        "Colliding function name served by twin_b", prefixless))
+                .registerExtraCatalogScalar(
+                        farm.query.vgi.example.scalar.TwinCatalogFunctions.CATALOG_A,
+                        farm.query.vgi.example.scalar.TwinCatalogFunctions.SCHEMA,
+                        new farm.query.vgi.example.scalar.TwinCatalogFunctions.TwinA())
+                .registerExtraCatalogScalar(
+                        farm.query.vgi.example.scalar.TwinCatalogFunctions.CATALOG_B,
+                        farm.query.vgi.example.scalar.TwinCatalogFunctions.SCHEMA,
+                        new farm.query.vgi.example.scalar.TwinCatalogFunctions.TwinB());
     }
 
     /** Register the {@code COPY ... FROM} format readers (delimited + secret-forwarding). */
