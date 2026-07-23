@@ -234,13 +234,6 @@ public final class WorkerDescribeProvider implements DescribeProvider {
         for (AggregateFunction<?> fn : worker.aggregates()) addFunctionSchema(fn, schemaNames);
         for (TableBufferingFunction fn : worker.bufferingFunctions()) addFunctionSchema(fn, schemaNames);
 
-        Set<String> extraPrefixes = new LinkedHashSet<>();
-        for (Worker.ExtraCatalog ec : worker.extraCatalogs().values()) {
-            if (ec.functionNamePrefix() != null && !ec.functionNamePrefix().isEmpty()) {
-                extraPrefixes.add(ec.functionNamePrefix());
-            }
-        }
-
         Map<String, String> schemaComments = worker.schemaComments();
 
         int nSchemas = 0, nTables = 0, nViews = 0, nFunctions = 0;
@@ -274,7 +267,7 @@ public final class WorkerDescribeProvider implements DescribeProvider {
             }
             sch.put("views", views);
 
-            List<Map<String, Object>> functions = buildFunctions(extraPrefixes, schemaName);
+            List<Map<String, Object>> functions = buildFunctions(schemaName);
             sch.put("functions", functions);
 
             schemas.add(sch);
@@ -351,11 +344,9 @@ public final class WorkerDescribeProvider implements DescribeProvider {
         return worker.catalogOf(fn) == null && worker.schemaOf(fn).equals(schemaName);
     }
 
-    /** The functions an auxiliary catalog advertises: those explicitly registered
-     *  as its own (any kind), plus the table-type functions whose names match its
-     *  legacy {@code functionNamePrefix}. Mirrors the RPC's per-attach scoping. */
+    /** The functions an auxiliary catalog advertises: exactly those registered
+     *  as its own. Mirrors the RPC's per-attach scoping. */
     private List<Map<String, Object>> buildExtraFunctions(Worker.ExtraCatalog extra) {
-        String prefix = extra.functionNamePrefix();
         List<Map<String, Object>> functions = new ArrayList<>();
         for (ScalarFunction fn : worker.scalars()) {
             if (!extra.name().equals(worker.catalogOf(fn))) continue;
@@ -363,37 +354,23 @@ public final class WorkerDescribeProvider implements DescribeProvider {
                     fn.argumentSpecs(), scalarReturns(fn)));
         }
         for (TableFunction fn : worker.tables()) {
-            if (!ownedByExtra(fn, extra, prefix)) continue;
+            if (!extra.name().equals(worker.catalogOf(fn))) continue;
             functions.add(function(fn.name(), "table", fn.metadata().description(),
                     fn.argumentSpecs(), tableReturns(fn)));
         }
         for (TableInOutFunction fn : worker.tableInOuts()) {
-            if (!ownedByExtra(fn, extra, prefix)) continue;
+            if (!extra.name().equals(worker.catalogOf(fn))) continue;
             functions.add(function(fn.name(), "table_in_out", fn.metadata().description(),
                     fn.argumentSpecs(), tableInOutReturns(fn)));
         }
         for (TableBufferingFunction fn : worker.bufferingFunctions()) {
-            if (!ownedByExtra(fn, extra, prefix)) continue;
+            if (!extra.name().equals(worker.catalogOf(fn))) continue;
             functions.add(function(fn.name(), "table_in_out", fn.metadata().description(),
                     fn.argumentSpecs(), bufferingReturns(fn)));
         }
         return functions;
     }
 
-    private boolean ownedByExtra(Object fn, Worker.ExtraCatalog extra, String prefix) {
-        if (extra.name().equals(worker.catalogOf(fn))) return true;
-        if (worker.catalogOf(fn) != null || prefix == null || prefix.isEmpty()) return false;
-        return functionName(fn).startsWith(prefix);
-    }
-
-    private static String functionName(Object fn) {
-        if (fn instanceof ScalarFunction f) return f.name();
-        if (fn instanceof TableFunction f) return f.name();
-        if (fn instanceof TableInOutFunction f) return f.name();
-        if (fn instanceof TableBufferingFunction f) return f.name();
-        if (fn instanceof AggregateFunction<?> f) return f.name();
-        throw new IllegalArgumentException("not a registered function: " + fn.getClass());
-    }
 
     private Map<String, Object> buildTags() {
         Map<String, String> tags = worker.catalogTags();
@@ -430,30 +407,30 @@ public final class WorkerDescribeProvider implements DescribeProvider {
     // Functions
     // -----------------------------------------------------------------------
 
-    private List<Map<String, Object>> buildFunctions(Set<String> extraPrefixes, String schemaName) {
+    private List<Map<String, Object>> buildFunctions(String schemaName) {
         List<Map<String, Object>> functions = new ArrayList<>();
         for (ScalarFunction fn : worker.scalars()) {
-            if (hidden(fn.name(), extraPrefixes) || !ownSchema(fn, schemaName)) continue;
+            if (hidden(fn.name()) || !ownSchema(fn, schemaName)) continue;
             functions.add(function(fn.name(), "scalar", fn.metadata().description(),
                     fn.argumentSpecs(), scalarReturns(fn)));
         }
         for (TableFunction fn : worker.tables()) {
-            if (hidden(fn.name(), extraPrefixes) || !ownSchema(fn, schemaName)) continue;
+            if (hidden(fn.name()) || !ownSchema(fn, schemaName)) continue;
             functions.add(function(fn.name(), "table", fn.metadata().description(),
                     fn.argumentSpecs(), tableReturns(fn)));
         }
         for (TableInOutFunction fn : worker.tableInOuts()) {
-            if (hidden(fn.name(), extraPrefixes) || !ownSchema(fn, schemaName)) continue;
+            if (hidden(fn.name()) || !ownSchema(fn, schemaName)) continue;
             functions.add(function(fn.name(), "table_in_out", fn.metadata().description(),
                     fn.argumentSpecs(), tableInOutReturns(fn)));
         }
         for (AggregateFunction<?> fn : worker.aggregates()) {
-            if (hidden(fn.name(), extraPrefixes) || !ownSchema(fn, schemaName)) continue;
+            if (hidden(fn.name()) || !ownSchema(fn, schemaName)) continue;
             functions.add(function(fn.name(), "aggregate", fn.metadata().description(),
                     fn.argumentSpecs(), aggregateReturns(fn)));
         }
         for (TableBufferingFunction fn : worker.bufferingFunctions()) {
-            if (hidden(fn.name(), extraPrefixes) || !ownSchema(fn, schemaName)) continue;
+            if (hidden(fn.name()) || !ownSchema(fn, schemaName)) continue;
             functions.add(function(fn.name(), "table_in_out", fn.metadata().description(),
                     fn.argumentSpecs(), bufferingReturns(fn)));
         }
@@ -463,7 +440,7 @@ public final class WorkerDescribeProvider implements DescribeProvider {
         // callable surface (VGI workers commonly expose "functions" as declarative
         // macros). Mirrors vgi-python's describe_json._build_schemas.
         for (Macro m : worker.macros()) {
-            if (hidden(m.name(), extraPrefixes) || !m.schema().equals(schemaName)) continue;
+            if (hidden(m.name()) || !m.schema().equals(schemaName)) continue;
             functions.add(macro(m));
         }
         // Deterministic ordering across functions + macros (both fold into the
@@ -513,13 +490,12 @@ public final class WorkerDescribeProvider implements DescribeProvider {
         return args;
     }
 
-    private static boolean hidden(String name, Set<String> extraPrefixes) {
-        // proj_repro_* belong to the projection_repro catalog, not the main one.
-        if (name.startsWith("proj_repro_")) return true;
-        for (String p : extraPrefixes) {
-            if (name.startsWith(p)) return true;
-        }
-        return false;
+    /** {@code proj_repro_*} belong to the projection_repro catalog, which this
+     *  binary serves only when attached under that name — not to the main one.
+     *  Auxiliary-catalog functions need no such rule: they are excluded by their
+     *  declared home. */
+    private static boolean hidden(String name) {
+        return name.startsWith("proj_repro_");
     }
 
     private static Map<String, Object> function(String name, String type, String doc,

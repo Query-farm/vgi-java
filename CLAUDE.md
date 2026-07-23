@@ -288,6 +288,53 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-07-23, strict homes)
+
+**Every registered function has exactly one home — `(catalog, schema)` — and
+dispatch is an exact filter, never a search with a fallback.** This replaces the
+first cut's permissive resolution, which silently widened when a filter would
+have emptied the candidate list. Matches vgi-python's model.
+
+- **`ExtraCatalog.functionNamePrefix` is gone** (record arity 5 → 4, a breaking
+  Java API change). Prefix ownership could not express two catalogs declaring
+  the same name, and it made "which catalog owns this?" a string-matching
+  question. `accumulate` (3 fns) and `narrow_bind` (2 scan fns) migrated to
+  `registerExtraCatalog{TableFunction,TableBuffering}`; `visibleIn` is now one
+  line — `homeCatalog == attachedCatalog && homeSchema == listedSchema`.
+- **`scopeCandidates` raises instead of widening.** Naming a schema that does
+  not declare the function raises listing the schemas that do; an attach whose
+  catalog does not declare it raises listing the catalogs that do. A bind naming
+  `data` can no longer reach `main` — the exact mis-route
+  `same_name_schemas.test` exists to catch.
+- **Unqualified binds resolve only when unambiguous.** Candidates spanning more
+  than one schema raise, naming them, rather than falling through to
+  `OverloadResolver`'s generic overload error — no argument signature can tell
+  `main.probe` from `data.probe` apart.
+
+**Who legitimately binds without a schema** (verified by instrumenting
+`bind()` over the whole suite — 618 unqualified binds in one launch run):
+
+| Caller | Why | Status |
+|---|---|---|
+| COPY-FROM / COPY-TO handlers | advertised at catalog level, no schema exists to name | by design |
+| table-in-out + table-buffering | **upstream gap** — see below | to fix upstream |
+
+**Upstream gap (report filed in the port summary):** `VgiTableInOutBind`
+(vgi `src/vgi_table_in_out_impl.cpp`, the `PerformBindRpc()` at ~line 304)
+builds its connection directly via `CreateFunctionConnection` /
+`CreateFunctionConnectionFromPool` and never calls
+`connection->SetSchemaName(bind_data->schema_name)` — even though `bind_data`
+carries the right value (set at line 150 from `function_info().schema_name`).
+Of the four `PerformBindRpc()` call sites outside the connection classes, this
+is the only one 692e918 missed: `vgi_scalar_function_impl.cpp:264/433` and
+`vgi_physical_write.cpp:175` all set it, and the table path gets it through
+`AcquireAndBindConnection` (`vgi_function_connection.cpp:359`). Effect: every
+table-in-out and table-buffering bind (including COPY-TO writers) reaches the
+worker unqualified, so a worker declaring the same table-in-out name in two
+schemas cannot be served correctly by the current extension. Once fixed, the
+second row of the table above goes away and the only unqualified binds are COPY
+handlers.
+
 ## State of play (as of 2026-07-23, later)
 
 **The http lane's 7 "new" failures were 7 lost skips.** The republished
@@ -350,9 +397,8 @@ Ported here.
 - **New fixtures:** `scalar/SameNameFunctions` (`test_same_name_bind` in both
   `main` and `data` of `example`) and `scalar/TwinCatalogFunctions` (`twin_a` /
   `twin_b`, two auxiliary catalogs whose `main` schemas both declare
-  `test_same_name_catalog`). The twins register with an **empty**
-  `functionNamePrefix` — a prefix cannot separate identical names, so ownership
-  is the explicit home. Driving tests: `scalar/same_name_schemas.test`,
+  `test_same_name_catalog`). Ownership is the declared home — a name prefix
+  could not separate identical names. Driving tests: `scalar/same_name_schemas.test`,
   `scalar/same_name_catalogs.test`, plus `scalar/function_registration.test`'s
   count 49 → 51.
 - **`cached_explode`** (`BlendedFunctions.CachedExplodeFunction`): the per-value
@@ -940,8 +986,9 @@ each run over sqlite-memory / sqlite-file / mock-CfDo backends).
 real consumer of the storage port. All 6 `accumulate/*.test` green.
 
 - **Multi-catalog (MetaWorker-style) serving** via
-  `Worker.ExtraCatalog(name, implVersion, dataVersion, schemaComment,
-  functionNamePrefix)` + `registerExtraCatalog`: extra rows in
+  `Worker.ExtraCatalog(name, implVersion, dataVersion, schemaComment)` +
+  `registerExtraCatalog` + `registerExtraCatalog{Scalar,TableFunction,
+  TableInOut,TableBuffering}`: extra rows in
   `catalog_catalogs`, `catalog_attach` branches on the attach name (random
   16-byte opaque id = the per-ATTACH storage scope,
   `attach_opaque_data_required=true`, its own resolved versions),

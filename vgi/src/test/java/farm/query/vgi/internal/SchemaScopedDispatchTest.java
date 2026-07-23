@@ -17,6 +17,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -110,19 +111,51 @@ class SchemaScopedDispatchTest {
     }
 
     @Test
-    void bindWithoutSchemaStillResolves() {
-        // COPY handler binds carry no schema; a nameless lookup must not fail
-        // just because the name is registered in more than one schema.
-        VgiServiceImpl svc = service(twoSchemas());
-        assertTrue(boundTag(svc.bind(bind(null, null), null)).startsWith("from_"));
+    void unqualifiedBindResolvesWhenTheNameLivesInOneSchema() {
+        // Not every caller can name a schema: a COPY handler is advertised at
+        // catalog level, and (until the upstream fix lands) table-in-out binds
+        // arrive unqualified. That resolves — as long as it is unambiguous.
+        Worker w = Worker.builder().catalogName("probe_catalog").registerScalar(new MainProbe());
+        assertEquals("from_main", boundTag(service(w).bind(bind(null, null), null)));
     }
 
     @Test
-    void unknownSchemaFallsBackToTheNameLookup() {
-        // An unlisted scan function has no catalog entry, so the extension sends
-        // a schema we never registered it in — resolve by name rather than fail.
+    void unqualifiedBindRaisesWhenTheNameSpansTwoSchemas() {
+        // No argument signature can tell main.probe from data.probe apart, so
+        // picking one silently would be a coin flip. Name both schemas instead.
         VgiServiceImpl svc = service(twoSchemas());
-        assertTrue(boundTag(svc.bind(bind("nowhere", null), null)).startsWith("from_"));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> svc.bind(bind(null, null), null));
+        assertTrue(e.getMessage().contains("more than one schema"), e.getMessage());
+        assertTrue(e.getMessage().contains("data") && e.getMessage().contains("main"), e.getMessage());
+    }
+
+    @Test
+    void bindNamingASchemaThatDoesNotDeclareItRaises() {
+        // The whole point of carrying the schema: a bind naming `nowhere` must
+        // never reach the implementation declared in `main`.
+        VgiServiceImpl svc = service(twoSchemas());
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> svc.bind(bind("nowhere", null), null));
+        assertTrue(e.getMessage().contains("not registered in schema 'nowhere'"), e.getMessage());
+        assertTrue(e.getMessage().contains("[data, main]"), e.getMessage());
+    }
+
+    @Test
+    void bindNamingASchemaOfTheWrongCatalogRaises() {
+        // An auxiliary catalog's attach must not reach the main catalog's
+        // functions, even for a name only the main catalog declares.
+        Worker w = Worker.builder()
+                .catalogName("probe_catalog")
+                .registerScalar(new MainProbe())
+                .registerExtraCatalog(new Worker.ExtraCatalog("aux", "1.0.0", "1.0.0", "aux"));
+        VgiServiceImpl svc = service(w);
+        byte[] auxAttach = svc.catalog_attach(
+                new CatalogAttachRequest("aux", null, null, null), null).attach_opaque_data();
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> svc.bind(bind("main", auxAttach), null));
+        assertTrue(e.getMessage().contains("not registered in catalog 'aux'"), e.getMessage());
+        assertTrue(e.getMessage().contains("probe_catalog"), e.getMessage());
     }
 
     @Test
@@ -137,8 +170,8 @@ class SchemaScopedDispatchTest {
     void attachedCatalogPicksItsOwnImplementation() {
         Worker w = Worker.builder()
                 .catalogName("probe_catalog")
-                .registerExtraCatalog(new Worker.ExtraCatalog("twin_a", "1.0.0", "1.0.0", "twin a", ""))
-                .registerExtraCatalog(new Worker.ExtraCatalog("twin_b", "1.0.0", "1.0.0", "twin b", ""))
+                .registerExtraCatalog(new Worker.ExtraCatalog("twin_a", "1.0.0", "1.0.0", "twin a"))
+                .registerExtraCatalog(new Worker.ExtraCatalog("twin_b", "1.0.0", "1.0.0", "twin b"))
                 .registerExtraCatalogScalar("twin_a", "main", new TwinAProbe())
                 .registerExtraCatalogScalar("twin_b", "main", new TwinBProbe());
         VgiServiceImpl svc = service(w);
@@ -162,7 +195,7 @@ class SchemaScopedDispatchTest {
         Worker w = Worker.builder()
                 .catalogName("probe_catalog")
                 .registerScalar("main", new MainProbe())
-                .registerExtraCatalog(new Worker.ExtraCatalog("twin_a", "1.0.0", "1.0.0", "twin a", ""))
+                .registerExtraCatalog(new Worker.ExtraCatalog("twin_a", "1.0.0", "1.0.0", "twin a"))
                 .registerExtraCatalogScalar("twin_a", "main", new TwinAProbe());
         VgiServiceImpl svc = service(w);
         CatalogAttachResult mainAttach =

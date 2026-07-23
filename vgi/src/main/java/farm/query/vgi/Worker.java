@@ -386,18 +386,18 @@ public final class Worker {
      * An auxiliary catalog served by the same worker process next to the main
      * catalog, MetaWorker-style: it appears as its own row in
      * {@code catalog_catalogs()}, attaches by name with its own versions and a
-     * random per-ATTACH opaque id, and owns every registered function whose
-     * name starts with {@code functionNamePrefix} (those functions are listed
-     * only under this catalog's attaches, and hidden from the main catalog's).
+     * random per-ATTACH opaque id, and owns the functions registered into it
+     * through the {@code registerExtraCatalog*} methods (those functions are
+     * listed only under this catalog's attaches, and hidden from the main
+     * catalog's).
      *
      * @param name the catalog name used in {@code ATTACH '<name>' ...}
      * @param implementationVersion the advertised/resolved implementation version
      * @param dataVersion the advertised {@code data_version_spec} and resolved data version
      * @param schemaComment the comment on the catalog's single {@code main} schema
-     * @param functionNamePrefix the function-name prefix this catalog owns
      */
     public record ExtraCatalog(String name, String implementationVersion, String dataVersion,
-                               String schemaComment, String functionNamePrefix) {}
+                               String schemaComment) {}
 
     private final Map<String, ExtraCatalog> extraCatalogs = new LinkedHashMap<>();
 
@@ -425,8 +425,8 @@ public final class Worker {
      * Register a catalog table owned by an auxiliary catalog. Such tables are
      * enumerated only under that catalog's attaches (and never appear in the
      * main catalog's listings). The scan functions they reference should be
-     * registered under the catalog's {@code functionNamePrefix} so they are
-     * likewise owned by the catalog.
+     * registered through {@link #registerExtraCatalogTableFunction} into the
+     * same catalog so they are likewise owned by it.
      *
      * @param catalogName the owning auxiliary catalog name
      * @param t the catalog table
@@ -469,8 +469,10 @@ public final class Worker {
 
     /**
      * The catalog schema {@code fn} is declared in — the schema DuckDB
-     * registers it into and therefore the one a bind request names. Defaults
-     * to {@link #defaultSchema()} for functions registered without a schema.
+     * registers it into and therefore the one a bind request names. Every
+     * registered function has exactly one: a registration that names no schema
+     * resolves to {@link #defaultSchema()}, which is a real home, not a
+     * wildcard. Nothing is visible in more than one schema.
      *
      * @param fn a registered function instance
      * @return the owning schema name, never {@code null}
@@ -482,10 +484,10 @@ public final class Worker {
 
     /**
      * The auxiliary catalog {@code fn} is declared in, or {@code null} when it
-     * belongs to this worker's own catalog. Auxiliary ownership can also be
-     * expressed by name prefix through
-     * {@link ExtraCatalog#functionNamePrefix()}; this covers the case a prefix
-     * cannot — two catalogs declaring the very same function name.
+     * belongs to this worker's own catalog. Ownership is always explicit — a
+     * function is registered into exactly one catalog — so two auxiliary
+     * catalogs may declare the very same function name and still dispatch
+     * apart.
      *
      * @param fn a registered function instance
      * @return the owning auxiliary catalog name, or {@code null} for the main catalog
@@ -540,10 +542,9 @@ public final class Worker {
     /**
      * Register a scalar function owned by an auxiliary catalog, in a named
      * schema of it. The function is listed only under that catalog's attaches
-     * and hidden from the main catalog's, exactly like the prefix-owned
-     * functions of {@link ExtraCatalog#functionNamePrefix()} — but the
-     * ownership is explicit, so two auxiliary catalogs can declare the SAME
-     * function name and still dispatch apart (the attach names the catalog).
+     * and hidden from the main catalog's. Ownership is explicit per function,
+     * so two auxiliary catalogs can declare the SAME function name and still
+     * dispatch apart — the attach names the catalog.
      *
      * @param catalogName the owning auxiliary catalog (see {@link #registerExtraCatalog})
      * @param schemaName the schema inside that catalog
@@ -552,6 +553,49 @@ public final class Worker {
      */
     public Worker registerExtraCatalogScalar(String catalogName, String schemaName, ScalarFunction fn) {
         scalars.add(fn);
+        return home(fn, catalogName, schemaName);
+    }
+
+    /**
+     * Register a table function owned by an auxiliary catalog, in a named
+     * schema of it. See {@link #registerExtraCatalogScalar}.
+     *
+     * @param catalogName the owning auxiliary catalog (see {@link #registerExtraCatalog})
+     * @param schemaName the schema inside that catalog
+     * @param fn the table function to register
+     * @return this builder
+     */
+    public Worker registerExtraCatalogTableFunction(String catalogName, String schemaName, TableFunction fn) {
+        tables.add(fn);
+        return home(fn, catalogName, schemaName);
+    }
+
+    /**
+     * Register a table-in-out function owned by an auxiliary catalog, in a
+     * named schema of it. See {@link #registerExtraCatalogScalar}.
+     *
+     * @param catalogName the owning auxiliary catalog (see {@link #registerExtraCatalog})
+     * @param schemaName the schema inside that catalog
+     * @param fn the table-in-out function to register
+     * @return this builder
+     */
+    public Worker registerExtraCatalogTableInOut(String catalogName, String schemaName, TableInOutFunction fn) {
+        tableInOuts.add(fn);
+        return home(fn, catalogName, schemaName);
+    }
+
+    /**
+     * Register a table-buffering function owned by an auxiliary catalog, in a
+     * named schema of it. See {@link #registerExtraCatalogScalar}.
+     *
+     * @param catalogName the owning auxiliary catalog (see {@link #registerExtraCatalog})
+     * @param schemaName the schema inside that catalog
+     * @param fn the table-buffering function to register
+     * @return this builder
+     */
+    public Worker registerExtraCatalogTableBuffering(String catalogName, String schemaName,
+            farm.query.vgi.buffering.TableBufferingFunction fn) {
+        bufferingFns.add(fn);
         return home(fn, catalogName, schemaName);
     }
 

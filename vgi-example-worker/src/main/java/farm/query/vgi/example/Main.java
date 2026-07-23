@@ -1159,11 +1159,13 @@ public final class Main {
         // mints a random opaque id scoping the persistent collections.
         w.registerExtraCatalog(new Worker.ExtraCatalog(
                         "accumulate", "vgi-fixture", "2.0.0",
-                        "Row accumulation keyed by name, persisted via FunctionStorage and scoped per ATTACH",
-                        "accumulate"))
-                .registerTableBuffering(new farm.query.vgi.example.accumulate.AccumulateFunction())
-                .registerTable(new farm.query.vgi.example.accumulate.AccumulateReadFunction())
-                .registerTable(new farm.query.vgi.example.accumulate.AccumulateClearFunction());
+                        "Row accumulation keyed by name, persisted via FunctionStorage and scoped per ATTACH"))
+                .registerExtraCatalogTableBuffering("accumulate", "main",
+                        new farm.query.vgi.example.accumulate.AccumulateFunction())
+                .registerExtraCatalogTableFunction("accumulate", "main",
+                        new farm.query.vgi.example.accumulate.AccumulateReadFunction())
+                .registerExtraCatalogTableFunction("accumulate", "main",
+                        new farm.query.vgi.example.accumulate.AccumulateClearFunction());
     }
 
     private static void registerNarrowBind(Worker w) {
@@ -1171,15 +1173,17 @@ public final class Main {
         // table `mismatch` advertises {id, val} but its scan binds {id} only —
         // the inconsistency the fixed C++ client must refuse at bind rather than
         // segfault. `consistent` advertises and binds {id, val} (positive
-        // control). The scan functions carry the `narrow_bind_` prefix so this
-        // catalog owns them (hidden from the example catalog's listings).
+        // control). The scan functions are registered into this catalog, so they
+        // are hidden from the example catalog's listings.
         byte[] tableCols = farm.query.vgi.internal.SchemaUtil.serializeSchema(
                 farm.query.vgi.example.narrowbind.NarrowBindFunctions.TABLE_SCHEMA);
         w.registerExtraCatalog(new Worker.ExtraCatalog(
                         "narrow_bind", "vgi-fixture", "1.0.0",
-                        "narrow-bind reproducer catalog", "narrow_bind_"))
-                .registerTable(new farm.query.vgi.example.narrowbind.NarrowBindFunctions.NarrowScan())
-                .registerTable(new farm.query.vgi.example.narrowbind.NarrowBindFunctions.WideScan())
+                        "narrow-bind reproducer catalog"))
+                .registerExtraCatalogTableFunction("narrow_bind", "main",
+                        new farm.query.vgi.example.narrowbind.NarrowBindFunctions.NarrowScan())
+                .registerExtraCatalogTableFunction("narrow_bind", "main",
+                        new farm.query.vgi.example.narrowbind.NarrowBindFunctions.WideScan())
                 .registerExtraCatalogTable("narrow_bind", CatalogTable.builder("main", "mismatch", tableCols)
                         .comment("narrow-bind reproducer table -> narrow_bind_narrow_scan")
                         .scanFunction("narrow_bind_narrow_scan", List.of(3L), Map.of())
@@ -1193,19 +1197,16 @@ public final class Main {
     private static void registerTwinCatalogs(Worker w) {
         // Two catalogs served by this same process whose `main` schemas both
         // declare `test_same_name_catalog`. Neither the function name nor the
-        // schema name tells them apart — only the attach does — so ownership is
-        // declared explicitly rather than by the name-prefix shortcut the other
-        // auxiliary catalogs use (a prefix cannot separate identical names).
+        // schema name tells them apart — only the attach does.
         // Driven by scalar/same_name_catalogs.test.
-        String prefixless = "";
         w.registerExtraCatalog(new Worker.ExtraCatalog(
                         farm.query.vgi.example.scalar.TwinCatalogFunctions.CATALOG_A,
                         "vgi-fixture", "1.0.0",
-                        "Colliding function name served by twin_a", prefixless))
+                        "Colliding function name served by twin_a"))
                 .registerExtraCatalog(new Worker.ExtraCatalog(
                         farm.query.vgi.example.scalar.TwinCatalogFunctions.CATALOG_B,
                         "vgi-fixture", "1.0.0",
-                        "Colliding function name served by twin_b", prefixless))
+                        "Colliding function name served by twin_b"))
                 .registerExtraCatalogScalar(
                         farm.query.vgi.example.scalar.TwinCatalogFunctions.CATALOG_A,
                         farm.query.vgi.example.scalar.TwinCatalogFunctions.SCHEMA,
