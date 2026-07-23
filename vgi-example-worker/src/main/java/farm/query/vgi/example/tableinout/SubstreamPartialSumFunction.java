@@ -29,6 +29,8 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * {@code substream_partial_sum(data TABLE)} — per-substream partial sum emitted
@@ -71,8 +73,21 @@ public final class SubstreamPartialSumFunction implements TableInOutFunction {
                 new Field(name, new FieldType(true, Schemas.INT64, null), null)))));
     }
 
+    /**
+     * Live storage views for the exchanges in flight in THIS process, keyed by
+     * a per-exchange id the state can serialize. A {@link BoundStorage} wraps a
+     * live SQLite connection, so it cannot ride an HTTP continuation token; the
+     * id can, and the state re-resolves the view from here on the other side.
+     * Same shape as {@code CacheParallelFunctions}' per-execution work queues
+     * ({@code execKey} + a transient reference).
+     */
+    private static final ConcurrentHashMap<String, BoundStorage> LIVE_STORAGE =
+            new ConcurrentHashMap<>();
+
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-        return new State(params.storage(), params.outputSchema());
+        String key = UUID.randomUUID().toString();
+        LIVE_STORAGE.put(key, params.storage());
+        return new State(key, params.outputSchema());
     }
 
     /**
@@ -94,20 +109,42 @@ public final class SubstreamPartialSumFunction implements TableInOutFunction {
     }
 
     /** Accumulate column-0 sums; persist the running total after every batch.
-     *  Launch/shm-transport state: it holds a live {@link BoundStorage}, which
-     *  cannot round-trip an HTTP continuation token — fine today because the
-     *  only test driving this fixture (parallel_finalize.test) attaches with
-     *  {@code pool false} and skips on the http lane. An HTTP-portable version
-     *  needs an execution-scoped storage rebind (the
-     *  {@code BufferingStorageHolder} pattern). */
-    static final class State extends TableInOutExchangeState {
-        private final BoundStorage storage;
-        private final Schema outputSchema;
-        private long total;
+     *
+     *  <p>Serializable across an HTTP state-token round-trip: the running total
+     *  and the output schema ride the token, and the storage view is
+     *  re-resolved from {@link #LIVE_STORAGE} by a key that does. That keeps the
+     *  rehydration process-local, which is what the fixture needs — the
+     *  accumulated partial sums live in this worker's execution-scoped storage
+     *  anyway, so a state resumed in a *different* process could not see them
+     *  whatever we serialized. */
+    public static final class State extends TableInOutExchangeState {
+        /** Key into {@link #LIVE_STORAGE}; survives the state token. */
+        public String storageKey;
+        /** Emit schema (Arrow schemas ride the token as IPC bytes). */
+        public Schema outputSchema;
+        /** Running sum of column 0 across the batches seen so far. */
+        public long total;
+        /** Re-resolved on first use after a token round-trip. */
+        private transient BoundStorage storageRef;
 
-        State(BoundStorage storage, Schema outputSchema) {
-            this.storage = storage;
+        /** No-arg constructor for HTTP state-token deserialization. */
+        public State() {}
+
+        State(String storageKey, Schema outputSchema) {
+            this.storageKey = storageKey;
             this.outputSchema = outputSchema;
+        }
+
+        private BoundStorage storage() {
+            if (storageRef == null) {
+                storageRef = LIVE_STORAGE.get(storageKey);
+                if (storageRef == null) {
+                    throw new IllegalStateException(
+                            "substream_partial_sum: no live storage for exchange " + storageKey
+                            + " (state resumed in a different worker process?)");
+                }
+            }
+            return storageRef;
         }
 
         @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
@@ -121,7 +158,7 @@ public final class SubstreamPartialSumFunction implements TableInOutFunction {
             // worker process); finish() drains and sums every entry.
             byte[] value = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
                     .putLong(total).array();
-            storage.statePut(FrameworkNs.TIO_STATE,
+            storage().statePut(FrameworkNs.TIO_STATE,
                     BoundStorage.packIntKey(ProcessHandle.current().pid()), value);
             // Accumulate only; the exchange contract wants one (possibly
             // empty) output batch per input batch.

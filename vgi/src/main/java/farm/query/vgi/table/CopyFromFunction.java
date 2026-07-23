@@ -195,6 +195,16 @@ public abstract class CopyFromFunction implements TableFunction {
                 return;
             }
             out.emit(pending.poll());
+            // Finish in the SAME tick as the last batch. The read already
+            // buffered everything, so there is nothing left to come back for —
+            // and on the stateless HTTP transport an unfinished producer forces
+            // a continuation token, which means serializing this state: it
+            // holds the live init params (allocator, storage view), so that
+            // serialization throws and a whole-file-in-one-batch COPY that
+            // could have completed here fails instead.
+            if (pending.isEmpty()) {
+                out.finish();
+            }
         }
     }
 }
