@@ -7,10 +7,10 @@
 
 Java port of the VGI protocol (DuckDB extension that lets external workers
 serve catalog data over Arrow IPC). Driven by passing the integration suite
-at `~/Development/vgi/test/sql/integration/`. Currently **255 pass / 0 fail /
-23 skip** on the local launch lane (the skips are all env-gated lanes:
-http-worker attach tests, bearer auth, containers, iceberg, dynamic
-aggregates, `schema_reconcile.test`'s writable path; see "State of play").
+at `~/Development/vgi/test/sql/integration/`. Currently **267 pass / 0 fail /
+22 skip** on the local launch lane (the skips are all env-gated lanes:
+bearer auth, containers, iceberg, dynamic aggregates, the http-transport
+variants, `schema_reconcile.test`'s writable path; see "State of play").
 
 ## Canonical references
 
@@ -288,6 +288,74 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-07-23)
+
+**2026-07-23 — protocol 1.1.0: functions resolve by (schema, name).** Upstream
+`Query-farm/vgi` `692e918` + `faf6496` and vgi-python `3e4c4ad` (0.18.0) made the
+bind request carry the owning catalog schema and removed `vgi_table_function()`.
+Ported here.
+
+- **`BindRequest.schema_name`** (nullable, name-keyed, last field) and
+  `Worker.VGI_PROTOCOL_VERSION` `1.0.0` → `1.1.0`. The extension sets it from the
+  schema entry the function actually resolved in (a `data`-schema table whose
+  scan function lives in `main` sends `main`); `null` for COPY handler binds,
+  which are advertised at catalog level.
+- **Registration is now per (catalog, schema).** `Worker` keeps an
+  `IdentityHashMap` of explicit homes — keyed by *instance*, because two
+  instances may share a registered name, which is the whole point —
+  populated by `registerScalar(schema, fn)`, `registerTable(schema, fn)` and
+  `registerExtraCatalogScalar(catalog, schema, fn)`. Anything registered without
+  one lives in `defaultSchema()` of the worker's own catalog, so existing
+  workers are unaffected. `Worker.schemaOf(fn)` / `catalogOf(fn)` are the
+  accessors; `VgiServiceImpl.visibleIn(...)` is the single predicate behind the
+  function listing, the per-schema object counts and the landing describe.
+- **Dispatch:** `bind()` narrows the by-name overload list through
+  `scopeCandidates(all, schema, catalog)` before `OverloadResolver` runs —
+  catalog filter first (from the attach), then schema, each skipped when it
+  would eliminate everything. A single candidate short-circuits, so the common
+  path is untouched. Argument-signature overloading *within* a schema is
+  unchanged.
+- **`catalog_schema_contents_functions` is no longer default-schema-only** (it
+  used to `return empty` for any other schema), and `schemaCounts` counts per
+  schema. That count is a hard guarantee — a zero makes the C++ extension skip
+  the contents RPC entirely, so an under-count silently hides the function
+  (this is exactly what made the first `same_name_schemas` run show only
+  `main`).
+- **New fixtures:** `scalar/SameNameFunctions` (`test_same_name_bind` in both
+  `main` and `data` of `example`) and `scalar/TwinCatalogFunctions` (`twin_a` /
+  `twin_b`, two auxiliary catalogs whose `main` schemas both declare
+  `test_same_name_catalog`). The twins register with an **empty**
+  `functionNamePrefix` — a prefix cannot separate identical names, so ownership
+  is the explicit home. Driving tests: `scalar/same_name_schemas.test`,
+  `scalar/same_name_catalogs.test`, plus `scalar/function_registration.test`'s
+  count 49 → 51.
+- **`cached_explode`** (`BlendedFunctions.CachedExplodeFunction`): the per-value
+  memo fixture upstream `c83a7fa` added for `cache/per_value_negative_memo.test`
+  and `cache/per_value_multi_batch.test`. 1→N fan-out emitted **round-robin**
+  across parents, so a given value's rows are non-contiguous in the batch —
+  `ttl=300 + perValue` on every emit, provenance via
+  `RowTransformFunction.parentRows`.
+- **Removed `cache_interleaved`** (`CacheParallelFunctions.CacheInterleaved`).
+  It declared `supportsBatchIndex` and then emitted *descending* `batch_index`
+  on a single stream — a protocol violation that only survived because the
+  removed C++ direct-call path never set the flag. Upstream deleted the fixture
+  and the `spill_correctness.test` section that used it. `buildQueue`'s
+  `descending` parameter went with it.
+- **`vgi_table_function()` is gone** — every VGI function is reached through
+  `ATTACH ... (TYPE vgi, LOCATION …)` + a qualified call. This repo had no call
+  sites (the `.test` files live upstream), only stale comments, now corrected.
+- **Local verification:** launch lane 267 cases / 10531 assertions green (the
+  CI env, including `attach/`, the four wrappers and the bad-enum worker), same
+  with `VGI_RPC_SHM_SIZE_BYTES=67108864` (shm lane); the five affected tests
+  green over the HTTP transport too — the twin routing unseals
+  `attach_opaque_data` there, so http exercises a different code path than
+  launch. `:vgi:test` 266 green (7 new in `SchemaScopedDispatchTest`), `:vgi:javadoc`
+  clean, landing conformance PASS. The 7 copy_to/copy_from/parallel_finalize
+  failures a *local* whole-suite http run shows are pre-existing (verified
+  against a stashed tree): the local unittest lacks CI's
+  `skip_error_messages HTTP` policy, and the underlying gap is
+  `CopyFromProducerState` HTTP state-token serialization.
+
 ## State of play (as of 2026-07-21)
 
 **2026-07-21 — moved to vgirpc 0.17.0 and ported the per-partition result
@@ -415,7 +483,7 @@ worker advertising `vgi.cache.*` on its **first emitted batch**. 35 new
   framework delta; contrast vgi-python, which had to thread `cache_control=` through
   three collector classes and `_merge_cache_control`.
 - **19 fixtures** in `example/table/`: `CacheFunctions` (13 simple),
-  `CacheParallelFunctions` (`cache_parallel`/`cache_ordered`/`cache_interleaved` —
+  `CacheParallelFunctions` (`cache_parallel`/`cache_ordered` —
   per-execution `ConcurrentLinkedQueue` fan-out, the `PartitionedSequenceFunction`
   pattern, not `BoundStorage.queuePush`), `CacheTypesFunction` (STRUCT/LIST/
   DECIMAL/TIMESTAMP + NULLs through the spill blob), `CacheFilteredFunction`,
