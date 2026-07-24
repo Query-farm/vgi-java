@@ -71,6 +71,33 @@ artifact). The HTTP / bearer / dynamic-code /
 `schema_reconcile` tests skip via their `require-env` gates (we don't set those
 workers), exactly as in the reference harness.
 
+## The skip contract + executed-case floor
+
+`haybarn-unittest` exits 0 whether one test skipped or every test did — a failed
+`require` / `require-env` is a **skip**, not an error (compounded here by the
+runner's `skip_error_messages HTTP` policy, which also turns http errors into
+skips). So "All tests passed" on its own is not evidence anything ran: a dead
+shared worker, an empty stage, or a mis-wired env var all read as green while the
+suite quietly tested nothing. `run-integration.sh` closes that gap with two
+guards in `summarize_run`:
+
+- **Skip allowlist.** Every skip reason the runner prints must appear in
+  `EXPECTED_SKIP_REASONS` (a base list plus, on the http lane, the bad-enum /
+  dedicated-crash / launcher reasons that gate off there but *run* on launch). An
+  unlisted reason — the signature of a whole file silently gated off, like
+  `require httpfs: 227` — fails the lane. A genuinely new, legitimate skip is
+  added to the list *with the reason why*.
+- **Executed-case floor.** The main suite's executed-case count must stay above a
+  per-lane `MIN_EXECUTED` (launch/shm 255, http 248 — floors ~16 below the
+  measured 271 / 265, leaving room for upstream growth). A collapse in this
+  number is the tell of a suite-wide silent skip. It is a floor, not an equality:
+  **do not lower it to make a run pass** — find what stopped running. Ported from
+  vgi-typescript, whose harness had this from the start.
+
+`run_unittest` also scans for the `fatal error condition` block a fork()ed child
+prints against the parent's counters — a failure invisible to the exit code by
+construction.
+
 ## Run it locally
 
 ```bash
