@@ -38,8 +38,15 @@ public final class Worker {
      *  <p>1.1.0 added the nullable {@code schema_name} field to the bind request:
      *  a function name is not a unique key, because the same name may be
      *  registered in more than one catalog schema, so dispatch resolves
-     *  {@code (schema_name, function_name)}. */
-    public static final String VGI_PROTOCOL_VERSION = "1.2.0";
+     *  {@code (schema_name, function_name)}.
+     *
+     *  <p>1.3.0 added {@code global_functions} / {@code global_function_prefix}
+     *  to the {@code catalog_attach} result (positions 14/15, before
+     *  {@code resolved_data_version}): functions a worker asks the client to
+     *  publish into its global namespace. This port advertises none (empty
+     *  list, empty prefix), but must carry the fields — the extension matches
+     *  the response schema exactly. */
+    public static final String VGI_PROTOCOL_VERSION = "1.3.0";
 
     private String catalogName = "vgi";
     private String catalogComment = "";
@@ -61,6 +68,8 @@ public final class Worker {
     private final List<TableInOutFunction> tableInOuts = new ArrayList<>();
     private final List<farm.query.vgi.buffering.TableBufferingFunction> bufferingFns = new ArrayList<>();
     private final List<AggregateFunction<?>> aggregates = new ArrayList<>();
+    private final List<farm.query.vgi.function.FunctionDescriptor> globalFunctions = new ArrayList<>();
+    private String globalFunctionPrefix = "";
     private final List<SettingSpec> settings = new ArrayList<>();
     private final List<SecretTypeSpec> secretTypes = new ArrayList<>();
     private final List<farm.query.vgi.protocol.AttachCatalogInfo> attachCatalogs = new ArrayList<>();
@@ -785,6 +794,55 @@ public final class Worker {
         for (TableInOutFunction f : fns) tableInOuts.add(f);
         return this;
     }
+
+    /**
+     * Ask the client to publish these already-registered functions into its
+     * <em>global</em> (non-catalog) function namespace, under
+     * {@link #globalFunctionPrefix(String)}. They are advertised on the
+     * {@code catalog_attach} result's {@code global_functions} field as
+     * serialized {@code FunctionInfo} records (protocol 1.3.0).
+     *
+     * <p>Each argument must be the <em>same instance</em> passed to a
+     * {@code register*} method: the advertised {@code FunctionInfo} carries the
+     * schema the function is homed in, which is the bind-dispatch key, and
+     * instance identity is what {@link #schemaOf(Object)} resolves.
+     * Registration into the catalog is unchanged — publication is additive.
+     *
+     * @param fns the registered functions to publish globally
+     * @return this builder
+     */
+    public Worker registerGlobalFunctions(Iterable<? extends farm.query.vgi.function.FunctionDescriptor> fns) {
+        for (farm.query.vgi.function.FunctionDescriptor f : fns) globalFunctions.add(f);
+        return this;
+    }
+
+    /**
+     * Functions advertised via {@link #registerGlobalFunctions}.
+     *
+     * @return the functions to publish globally, in declaration order
+     */
+    public List<farm.query.vgi.function.FunctionDescriptor> globalFunctions() { return globalFunctions; }
+
+    /**
+     * Prefix the client applies to every {@link #registerGlobalFunctions} entry
+     * to form its globally visible name — e.g. {@code "vgi_example"} publishes
+     * {@code global_scalar} as {@code vgi_example_global_scalar}. An empty
+     * prefix publishes bare names.
+     *
+     * @param prefix the global-name prefix
+     * @return this builder
+     */
+    public Worker globalFunctionPrefix(String prefix) {
+        globalFunctionPrefix = prefix == null ? "" : prefix;
+        return this;
+    }
+
+    /**
+     * The prefix set by {@link #globalFunctionPrefix(String)}.
+     *
+     * @return the global-name prefix; empty when unset
+     */
+    public String globalFunctionPrefix() { return globalFunctionPrefix; }
 
     /**
      * Advertise custom session settings in the {@code catalog_attach} result.

@@ -67,6 +67,7 @@ import farm.query.vgi.example.table.TenThousandFunction;
 import farm.query.vgi.example.aggregate.AvgFunction;
 import farm.query.vgi.example.aggregate.CountFunction;
 import farm.query.vgi.example.aggregate.GenericSumFunction;
+import farm.query.vgi.example.aggregate.GlobalAggFunction;
 import farm.query.vgi.example.aggregate.ListAggFunction;
 import farm.query.vgi.example.aggregate.PercentileFunction;
 import farm.query.vgi.example.aggregate.SecretTypedSumFunction;
@@ -331,6 +332,7 @@ public final class Main {
             // The accumulate catalog rides only the default fixture worker —
             // the versioned/versioned_tables wrappers reuse this binary and
             // their vgi_catalogs() output must stay single-row.
+            registerGlobalProbes(w);
             registerAccumulate(w);
             registerNarrowBind(w);
             registerTwinCatalogs(w);
@@ -1256,6 +1258,35 @@ public final class Main {
                 new farm.query.vgi.example.copyto.ExampleLinesCopyToFunction(),
                 new farm.query.vgi.example.copyto.ExampleLinesOrderedCopyToFunction(),
                 new farm.query.vgi.example.copyto.SecretLinesCopyToFunction()));
+    }
+
+    /**
+     * Global-registration probes: one fixture per function kind, registered in
+     * {@code main} like any other AND advertised on the {@code catalog_attach}
+     * result so the client publishes them into its global namespace as
+     * {@code vgi_example_global_*}. Dedicated classes rather than reused
+     * fixtures — this catalog is a cross-language contract, so making e.g.
+     * {@code double} globally published would force the same semantic change on
+     * every other SDK's copy of it. See {@code scalar/GlobalScalarFunction}.
+     *
+     * <p>Scoped to the {@code example} catalog, unlike the four kind lists this
+     * binary shares with the versioned / versioned_tables wrappers. The probes
+     * belong to the cross-language example contract (vgi-python declares them on
+     * that catalog alone, as do the Go / TypeScript / Rust ports), and
+     * {@code vgi_example} names it — a wrapper catalog advertising them under
+     * that prefix would be claiming functions it does not own.
+     */
+    private static void registerGlobalProbes(Worker w) {
+        var scalar = new farm.query.vgi.example.scalar.GlobalScalarFunction();
+        var table = new farm.query.vgi.example.table.GlobalTableFunction();
+        var agg = new GlobalAggFunction();
+        var buffered = new farm.query.vgi.example.buffering.GlobalBufferedFunction();
+        w.registerScalar(scalar)
+                .registerTable(table)
+                .registerAggregate(agg)
+                .registerTableBuffering(buffered)
+                .globalFunctionPrefix("vgi_example")
+                .registerGlobalFunctions(List.of(scalar, table, agg, buffered));
     }
 
     private static void registerBuffering(Worker w) {

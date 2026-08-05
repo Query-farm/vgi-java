@@ -24,6 +24,10 @@ import java.util.Map;
  * @param comment optional human-readable catalog comment, or {@code null}
  * @param tags arbitrary key/value catalog metadata
  * @param supports_column_statistics catalog-level capability flag enabling per-column statistics
+ * @param global_functions serialised Arrow batches of {@code FunctionInfo} values the worker asks
+ *        the client to publish into its global (non-catalog) namespace
+ * @param global_function_prefix prefix applied to every {@code global_functions} entry to form its
+ *        globally visible name; empty string publishes bare names
  * @param resolved_data_version data version actually selected, or {@code null}
  * @param resolved_implementation_version worker implementation version actually selected, or {@code null}
  */
@@ -41,6 +45,8 @@ public record CatalogAttachResult(
         @Nullable String comment,
         Map<String, String> tags,
         boolean supports_column_statistics,
+        List<byte[]> global_functions,
+        String global_function_prefix,
         @Nullable String resolved_data_version,
         @Nullable String resolved_implementation_version) implements ArrowSerializableRecord {
 }

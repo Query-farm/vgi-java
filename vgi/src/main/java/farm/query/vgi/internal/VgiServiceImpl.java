@@ -1098,6 +1098,10 @@ public final class VgiServiceImpl implements VgiService {
                     extra.schemaComment(),
                     Map.of(),
                     false,
+                    // global_functions / global_function_prefix (protocol 1.3.0):
+                    // this port advertises no globally published functions.
+                    List.of(),
+                    "",
                     extra.dataVersion(),
                     extra.implementationVersion());
         }
@@ -1155,8 +1159,39 @@ public final class VgiServiceImpl implements VgiService {
                 worker.catalogComment(),
                 tags,
                 true,
+                // global_functions / global_function_prefix (protocol 1.3.0):
+                // the functions this worker asks the client to publish into its
+                // global namespace, each carrying the schema it is homed in
+                // (the bind-dispatch key — the globally visible name is derived
+                // client-side from the prefix, so the FunctionInfo name is the
+                // registered one).
+                globalFunctionInfos(),
+                worker.globalFunctionPrefix(),
                 resolvedData,
                 resolvedImpl);
+    }
+
+    /**
+     * Serialize {@link Worker#globalFunctions()} to {@code FunctionInfo} IPC
+     * bytes, dispatching on the function kind exactly as the per-schema
+     * function listing does.
+     */
+    private List<byte[]> globalFunctionInfos() {
+        List<byte[]> out = new ArrayList<>();
+        for (farm.query.vgi.function.FunctionDescriptor fn : worker.globalFunctions()) {
+            String schema = worker.schemaOf(fn);
+            FunctionInfo info = switch (fn) {
+                case ScalarFunction f -> toScalarFunctionInfo(f, schema);
+                case TableFunction f -> toTableFunctionInfo(f, schema);
+                case TableInOutFunction f -> toTableInOutFunctionInfo(f, schema);
+                case farm.query.vgi.buffering.TableBufferingFunction f -> toBufferingFunctionInfo(f, schema);
+                case AggregateFunction<?> f -> toAggregateFunctionInfo(f, schema);
+                default -> throw new IllegalStateException(
+                        "global function " + fn.name() + " has an unsupported kind: " + fn.getClass());
+            };
+            out.add(FunctionInfoSerializer.serialize(info));
+        }
+        return out;
     }
 
     private String resolveImplementationVersion(String requested) {
