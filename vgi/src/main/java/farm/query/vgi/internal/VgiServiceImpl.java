@@ -1105,6 +1105,9 @@ public final class VgiServiceImpl implements VgiService {
                     extra.dataVersion(),
                     extra.implementationVersion());
         }
+        // Options declared required must actually be supplied: fail the attach
+        // loudly rather than yielding a catalog that reads as empty.
+        AttachOptionRequirements.validate(request.name(), worker.attachOptionSpecs(), request.options());
         byte[] attachId;
         if (!worker.attachOptionSpecs().isEmpty()) {
             // attach_options pattern (Go/Python parity): encode merged

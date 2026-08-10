@@ -28,12 +28,25 @@ import java.util.List;
  * @param description   human-readable description for catalog introspection
  * @param valueField    Arrow field describing the option's value type (named {@code "value"})
  * @param defaultVector length-1 vector holding the pre-materialised default, or {@code null} for none
+ * @param required      the caller must supply this option at ATTACH time; mutually exclusive with a
+ *                      default, since an option that falls back to a value is by definition
+ *                      satisfiable without the caller
  */
 public record AttachOptionSpec(
         String name,
         String description,
         Field valueField,
-        FieldVector defaultVector) {
+        FieldVector defaultVector,
+        boolean required) {
+
+    /** Rejects the contradictory required-plus-default combination. */
+    public AttachOptionSpec {
+        if (required && defaultVector != null) {
+            throw new IllegalArgumentException(
+                    "Attach option '" + name + "' is required but also declares a default; an option "
+                            + "with a default is always satisfiable without the caller. Drop one.");
+        }
+    }
 
     /**
      * Convenience: scalar option with a Java-valued default.
@@ -47,6 +60,23 @@ public record AttachOptionSpec(
     public static AttachOptionSpec of(String name, String description,
                                        ArrowType type, Object defaultValue) {
         return of(name, description, type, List.of(), defaultValue);
+    }
+
+    /**
+     * Convenience: an option the caller must supply at ATTACH time.
+     *
+     * <p>A catalog that cannot be attached without this option advertises that
+     * at discovery, so a client can say so before attempting the attach rather
+     * than surfacing a failure that reads like an empty catalog.
+     *
+     * @param name        option name
+     * @param description human-readable description
+     * @param type        the option's Arrow value type
+     * @return a spec with no default and {@code required = true}
+     */
+    public static AttachOptionSpec required(String name, String description, ArrowType type) {
+        Field field = new Field("value", new FieldType(true, type, null), List.of());
+        return new AttachOptionSpec(name, description, field, null, true);
     }
 
     /**
@@ -68,7 +98,7 @@ public record AttachOptionSpec(
         FieldVector defaults = defaultValue == null
                 ? null
                 : AttachOptionDefaultMaterializer.materialize(field, defaultValue);
-        return new AttachOptionSpec(name, description, field, defaults);
+        return new AttachOptionSpec(name, description, field, defaults, false);
     }
 
     /** {@return the option's Arrow value type, read from {@link #valueField}} */

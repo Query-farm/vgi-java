@@ -5,6 +5,7 @@ package farm.query.vgi.internal;
 import farm.query.vgi.AttachOptionSpec;
 import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
@@ -21,7 +22,13 @@ import java.util.List;
 /**
  * Serialises an {@link AttachOptionSpec} to the wire format:
  * one-row IPC stream with schema
- * {@code {name: utf8, description: utf8, type: binary, default_value: binary?}}.
+ * {@code {name: utf8, description: utf8, type: binary, default_value: binary?,
+ * required: bool?}}.
+ *
+ * <p>{@code required} is nullable and appended LAST so a peer that predates the
+ * column reads the batch by name and simply doesn't see it; absent and
+ * explicit-null both mean "not required". It is written explicitly rather than
+ * left null so readers see {@code false}.
  *
  * <p>{@code type} is an IPC-encoded schema with a single field "value" of the
  * spec's type (children included). {@code default_value} is an IPC-encoded
@@ -34,6 +41,7 @@ public final class AttachOptionSpecSerializer {
 
     private static final ArrowType UTF8 = new ArrowType.Utf8();
     private static final ArrowType BINARY = new ArrowType.Binary();
+    private static final ArrowType BOOL = new ArrowType.Bool();
 
     /**
      * Serialise one option spec to its one-row IPC wire bytes.
@@ -47,7 +55,8 @@ public final class AttachOptionSpecSerializer {
                 new Field("name", new FieldType(false, UTF8, null), null),
                 new Field("description", new FieldType(false, UTF8, null), null),
                 new Field("type", new FieldType(false, BINARY, null), null),
-                new Field("default_value", new FieldType(true, BINARY, null), null)));
+                new Field("default_value", new FieldType(true, BINARY, null), null),
+                new Field("required", new FieldType(true, BOOL, null), null)));
 
         Schema typeSchema = new Schema(List.of(spec.valueField()));
         byte[] typeBytes = SchemaUtil.serializeSchema(typeSchema);
@@ -63,6 +72,7 @@ public final class AttachOptionSpecSerializer {
             VarBinaryVector defaultVec = (VarBinaryVector) root.getVector("default_value");
             if (defaultBytes == null) defaultVec.setNull(0);
             else defaultVec.setSafe(0, defaultBytes);
+            ((BitVector) root.getVector("required")).setSafe(0, spec.required() ? 1 : 0);
             root.setRowCount(1);
             return BatchUtil.writeSingleBatch(root);
         }
