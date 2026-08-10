@@ -1219,11 +1219,12 @@ public final class Worker {
      */
     public void runHttp(HttpServer.Config config) throws Exception {
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(Worker.class);
-        // Attach the standardized landing surface (describe.json + lazy column
-        // endpoints) unless the caller already supplied a provider.
-        HttpServer.Config effective = config.describeProvider() != null
+        // Attach the standardized landing surface (the shared page plus the
+        // browser client build it reads the catalog with) unless the caller
+        // already supplied an identity.
+        HttpServer.Config effective = config.landingInfo() != null
                 ? config
-                : config.withDescribeProvider(new farm.query.vgi.http.WorkerDescribeProvider(this));
+                : config.withLandingInfo(farm.query.vgi.http.WorkerLandingInfo.of(this));
         HttpServer http = new HttpServer(buildServer(true), effective);
         http.start();
         System.out.println("PORT:" + http.port());
