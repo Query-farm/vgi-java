@@ -30,6 +30,14 @@ public final class AttachOptionsFixture {
 
     public static final String CATALOG_NAME = "attach_options";
 
+    /**
+     * A second catalog from the same worker, declaring one option the caller
+     * must supply. Kept separate from {@link #CATALOG_NAME} so the
+     * defaults-and-round-trip coverage there keeps attaching with no options at
+     * all. Mirrors vgi-python's {@code REQUIRED_CATALOG_NAME}.
+     */
+    public static final String REQUIRED_CATALOG_NAME = "attach_options_required";
+
     private static final ArrowType DATE32 = new ArrowType.Date(DateUnit.DAY);
     private static final ArrowType TIME64_US = new ArrowType.Time(TimeUnit.MICROSECOND, 64);
     private static final ArrowType TIMESTAMP_US = new ArrowType.Timestamp(TimeUnit.MICROSECOND, null);
@@ -82,5 +90,18 @@ public final class AttachOptionsFixture {
                                 Schemas.nullable("a", Schemas.INT64),
                                 Schemas.nullable("b", Schemas.UTF8)),
                         Map.of("a", 1L, "b", "x")));
+    }
+
+    /**
+     * Options of the {@link #REQUIRED_CATALOG_NAME} catalog: one the caller has
+     * to supply (no default to fall back on) next to one that defaults, so a
+     * test can tell the two apart in the discovery listing.
+     *
+     * @return the gated catalog's declared option specs
+     */
+    public static List<AttachOptionSpec> requiredSpecs() {
+        return List.of(
+                AttachOptionSpec.required("api_key", "API key", Schemas.UTF8),
+                AttachOptionSpec.of("region", "Region", Schemas.UTF8, "us-east-1"));
     }
 }

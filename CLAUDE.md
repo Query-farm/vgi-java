@@ -183,8 +183,8 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 ## Releasing (Maven Central)
 
 Published: **`farm.query:vgi`** (this repo) and **`farm.query:vgirpc`** /
-`vgirpc-oauth` (the sibling). Latest as of 2026-07-21: **vgi 0.20.0 → vgirpc
-0.17.0**. To cut a release: bump `version` in `build.gradle.kts`, push, then
+`vgirpc-oauth` (the sibling). Latest as of 2026-08-10: **vgi 0.24.0 → vgirpc
+0.21.1**. To cut a release: bump `version` in `build.gradle.kts`, push, then
 create a GitHub Release whose tag is the version (`v0.2.0` for `0.2.0`). The
 `release.yml` workflow (trigger: `release: published`) verifies tag == version,
 runs tests, and publishes. Both repos now set
@@ -287,6 +287,53 @@ The table / table-in-out / buffering / aggregate kinds **still use the
 older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
+
+## State of play (as of 2026-08-10, gated attach options)
+
+**Global functions were already done** (0.22.0 — `Worker.registerGlobalFunctions` /
+`globalFunctionPrefix`, the two protocol-1.3.0 attach fields, the four
+`global_*` probes). Against a locally built extension carrying vgi `21fdd4e`,
+`global_functions/{basic,lifecycle}.test` both pass. **CI is red on them anyway,
+and it is not the worker:** the lane installs `vgi FROM community`, and the
+published build predates the consuming side — `vgi_global_functions()` doesn't
+exist and `ATTACH … (global_functions false)` is an unknown option. Verified by
+`FORCE INSTALL vgi FROM community` under the same `haybarn-v1.5.5-rc1` runner CI
+uses: `count(vgi_global_functions) = 0`. Nothing to do here until the community
+extension republishes; the same lag is what fails `attach_options_echo.test`'s
+`opt.required` read (upstream `1f1d7b1` has since moved those assertions out).
+
+**Per-catalog attach options** (this release). `Worker.ExtraCatalog` gained a
+5th component, `attachOptions` — auxiliary catalogs advertise their own specs on
+their `catalog_catalogs()` row and enforce them at their own attach. A 4-arg
+convenience constructor keeps every existing call site compiling. The main
+catalog's `Worker.attachOptions(...)` is unchanged and unrelated: one worker can
+serve a catalog that requires an option next to one that takes none.
+- Fixture: `AttachOptionsFixture.REQUIRED_CATALOG_NAME` /`requiredSpecs()`
+  (`api_key` required, `region` defaulting) registered as an extra catalog in
+  Main's attach_options worker mode, mirroring vgi-python's
+  `RequiredAttachOptions`. Drives `attach/attach_options_required.test`, which
+  upstream gated behind `VGI_ATTACH_OPTIONS_REQUIRED_WORKER` when the shared
+  file's required assertions broke every non-Python SDK. `ci/run-integration.sh`
+  points that var at the same attach-options worker on both lanes, so the test
+  runs rather than skipping.
+- **The refusal path had never been exercised, and it hung.**
+  `AttachOptionRequirements` throws `RpcError("ValueError", …)` — whose
+  `errorKind()` is null, as documented — and vgirpc's `Wire.errorMetadata` put
+  that null in the batch metadata unconditionally. It threw in the flatbuffer
+  key/value writer, so the error batch never reached the wire and the client
+  waited forever. Fixed in **vgirpc 0.21.1** (`Wire` skips a null kind,
+  `ErrorMetadataTest` pins it); this repo pins that version. Symptom to
+  recognise: a worker-side `NullPointerException … Utf8Safe.computeEncodedLength`
+  in `VGI_WORKER_STDERR`, with the client hung rather than erroring.
+- **Local:** launch 296 files / 268 pass / 28 skip / 0 fail; the two attach
+  tests also verified under shm and against an HTTP worker. `:vgi:test` green
+  (new `ExtraCatalogAttachOptionsTest`), `:vgi:javadoc` clean.
+
+> **Local CI-lane repro is misleading.** `ci/run-integration.sh` against the
+> homebrew `haybarn-unittest` fails ~every test at ATTACH ("field count differs:
+> expected 14, actual 17") — that binary's cached community extension is far
+> older than CI's. Use `~/Development/vgi/build/release/test/unittest` for local
+> work; only the GitHub lane says anything real about the published extension.
 
 ## State of play (as of 2026-07-23, result-cache same-name)
 

@@ -121,6 +121,10 @@ case "$TRANSPORT" in
     export VGI_VERSIONED_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned"
     export VGI_VERSIONED_TABLES_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned-tables"
     export VGI_ATTACH_OPTIONS_WORKER="launch:${HERE}/wrappers/vgi-worker-attach-options"
+    # Same worker: it also serves the `attach_options_required` catalog, whose
+    # gated ATTACH is asserted separately (upstream split those assertions out of
+    # the shared attach_options_echo.test behind this env var).
+    export VGI_ATTACH_OPTIONS_REQUIRED_WORKER="$VGI_ATTACH_OPTIONS_WORKER"
     # bad-enum fixture worker: serves the example catalog but advertises an
     # unrecognized null_handling enum for `double`, driving the C++ parser's
     # strict-enum rejection (bad_enum.test). Skipped over HTTP (like
@@ -167,6 +171,7 @@ case "$TRANSPORT" in
     # has an explicit "Pool / HTTP safety" section), so http serves it fine.
     ao_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-attach-options")"
     export VGI_ATTACH_OPTIONS_WORKER="http://localhost:${ao_port}"
+    export VGI_ATTACH_OPTIONS_REQUIRED_WORKER="$VGI_ATTACH_OPTIONS_WORKER"
     echo "attach_options http worker on ${VGI_ATTACH_OPTIONS_WORKER}"
     # NB: VGI_TEST_DEDICATED_WORKER stays UNSET here. The buffering crash /
     # pool-recovery tests SIGKILL their worker mid-process, which is only safe on

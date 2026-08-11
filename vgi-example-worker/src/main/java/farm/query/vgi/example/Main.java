@@ -307,7 +307,18 @@ public final class Main {
                     .catalogName(catalogName)
                     .attachOptions(farm.query.vgi.example.table.AttachOptionsFixture
                             .declaredSpecs().toArray(new farm.query.vgi.AttachOptionSpec[0]))
-                    .registerTable(new farm.query.vgi.example.table.EchoAttachOptionsFunction());
+                    .registerTable(new farm.query.vgi.example.table.EchoAttachOptionsFunction())
+                    // Second catalog from the same worker, gated on an option the
+                    // caller must supply: it advertises that at discovery and
+                    // refuses the anonymous ATTACH, rather than attaching into
+                    // something that reads as an empty catalog. It carries no
+                    // functions of its own — the attach IS what's under test
+                    // (attach/attach_options_required.test).
+                    .registerExtraCatalog(new Worker.ExtraCatalog(
+                            farm.query.vgi.example.table.AttachOptionsFixture.REQUIRED_CATALOG_NAME,
+                            null, null,
+                            "Attach-options catalog gated on a required option",
+                            farm.query.vgi.example.table.AttachOptionsFixture.requiredSpecs()));
             runWorker(ao, args);
             return;
         }

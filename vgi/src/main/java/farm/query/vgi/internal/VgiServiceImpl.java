@@ -987,9 +987,13 @@ public final class VgiServiceImpl implements VgiService {
                 worker.dataVersionSpec(), attachOptionBytes,
                 worker.releases(), worker.sourceUrl()));
         for (Worker.ExtraCatalog extra : worker.extraCatalogs().values()) {
+            List<byte[]> extraOptionBytes = new ArrayList<>();
+            for (farm.query.vgi.AttachOptionSpec spec : extra.attachOptions()) {
+                extraOptionBytes.add(AttachOptionSpecSerializer.serialize(spec));
+            }
             items.add(CatalogInfoSerializer.serialize(
                     extra.name(), extra.implementationVersion(), extra.dataVersion(),
-                    List.of(), List.of(), null));
+                    extraOptionBytes, List.of(), null));
         }
         return new ItemsResponse(items);
     }
@@ -1082,6 +1086,10 @@ public final class VgiServiceImpl implements VgiService {
     public CatalogAttachResult catalog_attach(CatalogAttachRequest request, CallContext ctx) {
         Worker.ExtraCatalog extra = worker.extraCatalogs().get(request.name());
         if (extra != null) {
+            // Enforced against THIS catalog's specs, not the main catalog's: the
+            // same worker may serve one catalog that requires an option and
+            // another that takes none.
+            AttachOptionRequirements.validate(request.name(), extra.attachOptions(), request.options());
             // MetaWorker-style auxiliary catalog: a random per-ATTACH opaque id
             // is the storage scope isolating this session's state; the client
             // persists and resends it, so it also survives worker restarts.

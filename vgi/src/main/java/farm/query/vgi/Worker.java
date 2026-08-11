@@ -43,9 +43,10 @@ public final class Worker {
      *  <p>1.3.0 added {@code global_functions} / {@code global_function_prefix}
      *  to the {@code catalog_attach} result (positions 14/15, before
      *  {@code resolved_data_version}): functions a worker asks the client to
-     *  publish into its global namespace. This port advertises none (empty
-     *  list, empty prefix), but must carry the fields — the extension matches
-     *  the response schema exactly. */
+     *  publish into its global namespace — see {@link #registerGlobalFunctions}
+     *  and {@link #globalFunctionPrefix(String)}. A worker that opts out still
+     *  carries the fields (empty list, empty prefix): the extension matches the
+     *  response schema exactly. */
     public static final String VGI_PROTOCOL_VERSION = "1.3.0";
 
     private String catalogName = "vgi";
@@ -404,9 +405,33 @@ public final class Worker {
      * @param implementationVersion the advertised/resolved implementation version
      * @param dataVersion the advertised {@code data_version_spec} and resolved data version
      * @param schemaComment the comment on the catalog's single {@code main} schema
+     * @param attachOptions ATTACH-time options this catalog alone declares, advertised on its
+     *                      {@code catalog_catalogs()} row and enforced at its attach. Separate from
+     *                      {@link #attachOptions(AttachOptionSpec...)}, which is the main catalog's:
+     *                      a worker may serve one catalog that requires an option and another that
+     *                      takes none.
      */
     public record ExtraCatalog(String name, String implementationVersion, String dataVersion,
-                               String schemaComment) {}
+                               String schemaComment, List<AttachOptionSpec> attachOptions) {
+
+        /** Defensive copy; a null option list reads as none declared. */
+        public ExtraCatalog {
+            attachOptions = attachOptions == null ? List.of() : List.copyOf(attachOptions);
+        }
+
+        /**
+         * An auxiliary catalog declaring no attach options of its own.
+         *
+         * @param name the catalog name used in {@code ATTACH '<name>' ...}
+         * @param implementationVersion the advertised/resolved implementation version
+         * @param dataVersion the advertised {@code data_version_spec} and resolved data version
+         * @param schemaComment the comment on the catalog's single {@code main} schema
+         */
+        public ExtraCatalog(String name, String implementationVersion, String dataVersion,
+                            String schemaComment) {
+            this(name, implementationVersion, dataVersion, schemaComment, List.of());
+        }
+    }
 
     private final Map<String, ExtraCatalog> extraCatalogs = new LinkedHashMap<>();
 
