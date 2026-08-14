@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VGI_RPC_JAVA_REF: v0.21.1
+  VGI_RPC_JAVA_REF: v0.21.4
 
 jobs:
   test:
