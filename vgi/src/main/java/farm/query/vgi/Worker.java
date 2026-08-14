@@ -1064,6 +1064,23 @@ public final class Worker {
         return server;
     }
 
+    /**
+     * Build the {@link RpcServer} for this worker so a caller can drive it over
+     * a transport it owns, instead of one of the blocking {@code run*} entry
+     * points. Intended for embedding and for in-process tests that pair the
+     * server with an {@code RpcConnection} client over a pipe.
+     *
+     * <p>Opaque-data sealing is disabled, matching {@link #runStdio()} and
+     * {@link #runUnixSocket}: a caller-supplied transport carries no HTTP auth
+     * principal to bind tokens to. Do not expose the returned server on an
+     * untrusted network — use {@link #runHttp(String, int)} for that.
+     *
+     * @return a configured server, not yet bound to any transport
+     */
+    public RpcServer rpcServer() {
+        return buildServer(false);
+    }
+
     /** Block on stdin/stdout serving requests until the transport closes. */
     public void runStdio() {
         try (StdioTransport t = new StdioTransport()) {
