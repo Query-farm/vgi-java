@@ -24,31 +24,18 @@ import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.ClientStreamSession;
 import farm.query.vgirpc.OutputCollector;
-import farm.query.vgirpc.RpcConnection;
-import farm.query.vgirpc.RpcServer;
 import farm.query.vgirpc.RpcStream;
 import farm.query.vgirpc.StreamState;
 import farm.query.vgirpc.marshal.RecordCodec;
-import farm.query.vgirpc.transport.RpcTransport;
-import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.complex.StructVector;
-import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
-import java.nio.channels.Channels;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -129,7 +116,7 @@ final class VgiClientRoundTripTest {
                 .defaultSchema("main")
                 .registerTable(new SeqFunction());
 
-        try (Harness h = Harness.start(worker)) {
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(worker)) {
             VgiService vgi = h.client();
 
             // 1. ATTACH — the handle every later call echoes back.
@@ -150,7 +137,7 @@ final class VgiClientRoundTripTest {
             // 3. BIND — resolve the output schema before any data moves.
             BindRequest bindRequest = new BindRequest(
                     "seq",                       // function_name
-                    encodePositionalArgs(5L),    // arguments
+                    seqArgs(5L, null),           // arguments
                     "TABLE",                     // function_type
                     null,                        // input_schema (producer mode)
                     null,                        // settings
@@ -210,7 +197,7 @@ final class VgiClientRoundTripTest {
                 .defaultSchema("main")
                 .registerTable(new SeqFunction());
 
-        try (Harness h = Harness.start(worker)) {
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(worker)) {
             VgiService vgi = h.client();
             byte[] handle = vgi.catalog_attach(
                     new CatalogAttachRequest("testcat", null, null, null), null)
@@ -234,7 +221,7 @@ final class VgiClientRoundTripTest {
                 .defaultSchema("main")
                 .registerTable(new SeqFunction());
 
-        try (Harness h = Harness.start(worker)) {
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(worker)) {
             VgiService vgi = h.client();
             byte[] handle = vgi.catalog_attach(
                     new CatalogAttachRequest("testcat", null, null, null), null)
@@ -258,7 +245,7 @@ final class VgiClientRoundTripTest {
     private static List<Long> scan(VgiService vgi, byte[] handle, long count, Long batchSize)
             throws IOException {
         BindRequest bindRequest = new BindRequest(
-                "seq", encodePositionalArgs(count, batchSize), "TABLE",
+                "seq", seqArgs(count, batchSize), "TABLE",
                 null, null, null, handle, null, false,
                 null, null, null, null, "main");
         BindResponse bound = vgi.bind(bindRequest, null);
@@ -267,6 +254,21 @@ final class VgiClientRoundTripTest {
                 bound.opaque_data(), null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null);
         return drainInt64Column(vgi.init(initRequest, null), "i");
+    }
+
+    /**
+     * Bind arguments for {@code seq(count [, batch_size := n])}, encoded the
+     * way DuckDB encodes them — {@link ArgumentsEncoder} is the client-side
+     * mirror of the worker's {@code ArgumentsParser}.
+     *
+     * @param count     the positional {@code count} argument
+     * @param batchSize optional named {@code batch_size}; omitted when null
+     * @return IPC stream bytes for {@link BindRequest#arguments()}
+     */
+    private static byte[] seqArgs(long count, Long batchSize) {
+        ArgumentsEncoder args = ArgumentsEncoder.builder().positional(count);
+        if (batchSize != null) args.named("batch_size", batchSize);
+        return args.encode();
     }
 
     /**
@@ -299,118 +301,5 @@ final class VgiClientRoundTripTest {
             session.close();
         }
         return out;
-    }
-
-    /**
-     * Encode bind-time arguments the way DuckDB does: a single-row batch with
-     * one {@code args} struct column whose children are {@code positional_N}
-     * and {@code named_<name>}.
-     *
-     * @param count     the positional {@code count} argument
-     * @param batchSize optional named {@code batch_size}; omitted when null
-     * @return IPC stream bytes for {@link BindRequest#arguments()}
-     */
-    private static byte[] encodePositionalArgs(long count, Long batchSize) throws IOException {
-        List<Field> children = new ArrayList<>();
-        children.add(new Field("positional_0",
-                FieldType.nullable(new ArrowType.Int(64, true)), null));
-        if (batchSize != null) {
-            children.add(new Field("named_batch_size",
-                    FieldType.nullable(new ArrowType.Int(64, true)), null));
-        }
-        Field args = new Field("args", FieldType.nullable(ArrowType.Struct.INSTANCE), children);
-        Schema schema = new Schema(List.of(args));
-
-        try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
-             ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
-            StructVector struct = (StructVector) root.getVector("args");
-            struct.setIndexDefined(0);
-            ((BigIntVector) struct.getChild("positional_0")).setSafe(0, count);
-            if (batchSize != null) {
-                ((BigIntVector) struct.getChild("named_batch_size")).setSafe(0, batchSize);
-            }
-            struct.setValueCount(1);
-            root.setRowCount(1);
-
-            try (ArrowStreamWriter writer =
-                         new ArrowStreamWriter(root, null, Channels.newChannel(bytes))) {
-                writer.start();
-                writer.writeBatch();
-                writer.end();
-            }
-            return bytes.toByteArray();
-        }
-    }
-
-    private static byte[] encodePositionalArgs(long count) throws IOException {
-        return encodePositionalArgs(count, null);
-    }
-
-    // ------------------------------------------------------------------
-    // In-process worker over a pipe pair.
-    // ------------------------------------------------------------------
-
-    /** A running worker plus a connected client, torn down together. */
-    private static final class Harness implements AutoCloseable {
-        private final RpcConnection connection;
-        private final VgiService proxy;
-        private final RpcTransport clientTransport;
-        private final Thread serverThread;
-
-        private Harness(RpcConnection connection, VgiService proxy,
-                        RpcTransport clientTransport, Thread serverThread) {
-            this.connection = connection;
-            this.proxy = proxy;
-            this.clientTransport = clientTransport;
-            this.serverThread = serverThread;
-        }
-
-        static Harness start(Worker worker) throws IOException {
-            PipedOutputStream clientOut = new PipedOutputStream();
-            PipedInputStream serverIn = new PipedInputStream(clientOut, 1 << 20);
-            PipedOutputStream serverOut = new PipedOutputStream();
-            PipedInputStream clientIn = new PipedInputStream(serverOut, 1 << 20);
-
-            RpcTransport serverTransport = new PipeTransport(serverIn, serverOut);
-            RpcTransport clientTransport = new PipeTransport(clientIn, clientOut);
-
-            RpcServer server = worker.rpcServer();
-            Thread thread = new Thread(() -> server.serve(serverTransport), "vgi-worker");
-            thread.setDaemon(true);
-            thread.start();
-
-            RpcConnection connection = new RpcConnection(clientTransport);
-            return new Harness(connection, connection.proxy(VgiService.class),
-                    clientTransport, thread);
-        }
-
-        VgiService client() { return proxy; }
-
-        @Override public void close() throws InterruptedException {
-            connection.close();
-            clientTransport.close();
-            serverThread.join(5000);
-        }
-    }
-
-    /** Non-owning transport over an existing stream pair. */
-    private static final class PipeTransport implements RpcTransport {
-        private final InputStream in;
-        private final OutputStream out;
-
-        PipeTransport(InputStream in, OutputStream out) {
-            this.in = in;
-            this.out = out;
-        }
-
-        @Override public InputStream reader() { return in; }
-
-        @Override public OutputStream writer() { return out; }
-
-        @Override public void close() {
-            try { out.flush(); } catch (Exception ignore) { /* best-effort */ }
-            try { out.close(); } catch (Exception ignore) { /* best-effort */ }
-            try { in.close(); } catch (Exception ignore) { /* best-effort */ }
-        }
     }
 }
