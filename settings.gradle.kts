@@ -31,3 +31,5 @@ if (vgiRpcJavaDir.isDirectory) {
 
 include("vgi")
 include("vgi-example-worker")
+// The documentation examples: one runnable worker per function kind.
+include("examples:docs")

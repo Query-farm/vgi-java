@@ -1,0 +1,122 @@
+# name: examples.test
+# description: End-to-end checks for the five vgi-java-docs example functions.
+# group: [vgi_examples]
+#
+# Run publicly via uvx (no local engine build) — haybarn-unittest discovers
+# .test files under test/sql/ and needs vgi loaded, so stage a self-contained copy:
+#   mkdir -p test/sql
+#   sed 's/^require vgi$/statement ok\nINSTALL vgi FROM community;\n\nstatement ok\nLOAD vgi;/' \
+#       test/examples.test > test/sql/examples.test
+#   VGI_TEST_WORKER=launch:/abs/path/build/install/vgi-java-examples/bin/vgi-java-examples \
+#     uvx haybarn-unittest test/sql/examples.test
+#
+# Or, with the vgi C++ repo checked out (uses `require vgi` directly):
+#   VGI_TEST_WORKER=launch:/abs/.../vgi-java-examples \
+#     ~/Development/vgi/build/release/test/unittest /abs/path/test/examples.test
+
+require-env VGI_TEST_WORKER
+
+require vgi
+
+statement ok
+ATTACH 'demo' AS demo (TYPE vgi, LOCATION '${VGI_TEST_WORKER}');
+
+# ── scalar: upper_case ──────────────────────────────────────────────────────
+query I
+SELECT demo.upper_case('hello');
+----
+HELLO
+
+query I
+SELECT demo.upper_case(x) FROM (VALUES ('aa'), (NULL), ('Cc')) t(x);
+----
+AA
+NULL
+CC
+
+# ── table: numbers (parallel-safe; coordinates via BoundStorage) ─────────────
+query I
+SELECT * FROM demo.numbers(5) ORDER BY n;
+----
+0
+1
+2
+3
+4
+
+# Over a large input DuckDB scans on several threads (maxWorkers=4). Correct
+# coordination means every value appears exactly once: total == distinct == N,
+# and the sum matches 0+1+...+(N-1). Duplication or gaps would break these.
+query IIIII
+SELECT count(*), count(DISTINCT n), min(n), max(n), sum(n) FROM demo.numbers(5000000);
+----
+5000000	5000000	0	4999999	12499997500000
+
+# LIMIT pushes down — the scan stops early.
+query I
+SELECT count(*) FROM (SELECT * FROM demo.numbers(1000000) LIMIT 7);
+----
+7
+
+# ── table-in-out: echo ──────────────────────────────────────────────────────
+query I
+SELECT n FROM demo.echo((SELECT * FROM demo.numbers(3))) ORDER BY n;
+----
+0
+1
+2
+
+# ── aggregate: vgi_sum ──────────────────────────────────────────────────────
+query II
+SELECT g, demo.vgi_sum(v) FROM (VALUES (1,10),(1,20),(2,5)) t(g,v) GROUP BY g ORDER BY g;
+----
+1	30
+2	5
+
+# ── buffering: collect ──────────────────────────────────────────────────────
+query I
+SELECT n FROM demo.collect((SELECT * FROM demo.numbers(4))) ORDER BY n;
+----
+0
+1
+2
+3
+
+# ── catalog: table (function-backed), view, macros ──────────────────────────
+query I
+SELECT n FROM demo.catalog.first_five ORDER BY n;
+----
+0
+1
+2
+3
+4
+
+query I
+SELECT n FROM demo.catalog.evens ORDER BY n;
+----
+0
+2
+4
+
+query I
+SELECT demo.catalog.triple(4);
+----
+12
+
+query I
+SELECT n FROM demo.catalog.series(3) ORDER BY n;
+----
+0
+1
+2
+
+# the table and view surface in information_schema like local objects
+query T
+SELECT table_name FROM information_schema.tables WHERE table_catalog='demo' ORDER BY table_name;
+----
+evens
+first_five
+
+statement ok
+DETACH demo;
