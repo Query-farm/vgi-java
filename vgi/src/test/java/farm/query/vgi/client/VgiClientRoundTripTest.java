@@ -131,7 +131,7 @@ final class VgiClientRoundTripTest {
             assertFalse(schemas.items().isEmpty(), "worker must advertise at least one schema");
 
             ItemsResponse functions =
-                    vgi.catalog_schema_contents_functions(handle, "main", "table", null, null);
+                    vgi.catalog_schema_contents_functions(handle, "main", "TABLE_FUNCTION", null, null);
             assertEquals(1, functions.items().size(), "expected exactly the seq table function");
 
             // 3. BIND — resolve the output schema before any data moves.

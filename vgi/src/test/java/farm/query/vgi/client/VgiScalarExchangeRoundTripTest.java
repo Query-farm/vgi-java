@@ -155,7 +155,7 @@ final class VgiScalarExchangeRoundTripTest {
 
             // 2. DISCOVERY — a scalar is advertised under function kind "scalar".
             ItemsResponse functions =
-                    vgi.catalog_schema_contents_functions(handle, "main", "scalar", null, null);
+                    vgi.catalog_schema_contents_functions(handle, "main", "SCALAR_FUNCTION", null, null);
             assertFalse(functions.items().isEmpty(), "worker must advertise its scalars");
 
             // 3. BIND — the input schema is mandatory here (see the class doc).

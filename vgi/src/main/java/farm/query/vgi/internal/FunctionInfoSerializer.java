@@ -21,7 +21,7 @@ import static farm.query.vgi.internal.IpcStructBuilder.mapUtf8Utf8;
 import static farm.query.vgi.internal.IpcStructBuilder.nonNull;
 import static farm.query.vgi.internal.IpcStructBuilder.nullable;
 import static farm.query.vgi.internal.IpcStructBuilder.writeBool;
-import static farm.query.vgi.internal.IpcStructBuilder.writeInt32;
+import static farm.query.vgi.internal.IpcStructBuilder.writeNullableInt32;
 import static farm.query.vgi.internal.IpcStructBuilder.writeMap;
 import static farm.query.vgi.internal.IpcStructBuilder.writeNullableBool;
 import static farm.query.vgi.internal.IpcStructBuilder.writeStringList;
@@ -162,7 +162,7 @@ final class FunctionInfoSerializer {
             writeNullableBool(v.get("late_materialization"), info.late_materialization());
             writeStringList(v.get("supported_expression_filters"), info.supported_expression_filters());
             ORDER_PRESERVATION.write(v.get("order_preservation"), info.order_preservation());
-            writeInt32(v.get("max_workers"), info.max_workers());
+            writeNullableInt32(v.get("max_workers"), info.max_workers());
             writeBool(v.get("supports_batch_index"), info.supports_batch_index());
             PARTITION_KIND.write(v.get("partition_kind"), info.partition_kind());
             ORDER_DEPENDENT.write(v.get("order_dependent"), info.order_dependent());

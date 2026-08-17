@@ -322,6 +322,24 @@ public final class Main {
             runWorker(ao, args);
             return;
         }
+        runWorker(buildWorker(catalogName, implVer, dataSpec), args);
+    }
+
+    /**
+     * Assemble the example catalog worker — the whole fixture set the C++
+     * integration suite runs against.
+     *
+     * <p>Split out of {@link #main} so a test can serve the very same fixtures
+     * in-process (over an {@link HttpServer} it owns) instead of shelling out
+     * to this class and scraping its {@code PORT:} line. A cross-implementation
+     * conformance test needs the fixtures, not the process.
+     *
+     * @param catalogName            catalog name to advertise (normally {@code "example"})
+     * @param implVer                implementation version to advertise, or {@code null}
+     * @param dataSpec               data-version spec to advertise, or {@code null}
+     * @return the configured worker, not yet bound to any transport
+     */
+    public static Worker buildWorker(String catalogName, String implVer, String dataSpec) {
         Worker w = Worker.builder()
                 .catalogName(catalogName)
                 .implementationVersion(implVer)
@@ -376,7 +394,7 @@ public final class Main {
                         "Initial release.", null));
         }
 
-        runWorker(w, args);
+        return w;
     }
 
     private static void registerSettings(Worker w) {

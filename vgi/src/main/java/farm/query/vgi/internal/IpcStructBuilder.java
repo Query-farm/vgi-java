@@ -233,6 +233,23 @@ public final class IpcStructBuilder {
     }
 
     /**
+     * Write an int (or null) into row 0 of an {@code IntVector}.
+     *
+     * <p>Deliberately usable on a field whose schema says non-nullable: Arrow
+     * enforces nullability nowhere but the schema text, and some wire contracts
+     * declare a field non-nullable while senders still write a null row value
+     * to mean "unset" ({@code FunctionInfo.max_workers} is one). Writing the
+     * null keeps this worker byte-compatible with them.
+     *
+     * @param v     the target vector
+     * @param value the value, or {@code null}
+     */
+    public static void writeNullableInt32(FieldVector v, Integer value) {
+        IntVector iv = (IntVector) v;
+        if (value == null) iv.setNull(0); else iv.setSafe(0, value);
+    }
+
+    /**
      * Write a long (or null) into row 0 of a {@code BigIntVector}.
      *
      * @param v     the target vector

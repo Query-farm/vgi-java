@@ -32,3 +32,14 @@ application {
         "--enable-native-access=ALL-UNNAMED",
     )
 }
+
+tasks.withType<Test>().configureEach {
+    // Opt out of the root build's Arrow leak-detecting allocator for THIS
+    // module only. Its tests are client-side integration tests that decode the
+    // example catalog's ~200 FunctionInfo records off a live worker, and the
+    // debug allocator captures a stack trace per Arrow allocation: the same run
+    // takes ~140 s with it and ~6 s without, for no finding — every Arrow
+    // reader here is opened in try-with-resources. The leak check stays on for
+    // :vgi, which is where the decoders themselves live.
+    systemProperty("arrow.memory.debug.allocator", "false")
+}

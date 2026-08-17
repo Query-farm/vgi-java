@@ -35,7 +35,16 @@ import java.util.Map;
  * @param late_materialization         whether the function supports late materialization, or {@code null}.
  * @param supported_expression_filters expression-filter kinds the function can accept.
  * @param order_preservation           dictionary-encoded order-preservation guarantee, or {@code null}.
- * @param max_workers                  maximum parallel worker count.
+ * @param max_workers                  maximum parallel worker count, or {@code null}
+ *                                     when the function declares none. Boxed on purpose:
+ *                                     the field's <em>schema</em> is non-nullable (that is
+ *                                     the registered wire contract), but vgi-python writes
+ *                                     a null row value into it for a function with no
+ *                                     declared limit, and the C++ extension reads it as an
+ *                                     {@code optional}. A primitive {@code int} here cannot
+ *                                     represent what the reference implementation actually
+ *                                     sends. Same schema-vs-row-null wart as
+ *                                     {@code TableInfo.cardinality_estimate}.
  * @param supports_batch_index         whether per-batch index tagging is supported.
  * @param partition_kind               dictionary-encoded partitioning behaviour.
  * @param order_dependent              dictionary-encoded order-dependence.
@@ -73,7 +82,7 @@ public record FunctionInfo(
         @Nullable Boolean late_materialization,
         List<String> supported_expression_filters,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String order_preservation,
-        @ArrowField(ArrowFieldType.INT32) int max_workers,
+        @ArrowField(ArrowFieldType.INT32) @Nullable Integer max_workers,
         boolean supports_batch_index,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String partition_kind,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String order_dependent,

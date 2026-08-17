@@ -26,6 +26,7 @@ import farm.query.vgirpc.StreamState;
 import farm.query.vgirpc.schema.ArrowField;
 import farm.query.vgirpc.schema.ArrowFieldType;
 import farm.query.vgirpc.schema.Nullable;
+import farm.query.vgirpc.schema.ProtocolVersion;
 import farm.query.vgirpc.schema.StreamHeader;
 
 /**
@@ -44,7 +45,15 @@ import farm.query.vgirpc.schema.StreamHeader;
  *
  * <p>Method and parameter / record-field names are the wire contract — they
  * MUST match the canonical Python/Go {@code snake_case}.</p>
+ *
+ * <p>The {@link ProtocolVersion} is what a <em>client</em> of this interface
+ * stamps on every request. A VGI worker enforces it at its dispatch boundary
+ * (exact major+minor), so a client that sends nothing is refused outright — the
+ * annotation is what lets {@code connection.proxy(VgiService.class)} talk to
+ * vgi-python or vgi-go. It shares {@link Worker#VGI_PROTOCOL_VERSION} with the
+ * server side so the two cannot drift.</p>
  */
+@ProtocolVersion(Worker.VGI_PROTOCOL_VERSION)
 public interface VgiService {
 
     // -----------------------------------------------------------------------
@@ -420,9 +429,19 @@ public interface VgiService {
      * as a plain UTF-8 string here — the framework's dictionary support reads
      * the underlying string transparently.
      *
+     * <p><strong>A caller must send the upper-case enum name</strong> —
+     * {@code "SCALAR_FUNCTION"}, {@code "TABLE_FUNCTION"} or
+     * {@code "AGGREGATE_FUNCTION"} — which is what the C++ extension puts on the
+     * wire and what vgi-python looks up by name. This worker additionally
+     * tolerates the lower-case short forms ({@code "table"}, {@code "scalar"},
+     * {@code "aggregate"}), but they are <em>not</em> the contract: a client
+     * that sends them fails against the reference implementation.
+     *
      * @param attach_opaque_data      the attach handle
      * @param name                    schema name
-     * @param type                    function kind to list (dictionary-encoded on the wire)
+     * @param type                    function kind to list: {@code SCALAR_FUNCTION} /
+     *                                {@code TABLE_FUNCTION} / {@code AGGREGATE_FUNCTION}
+     *                                (dictionary-encoded on the wire)
      * @param transaction_opaque_data optional in-flight transaction handle
      * @param ctx                     per-call context
      * @return one item per matching function
