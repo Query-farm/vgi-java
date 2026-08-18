@@ -391,7 +391,10 @@ abstract class AbstractVgiHttpConformanceTest {
         InitRequest init = new InitRequest(
                 RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                 List.of(0, 2), null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null,
+                    null,       // split_tokens — not a split init
+                    null        // row_limit
+            );
         RpcStream<? extends StreamState> stream = vgi.init(init, null);
 
         List<Map<String, Object>> rows = drainRows(stream);
@@ -466,7 +469,10 @@ abstract class AbstractVgiHttpConformanceTest {
         RpcStream<? extends StreamState> stream = vgi.init(new InitRequest(
                 RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                 null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null), null);
+                null, null, null, null, null, null, null, null,
+                    null,       // split_tokens — not a split init
+                    null        // row_limit
+            ), null);
         HttpRpcStream<?> session = (HttpRpcStream<?>) stream;
         try {
             // Several turns on one stream: a framing slip on turn N surfaces as
@@ -608,7 +614,10 @@ abstract class AbstractVgiHttpConformanceTest {
         return new InitRequest(
                 RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                 null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null,
+                    null,       // split_tokens — not a split init
+                    null        // row_limit
+            );
     }
 
     /** Bind and open a scan of {@code function} with already-encoded arguments. */
@@ -627,7 +636,10 @@ abstract class AbstractVgiHttpConformanceTest {
                 null,
                 filters == null ? null : filters.pushdownFilters(),
                 filters == null ? null : filters.joinKeys(),
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null,
+                    null,       // split_tokens — not a split init
+                    null        // row_limit
+            );
         return drainRows(vgi.init(init, null));
     }
 

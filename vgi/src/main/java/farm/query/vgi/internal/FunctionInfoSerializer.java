@@ -14,7 +14,9 @@ import java.util.List;
 import static farm.query.vgi.internal.IpcStructBuilder.BINARY;
 import static farm.query.vgi.internal.IpcStructBuilder.BOOL;
 import static farm.query.vgi.internal.IpcStructBuilder.I32;
+import static farm.query.vgi.internal.IpcStructBuilder.I64;
 import static farm.query.vgi.internal.IpcStructBuilder.UTF8;
+import static farm.query.vgi.internal.IpcStructBuilder.writeNullableInt64;
 import static farm.query.vgi.internal.IpcStructBuilder.listOf;
 import static farm.query.vgi.internal.IpcStructBuilder.listOfPrim;
 import static farm.query.vgi.internal.IpcStructBuilder.mapUtf8Utf8;
@@ -111,6 +113,15 @@ final class FunctionInfoSerializer {
             // lenient and still parses). Safe defaults are false /
             // NOT_PARTITIONED — see vgi_catalog_api.cpp.
             nonNull("supports_batch_index", BOOL),
+            // Protocol 1.4.0 split capabilities, in the same slot the C++
+            // FunctionInfoSchema puts them: between supports_batch_index and
+            // partition_kind. split_token_ttl_seconds is genuinely NULLABLE —
+            // null means UNBOUNDED, not "expires immediately", so a client must
+            // not assume a TTL exists or long-running streams are foreclosed.
+            nonNull("supports_splits", BOOL),
+            nonNull("filters_exactly_applied", BOOL),
+            nonNull("supports_positions", BOOL),
+            nullable("split_token_ttl_seconds", I64),
             PARTITION_KIND.field(false),
             ORDER_DEPENDENT.field(false),
             DISTINCT_DEPENDENT.field(false),
@@ -164,6 +175,10 @@ final class FunctionInfoSerializer {
             ORDER_PRESERVATION.write(v.get("order_preservation"), info.order_preservation());
             writeNullableInt32(v.get("max_workers"), info.max_workers());
             writeBool(v.get("supports_batch_index"), info.supports_batch_index());
+            writeBool(v.get("supports_splits"), info.supports_splits());
+            writeBool(v.get("filters_exactly_applied"), info.filters_exactly_applied());
+            writeBool(v.get("supports_positions"), info.supports_positions());
+            writeNullableInt64(v.get("split_token_ttl_seconds"), info.split_token_ttl_seconds());
             PARTITION_KIND.write(v.get("partition_kind"), info.partition_kind());
             ORDER_DEPENDENT.write(v.get("order_dependent"), info.order_dependent());
             DISTINCT_DEPENDENT.write(v.get("distinct_dependent"), info.distinct_dependent());
