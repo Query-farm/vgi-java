@@ -46,6 +46,18 @@ import java.util.Map;
  *                                     sends. Same schema-vs-row-null wart as
  *                                     {@code TableInfo.cardinality_estimate}.
  * @param supports_batch_index         whether per-batch index tagging is supported.
+ * @param supports_splits              whether the scan divides into named,
+ *        independently redeemable splits. A distributed engine reads this to
+ *        decide whether it can retry a task: a split NAMES its work, so
+ *        re-running one reads exactly the same rows.
+ * @param filters_exactly_applied      whether the worker applies every pushed
+ *        filter EXACTLY, letting the engine drop its own copy. Wrong answers if
+ *        declared falsely.
+ * @param supports_positions           whether the data has addressable
+ *        positions, for incremental / streaming reads.
+ * @param split_token_ttl_seconds      how long a split token stays redeemable.
+ *        {@code null} means UNBOUNDED, not "expires immediately" — a client must
+ *        not assume a TTL exists, or long-running streams are foreclosed.
  * @param partition_kind               dictionary-encoded partitioning behaviour.
  * @param order_dependent              dictionary-encoded order-dependence.
  * @param distinct_dependent           dictionary-encoded distinct-dependence.
@@ -84,6 +96,10 @@ public record FunctionInfo(
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String order_preservation,
         @ArrowField(ArrowFieldType.INT32) @Nullable Integer max_workers,
         boolean supports_batch_index,
+        boolean supports_splits,
+        boolean filters_exactly_applied,
+        boolean supports_positions,
+        @Nullable Long split_token_ttl_seconds,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String partition_kind,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String order_dependent,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String distinct_dependent,

@@ -100,6 +100,30 @@ public interface VgiService {
         return new farm.query.vgi.protocol.CardinalityResponse(null, null);
     }
 
+    /**
+     * Plan a table-function scan into named, independently redeemable splits.
+     *
+     * <p>Same wrapper shape as {@link #table_function_cardinality}: the outer
+     * binary carries a nested IPC request batch.</p>
+     *
+     * <p>This MUST stay a {@code default} method. {@code RpcServer} validates the
+     * implementation against this interface at construction, so a non-default
+     * declaration would break every existing Java worker at startup rather than
+     * at first use — and splits are opt-in, not something every worker must now
+     * implement.</p>
+     *
+     * <p>The default returns a single empty-payload split, which is what a worker
+     * that has not opted in means: the whole scan is one unit of work.</p>
+     *
+     * @param request outer binary blob wrapping the inner plan request batch
+     * @return the scan plan; default is one split covering everything
+     */
+    default farm.query.vgi.protocol.PlanResponse table_function_plan(byte[] request) {
+        return farm.query.vgi.protocol.PlanResponse.of(
+                java.util.List.of(farm.query.vgi.internal.ScanSplitSerializer.serialize(
+                        farm.query.vgi.protocol.ScanSplit.of(new byte[0]))));
+    }
+
     /** Same wrapper shape as {@link #table_function_cardinality}.
      *  Default returns empty bytes: the C++ extension interprets that as
      *  "no statistics available" and falls through to non-optimized scan.

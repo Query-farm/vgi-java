@@ -170,7 +170,10 @@ final class VgiClientRoundTripTest {
                     null, null, null, null,   // order-by hint
                     null, null,               // tablesample hint
                     null,       // finalize_state_id
-                    null);      // substream_id
+                    null,
+                    null,       // split_tokens — not a split init
+                    null        // row_limit
+            );      // substream_id
 
             RpcStream<? extends StreamState> stream = vgi.init(initRequest, null);
             GlobalInitResponse header = (GlobalInitResponse) stream.header();
@@ -252,7 +255,10 @@ final class VgiClientRoundTripTest {
         InitRequest initRequest = new InitRequest(
                 RecordCodec.serializeToBytes(bindRequest), bound.output_schema(),
                 bound.opaque_data(), null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null,
+                    null,       // split_tokens — not a split init
+                    null        // row_limit
+            );
         return drainInt64Column(vgi.init(initRequest, null), "i");
     }
 

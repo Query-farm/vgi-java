@@ -21,6 +21,18 @@ import java.util.Map;
  * @param categories          SQL function categories for discovery.
  * @param orderPreservation   declared output ordering guarantee ({@link OrderPreservation}).
  * @param supportsBatchIndex  whether emitted batches carry a {@code vgi_batch_index} tag.
+ * @param supportsSplits      whether the scan divides into named, independently
+ *        redeemable splits. A distributed engine reads this to decide whether it
+ *        can retry a task: a split NAMES its work, so re-running one reads
+ *        exactly the same rows.
+ * @param filtersExactlyApplied whether the worker applies every pushed filter
+ *        EXACTLY, letting the engine drop its own copy. Wrong answers if
+ *        declared falsely.
+ * @param supportsPositions   whether the data has addressable positions, for
+ *        incremental / streaming reads.
+ * @param splitTokenTtlSeconds how long a split token stays redeemable.
+ *        {@code null} means UNBOUNDED, not "expires immediately" — a client must
+ *        not assume a TTL exists, or long-running streams are foreclosed.
  * @param partitionKind       partition shape over partition-column-annotated output fields.
  * @param lateMaterialization whether the function opts into DuckDB late materialization.
  * @param supportedExpressionFilters expression-filter function names this function can apply itself.
@@ -43,7 +55,11 @@ public record FunctionMetadata(
         boolean lateMaterialization,
         List<String> supportedExpressionFilters,
         List<FunctionExample> examples,
-        Map<String, String> tags) {
+        Map<String, String> tags,
+        boolean supportsSplits,
+        boolean filtersExactlyApplied,
+        boolean supportsPositions,
+        Long splitTokenTtlSeconds) {
 
     /**
      * Compact constructor: normalise {@code tags} to a non-null, defensively
@@ -127,7 +143,10 @@ public record FunctionMetadata(
                               List<String> categories, OrderPreservation orderPreservation) {
         this(description, stability, nullHandling, autoApplyFilters, projectionPushdown,
                 filterPushdown, samplingPushdown, categories, orderPreservation,
-                false, PartitionKind.NOT_PARTITIONED, false, List.of(), List.of(), Map.of());
+                false, PartitionKind.NOT_PARTITIONED, false, List.of(), List.of(), Map.of(),
+                // Splits are opt-in: the convenience constructor declares none,
+                // so an existing function keeps the primary/secondary init path.
+                false, false, false, null);
     }
 
     /**
@@ -189,7 +208,8 @@ public record FunctionMetadata(
     public FunctionMetadata withPushdown(boolean projection, boolean filter, boolean autoApply) {
         return new FunctionMetadata(description, stability, nullHandling, autoApply, projection, filter,
                 samplingPushdown, categories, orderPreservation, supportsBatchIndex, partitionKind,
-                lateMaterialization, supportedExpressionFilters, examples, tags);
+                lateMaterialization, supportedExpressionFilters, examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /**
@@ -201,7 +221,8 @@ public record FunctionMetadata(
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, true, categories, orderPreservation,
                 supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples, tags);
+                examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /**
@@ -214,7 +235,8 @@ public record FunctionMetadata(
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, List.of(cats), orderPreservation,
                 supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples, tags);
+                examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /**
@@ -227,7 +249,8 @@ public record FunctionMetadata(
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, op,
                 supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples, tags);
+                examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /** Opt into {@code supports_batch_index}: every emitted batch must carry a
@@ -237,7 +260,8 @@ public record FunctionMetadata(
     public FunctionMetadata withBatchIndex() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                true, partitionKind, lateMaterialization, supportedExpressionFilters, examples, tags);
+                true, partitionKind, lateMaterialization, supportedExpressionFilters, examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /** Declare a non-default {@link PartitionKind} over the output schema's
@@ -248,7 +272,8 @@ public record FunctionMetadata(
     public FunctionMetadata withPartitionKind(PartitionKind kind) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, kind, lateMaterialization, supportedExpressionFilters, examples, tags);
+                supportsBatchIndex, kind, lateMaterialization, supportedExpressionFilters, examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /** Opt into DuckDB's late-materialization optimizer. Only meaningful for a
@@ -260,7 +285,8 @@ public record FunctionMetadata(
     public FunctionMetadata withLateMaterialization() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, true, supportedExpressionFilters, examples, tags);
+                supportsBatchIndex, partitionKind, true, supportedExpressionFilters, examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /** Declare the expression-filter function names this table function can
@@ -275,7 +301,8 @@ public record FunctionMetadata(
     public FunctionMetadata withSupportedExpressionFilters(String... names) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, List.of(names), examples, tags);
+                supportsBatchIndex, partitionKind, lateMaterialization, List.of(names), examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /** Declare the documented usage examples surfaced on {@code FunctionInfo.examples}.
@@ -288,7 +315,8 @@ public record FunctionMetadata(
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
                 supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples == null ? List.of() : examples, tags);
+                examples == null ? List.of() : examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /** Merge worker-provided metadata tags surfaced on {@code FunctionInfo.tags}
@@ -308,7 +336,8 @@ public record FunctionMetadata(
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
                 supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples, merged);
+                examples, merged,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /** Add or overwrite a single metadata tag (e.g. {@code vgi.columns_md}),

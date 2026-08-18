@@ -396,7 +396,10 @@ final class VgiScalarExchangeRoundTripTest {
                 null, null, null, null,   // order-by hint
                 null, null,               // tablesample hint
                 null,       // finalize_state_id
-                null);      // substream_id
+                null,
+                    null,       // split_tokens — not a split init
+                    null        // row_limit
+            );      // substream_id
     }
 
     /**

@@ -1,0 +1,84 @@
+// Copyright 2026 Query Farm LLC - https://query.farm
+
+package farm.query.vgi.protocol;
+
+import farm.query.vgirpc.schema.Nullable;
+import farm.query.vgirpc.schema.ArrowSerializableRecord;
+import java.util.List;
+
+/**
+ * One named, independently redeemable unit of scan work.
+ *
+ * <p>A split <em>names</em> work rather than describing it: "these three files at
+ * version 47" survives a retry, "rows 0-999 of whatever this returns now" does
+ * not — and a distributed engine will retry. The same split may also be redeemed
+ * more than once (recursive CTEs, re-collected DataFrames, task retry) and may be
+ * abandoned mid-stream (LIMIT, TopK, an empty join build side); neither is an
+ * error.</p>
+ *
+ * <p>A worker sets {@code payload} and nothing else. The framework stamps
+ * {@code token} from it — the consistency anchor, the bind fingerprint and, where
+ * a signing key exists, the seal — so an author cannot forget the anchor or
+ * mis-bind the fingerprint, and never writes crypto. The client sends the TOKEN
+ * back, never the raw payload.</p>
+ *
+ * @param payload the worker's own opaque bytes naming this unit of work
+ * @param token the framework-stamped envelope. Populated by the framework; a
+ *        worker must not set it
+ * @param estimatedRows row estimate, or {@code null} if unknown
+ * @param rowsExact whether {@code estimatedRows} is exact rather than an
+ *        estimate — unlocks COUNT(*) from statistics
+ * @param estimatedBytes byte estimate. Load-bearing for engines that bin-pack
+ *        (DataFusion weight, Trino SplitWeight); {@code null} degrades them to
+ *        round-robin by count. A greedily claiming client needs no cost model
+ * @param partitionBounds 2-row (min, max) batch in the existing
+ *        {@code vgi_partition_values} encoding, one column per partition column
+ * @param columnStatistics per-column statistics blob for this split
+ * @param locationIds indices into {@code PlanResponse.locations} naming hosts
+ *        where this split is cheap to read
+ * @param startPosition exclusive lower bound of this split's range in the data
+ * @param endPosition inclusive upper bound; {@code null} means UNBOUNDED — a
+ *        shard read forever, which a bounded engine must refuse rather than hang
+ */
+public record ScanSplit(
+        byte[] payload,
+        byte[] token,
+        @Nullable Long estimatedRows,
+        boolean rowsExact,
+        @Nullable Long estimatedBytes,
+        @Nullable byte[] partitionBounds,
+        @Nullable byte[] columnStatistics,
+        @Nullable List<Long> locationIds,
+        @Nullable byte[] startPosition,
+        @Nullable byte[] endPosition) implements ArrowSerializableRecord {
+
+    /** A split naming the given work, with no estimates.
+     *
+     * @param payload the worker's own bytes naming this unit of work
+     * @return a split carrying that payload
+     */
+    public static ScanSplit of(byte[] payload) {
+        return new ScanSplit(payload, new byte[0], null, false, null, null, null, null, null, null);
+    }
+
+    /** A split naming the given work, with an exact row count and a byte estimate.
+     *
+     * @param payload the worker's own bytes naming this unit of work
+     * @param rows exact row count for this split
+     * @param bytes byte estimate, used as bin-packing weight by engines that pack
+     * @return a split carrying that payload and those estimates
+     */
+    public static ScanSplit of(byte[] payload, long rows, long bytes) {
+        return new ScanSplit(payload, new byte[0], rows, true, bytes, null, null, null, null, null);
+    }
+
+    /** This split with its framework-stamped token attached.
+     *
+     * @param stamped the envelope the framework built around {@link #payload()}
+     * @return a copy carrying that token
+     */
+    public ScanSplit withToken(byte[] stamped) {
+        return new ScanSplit(payload, stamped, estimatedRows, rowsExact, estimatedBytes,
+                partitionBounds, columnStatistics, locationIds, startPosition, endPosition);
+    }
+}

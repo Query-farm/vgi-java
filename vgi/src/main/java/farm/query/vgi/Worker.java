@@ -40,6 +40,9 @@ public final class Worker {
      *  registered in more than one catalog schema, so dispatch resolves
      *  {@code (schema_name, function_name)}.
      *
+     *  <p>1.4.0 added {@code table_function_plan} (split-based scan planning) plus
+     *  {@code split_tokens} / {@code row_limit} on the init request.</p>
+     *
      *  <p>1.3.0 added {@code global_functions} / {@code global_function_prefix}
      *  to the {@code catalog_attach} result (positions 14/15, before
      *  {@code resolved_data_version}): functions a worker asks the client to
@@ -47,7 +50,7 @@ public final class Worker {
      *  and {@link #globalFunctionPrefix(String)}. A worker that opts out still
      *  carries the fields (empty list, empty prefix): the extension matches the
      *  response schema exactly. */
-    public static final String VGI_PROTOCOL_VERSION = "1.3.0";
+    public static final String VGI_PROTOCOL_VERSION = "1.4.0";
 
     private String catalogName = "vgi";
     private String catalogComment = "";

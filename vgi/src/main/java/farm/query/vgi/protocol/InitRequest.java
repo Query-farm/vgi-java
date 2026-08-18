@@ -57,4 +57,6 @@ public record InitRequest(
         Double tablesample_percentage,
         Long tablesample_seed,
         byte[] finalize_state_id,
-        byte[] substream_id) implements ArrowSerializableRecord {}
+        byte[] substream_id,
+        List<byte[]> split_tokens,
+        Long row_limit) implements ArrowSerializableRecord {}
