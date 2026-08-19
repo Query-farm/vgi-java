@@ -24,7 +24,8 @@ import java.util.Map;
  * @param schema_name              owning schema name.
  * @param macro_type               dictionary-encoded macro kind ({@code "scalar"} or {@code "table"}).
  * @param parameters               positional parameter names.
- * @param parameter_default_values IPC-encoded 1-row batch of named-parameter defaults, or {@code null}.
+ * @param parameter_default_values IPC-encoded 1-row batch of named-parameter defaults;
+ *                                 {@code null} or empty when there are none.
  * @param definition               the macro body / SQL definition.
  * @param arguments_schema         optional Arrow schema (serialized as IPC bytes) with one
  *                                 nullable field per parameter, in {@code parameters} order;
@@ -42,7 +43,13 @@ public record MacroInfo(
         String schema_name,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String macro_type,
         List<String> parameters,
-        @Nullable byte[] parameter_default_values,
+        // The two binary fields below are NOT @Nullable even though a worker
+        // may leave them unset: both wire COLUMNS are non-null binary
+        // (MacroInfoSchema), and absence travels as empty bytes, which is what
+        // MacroInfoSerializer writes for a null. Marking the columns nullable
+        // here described a schema no worker sends, and a client that derived
+        // its reader from this declaration would reject every macro listing.
+        byte[] parameter_default_values,
         String definition,
-        @Nullable byte[] arguments_schema) implements ArrowSerializableRecord {
+        byte[] arguments_schema) implements ArrowSerializableRecord {
 }

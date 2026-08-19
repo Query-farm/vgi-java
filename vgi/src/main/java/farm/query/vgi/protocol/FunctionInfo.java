@@ -94,7 +94,14 @@ public record FunctionInfo(
         @Nullable Boolean late_materialization,
         List<String> supported_expression_filters,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String order_preservation,
-        @ArrowField(ArrowFieldType.INT32) @Nullable Integer max_workers,
+        // NOT @Nullable — the schema-vs-row-null split described above is
+        // exactly what the annotation cannot express, and it was marking the
+        // COLUMN nullable. A JVM client deriving its reader from this
+        // declaration then looks for a nullable column, finds the non-null one
+        // every worker actually sends, and rejects the batch as an
+        // "out-of-date Apache Arrow schema" — the failure a wrongly-@Nullable
+        // PlanResponse already produced once.
+        @ArrowField(ArrowFieldType.INT32) Integer max_workers,
         boolean supports_batch_index,
         boolean supports_splits,
         boolean filters_exactly_applied,
