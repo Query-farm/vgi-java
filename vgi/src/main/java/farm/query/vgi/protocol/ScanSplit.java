@@ -72,13 +72,18 @@ public record ScanSplit(
         return new ScanSplit(payload, new byte[0], rows, true, bytes, null, null, null, null, null);
     }
 
-    /** This split with its framework-stamped token attached.
+    /** This split with its framework-stamped token attached, and its payload cleared.
+     *
+     * <p>The payload is cleared rather than forwarded. It is sealed INTO the token,
+     * and shipping the plaintext in the field beside the ciphertext made the seal
+     * decorative. No client reads it — the C++ side pulls {@code token} alone — and
+     * redemption recovers the payload from inside the envelope.</p>
      *
      * @param stamped the envelope the framework built around {@link #payload()}
-     * @return a copy carrying that token
+     * @return a copy carrying that token and an empty payload
      */
     public ScanSplit withToken(byte[] stamped) {
-        return new ScanSplit(payload, stamped, estimated_rows, rows_exact, estimated_bytes,
+        return new ScanSplit(new byte[0], stamped, estimated_rows, rows_exact, estimated_bytes,
                 partition_bounds, column_statistics, location_ids, start_position, end_position);
     }
 }
