@@ -581,6 +581,19 @@ public final class VgiServiceImpl implements VgiService {
      * work this worker did not hand out, which is exactly what the envelope
      * exists to refuse.</p>
      */
+    /**
+     * The catalog version this worker reports, and the consistency anchor every
+     * split token is stamped with AND checked against.
+     *
+     * Read from ONE place by both sides on purpose. Minting from a different
+     * value than redemption compares against is not a subtle bug: it refuses
+     * every token, and the documented response to SPLIT_SNAPSHOT_EXPIRED is
+     * "re-run the query", which re-plans, mints the same mismatch and fails
+     * again — a livelock returning no rows, blaming the data for moving when it
+     * has not.
+     */
+    private static final long CATALOG_VERSION = 1L;
+
     private List<byte[]> openSplitTokens(InitRequest request, CallContext ctx) {
         List<byte[]> tokens = request.split_tokens();
         if (tokens == null || tokens.isEmpty()) {
@@ -596,8 +609,13 @@ public final class VgiServiceImpl implements VgiService {
         byte[] key = sealer == null ? null : sealer.signingKey();
         AuthContext auth = ctx == null ? null : ctx.auth();
         List<byte[]> payloads = new java.util.ArrayList<>(tokens.size());
+        // The anchor is CHECKED, not skipped. Passing null meant a plan that
+        // outlived its snapshot was redeemed happily, so SPLIT_SNAPSHOT_EXPIRED —
+        // the one error whose purpose is telling an operator the query is
+        // re-runnable — could never be raised by this SDK.
+        byte[] liveAnchor = SplitToken.anchor(CATALOG_VERSION);
         for (byte[] token : tokens) {
-            payloads.add(SplitToken.open(token, key, auth, expected, null));
+            payloads.add(SplitToken.open(token, key, auth, expected, liveAnchor));
         }
         return payloads;
     }
@@ -636,6 +654,19 @@ public final class VgiServiceImpl implements VgiService {
                 new farm.query.vgi.storage.BoundStorage(this.storage, execId, bt.attachId()),
                 bt.copyFrom(),
                 splitPayloads);
+        // Hand the VERIFIED payloads to the redemption hook BEFORE the producer
+        // is built, so an author can refuse a claim (or set up for it) before any
+        // row is produced.
+        //
+        // This call was missing entirely: TableFunction.onSplit was declared,
+        // documented, and never invoked — a worker could implement it and it
+        // would silently never run. The split path had no user-code entry point
+        // at init at all, which is the whole reason the hook exists (the
+        // secondary-init branch runs none either).
+        if (splitPayloads != null && !splitPayloads.isEmpty()) {
+            bt.fn().onSplit(splitPayloads,
+                    new TableBindParams(bt.fn().name(), bt.args(), null, bt.settings()));
+        }
         TableProducerState state = bt.fn().createProducer(params);
         return RpcStream.producer(fnOutputSchema, state, header);
     }
@@ -904,6 +935,8 @@ public final class VgiServiceImpl implements VgiService {
 
         BindRequest embedded = RecordCodec.deserializeFromBytes(bindCallBytes, BindRequest.class);
         List<ScanSplit> planned = List.of();
+        farm.query.vgi.table.PlanResult result = farm.query.vgi.table.PlanResult.none();
+        boolean splitCapable = false;
         TableBindParams params = null;
         if (tables.containsKey(embedded.function_name())) {
             Schema inputSchema = SchemaUtil.deserializeSchema(embedded.input_schema());
@@ -914,10 +947,23 @@ public final class VgiServiceImpl implements VgiService {
             TableFunction fn = OverloadResolver.pick(tables.get(embedded.function_name()),
                     constN + colN, args, inputSchema);
             params = new TableBindParams(embedded.function_name(), args, inputSchema, settings);
-            planned = fn.plan(params);
+            result = fn.plan(params, planRequestOf(request));
+            planned = result.splits();
+            // Gate on the DECLARATION, not on emptiness. Zero splits is a legal
+            // answer from a split-capable function — a fully-pruned scan reaches
+            // it — and returning the not-split-capable default there handed the
+            // client one split whose token was empty bytes, which it then failed
+            // to redeem ("split token too short: 0 bytes"). The two cases are
+            // "this function does not divide" and "this scan has no work", and
+            // only the first wants a default.
+            splitCapable = fn.metadata().supportsSplits();
         }
         if (planned.isEmpty()) {
-            return PlanResponse.of(List.of(defaultSplitBytes()));
+            return splitCapable
+                    ? new PlanResponse(List.of(), List.of(), null, new byte[0], null, 0L, 0L,
+                            null, null, "catalog", null, List.of(), List.of(), null,
+                            new byte[0], new byte[0])
+                    : PlanResponse.of(List.of(defaultSplitBytes()));
         }
 
         byte[] fingerprint = SplitToken.bindFingerprint(
@@ -926,7 +972,13 @@ public final class VgiServiceImpl implements VgiService {
                 embedded.arguments(),
                 embedded.settings(),
                 new byte[0]);
-        byte[] anchor = SplitToken.anchor(0);
+        // A worker that names its version is taken at its word — it knows which
+        // snapshot it planned against. One that leaves it unset gets the LIVE
+        // version, never 0: minting 0 while redemption compares against the live
+        // counter refuses every token, and is invisible on a catalog whose
+        // version happens to be 0, which is most fixtures.
+        byte[] anchor = SplitToken.anchor(
+                result.catalogVersion() == null ? CATALOG_VERSION : result.catalogVersion());
         byte[] key = sealer == null ? null : sealer.signingKey();
         AuthContext auth = ctx == null ? null : ctx.auth();
 
@@ -935,7 +987,34 @@ public final class VgiServiceImpl implements VgiService {
             byte[] token = SplitToken.build(split.payload(), fingerprint, anchor, key, auth);
             blobs.add(ScanSplitSerializer.serialize(split.withToken(token)));
         }
-        return PlanResponse.of(blobs);
+        PlanResponse response = PlanResponse.of(blobs);
+        if (!result.nextCursors().isEmpty() || result.estimatedTotalSplits() != null
+                || result.estimatedTotalRows() != null || result.maxWorkers() != null) {
+            response = new PlanResponse(
+                    response.splits(),
+                    result.nextCursors(),
+                    response.execution_id(), response.init_opaque_data(),
+                    result.maxWorkers(), result.estimatedTotalSplits(), result.estimatedTotalRows(),
+                    response.estimated_total_bytes(), response.catalog_version(), response.scope(),
+                    response.locations(), response.partitioning(), response.sort_order(),
+                    response.cache_max_age_seconds(), response.start_position(),
+                    response.end_position());
+        }
+        return response;
+    }
+
+    /** Lift the plan call's pushdown and cursor onto the author-facing request. */
+    private static farm.query.vgi.table.PlanRequest planRequestOf(byte[] request) {
+        Map<String, byte[]> f = IpcUnpacker.unpack(request, "cursor", "pushdown_filters");
+        byte[] cursor = f == null ? null : f.get("cursor");
+        byte[] filters = f == null ? null : f.get("pushdown_filters");
+        return new farm.query.vgi.table.PlanRequest(
+                filters == null || filters.length == 0
+                        ? null : farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(filters),
+                null,
+                cursor == null ? new byte[0] : cursor,
+                null,
+                null);
     }
 
     /** The not-split-capable answer: one split standing for the whole scan. */
@@ -1127,7 +1206,7 @@ public final class VgiServiceImpl implements VgiService {
             throw new IllegalStateException(
                     "expected cookie 'vgi_sticky' on follow-up request; got " + ctx.cookies().keySet());
         }
-        return new farm.query.vgi.protocol.CatalogVersionResponse(1L);
+        return new farm.query.vgi.protocol.CatalogVersionResponse(CATALOG_VERSION);
     }
 
     /**

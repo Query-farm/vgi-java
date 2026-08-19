@@ -133,6 +133,41 @@ public final class BatchUtil {
      * @param out      collector to emit into
      * @param filler   caller's column-fill body
      */
+    /**
+     * Same as the metadata form below but applies pushdown filters first.
+     *
+     * <p>Declaring {@code autoApplyFilters} is a PROMISE that the worker applies
+     * the pushdown — DuckDB stops re-checking it above the scan on the strength
+     * of that — so emitting unfiltered rows from a function that declared it is a
+     * wrong-answer bug, not a missed optimization. {@link #produceBatch} has
+     * always taken a {@link FilterApplier}; the one-shot {@code emit} did not,
+     * which made the promise easy to break by picking the other helper.</p>
+     *
+     * @param schema   the batch schema to build
+     * @param rowCount rows to fill
+     * @param filters  the pushdown to apply, or {@code null} for none
+     * @param out      collector to emit into
+     * @param metadata per-batch wire metadata, or {@code null}
+     * @param filler   the per-batch column-fill callback
+     */
+    public static void emitFiltered(Schema schema, int rowCount, FilterApplier filters,
+                                      OutputCollector out, java.util.Map<String, String> metadata,
+                                      ColumnFiller filler) {
+        VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root());
+        boolean emitted = false;
+        try {
+            root.allocateNew();
+            filler.fill(root, rowCount, 0L);
+            root.setRowCount(rowCount);
+            if (filters != null) root = filters.apply(root);
+            if (metadata == null) out.emit(root);
+            else out.emit(root, metadata);
+            emitted = true;
+        } finally {
+            if (!emitted) root.close();
+        }
+    }
+
     public static void emit(Schema schema, int rowCount, OutputCollector out, ColumnFiller filler) {
         emit(schema, rowCount, out, null, filler);
     }

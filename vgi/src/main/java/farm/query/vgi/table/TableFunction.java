@@ -66,11 +66,18 @@ public interface TableFunction extends FunctionDescriptor {
      * — the seal, so an author cannot forget the anchor or mis-bind the
      * fingerprint, and never writes crypto.</p>
      *
+     * <p>Returns a {@link PlanResult} rather than a bare split list so a worker
+     * can also pin the plan's {@code catalogVersion} and continue enumeration
+     * with a cursor. A bare list could express neither, which left two shapes —
+     * a plan that has outlived its snapshot, and an enumeration too large for
+     * one response — inexpressible in this SDK alone.</p>
+     *
      * @param params the bind-time parameters for this scan
-     * @return one split per unit of work; empty means "not split-capable"
+     * @param request the plan call, carrying pushdown and the enumeration cursor
+     * @return the splits and plan-level facts; empty means "not split-capable"
      */
-    default java.util.List<farm.query.vgi.protocol.ScanSplit> plan(TableBindParams params) {
-        return java.util.List.of();
+    default PlanResult plan(TableBindParams params, PlanRequest request) {
+        return PlanResult.none();
     }
 
     /**

@@ -511,6 +511,23 @@ public final class Main {
     private static void registerTables(Worker w) {
         w.registerTables(List.of(
                 new SequenceFunction(),
+                // Split-capable fixtures — the Java half of the cross-SDK splits
+                // suite (test/sql/integration/splits/*).
+                new farm.query.vgi.example.table.SplitFunctions.SplitSequence(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitZero(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitEmptyRanges(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitSkewed(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitMany(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitPaginated(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitStalePlan(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitShortTtl(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitBatchIndex(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitCacheable(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitFailAt(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitEndlessCursor(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitEchoFilters(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitPartitioned(),
+                new farm.query.vgi.example.table.SplitFunctions.SplitDynamicFilter(),
                 new farm.query.vgi.example.table.SecretDemoFunction(),
                 new farm.query.vgi.example.table.ScopedSecretDemoFunction(),
                 new farm.query.vgi.example.table.MultiSecretDemoFunction(),
@@ -1349,6 +1366,22 @@ public final class Main {
                 CatalogTable.builder("data", "multi_branch_numbers", colN)
                         .comment("Multi-branch: UNION of sequence(50) + sequence(50) — used by multi_branch_scan.test").build(),
                 List.of(ScanBranch.of("sequence", 50L), ScanBranch.of("sequence", 50L)));
+
+        // One split-capable arm plus one ordinary arm. The split arm's plan call
+        // happens at THAT arm's own InitGlobal, independently of the plain arm
+        // beside it — the two parallelism axes (branches divide a table across
+        // functions, splits divide one function's scan across readers) compose
+        // without either planning on the other's behalf.
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_split", colN)
+                        .comment("Multi-branch: split_sequence(30 over 6 splits) + sequence(20)"
+                                + " — used by splits/multi_branch.test").build(),
+                List.of(
+                        new ScanBranch("split_sequence", List.of(),
+                                java.util.Map.of("n", 30L, "splits", 6L),
+                                null, false, null, null, null),
+                        // The ordinary arm, which never sees a plan call at all.
+                        ScanBranch.of("sequence", 20L)));
 
         // Two arms sequence(100) with complementary branch_filters.
         w.registerMultiBranchTable(

@@ -54,9 +54,13 @@ import java.util.List;
 // reader looks up by name, finds nothing, and quietly defaults every field.
 public record PlanResponse(
         List<byte[]> splits,
-        @Nullable List<byte[]> next_cursors,
+        // NOT @Nullable: the protocol declares both non-null, and marking them
+        // nullable here produced a response schema the client rejected outright
+        // ("out-of-date Apache Arrow schema"). An empty list and empty bytes are
+        // the "nothing here" values, not null.
+        List<byte[]> next_cursors,
         @Nullable byte[] execution_id,
-        @Nullable byte[] init_opaque_data,
+        byte[] init_opaque_data,
         @Nullable Long max_workers,
         @Nullable Long estimated_total_splits,
         @Nullable Long estimated_total_rows,

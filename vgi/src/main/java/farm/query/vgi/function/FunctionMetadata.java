@@ -264,6 +264,42 @@ public record FunctionMetadata(
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
+    /** Opt into {@code supports_splits}: this scan divides into named,
+     *  independently redeemable units. Declare it together with
+     *  {@code TableFunction.plan} and {@code onSplit}.
+     *
+     *  <p>It is what a distributed engine reads to decide it can retry a task
+     *  against this function, and what makes the client call {@code plan()} at
+     *  all — without it a split-capable function is scanned as one undivided
+     *  unit, silently.</p>
+     *
+     *  @return a copy with split support enabled. */
+    public FunctionMetadata withSplits() {
+        return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
+                projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
+                examples, tags,
+                true, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
+    }
+
+    /** Declare how long a minted split token stays redeemable.
+     *
+     *  <p>A client refuses a plan whose TTL is below its own scheduling horizon,
+     *  because an expired token is a failed query rather than a degradation:
+     *  nothing re-plans when one expires, since a distributed engine retries the
+     *  serialized task it was handed and has no path back to the planner.</p>
+     *
+     *  @param seconds the lifetime, or {@code null} for UNBOUNDED (NOT "expires
+     *         immediately").
+     *  @return a copy carrying that TTL. */
+    public FunctionMetadata withSplitTokenTtl(Long seconds) {
+        return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
+                projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
+                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
+                examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, seconds);
+    }
+
     /** Declare a non-default {@link PartitionKind} over the output schema's
      *  {@code vgi.partition_column}-annotated fields.
      *

@@ -40,8 +40,18 @@ final class IpcUnpacker {
             if (root.getRowCount() == 0) return null;
             Map<String, byte[]> out = new HashMap<>();
             for (String name : fieldNames) {
-                VarBinaryVector vec = (VarBinaryVector) root.getVector(name);
-                if (vec != null && !vec.isNull(0)) out.put(name, vec.get(0));
+                // Accept BOTH binary widths. A blind cast to VarBinaryVector
+                // threw ClassCastException the moment a peer sent a LargeBinary
+                // column — which is not a hypothetical: the two are
+                // interchangeable on the wire for these fields, and which one a
+                // given SDK emits is not something this reader gets to choose.
+                org.apache.arrow.vector.FieldVector vec = root.getVector(name);
+                if (vec == null || vec.isNull(0)) continue;
+                if (vec instanceof VarBinaryVector v) {
+                    out.put(name, v.get(0));
+                } else if (vec instanceof org.apache.arrow.vector.LargeVarBinaryVector v) {
+                    out.put(name, v.get(0));
+                }
             }
             return out;
         } catch (IOException | RuntimeException e) {
