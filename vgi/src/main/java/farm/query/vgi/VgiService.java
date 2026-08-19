@@ -116,9 +116,10 @@ public interface VgiService {
      * that has not opted in means: the whole scan is one unit of work.</p>
      *
      * @param request outer binary blob wrapping the inner plan request batch
+     * @param ctx the caller's context; its identity is bound into each sealed token
      * @return the scan plan; default is one split covering everything
      */
-    default farm.query.vgi.protocol.PlanResponse table_function_plan(byte[] request) {
+    default farm.query.vgi.protocol.PlanResponse table_function_plan(byte[] request, CallContext ctx) {
         return farm.query.vgi.protocol.PlanResponse.of(
                 java.util.List.of(farm.query.vgi.internal.ScanSplitSerializer.serialize(
                         farm.query.vgi.protocol.ScanSplit.of(new byte[0]))));

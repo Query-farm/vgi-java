@@ -47,6 +47,50 @@ public interface TableFunction extends FunctionDescriptor {
     default long cardinality(TableBindParams params) { return -1L; }
 
     /**
+     * Divides this scan into named, independently redeemable splits.
+     *
+     * <p>Returning an empty list (the default) means this function is not
+     * split-capable: the whole scan is one unit of work, and the client falls
+     * back to primary/secondary init. Override together with
+     * {@code FunctionMetadata.supportsSplits}.</p>
+     *
+     * <p>A split <em>names</em> work rather than describing it. "These three
+     * files at version 47" survives a retry; "rows 0-999 of whatever this
+     * returns now" does not — and a distributed engine WILL retry, so the
+     * difference is correctness, not tidiness. The same split may also be
+     * redeemed more than once (recursive CTEs, task retry) and may be abandoned
+     * mid-stream (LIMIT, an empty join build side); neither is an error.</p>
+     *
+     * <p>Set only {@code payload} on each split. The framework stamps the
+     * consistency anchor, the bind fingerprint and — where a signing key exists
+     * — the seal, so an author cannot forget the anchor or mis-bind the
+     * fingerprint, and never writes crypto.</p>
+     *
+     * @param params the bind-time parameters for this scan
+     * @return one split per unit of work; empty means "not split-capable"
+     */
+    default java.util.List<farm.query.vgi.protocol.ScanSplit> plan(TableBindParams params) {
+        return java.util.List.of();
+    }
+
+    /**
+     * Called on a split init with the VERIFIED payloads this connection claimed,
+     * also available on {@code TableInitParams.splitPayloads()}.
+     *
+     * <p>Any state carried from planning to reading must live in cross-process
+     * storage keyed by {@code execution_id}: the process that plans is, in the
+     * general case, not the process that reads — and under a distributed engine
+     * it is not even the same host.</p>
+     *
+     * @param payloads the worker's own bytes, envelope already stripped
+     * @param params the bind-time parameters for this scan
+     */
+    default void onSplit(java.util.List<byte[]> payloads, TableBindParams params) {
+        // Declaring the capability is enough for a function that reads its
+        // ranges from TableInitParams.splitPayloads().
+    }
+
+    /**
      * Hint to DuckDB how many parallel workers may scan this function. The
      * value is sent in {@code GlobalInitResponse.max_workers}. Default 1
      * (single-worker). Functions that share state across workers via a

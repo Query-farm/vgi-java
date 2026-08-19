@@ -24,6 +24,8 @@ import farm.query.vgi.protocol.CatalogAttachResult;
 import farm.query.vgi.protocol.FunctionInfo;
 import farm.query.vgi.protocol.GlobalInitResponse;
 import farm.query.vgi.protocol.InitRequest;
+import farm.query.vgi.protocol.PlanResponse;
+import farm.query.vgi.protocol.ScanSplit;
 import farm.query.vgi.protocol.ItemsResponse;
 import farm.query.vgi.protocol.SchemaInfo;
 import farm.query.vgi.scalar.ScalarBindParams;
@@ -543,8 +545,13 @@ public final class VgiServiceImpl implements VgiService {
                 ? bt.fn().maxWorkers() : 1L;
         GlobalInitResponse header = new GlobalInitResponse(execId, maxWorkers, null);
 
+        // Opened here, before any branch reaches user code.
+        List<byte[]> splitPayloads = openSplitTokens(request, ctx);
+
         if (bound instanceof BoundScalar bs) return initScalar(request, bs, realOutputSchema, header);
-        if (bound instanceof BoundTable bt) return initTable(request, bt, realOutputSchema, execId, header);
+        if (bound instanceof BoundTable bt) {
+            return initTable(request, bt, realOutputSchema, execId, header, splitPayloads);
+        }
         if (bound instanceof BoundTableInOut bio) return initTableInOut(request, bio, realOutputSchema, execId, header);
         if (bound instanceof BoundBuffering bb) return initBuffering(request, bb, realOutputSchema, execId, header);
         throw new IllegalStateException("Unexpected bound type: " + bound);
@@ -561,9 +568,44 @@ public final class VgiServiceImpl implements VgiService {
         return RpcStream.exchange(inputSchema, realOutputSchema, state, header);
     }
 
+    /**
+     * Verify and strip the split envelopes this init carries.
+     *
+     * <p>Runs before any user code, so an unverified token can never be acted
+     * on — the payload only becomes reachable once the envelope has been
+     * checked against this bind and, where a key exists, opened. Returns
+     * {@code null} when the request carries no tokens, which is every ordinary
+     * scan.</p>
+     *
+     * <p>A bad token fails the init outright. It means the caller is asking for
+     * work this worker did not hand out, which is exactly what the envelope
+     * exists to refuse.</p>
+     */
+    private List<byte[]> openSplitTokens(InitRequest request, CallContext ctx) {
+        List<byte[]> tokens = request.split_tokens();
+        if (tokens == null || tokens.isEmpty()) {
+            return null;
+        }
+        BindRequest bind = RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class);
+        byte[] expected = SplitToken.bindFingerprint(
+                bind.schema_name() == null ? "" : bind.schema_name(),
+                bind.function_name(),
+                bind.arguments(),
+                bind.settings(),
+                new byte[0]);
+        byte[] key = sealer == null ? null : sealer.signingKey();
+        AuthContext auth = ctx == null ? null : ctx.auth();
+        List<byte[]> payloads = new java.util.ArrayList<>(tokens.size());
+        for (byte[] token : tokens) {
+            payloads.add(SplitToken.open(token, key, auth, expected, null));
+        }
+        return payloads;
+    }
+
     private RpcStream<? extends StreamState> initTable(InitRequest request, BoundTable bt,
                                                          Schema realOutputSchema, byte[] execId,
-                                                         GlobalInitResponse header) {
+                                                         GlobalInitResponse header,
+                                                         List<byte[]> splitPayloads) {
         // Project the full output schema down to the columns DuckDB requested,
         // but only when the function opts into projection pushdown. Otherwise
         // the framework would have to auto-project emitted batches (not
@@ -592,7 +634,8 @@ public final class VgiServiceImpl implements VgiService {
                 bt.atUnit(),
                 bt.atValue(),
                 new farm.query.vgi.storage.BoundStorage(this.storage, execId, bt.attachId()),
-                bt.copyFrom());
+                bt.copyFrom(),
+                splitPayloads);
         TableProducerState state = bt.fn().createProducer(params);
         return RpcStream.producer(fnOutputSchema, state, header);
     }
@@ -667,7 +710,8 @@ public final class VgiServiceImpl implements VgiService {
                 request.tablesample_percentage(), request.tablesample_seed(),
                 request.order_by_column_name(), request.order_by_direction(),
                 request.order_by_null_order(), request.order_by_limit(),
-                execId, bb.secrets(), bb.attachId(), bb.bindOpaqueData(), null, null, storage, null);
+                execId, bb.secrets(), bb.attachId(), bb.bindOpaqueData(), null, null, storage, null,
+                null);
         farm.query.vgi.buffering.TableBufferingFinalizeParams fparams =
                 new farm.query.vgi.buffering.TableBufferingFinalizeParams(
                         execId, request.finalize_state_id(), bb.attachId(), storage, initParams);
@@ -832,6 +876,72 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private record DynamicToStringInner(byte[] bind_call, byte[] bind_opaque_data, byte[] global_execution_id) {}
+
+    /**
+     * Divide a table-function scan into named, redeemable splits.
+     *
+     * <p>A function that does not override {@code plan()} gets the framework
+     * default: a SINGLE empty-payload split, which is what "not split-capable"
+     * means — the whole scan is one unit of work. That keeps every existing
+     * worker serving unchanged under protocol 1.4.0.</p>
+     *
+     * <p>The framework stamps every token here, so an author cannot forget the
+     * consistency anchor, cannot mis-bind the fingerprint, and never writes
+     * crypto — and the envelope stays a private implementation detail whose
+     * layout can change without touching worker code.</p>
+     *
+     * @param request a 1-row IPC struct carrying at least {@code bind_call}
+     * @param ctx the caller's context; its identity is bound into each seal
+     * @return the plan, with one stamped split per unit of work
+     */
+    @Override
+    public PlanResponse table_function_plan(byte[] request, CallContext ctx) {
+        Map<String, byte[]> fields = IpcUnpacker.unpack(request, "bind_call", "bind_opaque_data");
+        byte[] bindCallBytes = fields == null ? null : fields.get("bind_call");
+        if (bindCallBytes == null || bindCallBytes.length == 0) {
+            return PlanResponse.of(List.of(defaultSplitBytes()));
+        }
+
+        BindRequest embedded = RecordCodec.deserializeFromBytes(bindCallBytes, BindRequest.class);
+        List<ScanSplit> planned = List.of();
+        TableBindParams params = null;
+        if (tables.containsKey(embedded.function_name())) {
+            Schema inputSchema = SchemaUtil.deserializeSchema(embedded.input_schema());
+            Arguments args = ArgumentsParser.parse(embedded.arguments());
+            Map<String, Object> settings = SettingsParser.parse(embedded.settings());
+            int constN = args.positional().size();
+            int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
+            TableFunction fn = OverloadResolver.pick(tables.get(embedded.function_name()),
+                    constN + colN, args, inputSchema);
+            params = new TableBindParams(embedded.function_name(), args, inputSchema, settings);
+            planned = fn.plan(params);
+        }
+        if (planned.isEmpty()) {
+            return PlanResponse.of(List.of(defaultSplitBytes()));
+        }
+
+        byte[] fingerprint = SplitToken.bindFingerprint(
+                embedded.schema_name() == null ? "" : embedded.schema_name(),
+                embedded.function_name(),
+                embedded.arguments(),
+                embedded.settings(),
+                new byte[0]);
+        byte[] anchor = SplitToken.anchor(0);
+        byte[] key = sealer == null ? null : sealer.signingKey();
+        AuthContext auth = ctx == null ? null : ctx.auth();
+
+        List<byte[]> blobs = new java.util.ArrayList<>(planned.size());
+        for (ScanSplit split : planned) {
+            byte[] token = SplitToken.build(split.payload(), fingerprint, anchor, key, auth);
+            blobs.add(ScanSplitSerializer.serialize(split.withToken(token)));
+        }
+        return PlanResponse.of(blobs);
+    }
+
+    /** The not-split-capable answer: one split standing for the whole scan. */
+    private static byte[] defaultSplitBytes() {
+        return ScanSplitSerializer.serialize(ScanSplit.of(new byte[0]));
+    }
 
     private long computeCardinality(CardinalityRequest request) {
         if (request.bind_opaque_data() != null) {

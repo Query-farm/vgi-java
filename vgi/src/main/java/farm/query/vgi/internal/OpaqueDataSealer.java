@@ -96,6 +96,18 @@ public final class OpaqueDataSealer {
      * @param auth the calling principal, bound into the AEAD AAD
      * @return the sealed envelope, or {@code plaintext} unchanged when disabled / {@code null}
      */
+    /** The key split tokens seal with, or {@code null} when this worker holds none.
+     *
+     * <p>Split tokens deliberately share the attach envelope's key: one key state
+     * per worker, so a deployment cannot end up sealing one kind of value and not
+     * the other.</p>
+     *
+     * @return the signing key, or {@code null} when sealing is disabled
+     */
+    public byte[] signingKey() {
+        return key;
+    }
+
     public byte[] sealAttach(byte[] plaintext, AuthContext auth) {
         if (key == null || plaintext == null) return plaintext;
         return envelope(VERSION_ATTACH, Crypto.chacha20Poly1305Seal(key, plaintext, attachAad(auth)));

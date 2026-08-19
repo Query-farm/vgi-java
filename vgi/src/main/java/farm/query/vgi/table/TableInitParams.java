@@ -46,6 +46,11 @@ import java.util.Map;
  *     {@code executionId}, shard-pinned to the attach) — mirrors vgi-python's
  *     {@code params.storage}
  * @param copyFrom the {@code COPY ... FROM} context, set only when this init drives a
+ * @param splitPayloads the VERIFIED payloads of the splits this init claimed —
+ *        the worker's own bytes, with the token envelope already opened and
+ *        stripped, so an unverified token never reaches a function. {@code null}
+ *        when this is not a split init, which is different from an empty list:
+ *        null means the client did not plan, empty is a claim of no work.
  *     COPY-FROM scan (see {@link farm.query.vgi.table.CopyFromFunction}); {@code null}
  *     for every ordinary table-function init
  */
@@ -71,7 +76,8 @@ public record TableInitParams(
         String atUnit,
         String atValue,
         farm.query.vgi.storage.BoundStorage storage,
-        farm.query.vgi.protocol.CopyFromContext copyFrom) {
+        farm.query.vgi.protocol.CopyFromContext copyFrom,
+        List<byte[]> splitPayloads) {
 
     /**
      * Wrap the raw {@link #pushdownFilters} / {@link #joinKeys} bytes into a
