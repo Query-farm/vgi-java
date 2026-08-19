@@ -70,22 +70,22 @@ public final class ScanSplitSerializer {
             root.allocateNew();
             setBinary(root, "payload", split.payload() == null ? new byte[0] : split.payload());
             setBinary(root, "token", split.token() == null ? new byte[0] : split.token());
-            setLong(root, "estimated_rows", split.estimatedRows());
-            ((BitVector) root.getVector("rows_exact")).setSafe(0, split.rowsExact() ? 1 : 0);
-            setLong(root, "estimated_bytes", split.estimatedBytes());
-            setBinary(root, "partition_bounds", split.partitionBounds());
-            setBinary(root, "column_statistics", split.columnStatistics());
-            setBinary(root, "start_position", split.startPosition());
-            setBinary(root, "end_position", split.endPosition());
+            setLong(root, "estimated_rows", split.estimated_rows());
+            ((BitVector) root.getVector("rows_exact")).setSafe(0, split.rows_exact() ? 1 : 0);
+            setLong(root, "estimated_bytes", split.estimated_bytes());
+            setBinary(root, "partition_bounds", split.partition_bounds());
+            setBinary(root, "column_statistics", split.column_statistics());
+            setBinary(root, "start_position", split.start_position());
+            setBinary(root, "end_position", split.end_position());
 
             ListVector locations = (ListVector) root.getVector("location_ids");
-            if (split.locationIds() == null) {
+            if (split.location_ids() == null) {
                 locations.setNull(0);
             } else {
                 UnionListWriter w = locations.getWriter();
                 w.setPosition(0);
                 w.startList();
-                for (Long id : split.locationIds()) {
+                for (Long id : split.location_ids()) {
                     w.bigInt().writeBigInt(id == null ? 0L : id);
                 }
                 w.endList();

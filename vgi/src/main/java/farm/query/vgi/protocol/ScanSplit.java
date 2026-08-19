@@ -25,32 +25,32 @@ import java.util.List;
  * @param payload the worker's own opaque bytes naming this unit of work
  * @param token the framework-stamped envelope. Populated by the framework; a
  *        worker must not set it
- * @param estimatedRows row estimate, or {@code null} if unknown
- * @param rowsExact whether {@code estimatedRows} is exact rather than an
+ * @param estimated_rows row estimate, or {@code null} if unknown
+ * @param rows_exact whether {@code estimated_rows} is exact rather than an
  *        estimate — unlocks COUNT(*) from statistics
- * @param estimatedBytes byte estimate. Load-bearing for engines that bin-pack
+ * @param estimated_bytes byte estimate. Load-bearing for engines that bin-pack
  *        (DataFusion weight, Trino SplitWeight); {@code null} degrades them to
  *        round-robin by count. A greedily claiming client needs no cost model
- * @param partitionBounds 2-row (min, max) batch in the existing
+ * @param partition_bounds 2-row (min, max) batch in the existing
  *        {@code vgi_partition_values} encoding, one column per partition column
- * @param columnStatistics per-column statistics blob for this split
- * @param locationIds indices into {@code PlanResponse.locations} naming hosts
+ * @param column_statistics per-column statistics blob for this split
+ * @param location_ids indices into {@code PlanResponse.locations} naming hosts
  *        where this split is cheap to read
- * @param startPosition exclusive lower bound of this split's range in the data
- * @param endPosition inclusive upper bound; {@code null} means UNBOUNDED — a
+ * @param start_position exclusive lower bound of this split's range in the data
+ * @param end_position inclusive upper bound; {@code null} means UNBOUNDED — a
  *        shard read forever, which a bounded engine must refuse rather than hang
  */
 public record ScanSplit(
         byte[] payload,
         byte[] token,
-        @Nullable Long estimatedRows,
-        boolean rowsExact,
-        @Nullable Long estimatedBytes,
-        @Nullable byte[] partitionBounds,
-        @Nullable byte[] columnStatistics,
-        @Nullable List<Long> locationIds,
-        @Nullable byte[] startPosition,
-        @Nullable byte[] endPosition) implements ArrowSerializableRecord {
+        @Nullable Long estimated_rows,
+        boolean rows_exact,
+        @Nullable Long estimated_bytes,
+        @Nullable byte[] partition_bounds,
+        @Nullable byte[] column_statistics,
+        @Nullable List<Long> location_ids,
+        @Nullable byte[] start_position,
+        @Nullable byte[] end_position) implements ArrowSerializableRecord {
 
     /** A split naming the given work, with no estimates.
      *
@@ -78,7 +78,7 @@ public record ScanSplit(
      * @return a copy carrying that token
      */
     public ScanSplit withToken(byte[] stamped) {
-        return new ScanSplit(payload, stamped, estimatedRows, rowsExact, estimatedBytes,
-                partitionBounds, columnStatistics, locationIds, startPosition, endPosition);
+        return new ScanSplit(payload, stamped, estimated_rows, rows_exact, estimated_bytes,
+                partition_bounds, column_statistics, location_ids, start_position, end_position);
     }
 }
