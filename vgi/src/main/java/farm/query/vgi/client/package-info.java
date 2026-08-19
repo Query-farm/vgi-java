@@ -27,12 +27,21 @@
  *   <li>{@link farm.query.vgi.client.ScalarValue} — the shared value model: a
  *       Java value plus the Arrow type it is written as, so that nulls and
  *       narrow integer widths stay expressible.</li>
+ *   <li>{@link farm.query.vgi.client.RetryPolicy} /
+ *       {@link farm.query.vgi.client.RetryingHttpClient} — the one piece of
+ *       client behaviour that is not an encoder. A worker enforces
+ *       {@code max_workers} by refusing redemptions with {@code 429} and a
+ *       {@code Retry-After}, and that refusal is only visible below the RPC
+ *       layer: by the time a call has been decoded into a VGI response, the
+ *       status is gone and backpressure is indistinguishable from failure.</li>
  * </ul>
  *
- * <p>Nothing here opens a connection: a client drives the wire through
- * {@code RpcConnection.proxy(VgiService.class)} from vgi-rpc-java, and these
- * encoders supply the byte-array fields of the requests it sends. The
- * end-to-end shape is demonstrated by the round-trip tests in this package's
- * test sources.
+ * <p>Nothing here opens a connection of its own: a client drives the wire
+ * through {@code RpcConnection.proxy(VgiService.class)} from vgi-rpc-java, and
+ * these encoders supply the byte-array fields of the requests it sends —
+ * {@link farm.query.vgi.client.RetryingHttpClient} decorates the
+ * {@code HttpClient} that connection was given rather than replacing the
+ * transport. The end-to-end shape is demonstrated by the round-trip tests in
+ * this package's test sources.
  */
 package farm.query.vgi.client;
