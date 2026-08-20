@@ -2,6 +2,9 @@
 
 package farm.query.vgi.protocol;
 
+import farm.query.vgirpc.schema.ArrowField;
+import farm.query.vgirpc.schema.ArrowFieldType;
+import farm.query.vgirpc.schema.Nullable;
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
 
 import java.util.List;
@@ -56,19 +59,19 @@ public record InitRequest(
         byte[] bind_call,
         byte[] output_schema,
         byte[] bind_opaque_data,
-        List<Integer> projection_ids,
-        byte[] pushdown_filters,
-        List<byte[]> join_keys,
-        String phase,
-        byte[] execution_id,
+        @Nullable List<Integer> projection_ids,
+        @ArrowField(ArrowFieldType.LARGE_BINARY) byte[] pushdown_filters,
+        @ArrowField(ArrowFieldType.LARGE_BINARY) List<byte[]> join_keys,
+        @Nullable String phase,
+        @Nullable byte[] execution_id,
         byte[] init_opaque_data,
-        String order_by_column_name,
-        String order_by_direction,
-        String order_by_null_order,
-        Long order_by_limit,
-        Double tablesample_percentage,
-        Long tablesample_seed,
-        byte[] finalize_state_id,
-        byte[] substream_id,
-        List<byte[]> split_tokens,
-        Long row_limit) implements ArrowSerializableRecord {}
+        @Nullable String order_by_column_name,
+        @Nullable String order_by_direction,
+        @Nullable String order_by_null_order,
+        @Nullable Long order_by_limit,
+        @Nullable Double tablesample_percentage,
+        @Nullable Long tablesample_seed,
+        @Nullable byte[] finalize_state_id,
+        @Nullable byte[] substream_id,
+        @ArrowField(ArrowFieldType.LARGE_BINARY) List<byte[]> split_tokens,
+        @Nullable Long row_limit) implements ArrowSerializableRecord {}

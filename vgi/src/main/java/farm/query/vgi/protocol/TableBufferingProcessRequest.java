@@ -24,7 +24,7 @@ public record TableBufferingProcessRequest(
         String function_name,
         byte[] execution_id,
         byte[] input_batch,
-        byte[] attach_opaque_data,
-        byte[] transaction_id,
-        Long batch_index,
+        @Nullable byte[] attach_opaque_data,
+        @Nullable byte[] transaction_id,
+        @Nullable Long batch_index,
         @Nullable String schema_name) implements ArrowSerializableRecord {}

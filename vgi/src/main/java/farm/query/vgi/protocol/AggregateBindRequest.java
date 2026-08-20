@@ -25,5 +25,5 @@ public record AggregateBindRequest(
         byte[] input_schema,
         byte[] settings,
         byte[] secrets,
-        byte[] attach_opaque_data,
+        @Nullable byte[] attach_opaque_data,
         @Nullable String schema_name) implements ArrowSerializableRecord {}

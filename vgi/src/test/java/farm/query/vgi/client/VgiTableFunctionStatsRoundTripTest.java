@@ -119,7 +119,7 @@ final class VgiTableFunctionStatsRoundTripTest {
         try (PipeWorkerHarness h = PipeWorkerHarness.start(worker)) {
             VgiService vgi = h.client();
             byte[] handle = vgi.catalog_attach(
-                    new CatalogAttachRequest("testcat", null, null, null), null)
+                    CatalogAttachRequest.of("testcat", null, null, null), null)
                     .attach_opaque_data();
 
             BindRequest bindRequest = new BindRequest(
@@ -177,7 +177,7 @@ final class VgiTableFunctionStatsRoundTripTest {
         try (PipeWorkerHarness h = PipeWorkerHarness.start(worker)) {
             VgiService vgi = h.client();
             byte[] handle = vgi.catalog_attach(
-                    new CatalogAttachRequest("testcat", null, null, null), null)
+                    CatalogAttachRequest.of("testcat", null, null, null), null)
                     .attach_opaque_data();
 
             BindRequest bindRequest = new BindRequest(

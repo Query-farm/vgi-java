@@ -159,7 +159,7 @@ class SchemaScopedDispatchTest {
                 .registerExtraCatalog(new Worker.ExtraCatalog("aux", "1.0.0", "1.0.0", "aux"));
         VgiServiceImpl svc = service(w);
         byte[] auxAttach = svc.catalog_attach(
-                new CatalogAttachRequest("aux", null, null, null), null).attach_opaque_data();
+                CatalogAttachRequest.of("aux", null, null, null), null).attach_opaque_data();
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> svc.bind(bind("main", auxAttach), null));
         assertTrue(e.getMessage().contains("not registered in catalog 'aux'"), e.getMessage());
@@ -186,9 +186,9 @@ class SchemaScopedDispatchTest {
 
         // Both catalogs declare main.probe — only the attach tells them apart.
         byte[] attachA = svc.catalog_attach(
-                new CatalogAttachRequest("twin_a", null, null, null), null).attach_opaque_data();
+                CatalogAttachRequest.of("twin_a", null, null, null), null).attach_opaque_data();
         byte[] attachB = svc.catalog_attach(
-                new CatalogAttachRequest("twin_b", null, null, null), null).attach_opaque_data();
+                CatalogAttachRequest.of("twin_b", null, null, null), null).attach_opaque_data();
 
         assertEquals("from_twin_a", boundTag(svc.bind(bind("main", attachA), null)));
         assertEquals("from_twin_b", boundTag(svc.bind(bind("main", attachB), null)));
@@ -207,7 +207,7 @@ class SchemaScopedDispatchTest {
                 .registerExtraCatalogScalar("twin_a", "main", new TwinAProbe());
         VgiServiceImpl svc = service(w);
         CatalogAttachResult mainAttach =
-                svc.catalog_attach(new CatalogAttachRequest("probe_catalog", null, null, null), null);
+                svc.catalog_attach(CatalogAttachRequest.of("probe_catalog", null, null, null), null);
         // One entry, not two: the auxiliary catalog's same-named scalar is not
         // advertised under the main catalog's attach.
         assertEquals(1, listedFunctionCount(svc, mainAttach.attach_opaque_data(), "main"));

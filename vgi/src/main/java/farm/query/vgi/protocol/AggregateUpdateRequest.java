@@ -21,5 +21,5 @@ public record AggregateUpdateRequest(
         String function_name,
         byte[] execution_id,
         byte[] input_batch,
-        byte[] attach_opaque_data,
+        @Nullable byte[] attach_opaque_data,
         @Nullable String schema_name) implements ArrowSerializableRecord {}

@@ -20,6 +20,6 @@ import farm.query.vgirpc.schema.Nullable;
 public record TableBufferingDestructorRequest(
         String function_name,
         byte[] execution_id,
-        byte[] attach_opaque_data,
-        byte[] transaction_id,
+        @Nullable byte[] attach_opaque_data,
+        @Nullable byte[] transaction_id,
         @Nullable String schema_name) implements ArrowSerializableRecord {}

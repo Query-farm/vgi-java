@@ -149,7 +149,7 @@ final class VgiScalarExchangeRoundTripTest {
 
             // 1. ATTACH — the handle every later call echoes back.
             CatalogAttachResult attach = vgi.catalog_attach(
-                    new CatalogAttachRequest("testcat", null, null, null), null);
+                    CatalogAttachRequest.of("testcat", null, null, null), null);
             assertNotNull(attach.attach_opaque_data(), "attach must return a handle");
             byte[] handle = attach.attach_opaque_data();
 
@@ -202,7 +202,7 @@ final class VgiScalarExchangeRoundTripTest {
         try (PipeWorkerHarness h = PipeWorkerHarness.start(worker())) {
             VgiService vgi = h.client();
             byte[] handle = vgi.catalog_attach(
-                    new CatalogAttachRequest("testcat", null, null, null), null)
+                    CatalogAttachRequest.of("testcat", null, null, null), null)
                     .attach_opaque_data();
 
             BindRequest bindRequest = scalarBind("add_pair", PAIR_INPUT, handle);
@@ -234,7 +234,7 @@ final class VgiScalarExchangeRoundTripTest {
         try (PipeWorkerHarness h = PipeWorkerHarness.start(worker())) {
             VgiService vgi = h.client();
             byte[] handle = vgi.catalog_attach(
-                    new CatalogAttachRequest("testcat", null, null, null), null)
+                    CatalogAttachRequest.of("testcat", null, null, null), null)
                     .attach_opaque_data();
 
             BindRequest addBind = scalarBind("add_pair", PAIR_INPUT, handle);
@@ -292,7 +292,7 @@ final class VgiScalarExchangeRoundTripTest {
         try (PipeWorkerHarness h = PipeWorkerHarness.start(worker())) {
             VgiService vgi = h.client();
             byte[] handle = vgi.catalog_attach(
-                    new CatalogAttachRequest("testcat", null, null, null), null)
+                    CatalogAttachRequest.of("testcat", null, null, null), null)
                     .attach_opaque_data();
 
             BindRequest bindRequest = scalarBind("add_pair", PAIR_INPUT, handle);
@@ -324,7 +324,7 @@ final class VgiScalarExchangeRoundTripTest {
         try (PipeWorkerHarness h = PipeWorkerHarness.start(worker())) {
             VgiService vgi = h.client();
             byte[] handle = vgi.catalog_attach(
-                    new CatalogAttachRequest("testcat", null, null, null), null)
+                    CatalogAttachRequest.of("testcat", null, null, null), null)
                     .attach_opaque_data();
 
             BindRequest bindRequest = new BindRequest(

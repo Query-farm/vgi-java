@@ -595,7 +595,7 @@ abstract class AbstractVgiHttpConformanceTest {
      * puts on the wire, and the fields are non-nullable.
      */
     private static CatalogAttachRequest attachRequest() {
-        return new CatalogAttachRequest(CATALOG, new byte[0], "", "");
+        return CatalogAttachRequest.of(CATALOG, new byte[0], "", "");
     }
 
     private BindRequest tableBind(String function, byte[] arguments) {

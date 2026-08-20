@@ -72,14 +72,14 @@ class ExtraCatalogAttachOptionsTest {
     @Test
     void omittingARequiredOptionFailsTheAttach() {
         RpcError e = assertThrows(RpcError.class, () -> service(worker())
-                .catalog_attach(new CatalogAttachRequest(GATED, null, null, null), null));
+                .catalog_attach(CatalogAttachRequest.of(GATED, null, null, null), null));
         assertTrue(e.errorMessage().contains("required option 'api_key'"), e.errorMessage());
     }
 
     @Test
     void supplyingItAttachesNormally() {
         var result = service(worker()).catalog_attach(
-                new CatalogAttachRequest(GATED, options("api_key", "secret"), null, null), null);
+                CatalogAttachRequest.of(GATED, options("api_key", "secret"), null, null), null);
         assertTrue(result.attach_opaque_data().length > 0);
     }
 
@@ -88,7 +88,7 @@ class ExtraCatalogAttachOptionsTest {
     @Test
     void theHostCatalogIsUnaffected() {
         var result = service(worker()).catalog_attach(
-                new CatalogAttachRequest("host", null, null, null), null);
+                CatalogAttachRequest.of("host", null, null, null), null);
         assertTrue(result.attach_opaque_data().length > 0);
     }
 }

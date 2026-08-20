@@ -23,5 +23,5 @@ public record AggregateFinalizeRequest(
         byte[] execution_id,
         byte[] group_ids_batch,
         byte[] output_schema,
-        byte[] attach_opaque_data,
+        @Nullable byte[] attach_opaque_data,
         @Nullable String schema_name) implements ArrowSerializableRecord {}

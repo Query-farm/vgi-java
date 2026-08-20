@@ -25,6 +25,6 @@ public record TableBufferingCombineRequest(
         String function_name,
         byte[] execution_id,
         List<byte[]> state_ids,
-        byte[] attach_opaque_data,
-        byte[] transaction_id,
+        @Nullable byte[] attach_opaque_data,
+        @Nullable byte[] transaction_id,
         @Nullable String schema_name) implements ArrowSerializableRecord {}
