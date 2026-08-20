@@ -46,7 +46,15 @@ public final class ScanBranchesResultSerializer {
             new Field("writable", new FieldType(false, BOOL, null), null),
             new Field("source_catalog", new FieldType(true, UTF8, null), null),
             new Field("source_schema", new FieldType(true, UTF8, null), null),
-            new Field("source_table", new FieldType(true, UTF8, null), null)));
+            new Field("source_table", new FieldType(true, UTF8, null), null),
+            // Format-branch columns. format_locations is a LIST, and Arrow's
+            // writer dereferences a list's children while assembling — so a
+            // builder that declares the column and never supplies it does not
+            // write a null, it throws. Every branch fills all three.
+            new Field("format_name", new FieldType(true, UTF8, null), null),
+            new Field("format_locations", new FieldType(true, new ArrowType.List(), null),
+                    List.of(new Field("item", new FieldType(true, UTF8, null), null))),
+            new Field("format_options", new FieldType(true, BINARY, null), null)));
 
     private static final Schema RESULT_SCHEMA = new Schema(List.of(
             new Field("branches", new FieldType(false, new ArrowType.List(), null),
@@ -107,11 +115,44 @@ public final class ScanBranchesResultSerializer {
             setNullableString(root, "source_catalog", b.sourceCatalog());
             setNullableString(root, "source_schema", b.sourceSchema());
             setNullableString(root, "source_table", b.sourceTable());
+            setNullableString(root, "format_name", b.formatName());
+            writeStringList(root, "format_locations", b.formatLocations());
+            VarBinaryVector fo = (VarBinaryVector) root.getVector("format_options");
+            if (b.formatOptions().isEmpty()) {
+                fo.setNull(0);
+            } else {
+                // Same encoding as the arguments blob, so the client decodes both
+                // with one helper: a 1-row batch whose column names are the option
+                // names, because an option value may be any Arrow type.
+                fo.setSafe(0, ScanFunctionResultEncoder.encodeArguments(List.of(), b.formatOptions()));
+            }
             root.setRowCount(1);
             return writeStream(root);
         } catch (Exception e) {
             throw new RuntimeException("ScanBranchesResultSerializer.encodeBranch", e);
         }
+    }
+
+    /** Write a list&lt;utf8&gt; cell, or NULL when the list is empty. */
+    private static void writeStringList(VectorSchemaRoot root, String col, List<String> values) {
+        org.apache.arrow.vector.complex.ListVector lv =
+                (org.apache.arrow.vector.complex.ListVector) root.getVector(col);
+        if (values == null || values.isEmpty()) {
+            lv.setNull(0);
+            return;
+        }
+        org.apache.arrow.vector.complex.impl.UnionListWriter w = lv.getWriter();
+        w.setPosition(0);
+        w.startList();
+        for (String v : values) {
+            byte[] bytes = v.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            try (org.apache.arrow.memory.ArrowBuf buf = lv.getAllocator().buffer(bytes.length)) {
+                buf.setBytes(0, bytes);
+                w.writeVarChar(0, bytes.length, buf);
+            }
+        }
+        w.endList();
+        lv.setValueCount(1);
     }
 
     private static void setNullableString(VectorSchemaRoot root, String col, String value) {

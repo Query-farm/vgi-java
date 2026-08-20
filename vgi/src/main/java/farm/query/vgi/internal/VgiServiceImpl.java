@@ -1810,7 +1810,7 @@ public final class VgiServiceImpl implements VgiService {
                             t.scanFunctionName(),
                             t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
                             t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
-                            null, false, null, null, null);
+                            null, false, null, null, null, null, null, null);
                     return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
                 }
             }
@@ -1835,14 +1835,14 @@ public final class VgiServiceImpl implements VgiService {
             farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
                     "tt_pushdown_cols_scan",
                     List.of((Object) (long) resolveTtVersion(at.unit(), at.value())),
-                    Map.of(), null, false, null, null, null);
+                    Map.of(), null, false, null, null, null, null, null, null);
             return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
         }
         if ("data".equals(schema_name) && "cache_versioned".equals(name)) {
             farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
                     "cache_versioned_scan",
                     List.of((Object) (long) resolveCacheVersion(at.unit(), at.value())),
-                    Map.of(), null, false, null, null, null);
+                    Map.of(), null, false, null, null, null, null, null, null);
             return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
         }
         for (CatalogTable t : worker.catalogTables()) {
@@ -1853,7 +1853,7 @@ public final class VgiServiceImpl implements VgiService {
                         resolved.scanFunctionName(),
                         resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
                         resolved.scanFunctionNamed() == null ? Map.of() : resolved.scanFunctionNamed(),
-                        null, false, null, null, null);
+                        null, false, null, null, null, null, null, null);
                 return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
             }
         }

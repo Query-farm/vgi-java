@@ -39,6 +39,18 @@ import java.util.List;
  *     substream's accumulated state (in shared storage) by it. {@code null} when
  *     the client did not supply one (serial path, non-table-in-out functions,
  *     old clients).
+ * @param split_tokens            the framework-stamped envelopes for the splits
+ *     this init redeems, or {@code null} on a non-split init. A split NAMES a
+ *     unit of work, so a redemption reads the same rows however many times it
+ *     runs and in whichever process — which is what lets a distributed engine
+ *     retry a task. The list is length 1 from DuckDB (one greedy claim per
+ *     reader) and longer from an engine that bin-packs at planning time.
+ * @param row_limit               a plain fetch limit the worker may stop at, or
+ *     {@code null}. Always {@code null} from DuckDB, whose init input carries no
+ *     limit field; DataFusion supplies it via {@code TableProvider::scan}. Under
+ *     splits the FULL limit is pushed into every split — over-production is legal
+ *     and the engine re-applies above the union, whereas dividing by the split
+ *     count would under-produce under skew.
  */
 public record InitRequest(
         byte[] bind_call,

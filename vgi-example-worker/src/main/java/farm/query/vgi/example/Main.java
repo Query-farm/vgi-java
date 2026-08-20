@@ -1379,7 +1379,7 @@ public final class Main {
                 List.of(
                         new ScanBranch("split_sequence", List.of(),
                                 java.util.Map.of("n", 30L, "splits", 6L),
-                                null, false, null, null, null),
+                                null, false, null, null, null, null, null, null),
                         // The ordinary arm, which never sees a plan call at all.
                         ScanBranch.of("sequence", 20L)));
 
@@ -1389,6 +1389,20 @@ public final class Main {
                         .comment("Multi-branch with complementary branch_filters — exercises pruning").build(),
                 List.of(ScanBranch.filtered("sequence", "n < 50", 100L),
                         ScanBranch.filtered("sequence", "n >= 50", 100L)));
+
+        // A FORMAT branch: name the format and the locations, and let the client
+        // resolve the reader. The options BECOME the reader's named arguments —
+        // `nullstr` is the load-bearing one, since DuckDB's CSV sniffer works out
+        // the delimiter and the header unaided and so proves nothing on its own.
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_format",
+                                cols(Schemas.nullable("n", Schemas.INT64),
+                                     Schemas.nullable("label", Schemas.UTF8)))
+                        .comment("Format branch: read_csv with delim/header options"
+                                + " — used by multi_branch_format.test").build(),
+                List.of(ScanBranch.format("csv",
+                        List.of(BRANCH_DIR + "/vgi_format_branch.csv"),
+                        java.util.Map.of("delim", "|", "header", true, "nullstr", "row_2"))));
 
         // VGI sequence(50) + native read_parquet (test creates the file).
         w.registerMultiBranchTable(
