@@ -19,10 +19,10 @@ import farm.query.vgirpc.schema.Nullable;
  */
 public record CatalogAttachRequest(
         String name,
-        byte[] options,
+        @Nullable byte[] options,
         @Nullable String data_version_spec,
         @Nullable String implementation_version,
-        byte[] client_capabilities) implements ArrowSerializableRecord {
+        @Nullable byte[] client_capabilities) implements ArrowSerializableRecord {
 
     /**
      * An attach request from a client that declares no capabilities.

@@ -54,13 +54,9 @@ import java.util.List;
 // reader looks up by name, finds nothing, and quietly defaults every field.
 public record PlanResponse(
         List<byte[]> splits,
-        // NOT @Nullable: the protocol declares both non-null, and marking them
-        // nullable here produced a response schema the client rejected outright
-        // ("out-of-date Apache Arrow schema"). An empty list and empty bytes are
-        // the "nothing here" values, not null.
-        List<byte[]> next_cursors,
+        @Nullable List<byte[]> next_cursors,
         @Nullable byte[] execution_id,
-        byte[] init_opaque_data,
+        @Nullable byte[] init_opaque_data,
         @Nullable Long max_workers,
         @Nullable Long estimated_total_splits,
         @Nullable Long estimated_total_rows,
@@ -68,11 +64,11 @@ public record PlanResponse(
         @Nullable Long catalog_version,
         String scope,
         @Nullable List<String> locations,
-        List<byte[]> partitioning,
-        List<byte[]> sort_order,
+        @Nullable List<byte[]> partitioning,
+        @Nullable List<byte[]> sort_order,
         @Nullable Long cache_max_age_seconds,
-        byte[] start_position,
-        byte[] end_position) implements ArrowSerializableRecord {
+        @Nullable byte[] start_position,
+        @Nullable byte[] end_position) implements ArrowSerializableRecord {
 
     /** A plan with no splits: legal, and means the scan has no work to do.
      *

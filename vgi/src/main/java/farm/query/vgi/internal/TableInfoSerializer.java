@@ -33,12 +33,12 @@ import static farm.query.vgi.internal.IpcStructBuilder.writeVarChar;
  * Serialiser for {@link TableInfo}. Matches the C++ extension's
  * {@code TableInfoSchema} field-by-field.
  *
- * <p>{@code cardinality_estimate} / {@code cardinality_max} carry a deliberate
- * schema-vs-row-null mismatch: schema is non-nullable (the C++ parser asserts
- * that on read), but the per-row null bit MAY be set — the C++ parser reads
- * via {@code as<int64_t>} which returns {@code optional<int64_t>} keyed on
- * the null bit, and a real {@code -1} would mean {@code Some(-1)} and falsely
- * trip the inlined-cardinality branch in {@code VgiTableEntry::Bind}.</p>
+ * <p>{@code cardinality_estimate} / {@code cardinality_max} are nullable in
+ * both the schema and the row: the C++ parser reads them via
+ * {@code as<int64_t>}, which returns {@code optional<int64_t>} keyed on the
+ * per-row null bit, and a sentinel {@code -1} would instead read as
+ * {@code Some(-1)} and falsely trip the inlined-cardinality branch in
+ * {@code VgiTableEntry::Bind}. So "unknown" must be a real null.</p>
  */
 public final class TableInfoSerializer {
 
@@ -60,14 +60,14 @@ public final class TableInfoSerializer {
             nonNull("supports_delete", BOOL),
             nonNull("supports_returning", BOOL),
             nonNull("supports_column_statistics", BOOL),
-            nonNull("scan_function", BINARY),
-            nonNull("insert_function", BINARY),
-            nonNull("update_function", BINARY),
-            nonNull("delete_function", BINARY),
-            nonNull("cardinality_estimate", I64),
-            nonNull("cardinality_max", I64),
-            nonNull("column_statistics", BINARY),
-            nonNull("bind_result", BINARY),
+            nullable("scan_function", BINARY),
+            nullable("insert_function", BINARY),
+            nullable("update_function", BINARY),
+            nullable("delete_function", BINARY),
+            nullable("cardinality_estimate", I64),
+            nullable("cardinality_max", I64),
+            nullable("column_statistics", BINARY),
+            nullable("bind_result", BINARY),
             listOfListOfUtf8("required_filters")));
 
     /**

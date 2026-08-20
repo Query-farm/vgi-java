@@ -13,7 +13,9 @@ import java.time.Instant;
  * newest-first, with at most one entry per {@code version}.</p>
  *
  * @param version    concrete published version (e.g. {@code "1.1.0"}), not a spec
- * @param releasedAt release timestamp (UTC); the wire schema requires it non-null
+ * @param releasedAt release timestamp (UTC). The wire column is nullable, but
+ *                   this SDK requires a value rather than publishing a
+ *                   release with no date
  * @param summary    one-line human summary (empty string when unknown)
  * @param notesUrl   optional per-release link to detailed notes; may be null
  */
@@ -24,7 +26,7 @@ public record CatalogDataVersionRelease(
         String notesUrl) {
 
     /**
-     * Enforces the wire schema's nullability: {@code version} and
+     * Enforces this SDK's stricter-than-wire invariant: {@code version} and
      * {@code releasedAt} must be present, and a {@code null} summary is
      * normalised to the empty string ({@code notesUrl} alone may stay null).
      */

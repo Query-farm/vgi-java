@@ -27,7 +27,7 @@ import java.util.List;
  * Serialises a CatalogInfo discovery record to wire bytes — a 1-row IPC stream
  * with schema {@code {name: utf8, implementation_version: utf8?,
  *  data_version_spec: utf8?, attach_option_specs: list<binary>,
- *  releases: list<struct<version: utf8, released_at: timestamp[us,UTC],
+ *  releases: list<struct<version: utf8, released_at: timestamp[us,UTC]?,
  *  summary: utf8, notes_url: utf8?>>, source_url: utf8?}}.
  *
  * <p>Field order and nullability must match the C++ {@code CatalogInfo} schema
@@ -43,13 +43,13 @@ public final class CatalogInfoSerializer {
     private static final ArrowType TS_US_UTC =
             new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC");
 
-    // Child struct of the releases list. Only notes_url is nullable, matching
-    // the C++ CatalogInfo schema.
+    // Child struct of the releases list. released_at and notes_url are nullable,
+    // matching the C++ CatalogInfo schema; this SDK always supplies released_at.
     private static final Field RELEASE_STRUCT = new Field("item",
             new FieldType(true, new ArrowType.Struct(), null),
             List.of(
                     new Field("version", new FieldType(false, UTF8, null), null),
-                    new Field("released_at", new FieldType(false, TS_US_UTC, null), null),
+                    new Field("released_at", new FieldType(true, TS_US_UTC, null), null),
                     new Field("summary", new FieldType(false, UTF8, null), null),
                     new Field("notes_url", new FieldType(true, UTF8, null), null)));
 

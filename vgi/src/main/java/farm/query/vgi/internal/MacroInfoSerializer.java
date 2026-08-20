@@ -21,9 +21,9 @@ import static farm.query.vgi.internal.IpcStructBuilder.writeVarChar;
 
 /**
  * Serialiser for {@link MacroInfo}. The C++ extension's {@code MacroInfoSchema}
- * expects {@code macro_type} as {@code dictionary<int16, utf8>} and
- * {@code parameter_default_values} as non-nullable {@code binary} (empty bytes
- * when absent).
+ * expects {@code macro_type} as {@code dictionary<int16, utf8>}; both binary
+ * columns ({@code parameter_default_values}, {@code arguments_schema}) are
+ * nullable, and this SDK writes empty bytes rather than null when absent.
  */
 public final class MacroInfoSerializer {
 
@@ -39,9 +39,9 @@ public final class MacroInfoSerializer {
             nonNull("schema_name", UTF8),
             MACRO_TYPE.field(false),
             listOfPrim("parameters", UTF8),
-            nonNull("parameter_default_values", BINARY),
+            nullable("parameter_default_values", BINARY),
             nonNull("definition", UTF8),
-            nonNull("arguments_schema", BINARY)));
+            nullable("arguments_schema", BINARY)));
 
     /**
      * Serialise {@code info} as the 1-row IPC stream the C++ extension reads for a catalog macro.

@@ -3,6 +3,7 @@
 package farm.query.vgi.protocol;
 
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
+import farm.query.vgirpc.schema.Nullable;
 
 /**
  * Wire DTO for the {@code table_function_cardinality} request.
@@ -12,4 +13,4 @@ import farm.query.vgirpc.schema.ArrowSerializableRecord;
  */
 public record CardinalityRequest(
         byte[] bind_call,
-        byte[] bind_opaque_data) implements ArrowSerializableRecord {}
+        @Nullable byte[] bind_opaque_data) implements ArrowSerializableRecord {}

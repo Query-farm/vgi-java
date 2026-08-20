@@ -3,6 +3,7 @@
 package farm.query.vgi.protocol;
 
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
+import farm.query.vgirpc.schema.Nullable;
 
 /**
  * Wire DTO for VGI init headers. Sent as the first batch of an {@code init}
@@ -15,7 +16,7 @@ import farm.query.vgirpc.schema.ArrowSerializableRecord;
 public record GlobalInitResponse(
         byte[] execution_id,
         long max_workers,
-        byte[] opaque_data) implements ArrowSerializableRecord {
+        @Nullable byte[] opaque_data) implements ArrowSerializableRecord {
 
     /**
      * Builds a single-worker response with no opaque data.

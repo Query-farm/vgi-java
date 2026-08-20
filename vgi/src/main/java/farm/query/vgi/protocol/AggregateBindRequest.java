@@ -22,8 +22,8 @@ import farm.query.vgirpc.schema.Nullable;
 public record AggregateBindRequest(
         String function_name,
         byte[] arguments,
-        byte[] input_schema,
-        byte[] settings,
-        byte[] secrets,
+        @Nullable byte[] input_schema,
+        @Nullable byte[] settings,
+        @Nullable byte[] secrets,
         @Nullable byte[] attach_opaque_data,
         @Nullable String schema_name) implements ArrowSerializableRecord {}

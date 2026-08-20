@@ -105,7 +105,7 @@ final class FunctionInfoSerializer {
             nullable("late_materialization", BOOL),
             listOfPrim("supported_expression_filters", UTF8),
             ORDER_PRESERVATION.field(true),
-            nonNull("max_workers", I32),
+            nullable("max_workers", I32),
             // supports_batch_index / partition_kind landed in the C++
             // extension's FunctionInfoSchema between max_workers and
             // order_dependent. Older Java workers omitted them and HTTP-mode

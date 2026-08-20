@@ -109,8 +109,11 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <ul>
  *   <li>{@code PlanResponse} declared two fields {@code @Nullable} that the
- *       protocol declares non-null; the client rejected the entire response
- *       with "out-of-date Apache Arrow schema", naming nothing useful;</li>
+ *       protocol declared non-null at the time; the client rejected the entire
+ *       response with "out-of-date Apache Arrow schema", naming nothing useful.
+ *       The protocol has since been corrected and declares both nullable (see
+ *       the vgi-rpc note below), but the failure mode is unchanged: any
+ *       disagreement is rejected wholesale;</li>
  *   <li>a builder supplied 7 of a 9-field schema's columns. The missing one was
  *       a LIST, and Arrow dereferences a list's children while writing, so
  *       <em>every</em> multi-branch table died on
@@ -131,6 +134,20 @@ import static org.junit.jupiter.api.Assertions.fail;
  * carries {@code int32}. Every one was the declaration being wrong, not the
  * serialiser, so nothing on the wire moved; what changed is that the
  * declaration can now be trusted by anyone deriving a reader from it.</p>
+ *
+ * <p>Those same nullability fields have since moved again, in the other
+ * direction, and for a reason neither axis above could see: the PROTOCOL was
+ * wrong. vgi-rpc derived a field's nullability with
+ * {@code get_origin(...) is UnionType}, which is {@code Annotated} — never a
+ * union — for every field wrapped in {@code Annotated}, so 54 protocol fields
+ * were described as non-null while their values were free to be, and routinely
+ * were, null. No single SDK notices: the same wrong schema describes both the
+ * write and the read. This test, comparing a peer's declaration field by
+ * field, is what surfaced it. vgi-rpc 0.43.0 fixed the derivation, the
+ * generated {@link VgiProtocolSchemas} now says nullable for all 54, and the
+ * Java declarations and hand-built serialisers here were flipped to match. The
+ * {@code ScanSplit} allowance list that used to excuse four of those fields is
+ * gone with it — the comparison is strict on nullability everywhere.</p>
  *
  * <p>Adding the protocol axis turned up the rest of the same class, in records
  * the first axis is structurally blind to: {@code InitRequest} declared
@@ -252,11 +269,11 @@ class WireRecordSchemaConformanceTest {
      * <p>Within this SDK these cannot drift, because the declaration <em>is</em>
      * the schema — which is also why nothing here could catch the declaration
      * being wrong. {@code PlanResponse} marked two components {@code @Nullable}
-     * that the protocol declares non-null and every test in this repo passed;
-     * the C++ client rejected the whole response. So the comparison is against
-     * {@link VgiProtocolSchemas}, generated from the protocol rather than from
-     * Java, and the mapping is spelled out because it is not always one word —
-     * a method's result schema is named after the method
+     * that the protocol then declared non-null and every test in this repo
+     * passed; the C++ client rejected the whole response. So the comparison is
+     * against {@link VgiProtocolSchemas}, generated from the protocol rather
+     * than from Java, and the mapping is spelled out because it is not always
+     * one word — a method's result schema is named after the method
      * ({@code CardinalityResponse} is {@code TableFunctionCardinalityResult}),
      * and a record that appears only as a nested column is addressed through
      * its parent ({@code FunctionInfo.examples[]}).</p>
@@ -310,29 +327,6 @@ class WireRecordSchemaConformanceTest {
         return codecSerialised().entrySet().stream()
                 .map(e -> new Object[] {e.getKey().getSimpleName(), e.getKey(), e.getValue()});
     }
-
-    /**
-     * Fields the protocol declares non-nullable that this SDK writes nullable,
-     * and why that is the protocol's artifact rather than Java's drift.
-     *
-     * <p>vgi-rpc derives a field's nullability from the Python annotation, but
-     * an explicit {@code ArrowType(...)} override replaces the whole type and
-     * takes the {@code | None} with it. Every {@code ScanSplit} field below is
-     * declared {@code X | None} in {@code vgi/protocol.py} and documented as
-     * optional, and the reference implementation writes an actual NULL into the
-     * column — a batch whose schema says {@code not null} and whose values are
-     * not. Java describes the same bytes accurately.</p>
-     *
-     * <p>The durable fix is a nullability-aware {@code ArrowType} in vgi-rpc,
-     * after which every SDK's generated schema says nullable and this list goes
-     * away. Until then it is enumerated rather than relaxed as a rule, so a
-     * SIXTH field drifting still fails.</p>
-     */
-    private static final Set<String> PROTOCOL_SAYS_NON_NULL_BUT_WRITES_NULL = Set.of(
-            "ScanSplit.partition_bounds",
-            "ScanSplit.column_statistics",
-            "ScanSplit.start_position",
-            "ScanSplit.end_position");
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("handBuilt")
@@ -671,9 +665,7 @@ class WireRecordSchemaConformanceTest {
         if (!want.getType().equals(got.getType())) {
             problems.add(path + ": declared " + want.getType() + " but wrote " + got.getType());
         }
-        boolean nullabilityExcused = !want.isNullable() && got.isNullable()
-                && PROTOCOL_SAYS_NON_NULL_BUT_WRITES_NULL.contains(path);
-        if (want.isNullable() != got.isNullable() && !nullabilityExcused) {
+        if (want.isNullable() != got.isNullable()) {
             problems.add(path + ": declared nullable=" + want.isNullable()
                     + " but wrote nullable=" + got.isNullable());
         }

@@ -37,14 +37,12 @@ import java.util.Map;
  * @param order_preservation           dictionary-encoded order-preservation guarantee, or {@code null}.
  * @param max_workers                  maximum parallel worker count, or {@code null}
  *                                     when the function declares none. Boxed on purpose:
- *                                     the field's <em>schema</em> is non-nullable (that is
- *                                     the registered wire contract), but vgi-python writes
- *                                     a null row value into it for a function with no
- *                                     declared limit, and the C++ extension reads it as an
- *                                     {@code optional}. A primitive {@code int} here cannot
- *                                     represent what the reference implementation actually
- *                                     sends. Same schema-vs-row-null wart as
- *                                     {@code TableInfo.cardinality_estimate}.
+ *                                     the column is nullable and vgi-python writes an
+ *                                     actual null for a function with no declared limit,
+ *                                     which the C++ extension reads as an
+ *                                     {@code optional}. A primitive {@code int} here
+ *                                     cannot represent what the reference implementation
+ *                                     sends.
  * @param supports_batch_index         whether per-batch index tagging is supported.
  * @param supports_splits              whether the scan divides into named,
  *        independently redeemable splits. A distributed engine reads this to
@@ -94,14 +92,11 @@ public record FunctionInfo(
         @Nullable Boolean late_materialization,
         List<String> supported_expression_filters,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String order_preservation,
-        // NOT @Nullable — the schema-vs-row-null split described above is
-        // exactly what the annotation cannot express, and it was marking the
-        // COLUMN nullable. A JVM client deriving its reader from this
-        // declaration then looks for a nullable column, finds the non-null one
-        // every worker actually sends, and rejects the batch as an
-        // "out-of-date Apache Arrow schema" — the failure a wrongly-@Nullable
-        // PlanResponse already produced once.
-        @ArrowField(ArrowFieldType.INT32) Integer max_workers,
+        // Nullable COLUMN as well as a nullable row value: the protocol declares
+        // it optional (vgi-rpc 0.43.0 corrected a derivation bug that reported
+        // every Annotated field as non-null), and FunctionInfoSerializer writes
+        // the column that way.
+        @Nullable @ArrowField(ArrowFieldType.INT32) Integer max_workers,
         boolean supports_batch_index,
         boolean supports_splits,
         boolean filters_exactly_applied,

@@ -3,6 +3,7 @@
 package farm.query.vgi.protocol;
 
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
+import farm.query.vgirpc.schema.Nullable;
 
 import java.util.List;
 
@@ -21,7 +22,7 @@ import java.util.List;
  */
 public record BindResponse(
         byte[] output_schema,
-        byte[] opaque_data,
+        @Nullable byte[] opaque_data,
         List<String> lookup_secret_types,
         List<String> lookup_scopes,
         List<String> lookup_names) implements ArrowSerializableRecord {

@@ -43,13 +43,10 @@ public record MacroInfo(
         String schema_name,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String macro_type,
         List<String> parameters,
-        // The two binary fields below are NOT @Nullable even though a worker
-        // may leave them unset: both wire COLUMNS are non-null binary
-        // (MacroInfoSchema), and absence travels as empty bytes, which is what
-        // MacroInfoSerializer writes for a null. Marking the columns nullable
-        // here described a schema no worker sends, and a client that derived
-        // its reader from this declaration would reject every macro listing.
-        byte[] parameter_default_values,
+        // Both wire COLUMNS are nullable binary (MacroInfoSchema). A worker may
+        // leave either unset, and absence travels as empty bytes, which is what
+        // MacroInfoSerializer writes for a null.
+        @Nullable byte[] parameter_default_values,
         String definition,
-        byte[] arguments_schema) implements ArrowSerializableRecord {
+        @Nullable byte[] arguments_schema) implements ArrowSerializableRecord {
 }
