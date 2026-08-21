@@ -37,13 +37,40 @@ smoke: build
 	  SELECT example.add_values(1, 2) AS result; \
 	  DETACH example;"
 
-## Run the in-scope integration tests (excludes writable, simple_writable,
-## attach, bearer_auth — those need additional worker binaries we haven't
-## ported yet).
+## Run the in-scope integration tests.
+##
+## Exclusions (audited 2026-08-21 — each is anchored so it drops exactly the
+## files named, nothing else):
+##
+##   simple_writable/ — writable VGI is genuinely unimplemented in this repo;
+##     there is no writable worker to point these at. (Upstream has no
+##     `writable/` directory today, so no glob is needed for one.)
+##
+##   attach/ddl_wire_contract.test — KNOWN FAILURE against this worker, not a
+##     scope gap. vgi-rpc-java's RpcServer.validateParameterContract rejects the
+##     C++ extension's catalog_schema_create request over two disagreements:
+##     (a) it treats a dictionary-encoded utf8 (`on_conflict: Utf8[dictionary: 0]`)
+##     as a different type from plain `Utf8`, and (b) it wants `tags` non-nullable
+##     where the client sends it nullable. Reproduced 2026-08-21. Fix the
+##     validator, then delete this line — do NOT re-broaden the glob.
+##
+## Deliberately NOT excluded any more:
+##   * bearer_auth/ — the worker has wired bearer auth since 40af24a
+##     (2026-06-13, Main.java buildHttpConfig); the test self-skips on
+##     `require-env VGI_TEST_BEARER_TOKEN`, which this lane does not set.
+##     Wiring a real bearer lane needs an HTTP worker booted on an ephemeral
+##     port (see vgi-rust ci/run-integration.sh) — follow-up work.
+##   * the rest of attach/ — 12 of the 13 files gate on fixture-worker env vars
+##     (VGI_VERSIONED*_WORKER / VGI_ATTACH_OPTIONS*_WORKER) that ci/run-integration.sh
+##     exports but this lane does not, so they skip visibly instead of silently
+##     vanishing from the staged set.
+##   * accumulate/attach_scope.test and catalog/multi_branch_two_writable.test —
+##     both pass here; they were only ever collateral damage of the unanchored
+##     `*attach*` / `*writable*` globs.
 test: build
 	@find $(HOME)/Development/vgi/test/sql/integration -name '*.test' \
-	  -not -path '*writable*' -not -path '*simple_writable*' \
-	  -not -path '*bearer_auth*' -not -path '*attach*' | sort > /tmp/intest.txt
+	  -not -path '*/simple_writable/*' \
+	  -not -name 'ddl_wire_contract.test' | sort > /tmp/intest.txt
 	@VGI_TEST_WORKER=$(EXAMPLE_LOCATION) $(UNITTEST) -f /tmp/intest.txt
 
 ## Run a single sqllogictest by file name.
