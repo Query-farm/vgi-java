@@ -22,19 +22,25 @@ import farm.query.vgi.pushdown.PushdownFilters;
  *        it. {@code null} when the client has no opinion
  * @param targetSplitBytes the primary sizing lever, since every engine is
  *        byte-driven. {@code null} when the client has no opinion
+ * @param maxSplitsPerResponse pagination cap for THIS call — Trino's
+ *        {@code ConnectorSplitSource.getNextBatch(maxSize)}, not a sizing
+ *        hint. An author who ignores it may return more splits than asked;
+ *        the framework does not truncate on their behalf. {@code null} when
+ *        the client set no cap
  */
 public record PlanRequest(
         PushdownFilters pushdownFilters,
         int[] projectionIds,
         byte[] cursor,
         Long minSplits,
-        Long targetSplitBytes) {
+        Long targetSplitBytes,
+        Long maxSplitsPerResponse) {
 
     /** A first-page plan call with no pushdown and no sizing request.
      *
      * @return an empty request
      */
     public static PlanRequest empty() {
-        return new PlanRequest(null, null, new byte[0], null, null);
+        return new PlanRequest(null, null, new byte[0], null, null, null);
     }
 }

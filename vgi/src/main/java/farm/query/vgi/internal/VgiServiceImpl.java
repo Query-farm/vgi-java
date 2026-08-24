@@ -1008,13 +1008,25 @@ public final class VgiServiceImpl implements VgiService {
         Map<String, byte[]> f = IpcUnpacker.unpack(request, "cursor", "pushdown_filters");
         byte[] cursor = f == null ? null : f.get("cursor");
         byte[] filters = f == null ? null : f.get("pushdown_filters");
+        Map<String, Long> longs = IpcUnpacker.unpackLongs(request,
+                "min_splits", "target_split_bytes", "max_splits_per_response");
+        List<Long> projectionIdsLong = IpcUnpacker.unpackLongList(request, "projection_ids");
+        int[] projectionIds = null;
+        if (projectionIdsLong != null) {
+            projectionIds = new int[projectionIdsLong.size()];
+            for (int i = 0; i < projectionIdsLong.size(); i++) {
+                Long v = projectionIdsLong.get(i);
+                projectionIds[i] = v == null ? -1 : v.intValue();
+            }
+        }
         return new farm.query.vgi.table.PlanRequest(
                 filters == null || filters.length == 0
                         ? null : farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(filters),
-                null,
+                projectionIds,
                 cursor == null ? new byte[0] : cursor,
-                null,
-                null);
+                longs == null ? null : longs.get("min_splits"),
+                longs == null ? null : longs.get("target_split_bytes"),
+                longs == null ? null : longs.get("max_splits_per_response"));
     }
 
     /** The not-split-capable answer: one split standing for the whole scan. */

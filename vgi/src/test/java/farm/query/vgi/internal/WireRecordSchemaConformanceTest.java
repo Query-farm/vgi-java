@@ -32,6 +32,7 @@ import farm.query.vgi.protocol.InitRequest;
 import farm.query.vgi.protocol.ItemsResponse;
 import farm.query.vgi.protocol.MacroInfo;
 import farm.query.vgi.protocol.PlanResponse;
+import farm.query.vgi.protocol.TableFunctionPlanRequest;
 import farm.query.vgi.protocol.ScanSplit;
 import farm.query.vgi.protocol.SchemaInfo;
 import farm.query.vgi.protocol.TableBufferingCombineRequest;
@@ -317,6 +318,7 @@ class WireRecordSchemaConformanceTest {
         m.put(TableBufferingDestructorResponse.class, new Codec("TableBufferingDestructorResult", ORDERED));
         m.put(TableBufferingProcessRequest.class, new Codec("TableBufferingProcessRequest", BY_NAME));
         m.put(TableBufferingProcessResponse.class, new Codec("TableBufferingProcessResult", ORDERED));
+        m.put(TableFunctionPlanRequest.class, new Codec("TableFunctionPlanRequest", BY_NAME));
         m.put(TableScanFunctionGetResponse.class, new Codec("ScanFunctionResult", ORDERED));
         m.put(TransactionBeginResponse.class, new Codec("CatalogTransactionBeginResult", ORDERED));
         m.put(ViewInfo.class, new Codec("ViewInfo", ORDERED));
