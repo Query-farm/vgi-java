@@ -333,7 +333,7 @@ public interface VgiService {
     default void catalog_schema_create(byte[] attach_opaque_data, String name,
                                           @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String on_conflict,
                                           @Nullable String comment,
-                                          java.util.Map<String, String> tags,
+                                          @Nullable java.util.Map<String, String> tags,
                                           @Nullable byte[] transaction_opaque_data) {
         throw new UnsupportedOperationException("catalog is read-only: catalog_schema_create not supported");
     }
@@ -366,12 +366,14 @@ public interface VgiService {
      * @param column_name             column to drop
      * @param ignore_not_found        skip silently when the table is missing
      * @param if_column_exists        skip when the column does not exist
+     * @param cascade                 also drop objects that depend on the column
      * @param transaction_opaque_data optional in-flight transaction handle
      */
     default void catalog_table_column_drop(byte[] attach_opaque_data, String schema_name, String name,
                                                String column_name,
                                                boolean ignore_not_found,
                                                boolean if_column_exists,
+                                               boolean cascade,
                                                @Nullable byte[] transaction_opaque_data) {
         throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_drop not supported");
     }

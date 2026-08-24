@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Routes the single example worker binary into a worker that deliberately
+# advertises an INCOMPATIBLE application protocol version, so
+# protocol_version/version_mismatch.test can assert the dispatch-boundary gate
+# fires and names which side to upgrade.
+#
+# 99.0.0 is a major bump, so it mismatches whatever the extension currently
+# sends without needing to track the real version. The worker binary is named
+# via $VGI_WORKER_BIN.
+export VGI_WORKER_CATALOG_NAME=example
+export VGI_PROTOCOL_VERSION_OVERRIDE=99.0.0
+exec "${VGI_WORKER_BIN:?set VGI_WORKER_BIN to the example worker launcher}" "$@"

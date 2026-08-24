@@ -1374,7 +1374,7 @@ public final class Main {
         // without either planning on the other's behalf.
         w.registerMultiBranchTable(
                 CatalogTable.builder("data", "multi_branch_split", colN)
-                        .comment("Multi-branch: split_sequence(30 over 6 splits) + sequence(20)"
+                        .comment("Multi-branch: split_sequence(30, splits=6) + sequence(20)"
                                 + " — used by splits/multi_branch.test").build(),
                 List.of(
                         new ScanBranch("split_sequence", List.of(),

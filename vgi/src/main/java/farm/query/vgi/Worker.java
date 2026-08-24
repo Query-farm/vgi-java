@@ -1063,8 +1063,30 @@ public final class Worker {
         RpcServer server = new RpcServer(VgiService.class,
                 new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates,
                         sealOpaqueData, sealOpaqueData ? opaqueDataKey : null));
-        server.setProtocolVersion(VGI_PROTOCOL_VERSION);
+        server.setProtocolVersion(advertisedProtocolVersion());
         return server;
+    }
+
+    /**
+     * The application protocol version this worker advertises and enforces.
+     *
+     * <p>{@link #VGI_PROTOCOL_VERSION} unless {@code VGI_PROTOCOL_VERSION_OVERRIDE}
+     * names another. The override exists for ONE purpose: the cross-language
+     * suite needs a worker that deliberately declares an incompatible version,
+     * so it can assert that the dispatch-boundary gate fires and that the error
+     * says which side to upgrade. Every other SDK's fixture worker has the same
+     * hook (vgi-rust's {@code ci/wrappers/vgi-worker-bad-protocol} sets exactly
+     * this variable).</p>
+     *
+     * <p>It is deliberately not a public API: mis-declaring the protocol version
+     * of a real worker makes it unreachable, which is the whole point of the
+     * test and a disaster anywhere else.</p>
+     *
+     * @return the version to advertise
+     */
+    private static String advertisedProtocolVersion() {
+        String override = System.getenv("VGI_PROTOCOL_VERSION_OVERRIDE");
+        return override == null || override.isBlank() ? VGI_PROTOCOL_VERSION : override.trim();
     }
 
     /**
