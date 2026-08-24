@@ -83,6 +83,7 @@ import farm.query.vgi.example.tableinout.EchoWitnessFunction;
 import farm.query.vgi.example.tableinout.FilterBySettingFunction;
 import farm.query.vgi.example.tableinout.SecretInOutFunction;
 import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
+import farm.query.vgi.example.tableinout.MultiBatchFinishFunction;
 import farm.query.vgi.example.tableinout.SubstreamPartialSumFunction;
 import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
 import farm.query.vgi.example.tableinout.RepeatInputsFunction;
@@ -668,6 +669,7 @@ public final class Main {
                 new UnnestTensorRowsFunction(),
                 new SecretInOutFunction(),
                 // Per-substream streaming finalize (parallel_finalize.test).
+                new MultiBatchFinishFunction(),
                 new SubstreamPartialSumFunction(),
                 // Blended ("UNNEST-style") RowTransformFunctions — positional
                 // args ARE the per-row input columns (blended.test,
