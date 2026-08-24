@@ -33,10 +33,13 @@ env:
   # resolved to the latest release at run time (see the "Resolve latest haybarn
   # release" step) so the unittest host stays ABI-compatible with the rebuilt
   # community-published vgi extension, mirroring the vgi-typescript CI.
-  # The vgi-rpc-java commit built from source (composite include) for the worker's
-  # HTTP features. Drop once a vgirpc release with these features is published and
-  # pinned in vgi/build.gradle.kts.
-  VGI_RPC_JAVA_REF: v0.22.0
+  # The vgi-rpc-java tag built from source (composite include) for the worker's
+  # HTTP features. It MUST match the `farm.query:vgirpc` version declared in
+  # vgi/build.gradle.kts — the composite substitutes that coordinate, so this
+  # ref, not the declared version, is what the worker actually compiles
+  # against, and a stale pin fails as `cannot find symbol`. Keep it in step
+  # with the identical pin in ci.yml.
+  VGI_RPC_JAVA_REF: v0.23.0
 
 jobs:
   integration:

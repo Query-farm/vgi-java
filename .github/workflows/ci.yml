@@ -22,7 +22,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VGI_RPC_JAVA_REF: v0.22.0
+  # The vgi-rpc-java tag built from source via the composite include. It MUST
+  # match the `farm.query:vgirpc` version declared in vgi/build.gradle.kts:
+  # the composite substitutes that coordinate, so this ref — not the declared
+  # version -- is what :vgi:compileJava actually compiles against here, and a
+  # stale pin fails as `cannot find symbol` on whatever the newer vgirpc added.
+  VGI_RPC_JAVA_REF: v0.23.0
 
 jobs:
   test:

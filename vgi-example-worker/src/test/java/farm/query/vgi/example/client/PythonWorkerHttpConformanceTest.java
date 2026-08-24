@@ -68,11 +68,16 @@ final class PythonWorkerHttpConformanceTest extends AbstractVgiHttpConformanceTe
      * A request the worker <em>rejects</em> must still come back as a protocol
      * error carrying a type and a message.
      *
-     * <p>Not in the shared body because it cannot be: the trigger is a function
-     * kind vgi-java's worker deliberately tolerates (see
-     * {@link VgiHttpWorkerUnderTest#tableFunctionTypeLabel}), so only the
-     * reference implementation rejects it. That makes this leg the only place
-     * the behaviour is observable at all.
+     * <p>Not in the shared body because it cannot be: vgi-java's worker
+     * tolerates an unknown schema-object kind, so only the reference
+     * implementation rejects it. That makes this leg the only place the
+     * behaviour is observable at all.
+     *
+     * <p>The kind used must be one no SDK recognises. It was {@code "table"}
+     * until vgi-python's {@code SchemaObjectType} gained {@code TABLE =
+     * "table"} — a legitimate member, so the call stopped raising and this
+     * test failed asserting that it would. Keep it a value that is not, and
+     * will not become, a {@code SchemaObjectType}.
      *
      * <p>It is also the regression test for a real vgi-rpc-python defect. The
      * HTTP request-validation guard caught a fixed list of exception types and
@@ -81,7 +86,7 @@ final class PythonWorkerHttpConformanceTest extends AbstractVgiHttpConformanceTe
      * answered with its default {@code {"title": "500 Internal Server Error"}}
      * page: no Arrow body, no error type, no message, the cause visible only in
      * the server's log. Before the fix this assertion sees
-     * {@code HttpError}; after it, {@code KeyError: 'table'}.
+     * {@code HttpError}; after it, {@code KeyError: 'no_such_kind'}.
      *
      * <p>The fix lives in vgi-rpc-python, which vgi-python installs as a
      * released dependency — so until it ships, the spawned fixture still has the
@@ -95,7 +100,7 @@ final class PythonWorkerHttpConformanceTest extends AbstractVgiHttpConformanceTe
     @Timeout(120)
     void aRejectedRequestStillCarriesATypeAndMessage() {
         RpcError rejected = assertThrows(RpcError.class,
-                () -> vgi.catalog_schema_contents_functions(handle, "main", "table", null, null),
+                () -> vgi.catalog_schema_contents_functions(handle, "main", "no_such_kind", null, null),
                 "an unrecognised function kind must be rejected");
         assumeTrue(!isPreFixTransportError(rejected),
                 "reference server predates the vgi-rpc-python fix for request-validation "
@@ -103,7 +108,7 @@ final class PythonWorkerHttpConformanceTest extends AbstractVgiHttpConformanceTe
         assertNotEquals("HttpError", rejected.errorType(),
                 "a rejected request must not degrade to a transport error, got: "
                         + rejected.errorType() + " / " + rejected.errorMessage());
-        assertTrue(rejected.errorMessage().contains("table"),
+        assertTrue(rejected.errorMessage().contains("no_such_kind"),
                 "the rejection must name the value it rejected, got: " + rejected.errorMessage());
     }
 
