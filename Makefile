@@ -115,10 +115,57 @@ smoke: build
 ##   * accumulate/attach_scope.test and catalog/multi_branch_two_writable.test —
 ##     both pass here; they were only ever collateral damage of the unanchored
 ##     `*attach*` / `*writable*` globs.
+# Coverage gates — see the note in vgi/Makefile (VGI_EXPECTED_SKIPS), and
+# ci/run-integration.sh, which has had MIN_EXECUTED / EXPECTED_SKIP_REASONS all
+# along. This target did not: it invoked `unittest` bare, and a lane that stops
+# running tests reports GREEN under that (fewer results, all passing). So the
+# repo could pass `make test` while the CI script would have caught the same
+# lane silently shrinking. Same two gates, same reasoning, now on both paths.
+#
+# Java runs 294 today.
+JAVA_MIN_EXECUTED ?= 290
+
+# Serial, deliberately. This lane ran under `unittest -f <filelist>` (one file
+# at a time) before it moved to run_tests.py, and it stays that way because
+# raising it to -j 6 fails 8 table_buffering files — reproducibly, and only
+# under concurrency: the same 16 files pass at -j 1.
+#
+# That is a java-worker bug, not a property of the launcher transport, and it
+# should be fixed rather than lived with: vgi-typescript runs the same suite
+# over the same `launch:` transport at JOBS=8 and is green, so one shared
+# launcher worker serving several concurrent DuckDB processes is supported.
+# Java's table-buffering path apparently is not safe across them.
+#
+# Bump this to 6 once that is fixed — the lane is minutes slower serially.
+JAVA_JOBS ?= 1
+COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
+	--allow-skip 'require spatial' \
+	--allow-skip 'require-env VGI_DOCKER_IMAGE' \
+	--allow-skip 'require-env VGI_DOCKER_TCP_IMAGE' \
+	--allow-skip 'require-env VGI_GITHUB_NETWORK_TESTS' \
+	--allow-skip 'require-env VGI_TEST_ICEBERG' \
+	--allow-skip 'require-env VGI_TEST_COMPANION_TARGET' \
+	--allow-skip 'require-env VGI_TEST_BEARER_TOKEN' \
+	--allow-skip 'require-env VGI_TEST_DEDICATED_WORKER' \
+	--allow-skip 'require-env VGI_TEST_BRANCH_DIR' \
+	--allow-skip 'require-env VGI_HTTP_TRANSPORT' \
+	--allow-skip 'require-env VGI_HTTP_DISABLE_ZSTD' \
+	--allow-skip 'require-env VGI_HTTP_NO_COMPRESSION' \
+	--allow-skip 'require-env VGI_VERSIONED_HTTP_WORKER' \
+	--allow-skip 'require-env VGI_VERSIONED_TABLES_HTTP_WORKER' \
+	--allow-skip 'require-env VGI_WORKER_SUPPORTS_DYNAMIC_CODE' \
+	--allow-skip 'require-env VGI_SIMPLE_WRITABLE_WORKER' \
+	--allow-skip 'require-env VGI_SCHEMA_RECONCILE_DB' \
+	--allow-skip 'require-env VGI_RULES_WORKER' \
+	--allow-skip 'require-env VGI_REQUIRE_LAUNCHER_TRANSPORT' \
+	--allow-skip 'require-env VGI_ATTACH_OPTIONS_REQUIRED_WORKER' \
+	--allow-skip 'require-env VGI_BAD_ENUM_WORKER' \
+	--allow-skip 'require-env VGI_BAD_PROTOCOL_WORKER'
+
 test: build
-	@find $(HOME)/Development/vgi/test/sql/integration -name '*.test' \
-	  -not -path '*/simple_writable/*' | sort > /tmp/intest.txt
-	@$(FIXTURE_ENV) $(UNITTEST) -f /tmp/intest.txt
+	@cd $(HOME)/Development/vgi && $(FIXTURE_ENV) \
+	    python3 scripts/run_tests.py -j $(JAVA_JOBS) $(COVERAGE_GATE) \
+	        "test/sql/integration/*" "~test/sql/integration/simple_writable/*"
 
 ## Run a single sqllogictest by file name.
 test-single: build
