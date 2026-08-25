@@ -39,9 +39,18 @@ BAD_PROTOCOL_LOCATION     := $(LAUNCHER_PREFIX)$(WRAPPERS)/vgi-worker-bad-protoc
 # Every fixture-worker variable the shared suite reads, in one place so `test`
 # and `test-single` cannot drift apart.
 #
-#   VGI_TEST_DEDICATED_WORKER is deliberately NOT a launch: location — the
-#   crash/pool-recovery tests need a worker this process owns and can watch die,
-#   which a shared launcher worker is not.
+#   VGI_TEST_DEDICATED_WORKER is deliberately NOT set here, and setting it is a
+#   bug. It gates table_buffering_{worker_crash,pool_recovery}.test, whose
+#   `crash_on_process` fixture SIGKILLs the worker serving it — but both files
+#   ATTACH the VGI_TEST_WORKER location, NOT the dedicated binary, so on this lane the
+#   victim is the ONE shared launcher JVM. Serially that is survivable (the next
+#   ATTACH respawns it); under -j it tears the worker out from under every
+#   concurrent DuckDB process, which is exactly the 8-file "table_buffering fails
+#   at -j 6" symptom this lane was pinned serial for. run_tests.py already
+#   leaves the var unset for shared-worker transports (launch:/unix:///http://) —
+#   see its `env.setdefault` guard — and setting it here defeated that. The two
+#   files self-skip instead (allow-listed in COVERAGE_GATE below); vgi-go and
+#   vgi-typescript do the same on their launcher lanes.
 #
 #   VGI_ATTACH_OPTIONS_REQUIRED_WORKER is the same wrapper as
 #   VGI_ATTACH_OPTIONS_WORKER: that worker serves the `attach_options_required`
@@ -57,7 +66,6 @@ FIXTURE_ENV := \
 	VGI_WORKER_BIN=$(EXAMPLE_WORKER) \
 	VGI_TEST_BRANCH_DIR=$(VGI_TEST_BRANCH_DIR) \
 	VGI_TEST_WORKER=$(EXAMPLE_LOCATION) \
-	VGI_TEST_DEDICATED_WORKER=$(EXAMPLE_WORKER) \
 	VGI_VERSIONED_WORKER=$(VERSIONED_LOCATION) \
 	VGI_VERSIONED_TABLES_WORKER=$(VERSIONED_TABLES_LOCATION) \
 	VGI_ATTACH_OPTIONS_WORKER=$(ATTACH_OPTIONS_LOCATION) \
@@ -66,7 +74,7 @@ FIXTURE_ENV := \
 	VGI_BAD_PROTOCOL_WORKER=$(BAD_PROTOCOL_LOCATION) \
 	VGI_REQUIRE_LAUNCHER_TRANSPORT=1
 
-.PHONY: build smoke test test-single clean
+.PHONY: build smoke test test-crash test-single clean
 
 ## Build all worker dist images.
 build:
@@ -125,19 +133,15 @@ smoke: build
 # Java runs 294 today.
 JAVA_MIN_EXECUTED ?= 290
 
-# Serial, deliberately. This lane ran under `unittest -f <filelist>` (one file
-# at a time) before it moved to run_tests.py, and it stays that way because
-# raising it to -j 6 fails 8 table_buffering files — reproducibly, and only
-# under concurrency: the same 16 files pass at -j 1.
-#
-# That is a java-worker bug, not a property of the launcher transport, and it
-# should be fixed rather than lived with: vgi-typescript runs the same suite
-# over the same `launch:` transport at JOBS=8 and is green, so one shared
-# launcher worker serving several concurrent DuckDB processes is supported.
-# Java's table-buffering path apparently is not safe across them.
-#
-# Bump this to 6 once that is fixed — the lane is minutes slower serially.
-JAVA_JOBS ?= 1
+# Parallel. This lane was pinned serial because raising it to -j 6 failed 8
+# table_buffering files reproducibly, which read as a java-worker concurrency
+# bug. It was not: FIXTURE_ENV set VGI_TEST_DEDICATED_WORKER, which un-skipped
+# table_buffering_{worker_crash,pool_recovery}.test, whose crash_on_process
+# fixture SIGKILLs the ONE shared launcher JVM every concurrent DuckDB process
+# is talking to. The survivors reported "RPC response stream EOF" / "Broken
+# pipe" — i.e. the collateral damage, not a race of their own. See the
+# VGI_TEST_DEDICATED_WORKER note above.
+JAVA_JOBS ?= 6
 COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 	--allow-skip 'require spatial' \
 	--allow-skip 'require-env VGI_DOCKER_IMAGE' \
@@ -166,6 +170,21 @@ test: build
 	@cd $(HOME)/Development/vgi && $(FIXTURE_ENV) \
 	    python3 scripts/run_tests.py -j $(JAVA_JOBS) $(COVERAGE_GATE) \
 	        "test/sql/integration/*" "~test/sql/integration/simple_writable/*"
+	@$(MAKE) --no-print-directory test-crash
+
+## The two crash files the main lane necessarily skips, run the only way they
+## are meaningful: over the SUBPROCESS transport, where VGI_TEST_WORKER is a
+## bare path and every DuckDB process forks its own private worker child. Both
+## ATTACH ${VGI_TEST_WORKER} and then have the worker SIGKILL itself, so on the
+## launcher transport the victim is the shared JVM (see the note above) — the
+## main lane leaves VGI_TEST_DEDICATED_WORKER unset so they self-skip there, and
+## this target is what actually exercises them. run_tests.py derives
+## VGI_TEST_DEDICATED_WORKER itself from the bare path, so it is not set here.
+test-crash: build
+	@cd $(HOME)/Development/vgi && VGI_TEST_WORKER=$(EXAMPLE_WORKER) \
+	    python3 scripts/run_tests.py -j 2 --min-executed 2 \
+	        "test/sql/integration/table_in_out/table_buffering_worker_crash.test" \
+	        "test/sql/integration/table_in_out/table_buffering_pool_recovery.test"
 
 ## Run a single sqllogictest by file name.
 test-single: build

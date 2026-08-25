@@ -116,11 +116,19 @@ boot_http_worker() {
 
 case "$TRANSPORT" in
   launch)
-    # VGI_TEST_DEDICATED_WORKER is a plain (non-pooled) worker for the crash/
-    # pool-recovery tests; the three wrappers route the one binary into the
-    # versioned / versioned_tables / attach_options catalogs.
+    # The three wrappers route the one binary into the versioned /
+    # versioned_tables / attach_options catalogs.
+    #
+    # NB: VGI_TEST_DEDICATED_WORKER stays UNSET here, for the same reason it is
+    # unset on the http lane below. It used to be exported as the bare binary
+    # path, on the theory that it named a private worker for the crash tests —
+    # but table_buffering_{worker_crash,pool_recovery}.test ATTACH
+    # ${VGI_TEST_WORKER}, not the dedicated path, so setting the var merely
+    # un-skipped a fixture (crash_on_process) that SIGKILLs the ONE shared
+    # launcher JVM serving the whole run. Serially that only cost the launcher a
+    # respawn; run the suite with any parallelism and it takes every concurrent
+    # DuckDB process down with it.
     export VGI_TEST_WORKER="launch:${VGI_WORKER_BIN}"
-    export VGI_TEST_DEDICATED_WORKER="${VGI_WORKER_BIN}"
     export VGI_VERSIONED_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned"
     export VGI_VERSIONED_TABLES_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned-tables"
     export VGI_ATTACH_OPTIONS_WORKER="launch:${HERE}/wrappers/vgi-worker-attach-options"
@@ -355,6 +363,20 @@ if [ "$TRANSPORT" = "launch" ]; then
   gz_port="$(VGI_HTTP_DISABLE_ZSTD=1 boot_http_worker "$VGI_WORKER_BIN")"
   ( export VGI_TEST_WORKER="http://localhost:${gz_port}" VGI_HTTP_DISABLE_ZSTD=1
     run_unittest "test/sql/integration/http/gzip_fallback.test" )
+fi
+
+# The two buffering crash files skip on every shared-worker transport (their
+# crash_on_process fixture SIGKILLs whatever worker serves it). They are only
+# meaningful over the SUBPROCESS transport, where VGI_TEST_WORKER is a bare path
+# and each DuckDB process forks a private worker child it can watch die — so
+# they get their own invocation with the bare binary, exactly like gzip_fallback
+# above gets its own http worker. Same subshell isolation: MAIN_EXECUTED and the
+# floor below are the main suite's, not this run's.
+if [ "$TRANSPORT" = "launch" ]; then
+  echo "Running the buffering crash files (subprocess transport, private worker) ..."
+  ( export VGI_TEST_WORKER="$VGI_WORKER_BIN" VGI_TEST_DEDICATED_WORKER="$VGI_WORKER_BIN"
+    run_unittest "test/sql/integration/table_in_out/table_buffering_worker_crash.test"
+    run_unittest "test/sql/integration/table_in_out/table_buffering_pool_recovery.test" )
 fi
 
 # Executed-case floor on the main suite — the collapse-detector. Reached only if
