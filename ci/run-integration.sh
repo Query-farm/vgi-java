@@ -225,15 +225,22 @@ EXPECTED_SKIP_REASONS=(
   'require-env VGI_DOCKER_IMAGE'                 # containerised worker lane
   'require-env VGI_DOCKER_TCP_IMAGE'             # containerised worker over TCP
   'require-env VGI_GITHUB_NETWORK_TESTS'         # hits github.com; opt-in only
+  # table_buffering_{worker_crash,pool_recovery}: their crash_on_process fixture
+  # SIGKILLs the worker serving it, and both files ATTACH ${VGI_TEST_WORKER} —
+  # a SHARED worker on every lane here (launch/shm share one launcher JVM, http
+  # one server), so running them would kill the process every concurrent test is
+  # using. Expected on ALL lanes, and NOT a coverage loss: the launch lane runs
+  # those two in their own step over the subprocess transport, where each DuckDB
+  # process owns a worker it can watch die.
+  'require-env VGI_TEST_DEDICATED_WORKER'
 )
 # Lane-specific additions — a skip expected on one lane is a red flag on another.
-# The launch lane wires the bad-enum / dedicated-crash / launcher workers, so
-# those tests RUN there; over http they gate off (shared server / no launcher).
+# The launch lane wires the bad-enum / launcher workers, so those tests RUN
+# there; over http they gate off (shared server / no launcher).
 if [ "$TRANSPORT" = "http" ]; then
   EXPECTED_SKIP_REASONS+=(
     'require-env VGI_BAD_ENUM_WORKER'
     'require-env VGI_REQUIRE_LAUNCHER_TRANSPORT'
-    'require-env VGI_TEST_DEDICATED_WORKER'
   )
 fi
 
