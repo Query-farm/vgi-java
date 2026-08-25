@@ -1005,9 +1005,11 @@ public final class VgiServiceImpl implements VgiService {
 
     /** Lift the plan call's pushdown and cursor onto the author-facing request. */
     private static farm.query.vgi.table.PlanRequest planRequestOf(byte[] request) {
-        Map<String, byte[]> f = IpcUnpacker.unpack(request, "cursor", "pushdown_filters");
+        Map<String, byte[]> f = IpcUnpacker.unpack(request, "cursor", "pushdown_filters", "refined_filters");
         byte[] cursor = f == null ? null : f.get("cursor");
         byte[] filters = f == null ? null : f.get("pushdown_filters");
+        byte[] refined = f == null ? null : f.get("refined_filters");
+        boolean filtersComplete = IpcUnpacker.unpackBool(request, "filters_complete", true);
         Map<String, Long> longs = IpcUnpacker.unpackLongs(request,
                 "min_splits", "target_split_bytes", "max_splits_per_response");
         List<Long> projectionIdsLong = IpcUnpacker.unpackLongList(request, "projection_ids");
@@ -1020,13 +1022,34 @@ public final class VgiServiceImpl implements VgiService {
             }
         }
         return new farm.query.vgi.table.PlanRequest(
-                filters == null || filters.length == 0
-                        ? null : farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(filters),
+                mergePushdownFilters(filters, refined),
                 projectionIds,
                 cursor == null ? new byte[0] : cursor,
                 longs == null ? null : longs.get("min_splits"),
                 longs == null ? null : longs.get("target_split_bytes"),
-                longs == null ? null : longs.get("max_splits_per_response"));
+                longs == null ? null : longs.get("max_splits_per_response"),
+                filtersComplete);
+    }
+
+    /**
+     * Merge {@code pushdown_filters} (this scan's static filters) with
+     * {@code refined_filters} (a continuation's dynamic narrowing) into the
+     * single {@link farm.query.vgi.pushdown.PushdownFilters} a {@code plan()}
+     * author sees — both are top-level (implicit-AND) filter lists on the
+     * wire, so merging them is just concatenating the two decoded lists.
+     */
+    private static farm.query.vgi.pushdown.PushdownFilters mergePushdownFilters(byte[] filters, byte[] refined) {
+        farm.query.vgi.pushdown.PushdownFilters staticFilters = filters == null || filters.length == 0
+                ? null : farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(filters);
+        farm.query.vgi.pushdown.PushdownFilters refinedFilters = refined == null || refined.length == 0
+                ? null : farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(refined);
+        if (refinedFilters == null) return staticFilters;
+        if (staticFilters == null) return refinedFilters;
+        List<farm.query.vgi.pushdown.PushdownFilter> merged =
+                new ArrayList<>(staticFilters.filters().size() + refinedFilters.filters().size());
+        merged.addAll(staticFilters.filters());
+        merged.addAll(refinedFilters.filters());
+        return new farm.query.vgi.pushdown.PushdownFilters(merged, staticFilters.version());
     }
 
     /** The not-split-capable answer: one split standing for the whole scan. */

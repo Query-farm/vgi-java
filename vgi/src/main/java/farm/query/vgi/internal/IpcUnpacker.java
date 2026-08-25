@@ -4,6 +4,7 @@ package farm.query.vgi.internal;
 
 import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -107,6 +108,34 @@ final class IpcUnpacker {
      *         null/absent, or {@code null} for the same "no data" cases
      *         {@link #unpack} returns {@code null} for
      */
+    /**
+     * Decode one non-nullable Bool column from the same 1-row struct
+     * {@link #unpack} reads binary columns from.
+     *
+     * @param request the 1-row IPC stream bytes
+     * @param fieldName the Bool column to read
+     * @param defaultValue returned verbatim for the same "no data" cases
+     *        {@link #unpack} returns {@code null} for, and when the cell
+     *        itself is null/absent — this field is non-nullable on the wire,
+     *        but an older peer simply omitting the column must not crash a
+     *        newer reader
+     * @return the cell's value, or {@code defaultValue}
+     */
+    static boolean unpackBool(byte[] request, String fieldName, boolean defaultValue) {
+        if (request == null || request.length == 0) return defaultValue;
+        try (ByteArrayInputStream in = new ByteArrayInputStream(request);
+             ArrowStreamReader reader = new ArrowStreamReader(in, Allocators.root())) {
+            if (!reader.loadNextBatch()) return defaultValue;
+            VectorSchemaRoot root = reader.getVectorSchemaRoot();
+            if (root.getRowCount() == 0) return defaultValue;
+            FieldVector vec = root.getVector(fieldName);
+            if (!(vec instanceof BitVector v) || v.isNull(0)) return defaultValue;
+            return v.get(0) != 0;
+        } catch (IOException | RuntimeException e) {
+            throw new IllegalStateException("IpcUnpacker.unpackBool failed: " + e.getMessage(), e);
+        }
+    }
+
     static List<Long> unpackLongList(byte[] request, String fieldName) {
         if (request == null || request.length == 0) return null;
         try (ByteArrayInputStream in = new ByteArrayInputStream(request);
