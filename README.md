@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Query-farm/vgi-java/actions/workflows/ci.yml"><img src="https://github.com/Query-farm/vgi-java/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://central.sonatype.com/artifact/farm.query/vgi"><img src="https://img.shields.io/maven-central/v/farm.query/vgi" alt="Maven Central"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Query%20Farm%20Source--Available-blue" alt="License"></a>
 </p>
