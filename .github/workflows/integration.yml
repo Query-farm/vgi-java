@@ -25,21 +25,38 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # The Query-farm/vgi commit whose test/sql/integration suite we run. Pinned
-  # for reproducibility; bump deliberately and re-validate against the then-current
-  # community extension (see ci/README.md).
-  VGI_REF: main
+  # The Query-farm/vgi commit whose test/sql/integration suite we run.
+  #
+  # This MUST be the same commit the community channel's vgi extension is built
+  # from -- see `repo.ref` in Query-farm-haybarn/haybarn-community-extensions
+  # extensions/vgi/description.yml -- because the extension is installed live
+  # (`INSTALL vgi FROM community`) and is NOT pinned here. The .test files and
+  # the extension binary are two halves of one client; skewing them tests a
+  # client against another client's tests.
+  #
+  # It was `main` (floating), which is how the 2026-08-26 upstream trio
+  # 27b6ded / f10b9bc / a0eb66b broke all three lanes: those commits added the
+  # `reason=secret_dependent` result-cache assertion to
+  # cache/secret_ineligible.test and the shared callable-discovery RPC-count
+  # assertion to macro/macros.test, TOGETHER WITH the C++ client code that
+  # satisfies them. The suite picked up the tests; the published extension did
+  # not have the code. Neither is a Java worker defect -- both files pass
+  # against a from-source extension built at vgi main with this same worker.
+  #
+  # Bump deliberately, in lockstep with the community republish, and
+  # re-validate locally (see ci/README.md "Version pins").
+  VGI_REF: 40891ac19b84ad8d545e6d3853104cebfaef8cb3
   # The Haybarn release providing the prebuilt haybarn-unittest binary is
   # resolved to the latest release at run time (see the "Resolve latest haybarn
   # release" step) so the unittest host stays ABI-compatible with the rebuilt
   # community-published vgi extension, mirroring the vgi-typescript CI.
-  # The vgi-rpc-java tag built from source (composite include) for the worker's
-  # HTTP features. It MUST match the `farm.query:vgirpc` version declared in
-  # vgi/build.gradle.kts — the composite substitutes that coordinate, so this
-  # ref, not the declared version, is what the worker actually compiles
-  # against, and a stale pin fails as `cannot find symbol`. Keep it in step
-  # with the identical pin in ci.yml.
-  VGI_RPC_JAVA_REF: v0.23.0
+  # The vgi-rpc-java revision built from source (composite include) for the
+  # worker's HTTP features. The composite substitutes the `farm.query:vgirpc`
+  # coordinate declared in vgi/build.gradle.kts, so this ref, not the declared
+  # version, is what the worker actually compiles against. An untagged SHA
+  # rather than a tag: see the pin's full comment in ci.yml, and keep the two
+  # in step.
+  VGI_RPC_JAVA_REF: 306e182e072a19fa753488241f141215c3b46e56
 
 jobs:
   integration:

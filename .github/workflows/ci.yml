@@ -22,12 +22,26 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # The vgi-rpc-java tag built from source via the composite include. It MUST
-  # match the `farm.query:vgirpc` version declared in vgi/build.gradle.kts:
-  # the composite substitutes that coordinate, so this ref — not the declared
-  # version -- is what :vgi:compileJava actually compiles against here, and a
-  # stale pin fails as `cannot find symbol` on whatever the newer vgirpc added.
-  VGI_RPC_JAVA_REF: v0.23.0
+  # The vgi-rpc-java revision built from source via the composite include. The
+  # composite substitutes the `farm.query:vgirpc` coordinate declared in
+  # vgi/build.gradle.kts, so this ref -- not the declared version -- is what
+  # :vgi:compileJava actually compiles and runs against here. A stale pin fails
+  # as `cannot find symbol` on whatever the newer vgirpc added, or, as below, as
+  # a runtime marshalling error.
+  #
+  # This is an UNTAGGED SHA on vgi-rpc-java main, not a release, because no
+  # release contains the fix these sources need. v0.23.0 and v0.23.1 both ship a
+  # `writeListElement` whose ArrowType switch has no LargeBinary case, so
+  # serializing InitRequest.split_tokens (a large_binary List<byte[]>) throws
+  # `unsupported list element type: LargeBinary` -- which is exactly how
+  # PlanClientRoundTripTest.plansAndRedeemsEverySplitAcrossPagination fails when
+  # it redeems a table_function_plan split. Fixed by vgi-rpc-java 306e182.
+  # Move this back to a tag once a vgirpc release >= that commit is cut, and
+  # bump `farm.query:vgirpc` in vgi/build.gradle.kts to it in the same change --
+  # until then the PUBLISHED vgi-java cannot redeem a split, because it resolves
+  # the published vgirpc 0.23.x. Keep in step with the identical pin in
+  # integration.yml.
+  VGI_RPC_JAVA_REF: 306e182e072a19fa753488241f141215c3b46e56
 
 jobs:
   test:
