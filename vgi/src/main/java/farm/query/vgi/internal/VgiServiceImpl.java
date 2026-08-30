@@ -485,6 +485,39 @@ public final class VgiServiceImpl implements VgiService {
                                          Arguments args,
                                          Schema inputSchema, Map<String, Object> settings,
                                          int argCount, byte[] token, CallContext ctx) {
+        if (inputSchema == null) {
+            // The single most common shape mismatch, found live against a real
+            // deployed worker: a caller drove this function via the plain
+            // producer path (table_function()) instead of
+            // table_in_out_function(input=...). A table-in-out function can
+            // only run against a negotiated input row stream, and the wire
+            // signal for "no stream was ever negotiated" is a bind whose
+            // input_schema is entirely absent.
+            //
+            // Left unguarded this does not fail here: initTableInOut silently
+            // substitutes an empty Schema for the missing one, and both sides
+            // then deadlock forever — the server never reaches finish() (a
+            // table-in-out function's output is driven by input rows that
+            // never arrive), and the client never stops (the server keeps
+            // issuing continuation tokens for a stream it believes is still
+            // open). Reject immediately instead, naming the function and the
+            // fix — mirrors vgi-python's Worker._validate_bind_shape and
+            // vgi-typescript's table-in-out.ts guard.
+            //
+            // NOT the same check as "zero columns": a present-but-empty
+            // schema (SchemaUtil.serializeSchema(new Schema(List.of())) —
+            // non-null, non-empty IPC bytes, which SchemaUtil.deserializeSchema
+            // decodes to a real zero-field Schema, not null) is the legitimate
+            // signal a blended/varargs row-transform function's childless call
+            // site sends (e.g. a no-arg row_sum() call) and must bind
+            // normally. Only a genuinely absent input_schema — null, or
+            // zero-length bytes on the wire — means the wrong RPC method was
+            // used.
+            throw new IllegalArgumentException(
+                    "'" + name + "' is a table-in-out function (it requires an input row stream) but "
+                    + "no input schema was supplied -- call it via table_in_out_function(input=...), "
+                    + "not table_function().");
+        }
         TableInOutFunction fn = OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
@@ -624,6 +657,29 @@ public final class VgiServiceImpl implements VgiService {
                                                          Schema realOutputSchema, byte[] execId,
                                                          GlobalInitResponse header,
                                                          List<byte[]> splitPayloads) {
+        if (request.phase() != null) {
+            // Mirror image of bindTableInOut's guard above: this is a plain
+            // producer (createProducer / RpcStream.producer — no input
+            // stream at all), but the caller's init carries a table-in-out /
+            // table-buffering phase marker ("INPUT", "FINALIZE",
+            // "TABLE_BUFFERING", "TABLE_BUFFERING_FINALIZE" — the only
+            // values the wire protocol defines, see
+            // include/vgi_rpc_types.hpp in the C++ extension), i.e. the
+            // caller drove it via table_in_out_function() instead of
+            // table_function(). The real C++ extension never sets a phase on
+            // a plain table function's init (it always passes "" — wire
+            // null); only a caller using the wrong RPC method for this
+            // function's shape would. Reject immediately rather than
+            // silently ignoring the phase and running as an ordinary
+            // producer while the caller is left feeding input batches nobody
+            // reads — the mismatched sibling produced a non-terminating
+            // continuation loop against a real deployed worker, not a clean
+            // error.
+            throw new IllegalStateException(
+                    "'" + bt.fn().name() + "' is a plain table function (it takes no input row stream) "
+                    + "but was called with init phase '" + request.phase() + "' set -- call it via "
+                    + "table_function(), not table_in_out_function().");
+        }
         // Project the full output schema down to the columns DuckDB requested,
         // but only when the function opts into projection pushdown. Otherwise
         // the framework would have to auto-project emitted batches (not
