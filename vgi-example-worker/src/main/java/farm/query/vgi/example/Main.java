@@ -506,7 +506,11 @@ public final class Main {
          .registerTable("main",
                         new farm.query.vgi.example.table.SameNameCachedFunctions.MainSchema())
          .registerTable("data",
-                        new farm.query.vgi.example.table.SameNameCachedFunctions.DataSchema());
+                        new farm.query.vgi.example.table.SameNameCachedFunctions.DataSchema())
+         .registerTable("main",
+                        new farm.query.vgi.example.table.SameNameTableFunctions.MainSchema())
+         .registerTable("data",
+                        new farm.query.vgi.example.table.SameNameTableFunctions.DataSchema());
     }
 
     private static void registerTables(Worker w) {
@@ -734,6 +738,18 @@ public final class Main {
 
     private static void registerCatalogTables(Worker w) {
         w.registerCatalogTable(CatalogTable.functionBacked(
+                        "main", farm.query.vgi.example.table.SameNameTableFunctions.TABLE_NAME,
+                        SchemaUtil.serializeSchema(
+                                farm.query.vgi.example.table.SameNameTableFunctions.OUTPUT),
+                        "Schema-disambiguation probe; the main-schema table",
+                        farm.query.vgi.example.table.SameNameTableFunctions.FUNCTION_NAME))
+                .registerCatalogTable(CatalogTable.functionBacked(
+                        "data", farm.query.vgi.example.table.SameNameTableFunctions.TABLE_NAME,
+                        SchemaUtil.serializeSchema(
+                                farm.query.vgi.example.table.SameNameTableFunctions.OUTPUT),
+                        "Schema-disambiguation probe; the data-schema table",
+                        farm.query.vgi.example.table.SameNameTableFunctions.FUNCTION_NAME))
+                .registerCatalogTable(CatalogTable.functionBacked(
                         "data", "ten_thousand_table",
                         SchemaUtil.serializeSchema(
                 new Schema(List.of(

@@ -67,6 +67,18 @@ mkdir -p "$STAGE/test/sql/integration"
     awk -v http="$AWK_HTTP" -f "$HERE/preprocess-require.awk" "$f" > "$STAGE/test/sql/integration/$f"
   done )
 
+# The database-worker tests package this executable through a path relative to
+# the staged unittest working directory. Staging only .test files leaves that
+# path unmatched, so preserve the fixture and its executable bit explicitly.
+DATABASE_WORKER_FIXTURE="$VGI_SRC/test/support/database_worker_fixture.sh"
+if [ ! -f "$DATABASE_WORKER_FIXTURE" ]; then
+  echo "::error::pinned VGI suite is missing $DATABASE_WORKER_FIXTURE" >&2
+  exit 1
+fi
+mkdir -p "$STAGE/test/support"
+install -m 0755 "$DATABASE_WORKER_FIXTURE" \
+  "$STAGE/test/support/database_worker_fixture.sh"
+
 # Transport recap (resolved above, before staging):
 #   launch — flock-coordinated AF_UNIX worker pool, amortising JVM cold-start
 #            across the run. Set VGI_RPC_SHM_SIZE_BYTES to also exercise the
@@ -225,6 +237,9 @@ EXPECTED_SKIP_REASONS=(
   'require-env VGI_DOCKER_IMAGE'                 # containerised worker lane
   'require-env VGI_DOCKER_TCP_IMAGE'             # containerised worker over TCP
   'require-env VGI_GITHUB_NETWORK_TESTS'         # hits github.com; opt-in only
+  'require-env VGI_DATABASE_BUN_WORKER'          # Bun package fixture belongs to its SDK lane
+  'require-env VGI_DATABASE_PYTHON_WORKER'       # Python package fixture belongs to its SDK lane
+  'require-env VGI_DATABASE_RUST_WORKER'         # Rust package fixture belongs to its SDK lane
   # table_buffering_{worker_crash,pool_recovery}: their crash_on_process fixture
   # SIGKILLs the worker serving it, and both files ATTACH ${VGI_TEST_WORKER} —
   # a SHARED worker on every lane here (launch/shm share one launcher JVM, http
