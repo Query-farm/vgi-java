@@ -1785,10 +1785,11 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, String name, byte[] transaction_opaque_data, CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         List<CatalogTable> extraTables = extraCatalogTablesFor(attach_opaque_data_plain, name);
-        if (extraCatalogOf(attach_opaque_data_plain) != null) {
+        Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
+        if (extraCatalog != null) {
             List<byte[]> extraItems = new ArrayList<>();
             for (CatalogTable t : extraTables) {
-                extraItems.add(TableInfoSerializer.serialize(toTableInfo(t)));
+                extraItems.add(TableInfoSerializer.serialize(toTableInfo(t, extraCatalog.name())));
             }
             return new ItemsResponse(extraItems);
         }
@@ -1809,7 +1810,7 @@ public final class VgiServiceImpl implements VgiService {
             if (isVersionedTables != isVtFixture) continue;
             if (catalogRegistry.isHiddenInVersionedTables(t.name(), attach_opaque_data_plain)) continue;
             CatalogTable resolved = dv == null ? t : catalogRegistry.resolveVersion(t, "data_version", dv);
-            items.add(TableInfoSerializer.serialize(toTableInfo(resolved)));
+            items.add(TableInfoSerializer.serialize(toTableInfo(resolved, null)));
         }
         return new ItemsResponse(items);
     }
@@ -1832,14 +1833,17 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
-        if (extraCatalogOf(attach_opaque_data_plain) != null) {
+        Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
+        if (extraCatalog != null) {
             for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
                 if (t.name().equals(name) && t.scanFunctionName() != null) {
                     byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
                             t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
                             t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed());
                     return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
-                            t.scanFunctionName(), argsBytes, List.of());
+                            t.scanFunctionName(), argsBytes, List.of(),
+                            worker.resolveTableFunctionSchema(
+                                    t.scanFunctionName(), schema_name, extraCatalog.name()));
                 }
             }
             throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
@@ -1851,7 +1855,8 @@ public final class VgiServiceImpl implements VgiService {
             byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
                     List.of((Object) (long) resolveTtVersion(at.unit(), at.value())), Map.of());
             return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
-                    "tt_pushdown_cols_scan", argsBytes, List.of());
+                    "tt_pushdown_cols_scan", argsBytes, List.of(),
+                    worker.resolveTableFunctionSchema("tt_pushdown_cols_scan", schema_name, null));
         }
         // cache_versioned: AT -> version arg, like versioned_data, but the scan
         // function advertises cache metadata (for the AT cache-isolation test).
@@ -1859,7 +1864,8 @@ public final class VgiServiceImpl implements VgiService {
             byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
                     List.of((Object) (long) resolveCacheVersion(at.unit(), at.value())), Map.of());
             return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
-                    "cache_versioned_scan", argsBytes, List.of());
+                    "cache_versioned_scan", argsBytes, List.of(),
+                    worker.resolveTableFunctionSchema("cache_versioned_scan", schema_name, null));
         }
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
@@ -1869,7 +1875,9 @@ public final class VgiServiceImpl implements VgiService {
                         resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
                         resolved.scanFunctionNamed() == null ? Map.of() : resolved.scanFunctionNamed());
                 return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
-                        resolved.scanFunctionName(), argsBytes, List.of());
+                        resolved.scanFunctionName(), argsBytes, List.of(),
+                        worker.resolveTableFunctionSchema(
+                                resolved.scanFunctionName(), schema_name, null));
             }
         }
         throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
@@ -1894,14 +1902,17 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
-        if (extraCatalogOf(attach_opaque_data_plain) != null) {
+        Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
+        if (extraCatalog != null) {
             for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
                 if (t.name().equals(name) && t.scanFunctionName() != null) {
                     farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
                             t.scanFunctionName(),
                             t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
                             t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
-                            null, false, null, null, null, null, null, null);
+                            null, false, null, null, null, null, null, null,
+                            worker.resolveTableFunctionSchema(
+                                    t.scanFunctionName(), schema_name, extraCatalog.name()));
                     return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
                 }
             }
@@ -1913,7 +1924,10 @@ public final class VgiServiceImpl implements VgiService {
         List<farm.query.vgi.catalog.ScanBranch> branches =
                 worker.multiBranchTable(schema_name, name);
         if (branches != null) {
-            return ScanBranchesResultSerializer.serialize(branches,
+            List<farm.query.vgi.catalog.ScanBranch> resolvedBranches = branches.stream()
+                    .map(branch -> resolveBranchSchema(branch, schema_name, null))
+                    .toList();
+            return ScanBranchesResultSerializer.serialize(resolvedBranches,
                     worker.multiBranchRequiredExtensions(schema_name, name));
         }
         // Every other scannable table wraps its single scan function as one
@@ -1926,14 +1940,16 @@ public final class VgiServiceImpl implements VgiService {
             farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
                     "tt_pushdown_cols_scan",
                     List.of((Object) (long) resolveTtVersion(at.unit(), at.value())),
-                    Map.of(), null, false, null, null, null, null, null, null);
+                    Map.of(), null, false, null, null, null, null, null, null,
+                    worker.resolveTableFunctionSchema("tt_pushdown_cols_scan", schema_name, null));
             return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
         }
         if ("data".equals(schema_name) && "cache_versioned".equals(name)) {
             farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
                     "cache_versioned_scan",
                     List.of((Object) (long) resolveCacheVersion(at.unit(), at.value())),
-                    Map.of(), null, false, null, null, null, null, null, null);
+                    Map.of(), null, false, null, null, null, null, null, null,
+                    worker.resolveTableFunctionSchema("cache_versioned_scan", schema_name, null));
             return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
         }
         for (CatalogTable t : worker.catalogTables()) {
@@ -1944,12 +1960,21 @@ public final class VgiServiceImpl implements VgiService {
                         resolved.scanFunctionName(),
                         resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
                         resolved.scanFunctionNamed() == null ? Map.of() : resolved.scanFunctionNamed(),
-                        null, false, null, null, null, null, null, null);
+                        null, false, null, null, null, null, null, null,
+                        worker.resolveTableFunctionSchema(
+                                resolved.scanFunctionName(), schema_name, null));
                 return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
             }
         }
         throw new IllegalArgumentException(
                 "scan_branches_get: unknown table " + schema_name + "." + name);
+    }
+
+    private farm.query.vgi.catalog.ScanBranch resolveBranchSchema(
+            farm.query.vgi.catalog.ScanBranch branch, String tableSchema, String catalogName) {
+        if (branch.functionName().isEmpty() || branch.schemaName() != null) return branch;
+        return branch.withSchemaName(worker.resolveTableFunctionSchema(
+                branch.functionName(), tableSchema, catalogName));
     }
 
     // -----------------------------------------------------------------------
@@ -2093,10 +2118,12 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, String schema_name, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
-        if (extraCatalogOf(attach_opaque_data_plain) != null) {
+        Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
+        if (extraCatalog != null) {
             for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
                 if (t.name().equals(name)) {
-                    return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(t))));
+                    return new ItemsResponse(List.of(TableInfoSerializer.serialize(
+                            toTableInfo(t, extraCatalog.name()))));
                 }
             }
             return ItemsResponse.empty();
@@ -2112,7 +2139,7 @@ public final class VgiServiceImpl implements VgiService {
                 // a generic time-travel error from resolveVersion.
                 CatalogTable resolved = isMultiBranch
                         ? t : catalogRegistry.resolveVersion(t, at.unit(), at.value());
-                return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(resolved))));
+                return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(resolved, null))));
             }
         }
         return ItemsResponse.empty();
@@ -2155,14 +2182,16 @@ public final class VgiServiceImpl implements VgiService {
         return out;
     }
 
-    private farm.query.vgi.protocol.TableInfo toTableInfo(CatalogTable t) {
+    private farm.query.vgi.protocol.TableInfo toTableInfo(CatalogTable t, String catalogName) {
         byte[] scanFn = null;
         if (t.scanFunctionName() != null && t.inlineScanFunction()) {
             scanFn = ScanFunctionResultEncoder.encode(
                     t.scanFunctionName(),
                     t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
                     t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
-                    List.of());
+                    List.of(),
+                    worker.resolveTableFunctionSchema(
+                            t.scanFunctionName(), t.schema(), catalogName));
         }
         List<Integer> notNullCols = extractNotNullColumnIndices(t.columns());
         List<byte[]> foreignKeys = new ArrayList<>();

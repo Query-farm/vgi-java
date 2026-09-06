@@ -50,7 +50,7 @@ public final class Worker {
      *  and {@link #globalFunctionPrefix(String)}. A worker that opts out still
      *  carries the fields (empty list, empty prefix): the extension matches the
      *  response schema exactly. */
-    public static final String VGI_PROTOCOL_VERSION = "1.4.0";
+    public static final String VGI_PROTOCOL_VERSION = "1.5.0";
 
     private String catalogName = "vgi";
     private String catalogComment = "";
@@ -517,6 +517,30 @@ public final class Worker {
     public String schemaOf(Object fn) {
         FunctionHome h = functionHomes.get(fn);
         return h == null || h.schemaName() == null ? defaultSchema : h.schemaName();
+    }
+
+    /**
+     * Resolve the schema containing a named table function. The table's schema
+     * wins when that function is registered there; otherwise a single
+     * unambiguous registration is returned. Native DuckDB functions and
+     * ambiguous names return {@code null}.
+     *
+     * @param functionName the function named by a scan result
+     * @param tableSchema the schema containing the table being resolved
+     * @param catalogName the auxiliary catalog owner, or {@code null} for this worker
+     * @return the authoritative function schema, or {@code null}
+     */
+    public String resolveTableFunctionSchema(
+            String functionName, String tableSchema, String catalogName) {
+        java.util.LinkedHashSet<String> homes = new java.util.LinkedHashSet<>();
+        for (TableFunction fn : tables) {
+            if (!fn.name().equals(functionName)
+                    || !java.util.Objects.equals(catalogOf(fn), catalogName)) continue;
+            String schema = schemaOf(fn);
+            if (schema.equalsIgnoreCase(tableSchema)) return schema;
+            homes.add(schema);
+        }
+        return homes.size() == 1 ? homes.iterator().next() : null;
     }
 
     /**

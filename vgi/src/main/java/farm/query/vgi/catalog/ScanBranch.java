@@ -36,6 +36,8 @@ import java.util.Map;
  *                       no locations is rejected
  * @param formatOptions format branch only — reader options, which BECOME the
  *                       reader's named arguments. Empty for the other kinds
+ * @param schemaName    function branch only — schema containing the named VGI
+ *                       function; {@code null} for native/ambiguous functions
  */
 public record ScanBranch(
         String functionName,
@@ -48,7 +50,28 @@ public record ScanBranch(
         String sourceTable,
         String formatName,
         List<String> formatLocations,
-        Map<String, Object> formatOptions) {
+        Map<String, Object> formatOptions,
+        String schemaName) {
+
+    /**
+     * Source-compatible constructor for pre-1.5 callers. The worker resolves
+     * the function schema before serializing the branch.
+     */
+    public ScanBranch(
+            String functionName,
+            List<Object> positional,
+            Map<String, Object> named,
+            String branchFilter,
+            boolean writable,
+            String sourceCatalog,
+            String sourceSchema,
+            String sourceTable,
+            String formatName,
+            List<String> formatLocations,
+            Map<String, Object> formatOptions) {
+        this(functionName, positional, named, branchFilter, writable, sourceCatalog,
+                sourceSchema, sourceTable, formatName, formatLocations, formatOptions, null);
+    }
 
     /**
      * Validates the branch and defensively copies the collections, normalizing
@@ -118,7 +141,7 @@ public record ScanBranch(
     public static ScanBranch format(String formatName, List<String> locations,
             Map<String, Object> options) {
         return new ScanBranch("", List.of(), Map.of(), null, false, null, null, null,
-                formatName, locations, options);
+                formatName, locations, options, null);
     }
 
     /**
@@ -129,7 +152,7 @@ public record ScanBranch(
      * @return the branch
      */
     public static ScanBranch of(String functionName, Object... positional) {
-        return new ScanBranch(functionName, List.of(positional), Map.of(), null, false, null, null, null, null, null, null);
+        return new ScanBranch(functionName, List.of(positional), Map.of(), null, false, null, null, null, null, null, null, null);
     }
 
     /**
@@ -141,7 +164,7 @@ public record ScanBranch(
      * @return the branch
      */
     public static ScanBranch filtered(String functionName, String branchFilter, Object... positional) {
-        return new ScanBranch(functionName, List.of(positional), Map.of(), branchFilter, false, null, null, null, null, null, null);
+        return new ScanBranch(functionName, List.of(positional), Map.of(), branchFilter, false, null, null, null, null, null, null, null);
     }
 
     /**
@@ -152,7 +175,7 @@ public record ScanBranch(
      * @return the writable branch
      */
     public static ScanBranch writable(String functionName, Object... positional) {
-        return new ScanBranch(functionName, List.of(positional), Map.of(), null, true, null, null, null, null, null, null);
+        return new ScanBranch(functionName, List.of(positional), Map.of(), null, true, null, null, null, null, null, null, null);
     }
 
     /**
@@ -169,6 +192,13 @@ public record ScanBranch(
     public static ScanBranch catalogTable(
             String sourceCatalog, String sourceSchema, String sourceTable, String branchFilter) {
         return new ScanBranch("", List.of(), Map.of(), branchFilter, false, sourceCatalog, sourceSchema,
-                sourceTable, null, null, null);
+                sourceTable, null, null, null, null);
+    }
+
+    /** Return this branch with an authoritative function schema. */
+    public ScanBranch withSchemaName(String schema) {
+        return new ScanBranch(functionName, positional, named, branchFilter, writable,
+                sourceCatalog, sourceSchema, sourceTable, formatName, formatLocations,
+                formatOptions, schema);
     }
 }

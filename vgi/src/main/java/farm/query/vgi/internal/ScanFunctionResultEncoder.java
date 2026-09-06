@@ -43,17 +43,20 @@ public final class ScanFunctionResultEncoder {
      * @param positional positional scan arguments (may be {@code null})
      * @param named named scan arguments (may be {@code null})
      * @param requiredExtensions DuckDB extension names the scan depends on (may be {@code null})
+     * @param schemaName schema containing the function, or {@code null}
      * @return the 1-row IPC stream bytes
      */
     public static byte[] encode(String functionName, List<Object> positional,
-                                  Map<String, Object> named, List<String> requiredExtensions) {
+                                  Map<String, Object> named, List<String> requiredExtensions,
+                                  String schemaName) {
         BufferAllocator alloc = Allocators.root();
         Schema schema = new Schema(List.of(
                 new Field("function_name", new FieldType(false, UTF8, null), null),
                 new Field("arguments", new FieldType(false, BINARY, null), null),
                 new Field("required_extensions",
                         new FieldType(false, new ArrowType.List(), null),
-                        List.of(new Field("item", new FieldType(true, UTF8, null), null)))));
+                        List.of(new Field("item", new FieldType(true, UTF8, null), null))),
+                new Field("schema_name", new FieldType(true, UTF8, null), null)));
 
         byte[] argsBytes = encodeArguments(positional, named, alloc);
 
@@ -69,6 +72,9 @@ public final class ScanFunctionResultEncoder {
             }
             w.endList();
             w.setValueCount(1);
+            VarCharVector schemaVector = (VarCharVector) root.getVector("schema_name");
+            if (schemaName == null) schemaVector.setNull(0);
+            else schemaVector.setSafe(0, new Text(schemaName));
             root.setRowCount(1);
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             try (ArrowStreamWriter sw = new ArrowStreamWriter(root, null, Channels.newChannel(baos))) {

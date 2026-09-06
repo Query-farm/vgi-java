@@ -54,7 +54,8 @@ public final class ScanBranchesResultSerializer {
             new Field("format_name", new FieldType(true, UTF8, null), null),
             new Field("format_locations", new FieldType(true, new ArrowType.List(), null),
                     List.of(new Field("item", new FieldType(true, UTF8, null), null))),
-            new Field("format_options", new FieldType(true, BINARY, null), null)));
+            new Field("format_options", new FieldType(true, BINARY, null), null),
+            new Field("schema_name", new FieldType(true, UTF8, null), null)));
 
     private static final Schema RESULT_SCHEMA = new Schema(List.of(
             new Field("branches", new FieldType(false, new ArrowType.List(), null),
@@ -126,6 +127,7 @@ public final class ScanBranchesResultSerializer {
                 // names, because an option value may be any Arrow type.
                 fo.setSafe(0, ScanFunctionResultEncoder.encodeArguments(List.of(), b.formatOptions()));
             }
+            setNullableString(root, "schema_name", b.schemaName());
             root.setRowCount(1);
             return writeStream(root);
         } catch (Exception e) {
