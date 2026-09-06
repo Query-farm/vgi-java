@@ -1478,46 +1478,7 @@ public final class Main {
     }
 
     private static void runWorker(Worker w, String[] args) {
-        boolean http = false;
-        String host = "127.0.0.1";
-        int port = 0;
-        String unixSocket = null;
-        String tcpAddr = null;
-        long idleTimeoutMs = 0;
-        for (int i = 0; i < args.length; i++) {
-            switch (args[i]) {
-                case "--http" -> http = true;
-                case "--host" -> host = args[++i];
-                case "--port" -> port = Integer.parseInt(args[++i]);
-                case "--unix" -> unixSocket = args[++i];
-                case "--tcp" -> tcpAddr = args[++i];
-                case "--idle-timeout" ->
-                        idleTimeoutMs = (long) (Double.parseDouble(args[++i]) * 1000.0);
-                // Launcher cache-key / fixture-parity flags. The vgi-python
-                // fixture worker implements these (quiet/debug logging,
-                // description pages, threading); here they only need to be
-                // accepted, so a launch: LOCATION that appends them to vary the
-                // launcher cache key (launcher/options_smoke.test) starts the
-                // worker instead of being rejected.
-                case "--describe", "--no-describe", "--threaded", "--quiet", "-q", "--debug" -> { }
-                case "--log-level" -> i++; // consumes its value
-                default -> { System.err.println("unknown arg: " + args[i]); System.exit(2); }
-            }
-        }
-        if (unixSocket != null) {
-            try { w.runUnixSocket(java.nio.file.Path.of(unixSocket), idleTimeoutMs); }
-            catch (Exception e) { e.printStackTrace(); System.exit(1); }
-        } else if (tcpAddr != null) {
-            try {
-                Worker.TcpAddr a = Worker.parseTcpAddr(tcpAddr);
-                w.runTcp(a.host(), a.port(), idleTimeoutMs);
-            } catch (Exception e) { e.printStackTrace(); System.exit(1); }
-        } else if (http) {
-            try { w.runHttp(buildHttpConfig(host, port)); }
-            catch (Exception e) { e.printStackTrace(); System.exit(1); }
-        } else {
-            w.runStdio();
-        }
+        w.runFromArgs(args, Main::customizeHttpConfig);
     }
 
     /**
@@ -1526,13 +1487,12 @@ public final class Main {
      * extension presents it via the {@code bearer_token} ATTACH option). Other
      * HTTP-feature knobs ({@code VGI_HTTP_DISABLE_ZSTD}) are applied here too.
      */
-    private static HttpServer.Config buildHttpConfig(String host, int port) {
-        HttpServer.Config.Builder cb = HttpServer.Config.builder().host(host).port(port);
+    private static HttpServer.Config.Builder customizeHttpConfig(HttpServer.Config.Builder cb) {
         String bearer = System.getenv("VGI_TEST_BEARER_TOKEN");
         if (bearer != null && !bearer.isEmpty()) {
             cb.authenticator(BearerAuthenticator.fromMap(
                     Map.of(bearer, new AuthContext("bearer", true, "vgi-test", Map.of()))));
         }
-        return cb.build();
+        return cb;
     }
 }

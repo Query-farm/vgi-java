@@ -1319,6 +1319,8 @@ public final class Worker {
                 case "--iroh-observe" -> irohObserve = true;
                 case "--idle-timeout" -> idleTimeoutMs =
                         (long) (Double.parseDouble(args[++i]) * 1000.0);
+                case "--describe", "--no-describe", "--threaded", "--quiet", "-q", "--debug" -> { }
+                case "--log-level" -> i++;
                 default -> { System.err.println("unknown arg: " + args[i]); System.exit(2); }
             }
         }
