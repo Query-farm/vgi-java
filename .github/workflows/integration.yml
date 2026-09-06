@@ -56,7 +56,7 @@ env:
   # version, is what the worker actually compiles against. An untagged SHA
   # rather than a tag: see the pin's full comment in ci.yml, and keep the two
   # in step.
-  VGI_RPC_JAVA_REF: 306e182e072a19fa753488241f141215c3b46e56
+  VGI_RPC_JAVA_REF: 920dc42cb7d7e652d582de7fbb5b0b7ee3836a34
 
 jobs:
   integration:
