@@ -1159,6 +1159,33 @@ public final class Worker {
     }
 
     /**
+     * Serve the identity-preserving raw upstream consumed by
+     * {@code vgi-iroh-bridge}. The upstream is loopback-only and requires the
+     * bridge's EndpointId-bearing PROXY-v2 preamble on every connection.
+     *
+     * @param host loopback bind host
+     * @param port bind port; {@code 0} selects a free port
+     * @param idleTimeoutMs idle watchdog in milliseconds; {@code <= 0} disables it
+     * @param bridge trusted bridge identity configuration
+     * @throws IOException if the socket cannot be bound or served
+     */
+    public void runIrohTcpUpstream(
+            String host, int port, long idleTimeoutMs, IrohBridgeOptions bridge) throws IOException {
+        requireLoopback(host, "Iroh raw bridge upstream");
+        if (bridge == null) throw new IllegalArgumentException("Iroh bridge options are required");
+        TcpSocketTransport.serveForever(
+                host,
+                port,
+                buildServer(false),
+                idleTimeoutMs,
+                (boundHost, boundPort) -> {
+                    System.out.println("TCP:" + boundHost + ":" + boundPort);
+                    System.out.flush();
+                },
+                bridge.tcpServerOptions());
+    }
+
+    /**
      * Parsed {@code [HOST:]PORT} TCP bind spec. Host defaults to loopback.
      *
      * @param host bind host
@@ -1196,12 +1223,31 @@ public final class Worker {
     }
 
     /**
+     * Run the ordinary VGI HTTP server behind {@code vgi-iroh-bridge}, retaining
+     * HTTP limits, continuations, externalized batches, and the authenticated
+     * client EndpointId.
+     *
+     * @param host loopback bind host
+     * @param port bind port; {@code 0} selects a free port
+     * @param bridge trusted bridge identity configuration
+     * @throws Exception if the server fails to start or serve
+     */
+    public void runHttp(String host, int port, IrohBridgeOptions bridge) throws Exception {
+        requireLoopback(host, "Iroh HTTP bridge upstream");
+        if (bridge == null) throw new IllegalArgumentException("Iroh bridge options are required");
+        runHttp(bridge.apply(HttpServer.Config.builder().host(host).port(port)).build());
+    }
+
+    /**
      * Canonical CLI dispatcher used by worker {@code main} methods. Parses
-     * the four flags every VGI worker accepts and runs the matching transport:
+     * the transport flags every VGI worker accepts and runs the matching transport:
      * <ul>
      *   <li>{@code --unix <path>}: AF_UNIX socket (launcher protocol)
      *   <li>{@code --tcp [<host>:]<port>}: TCP socket (launcher protocol)
      *   <li>{@code --http} with optional {@code --host}, {@code --port}: HTTP
+     *   <li>{@code --iroh-raw-upstream [<host>:]<port>}: trusted raw bridge upstream
+     *   <li>{@code --iroh-issuer}, repeated {@code --iroh-trusted-proxy}, and
+     *       {@code --iroh-observe}: Iroh bridge trust and authentication mode
      *   <li>{@code --idle-timeout <seconds>}: passed to {@code runUnixSocket} / {@code runTcp}
      *   <li>(default): stdio
      * </ul>
@@ -1231,6 +1277,10 @@ public final class Worker {
         int port = 0;
         String unixSocket = null;
         String tcpAddr = null;
+        String irohRawUpstream = null;
+        String irohIssuer = null;
+        List<String> irohTrustedProxies = new ArrayList<>();
+        boolean irohObserve = false;
         long idleTimeoutMs = 0;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -1239,10 +1289,31 @@ public final class Worker {
                 case "--port" -> port = Integer.parseInt(args[++i]);
                 case "--unix" -> unixSocket = args[++i];
                 case "--tcp" -> tcpAddr = args[++i];
+                case "--iroh-raw-upstream" -> irohRawUpstream = args[++i];
+                case "--iroh-issuer" -> irohIssuer = args[++i];
+                case "--iroh-trusted-proxy" -> irohTrustedProxies.add(args[++i]);
+                case "--iroh-observe" -> irohObserve = true;
                 case "--idle-timeout" -> idleTimeoutMs =
                         (long) (Double.parseDouble(args[++i]) * 1000.0);
                 default -> { System.err.println("unknown arg: " + args[i]); System.exit(2); }
             }
+        }
+        int selectedTransports = (http ? 1 : 0)
+                + (unixSocket != null ? 1 : 0)
+                + (tcpAddr != null ? 1 : 0)
+                + (irohRawUpstream != null ? 1 : 0);
+        if (selectedTransports > 1) {
+            throw new IllegalArgumentException(
+                    "--http, --unix, --tcp, and --iroh-raw-upstream are mutually exclusive");
+        }
+        if ((irohIssuer != null || !irohTrustedProxies.isEmpty() || irohObserve)
+                && irohRawUpstream == null && !http) {
+            throw new IllegalArgumentException(
+                    "Iroh bridge options require --http or --iroh-raw-upstream");
+        }
+        if ((irohRawUpstream != null || !irohTrustedProxies.isEmpty() || irohObserve)
+                && irohIssuer == null) {
+            throw new IllegalArgumentException("Iroh bridge options require --iroh-issuer");
         }
         try {
             if (unixSocket != null) {
@@ -1250,9 +1321,23 @@ public final class Worker {
             } else if (tcpAddr != null) {
                 TcpAddr a = parseTcpAddr(tcpAddr);
                 runTcp(a.host(), a.port(), idleTimeoutMs);
+            } else if (irohRawUpstream != null) {
+                if (irohIssuer == null) {
+                    throw new IllegalArgumentException(
+                            "--iroh-raw-upstream requires --iroh-issuer");
+                }
+                TcpAddr a = parseTcpAddr(irohRawUpstream);
+                runIrohTcpUpstream(a.host(), a.port(), idleTimeoutMs,
+                        IrohBridgeOptions.fromArgs(
+                                irohIssuer, irohTrustedProxies, !irohObserve));
             } else if (http) {
                 HttpServer.Config.Builder b = HttpServer.Config.builder().host(host).port(port);
                 if (httpCustomizer != null) b = httpCustomizer.apply(b);
+                if (irohIssuer != null) {
+                    requireLoopback(host, "Iroh HTTP bridge upstream");
+                    b = IrohBridgeOptions.fromArgs(
+                            irohIssuer, irohTrustedProxies, !irohObserve).apply(b);
+                }
                 runHttp(b.build());
             } else {
                 runStdio();
@@ -1308,5 +1393,11 @@ public final class Worker {
             }
         }, "vgi-http-shutdown"));
         http.join();
+    }
+
+    private static void requireLoopback(String host, String label) {
+        if (!("127.0.0.1".equals(host) || "::1".equals(host) || "localhost".equals(host))) {
+            throw new IllegalArgumentException(label + " must bind loopback, got " + host);
+        }
     }
 }

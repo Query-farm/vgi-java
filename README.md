@@ -133,6 +133,9 @@ The `launch:` location scheme starts the worker once behind a flock-coordinated 
 
 ## Example worker
 
+For authenticated `iroh://` and HTTP-semantics `httpi://` deployments, see
+[Iroh workers and clients](docs/iroh.md).
+
 The [`vgi-example-worker`](vgi-example-worker/) module (not published) is a complete worker with 90+ functions — scalar, table, aggregate, table-in/out, buffering, partitioned, multi-branch, transactional — that serves the canonical VGI integration suite. It is the best place to look for working patterns of any feature.
 
 ## Related projects

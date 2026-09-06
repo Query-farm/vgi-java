@@ -21,10 +21,12 @@ if (vgiRpcJavaDir.isDirectory) {
             // (group=farm.query, see ../Development/vgi-rpc-java/build.gradle.kts).
             substitute(module("farm.query:vgirpc")).using(project(":vgirpc"))
             substitute(module("farm.query:vgirpc-oauth")).using(project(":vgirpc-oauth"))
+            substitute(module("farm.query:vgirpc-iroh")).using(project(":vgirpc-iroh"))
             // Back-compat with callers that still use the legacy
             // farm.query.vgirpc:* coordinate naming.
             substitute(module("farm.query.vgirpc:vgirpc")).using(project(":vgirpc"))
             substitute(module("farm.query.vgirpc:vgirpc-oauth")).using(project(":vgirpc-oauth"))
+            substitute(module("farm.query.vgirpc:vgirpc-iroh")).using(project(":vgirpc-iroh"))
         }
     }
 }
