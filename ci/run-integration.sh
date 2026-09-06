@@ -44,7 +44,18 @@ AWK_HTTP=0
 HTTP_SKIP=()
 if [ "$TRANSPORT" = "http" ]; then
   AWK_HTTP=1
-  HTTP_SKIP=(-not -name 'projection_pushdown_repro.test' -not -name 'dynamic_filter.test')
+  HTTP_SKIP=(
+    -not -name 'projection_pushdown_repro.test'
+    -not -name 'dynamic_filter.test'
+    # This test packages VGI_TEST_WORKER as an executable. An http:// URL is
+    # deliberately not executable; the launch lane covers the package lifecycle.
+    -not -path './database_worker/package.test'
+  )
+elif [ -n "${VGI_RPC_SHM_SIZE_BYTES:-}" ]; then
+  # The package fixture starts independent worker processes outside the shared
+  # launcher whose SHM lifecycle this lane exercises. Keep that transport-mixed
+  # lifecycle test in the launch lane; the SHM lane covers the shared worker.
+  HTTP_SKIP=(-not -path './database_worker/package.test')
 fi
 
 echo "Staging preprocessed tests into $STAGE (transport=$TRANSPORT) ..."
