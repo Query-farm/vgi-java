@@ -26,6 +26,6 @@ except through that trusted bridge.
 
 For clients, add the optional `farm.query:vgirpc-iroh` module and use
 `HttpRpcConnection.irohBuilder("httpi://<endpoint-id>", options)` for HTTP
-semantics, or `IrohRpcConnection.connect(...)` for stateful Arrow-mux. Both use
+semantics, or `IrohTransports.connect(...)` for stateful Arrow-mux. Both use
 the official JVM Iroh bindings and accept stable identity, custom/private relay,
 direct-address, cancellation, and timeout configuration.
