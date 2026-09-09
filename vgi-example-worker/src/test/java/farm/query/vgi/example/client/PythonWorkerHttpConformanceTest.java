@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -100,7 +101,7 @@ final class PythonWorkerHttpConformanceTest extends AbstractVgiHttpConformanceTe
     @Timeout(120)
     void aRejectedRequestStillCarriesATypeAndMessage() {
         RpcError rejected = assertThrows(RpcError.class,
-                () -> vgi.catalog_schema_contents_functions(handle, "main", "no_such_kind", null, null),
+                () -> vgi.catalog_schema_contents_functions(handle, List.of("main"), "no_such_kind", null, null),
                 "an unrecognised function kind must be rejected");
         assumeTrue(!isPreFixTransportError(rejected),
                 "reference server predates the vgi-rpc-python fix for request-validation "

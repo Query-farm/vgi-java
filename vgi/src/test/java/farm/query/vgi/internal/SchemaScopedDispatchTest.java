@@ -23,6 +23,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -284,7 +285,7 @@ class SchemaScopedDispatchTest {
     }
 
     private static int listedFunctionCount(VgiServiceImpl svc, byte[] attach, String schema) {
-        ItemsResponse items = svc.catalog_schema_contents_functions(attach, schema, "scalar", null, null);
+        ItemsResponse items = svc.catalog_schema_contents_functions(attach, List.of(schema), "scalar", null, null);
         return items.items().size();
     }
 }

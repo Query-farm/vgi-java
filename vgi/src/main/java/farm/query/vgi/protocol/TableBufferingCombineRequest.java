@@ -16,7 +16,7 @@ import java.util.List;
  * @param state_ids          per-sink state identifiers produced by the process phase.
  * @param attach_opaque_data worker-private attach state.
  * @param transaction_id     enclosing transaction identifier.
- * @param schema_name catalog schema that declares the function. A function name is unique only
+ * @param schema_path catalog schema path that declares the function. A function name is unique only
  *     within a schema, so this is what lets the worker resolve {@code (schema, name)} rather than
  *     running whichever same-named implementation the by-name lookup finds first. {@code null}
  *     when the caller names no schema. Additive, nullable, name-keyed wire field; protocol 1.2.0
@@ -27,4 +27,4 @@ public record TableBufferingCombineRequest(
         List<byte[]> state_ids,
         @Nullable byte[] attach_opaque_data,
         @Nullable byte[] transaction_id,
-        @Nullable String schema_name) implements ArrowSerializableRecord {}
+        @Nullable List<String> schema_path) implements ArrowSerializableRecord {}

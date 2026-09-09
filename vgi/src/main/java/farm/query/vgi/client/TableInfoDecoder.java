@@ -102,7 +102,7 @@ public final class TableInfoDecoder {
                 str(row, "comment"),
                 stringMap(row, "tags"),
                 required(str(row, "name"), "name"),
-                required(str(row, "schema_name"), "schema_name"),
+                required(stringList(row, "schema_path"), "schema_path"),
                 required(bytes(row, "columns"), "columns"),
                 intList(row, "not_null_constraints"),
                 intListList(row, "unique_constraints"),

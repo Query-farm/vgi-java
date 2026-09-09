@@ -48,7 +48,7 @@ public final class TableInfoSerializer {
             nullable("comment", UTF8),
             mapUtf8Utf8("tags"),
             nonNull("name", UTF8),
-            nonNull("schema_name", UTF8),
+            listOfPrim("schema_path", UTF8),
             nonNull("columns", BINARY),
             listOfPrim("not_null_constraints", I32),
             listOfListOfInt32("unique_constraints"),
@@ -81,7 +81,7 @@ public final class TableInfoSerializer {
             writeVarChar(v.get("comment"), info.comment());
             writeMap(v.get("tags"), info.tags());
             writeVarChar(v.get("name"), info.name());
-            writeVarChar(v.get("schema_name"), info.schema_name());
+            writeStringList(v.get("schema_path"), info.schema_path());
             writeVarBinarySafe(v.get("columns"), info.columns());
             writeListInt32(v.get("not_null_constraints"), info.not_null_constraints());
             writeListListInt32(v.get("unique_constraints"), info.unique_constraints());

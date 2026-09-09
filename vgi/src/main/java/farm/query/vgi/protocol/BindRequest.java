@@ -5,6 +5,8 @@ package farm.query.vgi.protocol;
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
 import farm.query.vgirpc.schema.Nullable;
 
+import java.util.List;
+
 /**
  * Wire DTO for the VGI bind request, opening a table or function binding.
  *
@@ -31,9 +33,9 @@ import farm.query.vgirpc.schema.Nullable;
  * @param copy_to the {@code COPY ... TO} context, present only when this bind opens a
  *     COPY-TO sink; {@code null} for every ordinary bind. Additive, nullable, name-keyed
  *     nested-struct wire field, symmetric with {@code copy_from}
- * @param schema_name the catalog schema that owns the function being bound. A worker may
+ * @param schema_path the catalog schema path that owns the function being bound. A worker may
  *     register the same function name in more than one schema, so the bare name is not a
- *     unique key — dispatch resolves {@code (schema_name, function_name)}. The C++
+ *     unique key — dispatch resolves {@code (schema_path, function_name)}. The C++
  *     extension sets it from the schema entry the function actually resolved in (the
  *     table's schema for a function-backed scan, else the catalog's default schema).
  *     {@code null} for callers with no schema to name — COPY handler binds, which are
@@ -54,4 +56,14 @@ public record BindRequest(
         @Nullable String at_value,
         @Nullable CopyFromContext copy_from,
         @Nullable CopyToContext copy_to,
-        @Nullable String schema_name) implements ArrowSerializableRecord {}
+        @Nullable List<String> schema_path) implements ArrowSerializableRecord {
+    public BindRequest(String function_name, byte[] arguments, String function_type,
+            byte[] input_schema, byte[] settings, byte[] secrets, byte[] attach_opaque_data,
+            byte[] transaction_opaque_data, boolean resolved_secrets_provided, String at_unit,
+            String at_value, CopyFromContext copy_from, CopyToContext copy_to, String schema_name) {
+        this(function_name, arguments, function_type, input_schema, settings, secrets,
+                attach_opaque_data, transaction_opaque_data, resolved_secrets_provided, at_unit,
+                at_value, copy_from, copy_to,
+                schema_name == null ? null : List.of(schema_name));
+    }
+}

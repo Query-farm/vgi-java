@@ -36,6 +36,6 @@ public record CatalogAttachRequest(
     public static CatalogAttachRequest of(String name, byte[] options, String dataVersionSpec,
             String implementationVersion) {
         return new CatalogAttachRequest(name, options, dataVersionSpec, implementationVersion,
-                new byte[0]);
+                null);
     }
 }

@@ -81,7 +81,7 @@ final class FunctionInfoSerializer {
             nullable("comment", UTF8),
             mapUtf8Utf8("tags"),
             nonNull("name", UTF8),
-            nonNull("schema_name", UTF8),
+            listOfPrim("schema_path", UTF8),
             FUNCTION_TYPE.field(false),
             nonNull("arguments", BINARY),
             nonNull("output_schema", BINARY),
@@ -158,7 +158,7 @@ final class FunctionInfoSerializer {
             writeVarChar(v.get("comment"), info.comment());
             writeMap(v.get("tags"), info.tags());
             writeVarChar(v.get("name"), info.name());
-            writeVarChar(v.get("schema_name"), info.schema_name());
+            writeStringList(v.get("schema_path"), info.schema_path());
             FUNCTION_TYPE.write(v.get("function_type"), info.function_type());
             writeVarBinarySafe(v.get("arguments"), info.arguments());
             writeVarBinarySafe(v.get("output_schema"), info.output_schema());

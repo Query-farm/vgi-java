@@ -45,7 +45,8 @@ public final class ScanBranchesResultSerializer {
             new Field("branch_filter", new FieldType(true, UTF8, null), null),
             new Field("writable", new FieldType(false, BOOL, null), null),
             new Field("source_catalog", new FieldType(true, UTF8, null), null),
-            new Field("source_schema", new FieldType(true, UTF8, null), null),
+            new Field("source_schema_path", new FieldType(true, new ArrowType.List(), null),
+                    List.of(new Field("item", new FieldType(true, UTF8, null), null))),
             new Field("source_table", new FieldType(true, UTF8, null), null),
             // Format-branch columns. format_locations is a LIST, and Arrow's
             // writer dereferences a list's children while assembling — so a
@@ -55,7 +56,8 @@ public final class ScanBranchesResultSerializer {
             new Field("format_locations", new FieldType(true, new ArrowType.List(), null),
                     List.of(new Field("item", new FieldType(true, UTF8, null), null))),
             new Field("format_options", new FieldType(true, BINARY, null), null),
-            new Field("schema_name", new FieldType(true, UTF8, null), null)));
+            new Field("schema_path", new FieldType(true, new ArrowType.List(), null),
+                    List.of(new Field("item", new FieldType(true, UTF8, null), null)))));
 
     private static final Schema RESULT_SCHEMA = new Schema(List.of(
             new Field("branches", new FieldType(false, new ArrowType.List(), null),
@@ -114,7 +116,7 @@ public final class ScanBranchesResultSerializer {
             else bf.setSafe(0, new Text(b.branchFilter()));
             ((BitVector) root.getVector("writable")).setSafe(0, b.writable() ? 1 : 0);
             setNullableString(root, "source_catalog", b.sourceCatalog());
-            setNullableString(root, "source_schema", b.sourceSchema());
+            writeStringList(root, "source_schema_path", b.sourceSchemaPath());
             setNullableString(root, "source_table", b.sourceTable());
             setNullableString(root, "format_name", b.formatName());
             writeStringList(root, "format_locations", b.formatLocations());
@@ -127,7 +129,7 @@ public final class ScanBranchesResultSerializer {
                 // names, because an option value may be any Arrow type.
                 fo.setSafe(0, ScanFunctionResultEncoder.encodeArguments(List.of(), b.formatOptions()));
             }
-            setNullableString(root, "schema_name", b.schemaName());
+            writeStringList(root, "schema_path", b.schemaPath());
             root.setRowCount(1);
             return writeStream(root);
         } catch (Exception e) {

@@ -21,7 +21,7 @@ import java.util.Map;
  * @param comment                  optional macro comment, or {@code null}.
  * @param tags                     arbitrary key/value metadata tags.
  * @param name                     macro name.
- * @param schema_name              owning schema name.
+ * @param schema_path              owning schema identifier components.
  * @param macro_type               dictionary-encoded macro kind ({@code "scalar"} or {@code "table"}).
  * @param parameters               positional parameter names.
  * @param parameter_default_values IPC-encoded 1-row batch of named-parameter defaults;
@@ -40,7 +40,7 @@ public record MacroInfo(
         @Nullable String comment,
         Map<String, String> tags,
         String name,
-        String schema_name,
+        List<String> schema_path,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String macro_type,
         List<String> parameters,
         // Both wire COLUMNS are nullable binary (MacroInfoSchema). A worker may
@@ -49,4 +49,10 @@ public record MacroInfo(
         @Nullable byte[] parameter_default_values,
         String definition,
         @Nullable byte[] arguments_schema) implements ArrowSerializableRecord {
+    public MacroInfo(String comment, Map<String, String> tags, String name, String schema_name,
+            String macro_type, List<String> parameters, byte[] parameter_default_values,
+            String definition, byte[] arguments_schema) {
+        this(comment, tags, name, List.of(schema_name), macro_type, parameters,
+                parameter_default_values, definition, arguments_schema);
+    }
 }

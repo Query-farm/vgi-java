@@ -20,6 +20,7 @@ import farm.query.vgi.protocol.CardinalityResponse;
 import farm.query.vgi.protocol.CatalogAttachRequest;
 import farm.query.vgi.protocol.CatalogAttachResult;
 import farm.query.vgi.protocol.CatalogVersionResponse;
+import farm.query.vgi.protocol.ClientCapabilities;
 import farm.query.vgi.protocol.CopyFromContext;
 import farm.query.vgi.protocol.CopyFromFormatInfo;
 import farm.query.vgi.protocol.CopyToContext;
@@ -27,6 +28,7 @@ import farm.query.vgi.protocol.DynamicToStringResponse;
 import farm.query.vgi.protocol.FunctionExample;
 import farm.query.vgi.protocol.FunctionInfo;
 import farm.query.vgi.protocol.FunctionRequiredSecret;
+import farm.query.vgi.protocol.ForeignKeyInfo;
 import farm.query.vgi.protocol.GlobalInitResponse;
 import farm.query.vgi.protocol.InitRequest;
 import farm.query.vgi.protocol.ItemsResponse;
@@ -298,12 +300,14 @@ class WireRecordSchemaConformanceTest {
         m.put(CardinalityResponse.class, new Codec("TableFunctionCardinalityResult", ORDERED));
         m.put(CatalogAttachRequest.class, new Codec("CatalogAttachRequest", BY_NAME));
         m.put(CatalogAttachResult.class, new Codec("CatalogAttachResult", ORDERED));
+        m.put(ClientCapabilities.class, new Codec("ClientCapabilities", ORDERED));
         m.put(CatalogVersionResponse.class, new Codec("CatalogVersionResult", ORDERED));
         m.put(CopyFromContext.class, new Codec("CopyFromContext", BY_NAME));
         m.put(CopyToContext.class, new Codec("CopyToContext", BY_NAME));
         m.put(DynamicToStringResponse.class, new Codec("TableFunctionDynamicToStringResult", ORDERED));
         m.put(FunctionExample.class, new Codec("FunctionInfo.examples[]", ORDERED));
         m.put(FunctionRequiredSecret.class, new Codec("FunctionInfo.required_secrets[]", ORDERED));
+        m.put(ForeignKeyInfo.class, new Codec("ForeignKeyInfo", ORDERED));
         m.put(GlobalInitResponse.class, new Codec("GlobalInitResponse", BY_NAME));
         m.put(InitRequest.class, new Codec("InitRequest", BY_NAME));
         // One Java record serves every `{items: list<binary>}` response; they
@@ -488,6 +492,14 @@ class WireRecordSchemaConformanceTest {
         for (String window : List.of("AggregateWindowResult", "AggregateWindowBatchResult",
                 "AggregateWindowInitResult", "AggregateWindowDestructorResult")) {
             m.put(window, "aggregate window functions are not implemented in this SDK");
+        }
+        for (String request : List.of("AggregateStreamingChunkRequest",
+                "AggregateStreamingCloseRequest", "AggregateStreamingOpenRequest",
+                "AggregateWindowBatchRequest", "AggregateWindowDestructorRequest",
+                "AggregateWindowInitRequest", "AggregateWindowRequest", "CatalogCreateRequest",
+                "IndexCreateRequest", "MacroCreateRequest", "TableCreateRequest",
+                "TableFunctionDynamicToStringRequest", "TableFunctionStatisticsRequest")) {
+            m.put(request, "the corresponding protocol 2.0 operation is not implemented as a Java wire record");
         }
         m.put("TableFunctionPlanRequest", "read field-by-field with IpcUnpacker rather than through a"
                 + " record (VgiServiceImpl.table_function_plan), so there is no declaration to compare."

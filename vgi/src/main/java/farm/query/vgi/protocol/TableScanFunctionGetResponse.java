@@ -13,12 +13,12 @@ import java.util.List;
  * @param function_name       name of the scan function to invoke.
  * @param arguments           IPC-encoded bound arguments for the scan.
  * @param required_extensions DuckDB extensions that must be loaded to run the scan.
- * @param schema_name          schema containing the scan function, or {@code null}
+ * @param schema_path          schema containing the scan function, or {@code null}
  *                             for native or ambiguous functions.
  */
 public record TableScanFunctionGetResponse(
         String function_name,
         byte[] arguments,
         List<String> required_extensions,
-        @Nullable String schema_name) implements ArrowSerializableRecord {
+        @Nullable List<String> schema_path) implements ArrowSerializableRecord {
 }

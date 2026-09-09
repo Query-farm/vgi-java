@@ -20,7 +20,7 @@ import java.util.Map;
  * @param comment                     optional table comment, or {@code null}.
  * @param tags                        arbitrary key/value metadata tags.
  * @param name                        table name.
- * @param schema_name                 owning schema name.
+ * @param schema_path                 owning schema identifier components.
  * @param columns                     IPC-encoded column schema.
  * @param not_null_constraints        column indices with NOT NULL constraints.
  * @param unique_constraints          column-index groups forming UNIQUE constraints.
@@ -58,7 +58,7 @@ public record TableInfo(
         @Nullable String comment,
         Map<String, String> tags,
         String name,
-        String schema_name,
+        List<String> schema_path,
         byte[] columns,
         // int32 on the wire, not the int64 a bare Integer would derive to:
         // these are DuckDB column indices and the C++ side reads them as
@@ -87,4 +87,24 @@ public record TableInfo(
         @Nullable byte[] column_statistics,
         @Nullable byte[] bind_result,
         List<List<String>> required_filters) {
+    public TableInfo(String comment, Map<String, String> tags, String name, String schema_name,
+            byte[] columns, List<Integer> not_null_constraints,
+            List<List<Integer>> unique_constraints, List<String> check_constraints,
+            List<List<Integer>> primary_key_constraints, List<byte[]> foreign_key_constraints,
+            boolean supports_insert, boolean supports_update, boolean supports_delete,
+            boolean supports_returning, boolean supports_column_statistics, byte[] scan_function,
+            byte[] insert_function, byte[] update_function, byte[] delete_function,
+            Long cardinality_estimate, Long cardinality_max, byte[] column_statistics,
+            byte[] bind_result, List<List<String>> required_filters) {
+        this(comment, tags, name, List.of(schema_name), columns, not_null_constraints,
+                unique_constraints, check_constraints, primary_key_constraints,
+                foreign_key_constraints, supports_insert, supports_update, supports_delete,
+                supports_returning, supports_column_statistics, scan_function, insert_function,
+                update_function, delete_function, cardinality_estimate, cardinality_max,
+                column_statistics, bind_result, required_filters);
+    }
+
+    public String schema_name() {
+        return schema_path.isEmpty() ? "" : schema_path.get(schema_path.size() - 1);
+    }
 }

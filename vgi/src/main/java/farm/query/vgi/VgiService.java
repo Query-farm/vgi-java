@@ -330,7 +330,7 @@ public interface VgiService {
      * @param tags                    schema tag key/value pairs
      * @param transaction_opaque_data optional in-flight transaction handle
      */
-    default void catalog_schema_create(byte[] attach_opaque_data, String name,
+    default void catalog_schema_create(byte[] attach_opaque_data, java.util.List<String> path,
                                           @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String on_conflict,
                                           @Nullable String comment,
                                           @Nullable java.util.Map<String, String> tags,
@@ -349,7 +349,7 @@ public interface VgiService {
      * @param if_column_not_exists    skip when the column already exists
      * @param transaction_opaque_data optional in-flight transaction handle
      */
-    default void catalog_table_column_add(byte[] attach_opaque_data, String schema_name, String name,
+    default void catalog_table_column_add(byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
                                               byte[] column_definition,
                                               boolean ignore_not_found,
                                               boolean if_column_not_exists,
@@ -369,7 +369,7 @@ public interface VgiService {
      * @param cascade                 also drop objects that depend on the column
      * @param transaction_opaque_data optional in-flight transaction handle
      */
-    default void catalog_table_column_drop(byte[] attach_opaque_data, String schema_name, String name,
+    default void catalog_table_column_drop(byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
                                                String column_name,
                                                boolean ignore_not_found,
                                                boolean if_column_exists,
@@ -399,7 +399,8 @@ public interface VgiService {
      * @param transaction_opaque_data optional in-flight transaction handle
      * @return the matching schema item, or empty when not found
      */
-    ItemsResponse catalog_schema_get(byte[] attach_opaque_data, String name, @Nullable byte[] transaction_opaque_data);
+    ItemsResponse catalog_schema_get(byte[] attach_opaque_data, java.util.List<String> path,
+            @Nullable byte[] transaction_opaque_data);
 
     /**
      * List the custom {@code COPY ... FROM} formats this catalog advertises
@@ -431,7 +432,7 @@ public interface VgiService {
      * @return one item per table; default is empty
      */
     default ItemsResponse catalog_schema_contents_tables(
-            byte[] attach_opaque_data, String name, @Nullable byte[] transaction_opaque_data,
+            byte[] attach_opaque_data, java.util.List<String> path, @Nullable byte[] transaction_opaque_data,
             CallContext ctx) {
         return ItemsResponse.empty();
     }
@@ -445,7 +446,7 @@ public interface VgiService {
      * @return one item per view; default is empty
      */
     default ItemsResponse catalog_schema_contents_views(
-            byte[] attach_opaque_data, String name, @Nullable byte[] transaction_opaque_data) {
+            byte[] attach_opaque_data, java.util.List<String> path, @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
     }
 
@@ -475,7 +476,7 @@ public interface VgiService {
      */
     ItemsResponse catalog_schema_contents_functions(
             byte[] attach_opaque_data,
-            String name,
+            java.util.List<String> path,
             @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String type,
             @Nullable byte[] transaction_opaque_data,
             CallContext ctx);
@@ -491,7 +492,7 @@ public interface VgiService {
      */
     default ItemsResponse catalog_schema_contents_macros(
             byte[] attach_opaque_data,
-            String name,
+            java.util.List<String> path,
             @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String type,
             @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
@@ -506,7 +507,7 @@ public interface VgiService {
      * @return one item per index; default is empty
      */
     default ItemsResponse catalog_schema_contents_indexes(
-            byte[] attach_opaque_data, String name, @Nullable byte[] transaction_opaque_data) {
+            byte[] attach_opaque_data, java.util.List<String> path, @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
     }
 
@@ -527,7 +528,7 @@ public interface VgiService {
      * @return the table item, or empty when not found
      */
     default ItemsResponse catalog_table_get(
-            byte[] attach_opaque_data, String schema_name, String name,
+            byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
             @Nullable String at_unit, @Nullable String at_value,
             @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
@@ -547,7 +548,7 @@ public interface VgiService {
      * @return the bound scan function for this table
      */
     default TableScanFunctionGetResponse catalog_table_scan_function_get(
-            byte[] attach_opaque_data, String schema_name, String name,
+            byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
             @Nullable String at_unit, @Nullable String at_value,
             @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         throw new UnsupportedOperationException("catalog_table_scan_function_get");
@@ -573,7 +574,7 @@ public interface VgiService {
      * @return serialised {@code ScanBranchesResult}
      */
     default byte[] catalog_table_scan_branches_get(
-            byte[] attach_opaque_data, String schema_name, String name,
+            byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
             @Nullable String at_unit, @Nullable String at_value,
             @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         throw new UnsupportedOperationException("catalog_table_scan_branches_get");
@@ -590,7 +591,7 @@ public interface VgiService {
      * @return serialised column statistics, or empty bytes for "none"
      */
     default byte[] catalog_table_column_statistics_get(
-            byte[] attach_opaque_data, String schema_name, String name,
+            byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
             @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return new byte[0];
     }
@@ -605,7 +606,7 @@ public interface VgiService {
      * @return the view item, or empty when not found
      */
     default ItemsResponse catalog_view_get(
-            byte[] attach_opaque_data, String schema_name, String name,
+            byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
             @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
     }
@@ -620,7 +621,7 @@ public interface VgiService {
      * @return the macro item, or empty when not found
      */
     default ItemsResponse catalog_macro_get(
-            byte[] attach_opaque_data, String schema_name, String name,
+            byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
             @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
     }

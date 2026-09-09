@@ -108,7 +108,7 @@ class FunctionShapeDispatchGuardsTest {
 
     private static BindRequest bindRequest(String functionName, String functionType, byte[] inputSchema) {
         return new BindRequest(functionName, null, functionType, inputSchema, null, null,
-                null, null, false, null, null, null, null, null);
+                null, null, false, null, null, null, null, (List<String>) null);
     }
 
     // -----------------------------------------------------------------------

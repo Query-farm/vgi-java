@@ -43,12 +43,12 @@ public final class ScanFunctionResultEncoder {
      * @param positional positional scan arguments (may be {@code null})
      * @param named named scan arguments (may be {@code null})
      * @param requiredExtensions DuckDB extension names the scan depends on (may be {@code null})
-     * @param schemaName schema containing the function, or {@code null}
+     * @param schemaPath schema containing the function, or {@code null}
      * @return the 1-row IPC stream bytes
      */
     public static byte[] encode(String functionName, List<Object> positional,
                                   Map<String, Object> named, List<String> requiredExtensions,
-                                  String schemaName) {
+                                  List<String> schemaPath) {
         BufferAllocator alloc = Allocators.root();
         Schema schema = new Schema(List.of(
                 new Field("function_name", new FieldType(false, UTF8, null), null),
@@ -56,7 +56,8 @@ public final class ScanFunctionResultEncoder {
                 new Field("required_extensions",
                         new FieldType(false, new ArrowType.List(), null),
                         List.of(new Field("item", new FieldType(true, UTF8, null), null))),
-                new Field("schema_name", new FieldType(true, UTF8, null), null)));
+                new Field("schema_path", new FieldType(true, new ArrowType.List(), null),
+                        List.of(new Field("item", new FieldType(true, UTF8, null), null)))));
 
         byte[] argsBytes = encodeArguments(positional, named, alloc);
 
@@ -72,9 +73,7 @@ public final class ScanFunctionResultEncoder {
             }
             w.endList();
             w.setValueCount(1);
-            VarCharVector schemaVector = (VarCharVector) root.getVector("schema_name");
-            if (schemaName == null) schemaVector.setNull(0);
-            else schemaVector.setSafe(0, new Text(schemaName));
+            writeNullableStringList(root, "schema_path", schemaPath);
             root.setRowCount(1);
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             try (ArrowStreamWriter sw = new ArrowStreamWriter(root, null, Channels.newChannel(baos))) {
@@ -86,6 +85,20 @@ public final class ScanFunctionResultEncoder {
         } catch (Exception e) {
             throw new RuntimeException("ScanFunctionResult encode failed", e);
         }
+    }
+
+    private static void writeNullableStringList(VectorSchemaRoot root, String name, List<String> values) {
+        ListVector vector = (ListVector) root.getVector(name);
+        if (values == null) {
+            vector.setNull(0);
+            return;
+        }
+        UnionListWriter writer = vector.getWriter();
+        writer.setPosition(0);
+        writer.startList();
+        for (String value : values) writer.varChar().writeVarChar(value);
+        writer.endList();
+        writer.setValueCount(1);
     }
 
     /**

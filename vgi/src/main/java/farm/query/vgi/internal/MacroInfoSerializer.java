@@ -36,7 +36,7 @@ public final class MacroInfoSerializer {
             nullable("comment", UTF8),
             mapUtf8Utf8("tags"),
             nonNull("name", UTF8),
-            nonNull("schema_name", UTF8),
+            listOfPrim("schema_path", UTF8),
             MACRO_TYPE.field(false),
             listOfPrim("parameters", UTF8),
             nullable("parameter_default_values", BINARY),
@@ -57,7 +57,7 @@ public final class MacroInfoSerializer {
             writeVarChar(v.get("comment"), info.comment());
             writeMap(v.get("tags"), info.tags());
             writeVarChar(v.get("name"), info.name());
-            writeVarChar(v.get("schema_name"), info.schema_name());
+            writeStringList(v.get("schema_path"), info.schema_path());
             MACRO_TYPE.write(v.get("macro_type"), info.macro_type());
             writeStringList(v.get("parameters"), info.parameters());
             writeVarBinarySafe(v.get("parameter_default_values"), info.parameter_default_values());

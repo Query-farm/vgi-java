@@ -285,7 +285,7 @@ abstract class AbstractVgiHttpConformanceTest {
     @Timeout(180)
     void readsACatalogTableThroughItsScanFunction() {
         List<TableInfo> tables =
-                TableInfoDecoder.decodeAll(vgi.catalog_schema_contents_tables(handle, "data", null, null).items());
+                TableInfoDecoder.decodeAll(vgi.catalog_schema_contents_tables(handle, List.of("data"), null, null).items());
         if (tables.isEmpty()) {
             fail(where("the worker exposes no catalog tables in schema 'data', so the "
                     + "TableCatalog read path cannot be covered here"));
@@ -302,7 +302,7 @@ abstract class AbstractVgiHttpConformanceTest {
 
         // catalog_table_get is the single-table read a catalog implementation
         // does on demand; it must agree with the listing.
-        ItemsResponse fetched = vgi.catalog_table_get(handle, "data", "numbers", null, null, null, null);
+        ItemsResponse fetched = vgi.catalog_table_get(handle, List.of("data"), "numbers", null, null, null, null);
         assertEquals(1, fetched.items().size(), where("catalog_table_get('numbers') item count"));
         TableInfo got = TableInfoDecoder.decode(fetched.items().get(0));
         assertEquals("numbers", got.name(), where("catalog_table_get name"));
@@ -319,7 +319,7 @@ abstract class AbstractVgiHttpConformanceTest {
         // transcoded — feeding them straight to bind is the plausible-looking
         // mistake ScanFunctionArguments exists to prevent.
         TableScanFunctionGetResponse scan =
-                vgi.catalog_table_scan_function_get(handle, "data", "numbers", null, null, null, null);
+                vgi.catalog_table_scan_function_get(handle, List.of("data"), "numbers", null, null, null, null);
         assertEquals("sequence", scan.function_name(), where("numbers scan function"));
         assertNotNull(scan.arguments(), where("numbers scan arguments"));
         assertTrue(scan.arguments().length > 0, where("numbers scan arguments must be non-empty"));
@@ -670,7 +670,7 @@ abstract class AbstractVgiHttpConformanceTest {
     private Map<String, FunctionInfo> functionsByName(String schema, String kind) {
         Map<String, FunctionInfo> out = new LinkedHashMap<>();
         for (FunctionInfo f : decodeItems(
-                vgi.catalog_schema_contents_functions(handle, schema, kind, null, null),
+                vgi.catalog_schema_contents_functions(handle, List.of(schema), kind, null, null),
                 FunctionInfo.class)) {
             out.putIfAbsent(f.name(), f);
         }

@@ -50,7 +50,7 @@ public final class Worker {
      *  and {@link #globalFunctionPrefix(String)}. A worker that opts out still
      *  carries the fields (empty list, empty prefix): the extension matches the
      *  response schema exactly. */
-    public static final String VGI_PROTOCOL_VERSION = "1.5.0";
+    public static final String VGI_PROTOCOL_VERSION = "2.0.0";
 
     private String catalogName = "vgi";
     private String catalogComment = "";
@@ -488,7 +488,7 @@ public final class Worker {
      * @param catalogName the owning auxiliary catalog, or {@code null} for the main catalog
      * @param schemaName  the owning schema
      */
-    private record FunctionHome(String catalogName, String schemaName) {}
+    private record FunctionHome(String catalogName, List<String> schemaPath) {}
 
     /**
      * Explicit (catalog, schema) placement per registered function instance.
@@ -499,8 +499,8 @@ public final class Worker {
      */
     private final Map<Object, FunctionHome> functionHomes = new java.util.IdentityHashMap<>();
 
-    private Worker home(Object fn, String catalogName, String schemaName) {
-        functionHomes.put(fn, new FunctionHome(catalogName, schemaName));
+    private Worker home(Object fn, String catalogName, List<String> schemaPath) {
+        functionHomes.put(fn, new FunctionHome(catalogName, List.copyOf(schemaPath)));
         return this;
     }
 
@@ -514,9 +514,15 @@ public final class Worker {
      * @param fn a registered function instance
      * @return the owning schema name, never {@code null}
      */
-    public String schemaOf(Object fn) {
+    public List<String> schemaPathOf(Object fn) {
         FunctionHome h = functionHomes.get(fn);
-        return h == null || h.schemaName() == null ? defaultSchema : h.schemaName();
+        return h == null || h.schemaPath() == null ? List.of(defaultSchema) : h.schemaPath();
+    }
+
+    /** Legacy single-component view of a function's schema path. */
+    public String schemaOf(Object fn) {
+        List<String> path = schemaPathOf(fn);
+        return path.isEmpty() ? "" : path.get(path.size() - 1);
     }
 
     /**
@@ -530,17 +536,25 @@ public final class Worker {
      * @param catalogName the auxiliary catalog owner, or {@code null} for this worker
      * @return the authoritative function schema, or {@code null}
      */
-    public String resolveTableFunctionSchema(
-            String functionName, String tableSchema, String catalogName) {
-        java.util.LinkedHashSet<String> homes = new java.util.LinkedHashSet<>();
+    public List<String> resolveTableFunctionSchemaPath(
+            String functionName, List<String> tableSchemaPath, String catalogName) {
+        java.util.LinkedHashSet<List<String>> homes = new java.util.LinkedHashSet<>();
         for (TableFunction fn : tables) {
             if (!fn.name().equals(functionName)
                     || !java.util.Objects.equals(catalogOf(fn), catalogName)) continue;
-            String schema = schemaOf(fn);
-            if (schema.equalsIgnoreCase(tableSchema)) return schema;
+            List<String> schema = schemaPathOf(fn);
+            if (schema.equals(tableSchemaPath)) return schema;
             homes.add(schema);
         }
         return homes.size() == 1 ? homes.iterator().next() : null;
+    }
+
+    /** Compatibility helper for single-component schema callers. */
+    public String resolveTableFunctionSchema(
+            String functionName, String tableSchema, String catalogName) {
+        List<String> result = resolveTableFunctionSchemaPath(
+                functionName, List.of(tableSchema), catalogName);
+        return result == null || result.isEmpty() ? null : result.get(result.size() - 1);
     }
 
     /**
@@ -582,8 +596,12 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerScalar(String schemaName, ScalarFunction fn) {
+        return registerScalar(List.of(schemaName), fn);
+    }
+
+    public Worker registerScalar(List<String> schemaPath, ScalarFunction fn) {
         scalars.add(fn);
-        return home(fn, null, schemaName);
+        return home(fn, null, schemaPath);
     }
 
     /**
@@ -596,8 +614,12 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerTable(String schemaName, TableFunction fn) {
+        return registerTable(List.of(schemaName), fn);
+    }
+
+    public Worker registerTable(List<String> schemaPath, TableFunction fn) {
         tables.add(fn);
-        return home(fn, null, schemaName);
+        return home(fn, null, schemaPath);
     }
 
     /**
@@ -610,8 +632,12 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerTableInOut(String schemaName, TableInOutFunction fn) {
+        return registerTableInOut(List.of(schemaName), fn);
+    }
+
+    public Worker registerTableInOut(List<String> schemaPath, TableInOutFunction fn) {
         tableInOuts.add(fn);
-        return home(fn, null, schemaName);
+        return home(fn, null, schemaPath);
     }
 
     /**
@@ -625,8 +651,13 @@ public final class Worker {
      */
     public Worker registerTableBuffering(String schemaName,
             farm.query.vgi.buffering.TableBufferingFunction fn) {
+        return registerTableBuffering(List.of(schemaName), fn);
+    }
+
+    public Worker registerTableBuffering(List<String> schemaPath,
+            farm.query.vgi.buffering.TableBufferingFunction fn) {
         bufferingFns.add(fn);
-        return home(fn, null, schemaName);
+        return home(fn, null, schemaPath);
     }
 
     /**
@@ -639,8 +670,12 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerAggregate(String schemaName, AggregateFunction<?> fn) {
+        return registerAggregate(List.of(schemaName), fn);
+    }
+
+    public Worker registerAggregate(List<String> schemaPath, AggregateFunction<?> fn) {
         aggregates.add(fn);
-        return home(fn, null, schemaName);
+        return home(fn, null, schemaPath);
     }
 
     /**
@@ -656,8 +691,12 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerExtraCatalogScalar(String catalogName, String schemaName, ScalarFunction fn) {
+        return registerExtraCatalogScalar(catalogName, List.of(schemaName), fn);
+    }
+
+    public Worker registerExtraCatalogScalar(String catalogName, List<String> schemaPath, ScalarFunction fn) {
         scalars.add(fn);
-        return home(fn, catalogName, schemaName);
+        return home(fn, catalogName, schemaPath);
     }
 
     /**
@@ -670,8 +709,12 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerExtraCatalogTableFunction(String catalogName, String schemaName, TableFunction fn) {
+        return registerExtraCatalogTableFunction(catalogName, List.of(schemaName), fn);
+    }
+
+    public Worker registerExtraCatalogTableFunction(String catalogName, List<String> schemaPath, TableFunction fn) {
         tables.add(fn);
-        return home(fn, catalogName, schemaName);
+        return home(fn, catalogName, schemaPath);
     }
 
     /**
@@ -684,8 +727,12 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerExtraCatalogTableInOut(String catalogName, String schemaName, TableInOutFunction fn) {
+        return registerExtraCatalogTableInOut(catalogName, List.of(schemaName), fn);
+    }
+
+    public Worker registerExtraCatalogTableInOut(String catalogName, List<String> schemaPath, TableInOutFunction fn) {
         tableInOuts.add(fn);
-        return home(fn, catalogName, schemaName);
+        return home(fn, catalogName, schemaPath);
     }
 
     /**
@@ -699,8 +746,13 @@ public final class Worker {
      */
     public Worker registerExtraCatalogTableBuffering(String catalogName, String schemaName,
             farm.query.vgi.buffering.TableBufferingFunction fn) {
+        return registerExtraCatalogTableBuffering(catalogName, List.of(schemaName), fn);
+    }
+
+    public Worker registerExtraCatalogTableBuffering(String catalogName, List<String> schemaPath,
+            farm.query.vgi.buffering.TableBufferingFunction fn) {
         bufferingFns.add(fn);
-        return home(fn, catalogName, schemaName);
+        return home(fn, catalogName, schemaPath);
     }
 
     /**

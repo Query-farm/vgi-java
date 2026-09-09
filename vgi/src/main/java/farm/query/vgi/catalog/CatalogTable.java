@@ -95,14 +95,19 @@ public record CatalogTable(
      *
      * @param fkColumns        local column names that form the foreign key
      * @param pkColumns        referenced column names in the target table
-     * @param referencedSchema schema of the referenced table
+     * @param referencedSchemaPath schema path of the referenced table
      * @param referencedTable  name of the referenced table
      */
     public record ForeignKey(
             List<String> fkColumns,
             List<String> pkColumns,
-            String referencedSchema,
-            String referencedTable) {}
+            List<String> referencedSchemaPath,
+            String referencedTable) {
+        public ForeignKey(List<String> fkColumns, List<String> pkColumns,
+                String referencedSchema, String referencedTable) {
+            this(fkColumns, pkColumns, List.of(referencedSchema), referencedTable);
+        }
+    }
 
     /**
      * Builds a table with no constraints, statistics, or required filter paths.

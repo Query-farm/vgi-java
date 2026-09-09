@@ -269,7 +269,7 @@ public final class VgiServiceImpl implements VgiService {
         int argCount = args.positional().size()
                 + (inputSchema == null ? 0 : inputSchema.getFields().size());
 
-        String schemaName = request.schema_name();
+        List<String> schemaPath = request.schema_path();
         String catalogName = attachExtraCatalogName(request.attach_opaque_data(), ctx);
         // A COPY handler is advertised at catalog level, so its bind carries no
         // schema by design; every other caller is expected to name one.
@@ -277,22 +277,22 @@ public final class VgiServiceImpl implements VgiService {
 
         if (scalars.containsKey(name)) {
             return bindScalar(request, name,
-                    scopeCandidates(scalars.get(name), name, schemaName, catalogName, copyHandler),
+                    scopeCandidates(scalars.get(name), name, schemaPath, catalogName, copyHandler),
                     args, inputSchema, settings, argCount, token);
         }
         if (tables.containsKey(name)) {
             return bindTable(request, name,
-                    scopeCandidates(tables.get(name), name, schemaName, catalogName, copyHandler),
+                    scopeCandidates(tables.get(name), name, schemaPath, catalogName, copyHandler),
                     args, inputSchema, settings, argCount, token, ctx);
         }
         if (tableInOuts.containsKey(name)) {
             return bindTableInOut(request, name,
-                    scopeCandidates(tableInOuts.get(name), name, schemaName, catalogName, copyHandler),
+                    scopeCandidates(tableInOuts.get(name), name, schemaPath, catalogName, copyHandler),
                     args, inputSchema, settings, argCount, token, ctx);
         }
         if (bufferingFns.containsKey(name)) {
             return bindBuffering(request, name,
-                    scopeCandidates(bufferingFns.get(name), name, schemaName, catalogName, copyHandler),
+                    scopeCandidates(bufferingFns.get(name), name, schemaPath, catalogName, copyHandler),
                     args, inputSchema, settings, argCount, token, ctx);
         }
         throw new IllegalArgumentException("Unknown function: " + name);
@@ -330,7 +330,7 @@ public final class VgiServiceImpl implements VgiService {
      *     (catalog, schema), or — unqualified — is declared in more than one
      *     schema, which no argument signature can disambiguate
      */
-    private <T> List<T> scopeCandidates(List<T> all, String name, String schemaName,
+    private <T> List<T> scopeCandidates(List<T> all, String name, List<String> schemaPath,
                                           String catalogName, boolean copyHandler) {
         List<T> byCatalog = new ArrayList<>();
         for (T fn : all) {
@@ -342,17 +342,17 @@ public final class VgiServiceImpl implements VgiService {
                     + (catalogName == null ? worker.catalogName() : catalogName)
                     + "'. It is available in: " + sorted(catalogsDeclaring(all)));
         }
-        if (schemaName == null || schemaName.isEmpty()) {
+        if (schemaPath == null || schemaPath.isEmpty()) {
             return resolveWithoutSchema(byCatalog, name, copyHandler);
         }
         List<T> bySchema = new ArrayList<>();
         for (T fn : byCatalog) {
-            if (schemaName.equalsIgnoreCase(worker.schemaOf(fn))) bySchema.add(fn);
+            if (schemaPathEquals(schemaPath, worker.schemaPathOf(fn))) bySchema.add(fn);
         }
         if (bySchema.isEmpty()) {
             throw new IllegalArgumentException(
-                    "Function '" + name + "' is not registered in schema '" + schemaName
-                    + "'. It is available in: " + sorted(schemasDeclaring(byCatalog)));
+                    "Function '" + name + "' is not registered in schema '" + String.join(".", schemaPath)
+                    + "'. It is available in: " + schemaPathsDisplay(schemasDeclaring(byCatalog)));
         }
         return bySchema;
     }
@@ -380,7 +380,7 @@ public final class VgiServiceImpl implements VgiService {
      * silently picking one.
      */
     private <T> List<T> resolveWithoutSchema(List<T> candidates, String name, boolean copyHandler) {
-        List<String> schemas = sorted(schemasDeclaring(candidates));
+        java.util.Set<List<String>> schemas = schemasDeclaring(candidates);
         if (schemas.size() > 1) {
             throw new IllegalArgumentException(
                     "Ambiguous function call '" + name + "': it is declared in more than one schema "
@@ -393,10 +393,27 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     /** The distinct schemas {@code fns} are declared in. */
-    private java.util.Set<String> schemasDeclaring(List<?> fns) {
-        java.util.Set<String> schemas = new java.util.HashSet<>();
-        for (Object fn : fns) schemas.add(worker.schemaOf(fn));
+    private java.util.Set<List<String>> schemasDeclaring(List<?> fns) {
+        java.util.Set<List<String>> schemas = new java.util.HashSet<>();
+        for (Object fn : fns) schemas.add(worker.schemaPathOf(fn));
         return schemas;
+    }
+
+    private static boolean schemaPathEquals(List<String> left, List<String> right) {
+        if (left.size() != right.size()) return false;
+        for (int i = 0; i < left.size(); i++) {
+            if (!left.get(i).equalsIgnoreCase(right.get(i))) return false;
+        }
+        return true;
+    }
+
+    private static String schemaLeaf(List<String> path) {
+        return path == null || path.isEmpty() ? "" : path.get(path.size() - 1);
+    }
+
+    private static List<String> schemaPathsDisplay(java.util.Set<List<String>> paths) {
+        List<String> result = paths.stream().map(path -> String.join(".", path)).toList();
+        return result.stream().sorted().toList();
     }
 
     /** The distinct catalogs {@code fns} are declared in ({@code null} = this worker's own). */
@@ -634,7 +651,7 @@ public final class VgiServiceImpl implements VgiService {
         }
         BindRequest bind = RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class);
         byte[] expected = SplitToken.bindFingerprint(
-                bind.schema_name() == null ? "" : bind.schema_name(),
+                bind.schema_path() == null ? "" : String.join("\u001f", bind.schema_path()),
                 bind.function_name(),
                 bind.arguments(),
                 bind.settings(),
@@ -1023,7 +1040,7 @@ public final class VgiServiceImpl implements VgiService {
         }
 
         byte[] fingerprint = SplitToken.bindFingerprint(
-                embedded.schema_name() == null ? "" : embedded.schema_name(),
+                embedded.schema_path() == null ? "" : String.join("\u001f", embedded.schema_path()),
                 embedded.function_name(),
                 embedded.arguments(),
                 embedded.settings(),
@@ -1151,7 +1168,7 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public AggregateBindResponse aggregate_bind(AggregateBindRequest request) {
         return aggregateRunner.bind(
-                resolveAggregate(request.function_name(), request.schema_name(),
+                resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data()),
                 request.function_name(), request.input_schema(), request.arguments(),
                 request.secrets());
@@ -1169,7 +1186,7 @@ public final class VgiServiceImpl implements VgiService {
      * @param schemaName the declaring schema named by the request, or {@code null}
      * @param attachOpaqueData the attach token, naming the catalog
      */
-    private AggregateFunction<?> resolveAggregate(String name, String schemaName, byte[] attachOpaqueData) {
+    private AggregateFunction<?> resolveAggregate(String name, List<String> schemaPath, byte[] attachOpaqueData) {
         List<AggregateFunction<?>> all = aggregates.get(name);
         if (all == null || all.isEmpty()) {
             throw new IllegalArgumentException("Unknown aggregate: " + name);
@@ -1178,7 +1195,7 @@ public final class VgiServiceImpl implements VgiService {
         // principal simply doesn't resolve to an auxiliary catalog — which is
         // the main catalog, the correct answer for every aggregate today.
         List<AggregateFunction<?>> scoped = scopeCandidates(
-                all, name, schemaName, attachExtraCatalogName(attachOpaqueData, null),
+                all, name, schemaPath, attachExtraCatalogName(attachOpaqueData, null),
                 /*copyHandler=*/false);
         return scoped.get(0);
     }
@@ -1192,7 +1209,7 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.AggregateUpdateResponse aggregate_update(AggregateUpdateRequest request) {
         aggregateRunner.update(
-                resolveAggregate(request.function_name(), request.schema_name(),
+                resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data()),
                 request.function_name(), request.execution_id(), request.input_batch());
         return new farm.query.vgi.protocol.AggregateUpdateResponse();
@@ -1207,7 +1224,7 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.AggregateCombineResponse aggregate_combine(AggregateCombineRequest request) {
         aggregateRunner.combine(
-                resolveAggregate(request.function_name(), request.schema_name(),
+                resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data()),
                 request.function_name(), request.execution_id(), request.merge_batch());
         return new farm.query.vgi.protocol.AggregateCombineResponse();
@@ -1222,7 +1239,7 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public AggregateFinalizeResponse aggregate_finalize(AggregateFinalizeRequest request) {
         return aggregateRunner.finalizeRequest(
-                resolveAggregate(request.function_name(), request.schema_name(),
+                resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data()),
                 request.function_name(), request.execution_id(),
                 request.group_ids_batch(), request.output_schema());
@@ -1240,7 +1257,7 @@ public final class VgiServiceImpl implements VgiService {
         // keyed by (execution, function), and a mis-resolved destructor would
         // free another schema's implementation's state.
         aggregateRunner.destructor(
-                resolveAggregate(request.function_name(), request.schema_name(),
+                resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data()),
                 request.function_name(), request.execution_id(), request.group_ids_batch());
         return new farm.query.vgi.protocol.AggregateDestructorResponse();
@@ -1552,13 +1569,13 @@ public final class VgiServiceImpl implements VgiService {
         Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
         if (extra != null) {
             return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                    new SchemaInfo(extra.schemaComment(), Map.of(), attach_opaque_data, "main",
+                    new SchemaInfo(extra.schemaComment(), Map.of(), attach_opaque_data, List.of("main"),
                             extraSchemaCounts(extra)))));
         }
         List<byte[]> items = new ArrayList<>();
         for (SchemaDesc s : workerSchemas()) {
             items.add(RecordCodec.serializeToBytes(
-                    new SchemaInfo(s.comment, s.tags, attach_opaque_data, s.name, schemaCounts(s))));
+                    new SchemaInfo(s.comment, s.tags, attach_opaque_data, List.of(s.name), schemaCounts(s))));
         }
         return new ItemsResponse(items);
     }
@@ -1572,18 +1589,19 @@ public final class VgiServiceImpl implements VgiService {
      * @return a one-item response, or empty when the schema is unknown
      */
     @Override
-    public ItemsResponse catalog_schema_get(byte[] attach_opaque_data, String name, byte[] transaction_opaque_data) {
+    public ItemsResponse catalog_schema_get(byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data) {
+        String name = schemaLeaf(path);
         Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
         if (extra != null) {
             if (!"main".equals(name)) return ItemsResponse.empty();
             return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                    new SchemaInfo(extra.schemaComment(), Map.of(), attach_opaque_data, name,
+                    new SchemaInfo(extra.schemaComment(), Map.of(), attach_opaque_data, path,
                             extraSchemaCounts(extra)))));
         }
         for (SchemaDesc s : workerSchemas()) {
             if (s.name.equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                        new SchemaInfo(s.comment, s.tags, attach_opaque_data, name, schemaCounts(s)))));
+                        new SchemaInfo(s.comment, s.tags, attach_opaque_data, path, schemaCounts(s)))));
             }
         }
         return ItemsResponse.empty();
@@ -1782,7 +1800,8 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_schema_contents_tables(
-            byte[] attach_opaque_data, String name, byte[] transaction_opaque_data, CallContext ctx) {
+            byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data, CallContext ctx) {
+        String name = schemaLeaf(path);
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         List<CatalogTable> extraTables = extraCatalogTablesFor(attach_opaque_data_plain, name);
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
@@ -1830,8 +1849,9 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public farm.query.vgi.protocol.TableScanFunctionGetResponse catalog_table_scan_function_get(
-            byte[] attach_opaque_data, String schema_name, String name,
+            byte[] attach_opaque_data, List<String> schema_path, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
+        String schema_name = schemaLeaf(schema_path);
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
@@ -1842,8 +1862,8 @@ public final class VgiServiceImpl implements VgiService {
                             t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed());
                     return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
                             t.scanFunctionName(), argsBytes, List.of(),
-                            worker.resolveTableFunctionSchema(
-                                    t.scanFunctionName(), schema_name, extraCatalog.name()));
+                            worker.resolveTableFunctionSchemaPath(
+                                    t.scanFunctionName(), List.of(schema_name), extraCatalog.name()));
                 }
             }
             throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
@@ -1856,7 +1876,7 @@ public final class VgiServiceImpl implements VgiService {
                     List.of((Object) (long) resolveTtVersion(at.unit(), at.value())), Map.of());
             return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
                     "tt_pushdown_cols_scan", argsBytes, List.of(),
-                    worker.resolveTableFunctionSchema("tt_pushdown_cols_scan", schema_name, null));
+                    worker.resolveTableFunctionSchemaPath("tt_pushdown_cols_scan", List.of(schema_name), null));
         }
         // cache_versioned: AT -> version arg, like versioned_data, but the scan
         // function advertises cache metadata (for the AT cache-isolation test).
@@ -1865,7 +1885,7 @@ public final class VgiServiceImpl implements VgiService {
                     List.of((Object) (long) resolveCacheVersion(at.unit(), at.value())), Map.of());
             return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
                     "cache_versioned_scan", argsBytes, List.of(),
-                    worker.resolveTableFunctionSchema("cache_versioned_scan", schema_name, null));
+                    worker.resolveTableFunctionSchemaPath("cache_versioned_scan", List.of(schema_name), null));
         }
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
@@ -1876,8 +1896,8 @@ public final class VgiServiceImpl implements VgiService {
                         resolved.scanFunctionNamed() == null ? Map.of() : resolved.scanFunctionNamed());
                 return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
                         resolved.scanFunctionName(), argsBytes, List.of(),
-                        worker.resolveTableFunctionSchema(
-                                resolved.scanFunctionName(), schema_name, null));
+                        worker.resolveTableFunctionSchemaPath(
+                                resolved.scanFunctionName(), List.of(schema_name), null));
             }
         }
         throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
@@ -1899,8 +1919,9 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public byte[] catalog_table_scan_branches_get(
-            byte[] attach_opaque_data, String schema_name, String name,
+            byte[] attach_opaque_data, List<String> schema_path, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
+        String schema_name = schemaLeaf(schema_path);
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
@@ -1911,8 +1932,8 @@ public final class VgiServiceImpl implements VgiService {
                             t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
                             t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
                             null, false, null, null, null, null, null, null,
-                            worker.resolveTableFunctionSchema(
-                                    t.scanFunctionName(), schema_name, extraCatalog.name()));
+                            worker.resolveTableFunctionSchemaPath(
+                                    t.scanFunctionName(), schema_path, extraCatalog.name()));
                     return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
                 }
             }
@@ -1941,7 +1962,7 @@ public final class VgiServiceImpl implements VgiService {
                     "tt_pushdown_cols_scan",
                     List.of((Object) (long) resolveTtVersion(at.unit(), at.value())),
                     Map.of(), null, false, null, null, null, null, null, null,
-                    worker.resolveTableFunctionSchema("tt_pushdown_cols_scan", schema_name, null));
+                    worker.resolveTableFunctionSchemaPath("tt_pushdown_cols_scan", schema_path, null));
             return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
         }
         if ("data".equals(schema_name) && "cache_versioned".equals(name)) {
@@ -1949,7 +1970,7 @@ public final class VgiServiceImpl implements VgiService {
                     "cache_versioned_scan",
                     List.of((Object) (long) resolveCacheVersion(at.unit(), at.value())),
                     Map.of(), null, false, null, null, null, null, null, null,
-                    worker.resolveTableFunctionSchema("cache_versioned_scan", schema_name, null));
+                    worker.resolveTableFunctionSchemaPath("cache_versioned_scan", schema_path, null));
             return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
         }
         for (CatalogTable t : worker.catalogTables()) {
@@ -1961,8 +1982,8 @@ public final class VgiServiceImpl implements VgiService {
                         resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
                         resolved.scanFunctionNamed() == null ? Map.of() : resolved.scanFunctionNamed(),
                         null, false, null, null, null, null, null, null,
-                        worker.resolveTableFunctionSchema(
-                                resolved.scanFunctionName(), schema_name, null));
+                        worker.resolveTableFunctionSchemaPath(
+                                resolved.scanFunctionName(), schema_path, null));
                 return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
             }
         }
@@ -1972,9 +1993,9 @@ public final class VgiServiceImpl implements VgiService {
 
     private farm.query.vgi.catalog.ScanBranch resolveBranchSchema(
             farm.query.vgi.catalog.ScanBranch branch, String tableSchema, String catalogName) {
-        if (branch.functionName().isEmpty() || branch.schemaName() != null) return branch;
-        return branch.withSchemaName(worker.resolveTableFunctionSchema(
-                branch.functionName(), tableSchema, catalogName));
+        if (branch.functionName().isEmpty() || branch.schemaPath() != null) return branch;
+        return branch.withSchemaPath(worker.resolveTableFunctionSchemaPath(
+                branch.functionName(), List.of(tableSchema), catalogName));
     }
 
     // -----------------------------------------------------------------------
@@ -1995,12 +2016,12 @@ public final class VgiServiceImpl implements VgiService {
      * @param ctx the per-call RPC context (auth principal for unsealing)
      */
     private farm.query.vgi.buffering.TableBufferingFunction bufferingFn(
-            String name, String schemaName, byte[] attachOpaqueData, CallContext ctx) {
+            String name, List<String> schemaPath, byte[] attachOpaqueData, CallContext ctx) {
         var list = bufferingFns.get(name);
         if (list == null || list.isEmpty()) {
             throw new IllegalArgumentException("Unknown buffering function: " + name);
         }
-        return scopeCandidates(list, name, schemaName,
+        return scopeCandidates(list, name, schemaPath,
                 attachExtraCatalogName(attachOpaqueData, ctx), /*copyHandler=*/false).get(0);
     }
 
@@ -2036,7 +2057,7 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.TableBufferingProcessResponse table_buffering_process(
             farm.query.vgi.protocol.TableBufferingProcessRequest request, CallContext ctx) {
-        var fn = bufferingFn(request.function_name(), request.schema_name(),
+        var fn = bufferingFn(request.function_name(), request.schema_path(),
                 request.attach_opaque_data(), ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
@@ -2067,7 +2088,7 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.TableBufferingCombineResponse table_buffering_combine(
             farm.query.vgi.protocol.TableBufferingCombineRequest request, CallContext ctx) {
-        var fn = bufferingFn(request.function_name(), request.schema_name(),
+        var fn = bufferingFn(request.function_name(), request.schema_path(),
                 request.attach_opaque_data(), ctx);
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
@@ -2115,8 +2136,9 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_table_get(
-            byte[] attach_opaque_data, String schema_name, String name,
+            byte[] attach_opaque_data, List<String> schema_path, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
+        String schema_name = schemaLeaf(schema_path);
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
@@ -2157,8 +2179,9 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public byte[] catalog_table_column_statistics_get(
-            byte[] attach_opaque_data, String schema_name, String name, byte[] transaction_opaque_data,
+            byte[] attach_opaque_data, List<String> schema_path, String name, byte[] transaction_opaque_data,
             CallContext ctx) {
+        String schema_name = schemaLeaf(schema_path);
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         if (catalogRegistry.isHiddenInVersionedTables(name, attach_opaque_data_plain)) return new byte[0];
         for (CatalogTable t : worker.catalogTables()) {
@@ -2190,8 +2213,8 @@ public final class VgiServiceImpl implements VgiService {
                     t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
                     t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
                     List.of(),
-                    worker.resolveTableFunctionSchema(
-                            t.scanFunctionName(), t.schema(), catalogName));
+                    worker.resolveTableFunctionSchemaPath(
+                            t.scanFunctionName(), List.of(t.schema()), catalogName));
         }
         List<Integer> notNullCols = extractNotNullColumnIndices(t.columns());
         List<byte[]> foreignKeys = new ArrayList<>();
@@ -2207,7 +2230,7 @@ public final class VgiServiceImpl implements VgiService {
                 t.comment() == null || t.comment().isEmpty() ? null : t.comment(),
                 t.tags() == null ? Map.of() : t.tags(),
                 t.name(),
-                t.schema(),
+                List.of(t.schema()),
                 t.columns() == null ? new byte[0] : t.columns(),
                 notNullCols,
                 t.uniqueConstraints() == null ? List.of() : t.uniqueConstraints(),
@@ -2240,7 +2263,8 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_schema_contents_views(
-            byte[] attach_opaque_data, String name, byte[] transaction_opaque_data) {
+            byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data) {
+        String name = schemaLeaf(path);
         List<byte[]> items = new ArrayList<>();
         // Versioned-tables catalog ships no user-visible views.
         if ("versioned_tables".equals(worker.catalogName())) {
@@ -2249,7 +2273,7 @@ public final class VgiServiceImpl implements VgiService {
         for (View v : worker.views()) {
             if (!v.schema().equals(name)) continue;
             items.add(RecordCodec.serializeToBytes(new farm.query.vgi.protocol.ViewInfo(
-                    v.comment(), v.tags(), v.name(), v.schema(), v.definition(), v.columnComments())));
+                    v.comment(), v.tags(), v.name(), List.of(v.schema()), v.definition(), v.columnComments())));
         }
         return new ItemsResponse(items);
     }
@@ -2264,12 +2288,14 @@ public final class VgiServiceImpl implements VgiService {
      * @return a one-item response, or empty when the view is unknown
      */
     @Override
-    public ItemsResponse catalog_view_get(byte[] attach_opaque_data, String schema_name, String name, byte[] transaction_opaque_data) {
+    public ItemsResponse catalog_view_get(byte[] attach_opaque_data, List<String> schema_path, String name,
+            byte[] transaction_opaque_data) {
+        String schema_name = schemaLeaf(schema_path);
         for (View v : worker.views()) {
             if (v.schema().equals(schema_name) && v.name().equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
                         new farm.query.vgi.protocol.ViewInfo(v.comment(), v.tags(),
-                                v.name(), v.schema(), v.definition(), v.columnComments()))));
+                                v.name(), List.of(v.schema()), v.definition(), v.columnComments()))));
             }
         }
         return ItemsResponse.empty();
@@ -2286,7 +2312,8 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_schema_contents_macros(
-            byte[] attach_opaque_data, String name, String type, byte[] transaction_opaque_data) {
+            byte[] attach_opaque_data, List<String> path, String type, byte[] transaction_opaque_data) {
+        String name = schemaLeaf(path);
         boolean wantScalar = type == null || type.equalsIgnoreCase("scalar")
                 || type.equalsIgnoreCase("scalar_macro");
         boolean wantTable = type == null || type.equalsIgnoreCase("table")
@@ -2312,7 +2339,9 @@ public final class VgiServiceImpl implements VgiService {
      * @return a one-item response, or empty when the macro is unknown
      */
     @Override
-    public ItemsResponse catalog_macro_get(byte[] attach_opaque_data, String schema_name, String name, byte[] transaction_opaque_data) {
+    public ItemsResponse catalog_macro_get(byte[] attach_opaque_data, List<String> schema_path, String name,
+            byte[] transaction_opaque_data) {
+        String schema_name = schemaLeaf(schema_path);
         for (Macro m : worker.macros()) {
             if (m.schema().equals(schema_name) && m.name().equals(name)) {
                 return new ItemsResponse(List.of(MacroInfoSerializer.serialize(toMacroInfo(m))));
@@ -2331,7 +2360,7 @@ public final class VgiServiceImpl implements VgiService {
         byte[] argumentsSchema = MacroArgumentsSchema.toIpcBytes(
                 m.parameters(), m.parameterDefaults(), m.parameterDocs());
         return new farm.query.vgi.protocol.MacroInfo(
-                m.comment(), m.tags(), m.name(), m.schema(), macroType,
+                m.comment(), m.tags(), m.name(), List.of(m.schema()), macroType,
                 m.parameters(), defaults, m.definition(), argumentsSchema);
     }
 
@@ -2353,8 +2382,9 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_schema_contents_functions(
-            byte[] attach_opaque_data, String name, String type, byte[] transaction_opaque_data,
+            byte[] attach_opaque_data, List<String> path, String type, byte[] transaction_opaque_data,
             CallContext ctx) {
+        String name = schemaLeaf(path);
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         boolean wantScalar = type == null
                 || type.equalsIgnoreCase("scalar")
@@ -2564,7 +2594,7 @@ public final class VgiServiceImpl implements VgiService {
         // 1 would be the A3 serial opt-out AND disqualify the exchange-mode
         // result cache) and input_from_args for blended registrations.
         return new FunctionInfo(
-                base.comment(), base.tags(), base.name(), base.schema_name(), base.function_type(),
+                base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
@@ -2589,7 +2619,7 @@ public final class VgiServiceImpl implements VgiService {
         // the C++ extension pre-resolves these and delivers them on
         // AggregateBindRequest.secrets.
         return new FunctionInfo(
-                base.comment(), base.tags(), base.name(), base.schema_name(), base.function_type(),
+                base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
@@ -2613,7 +2643,7 @@ public final class VgiServiceImpl implements VgiService {
         // Re-stamp the buffering-specific ordering flags (baseFunctionInfo
         // hardcodes them false; they're only meaningful for TableBuffering).
         return new FunctionInfo(
-                base.comment(), base.tags(), base.name(), base.schema_name(), base.function_type(),
+                base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
@@ -2650,7 +2680,7 @@ public final class VgiServiceImpl implements VgiService {
                 md.description().isEmpty() ? null : md.description(),
                 md.tags() == null ? Map.of() : md.tags(),
                 name,
-                schemaName,
+                List.of(schemaName),
                 type,
                 arguments,
                 outputSchema,

@@ -5,6 +5,7 @@ package farm.query.vgi.protocol;
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
 import farm.query.vgirpc.schema.Nullable;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -19,7 +20,7 @@ import java.util.Map;
  * @param comment                optional schema comment, or {@code null}.
  * @param tags                   arbitrary key/value metadata tags.
  * @param attach_opaque_data     worker-private attach state for this schema.
- * @param name                   schema name.
+ * @param path                   raw schema identifier components.
  * @param estimated_object_count per-kind object-count estimates used to gate eager
  *                               catalog loads, or {@code null} to disable gating.
  */
@@ -27,7 +28,7 @@ public record SchemaInfo(
         @Nullable String comment,
         Map<String, String> tags,
         byte[] attach_opaque_data,
-        String name,
+        List<String> path,
         @Nullable Map<String, Long> estimated_object_count) implements ArrowSerializableRecord {
 
     /**
@@ -37,9 +38,14 @@ public record SchemaInfo(
      * @param comment            optional schema comment, or {@code null}.
      * @param tags               arbitrary key/value metadata tags.
      * @param attach_opaque_data worker-private attach state for this schema.
-     * @param name               schema name.
+     * @param path               raw schema identifier components.
      */
-    public SchemaInfo(String comment, Map<String, String> tags, byte[] attach_opaque_data, String name) {
-        this(comment, tags, attach_opaque_data, name, null);
+    public SchemaInfo(String comment, Map<String, String> tags, byte[] attach_opaque_data, List<String> path) {
+        this(comment, tags, attach_opaque_data, path, null);
+    }
+
+    /** Last path component for source compatibility with protocol 1.x callers. */
+    public String name() {
+        return path.isEmpty() ? "" : path.get(path.size() - 1);
     }
 }

@@ -5,6 +5,8 @@ package farm.query.vgi.protocol;
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
 import farm.query.vgirpc.schema.Nullable;
 
+import java.util.List;
+
 /**
  * Wire DTO for the {@code aggregate_finalize} request, producing per-group result rows.
  *
@@ -13,7 +15,7 @@ import farm.query.vgirpc.schema.Nullable;
  * @param group_ids_batch serialised Arrow batch of the group ids to finalize, in result order
  * @param output_schema serialised Arrow {@code Schema} (IPC) the result batch must conform to
  * @param attach_opaque_data per-attach state minted at catalog attach time
- * @param schema_name catalog schema that declares the function. A function name is unique only
+ * @param schema_path catalog schema path that declares the function. A function name is unique only
  *     within a schema, so this is what lets the worker resolve {@code (schema, name)} rather than
  *     running whichever same-named implementation the by-name lookup finds first. {@code null}
  *     when the caller names no schema. Additive, nullable, name-keyed wire field; protocol 1.2.0
@@ -24,4 +26,4 @@ public record AggregateFinalizeRequest(
         byte[] group_ids_batch,
         byte[] output_schema,
         @Nullable byte[] attach_opaque_data,
-        @Nullable String schema_name) implements ArrowSerializableRecord {}
+        @Nullable List<String> schema_path) implements ArrowSerializableRecord {}

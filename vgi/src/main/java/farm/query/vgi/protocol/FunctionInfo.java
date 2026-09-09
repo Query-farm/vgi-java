@@ -19,7 +19,7 @@ import java.util.Map;
  * @param comment                      optional function comment, or {@code null}.
  * @param tags                         arbitrary key/value metadata tags.
  * @param name                         function name.
- * @param schema_name                  owning schema name.
+ * @param schema_path                  owning schema identifier components.
  * @param function_type                dictionary-encoded function kind (e.g. {@code "scalar"},
  *                                     {@code "table"}, {@code "table_in_out"}, {@code "table_buffering"}).
  * @param arguments                    IPC-encoded argument-spec batch.
@@ -77,7 +77,7 @@ public record FunctionInfo(
         @Nullable String comment,
         Map<String, String> tags,
         String name,
-        String schema_name,
+        List<String> schema_path,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String function_type,
         byte[] arguments,
         byte[] output_schema,
@@ -114,4 +114,7 @@ public record FunctionInfo(
         boolean input_from_args,
         List<String> required_settings,
         List<FunctionRequiredSecret> required_secrets) implements ArrowSerializableRecord {
+    public String schema_name() {
+        return schema_path.isEmpty() ? "" : schema_path.get(schema_path.size() - 1);
+    }
 }

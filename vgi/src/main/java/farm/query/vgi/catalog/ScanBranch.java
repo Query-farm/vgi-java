@@ -21,7 +21,7 @@ import java.util.Map;
  *                       table; enforced C++-side)
  * @param sourceCatalog catalog-table branch only — companion catalog name;
  *                       {@code null} for function branches
- * @param sourceSchema  catalog-table branch only — source schema; {@code null}
+ * @param sourceSchemaPath catalog-table branch only — source schema; {@code null}
  *                       for function branches
  * @param sourceTable   catalog-table branch only — base table name; its
  *                       presence selects the catalog-table kind; {@code null}
@@ -36,7 +36,7 @@ import java.util.Map;
  *                       no locations is rejected
  * @param formatOptions format branch only — reader options, which BECOME the
  *                       reader's named arguments. Empty for the other kinds
- * @param schemaName    function branch only — schema containing the named VGI
+ * @param schemaPath    function branch only — schema containing the named VGI
  *                       function; {@code null} for native/ambiguous functions
  */
 public record ScanBranch(
@@ -46,12 +46,12 @@ public record ScanBranch(
         String branchFilter,
         boolean writable,
         String sourceCatalog,
-        String sourceSchema,
+        List<String> sourceSchemaPath,
         String sourceTable,
         String formatName,
         List<String> formatLocations,
         Map<String, Object> formatOptions,
-        String schemaName) {
+        List<String> schemaPath) {
 
     /**
      * Source-compatible constructor for pre-1.5 callers. The worker resolves
@@ -70,7 +70,8 @@ public record ScanBranch(
             List<String> formatLocations,
             Map<String, Object> formatOptions) {
         this(functionName, positional, named, branchFilter, writable, sourceCatalog,
-                sourceSchema, sourceTable, formatName, formatLocations, formatOptions, null);
+                sourceSchema == null ? null : List.of(sourceSchema), sourceTable, formatName,
+                formatLocations, formatOptions, null);
     }
 
     /**
@@ -192,13 +193,13 @@ public record ScanBranch(
     public static ScanBranch catalogTable(
             String sourceCatalog, String sourceSchema, String sourceTable, String branchFilter) {
         return new ScanBranch("", List.of(), Map.of(), branchFilter, false, sourceCatalog, sourceSchema,
-                sourceTable, null, null, null, null);
+                sourceTable, null, null, null);
     }
 
     /** Return this branch with an authoritative function schema. */
-    public ScanBranch withSchemaName(String schema) {
+    public ScanBranch withSchemaPath(List<String> schemaPath) {
         return new ScanBranch(functionName, positional, named, branchFilter, writable,
-                sourceCatalog, sourceSchema, sourceTable, formatName, formatLocations,
-                formatOptions, schema);
+                sourceCatalog, sourceSchemaPath, sourceTable, formatName, formatLocations,
+                formatOptions, schemaPath);
     }
 }
