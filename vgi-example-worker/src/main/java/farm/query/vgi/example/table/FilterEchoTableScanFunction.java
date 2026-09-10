@@ -63,7 +63,7 @@ public final class FilterEchoTableScanFunction extends SimpleTableFunction {
         byte[] pf = params.pushdownFilters();
         PushdownFilters filters = pf == null
                 ? PushdownFilters.empty()
-                : PushdownFiltersDecoder.decode(pf, params.joinKeys());
+                : params.decodeFilters();
         return new State(filters.formatInline(), pf, new CachedSchema(params.outputSchema()),
                 params.joinKeys());
     }
@@ -100,7 +100,8 @@ public final class FilterEchoTableScanFunction extends SimpleTableFunction {
             }
             work.setRowCount(ROWS);
             if (filterBytes != null) {
-                work = FilterApplier.from(filterBytes, joinKeysIpc).apply(work);
+                work = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT_SCHEMA,
+                        PushdownFiltersDecoder.Capabilities.core()).apply(work);
             }
             out.emit(VectorProjector.project(work, projected.get()));
         }

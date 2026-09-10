@@ -3,6 +3,9 @@
 package farm.query.vgi.function;
 
 import farm.query.vgi.protocol.FunctionExample;
+import farm.query.vgi.protocol.FilterFunctionCapability;
+import farm.query.vgi.protocol.RuntimeFilterAlgorithmCapability;
+import farm.query.vgi.protocol.EvaluationContextCapability;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,7 +38,10 @@ import java.util.Map;
  *        not assume a TTL exists, or long-running streams are foreclosed.
  * @param partitionKind       partition shape over partition-column-annotated output fields.
  * @param lateMaterialization whether the function opts into DuckDB late materialization.
- * @param supportedExpressionFilters expression-filter function names this function can apply itself.
+ * @param filterSemanticProfiles v2 expression-semantics profiles implemented by this function.
+ * @param additionalFilterFunctions versioned extension filter functions implemented by this function.
+ * @param runtimeFilterAlgorithms versioned runtime-filter algorithms implemented by this function.
+ * @param filterEvaluationContexts reproducible session contexts implemented by this function.
  * @param examples            documented usage examples surfaced on {@code FunctionInfo.examples}.
  * @param tags                arbitrary worker-provided metadata tags surfaced on
  *                            {@code FunctionInfo.tags} (e.g. {@code vgi.columns_md}).
@@ -53,7 +59,10 @@ public record FunctionMetadata(
         boolean supportsBatchIndex,
         PartitionKind partitionKind,
         boolean lateMaterialization,
-        List<String> supportedExpressionFilters,
+        List<String> filterSemanticProfiles,
+        List<FilterFunctionCapability> additionalFilterFunctions,
+        List<RuntimeFilterAlgorithmCapability> runtimeFilterAlgorithms,
+        List<EvaluationContextCapability> filterEvaluationContexts,
         List<FunctionExample> examples,
         Map<String, String> tags,
         boolean supportsSplits,
@@ -68,6 +77,65 @@ public record FunctionMetadata(
      */
     public FunctionMetadata {
         tags = tags == null ? Map.of() : Map.copyOf(tags);
+        filterSemanticProfiles = filterSemanticProfiles == null ? List.of() : List.copyOf(filterSemanticProfiles);
+        additionalFilterFunctions = additionalFilterFunctions == null
+                ? List.of() : List.copyOf(additionalFilterFunctions);
+        runtimeFilterAlgorithms = runtimeFilterAlgorithms == null
+                ? List.of() : List.copyOf(runtimeFilterAlgorithms);
+        filterEvaluationContexts = filterEvaluationContexts == null
+                ? List.of() : List.copyOf(filterEvaluationContexts);
+    }
+
+    /**
+     * Source-compatible constructor for VGI 1.x metadata declarations. VGI 2.0
+     * maps ordinary filter support to the standard semantic profile and the
+     * former spatial names to their versioned identity.
+     */
+    public FunctionMetadata(
+            String description,
+            Stability stability,
+            NullHandling nullHandling,
+            boolean autoApplyFilters,
+            boolean projectionPushdown,
+            boolean filterPushdown,
+            boolean samplingPushdown,
+            List<String> categories,
+            OrderPreservation orderPreservation,
+            boolean supportsBatchIndex,
+            PartitionKind partitionKind,
+            boolean lateMaterialization,
+            List<String> supportedExpressionFilters,
+            List<FunctionExample> examples,
+            Map<String, String> tags,
+            boolean supportsSplits,
+            boolean filtersExactlyApplied,
+            boolean supportsPositions,
+            Long splitTokenTtlSeconds) {
+        this(description, stability, nullHandling, autoApplyFilters, projectionPushdown,
+                filterPushdown, samplingPushdown, categories, orderPreservation,
+                supportsBatchIndex, partitionKind, lateMaterialization,
+                filterPushdown ? List.of("vgi.duckdb.standard.v1") : List.of(),
+                legacyAdditionalFunctions(supportedExpressionFilters), List.of(), List.of(),
+                examples, tags, supportsSplits, filtersExactlyApplied, supportsPositions,
+                splitTokenTtlSeconds);
+    }
+
+    private static List<FilterFunctionCapability> legacyAdditionalFunctions(List<String> names) {
+        if (names != null && (names.contains("&&") || names.contains("st_intersects_extent"))) {
+            return List.of(new FilterFunctionCapability("duckdb.spatial", "intersects_extent", 1));
+        }
+        return List.of();
+    }
+
+    /** @deprecated VGI 2.0 uses semantic profiles and versioned function identities. */
+    @Deprecated(forRemoval = true)
+    public List<String> supportedExpressionFilters() {
+        if (additionalFilterFunctions.stream().anyMatch(value ->
+                value.namespace().equals("duckdb.spatial")
+                        && value.name().equals("intersects_extent") && value.version() == 1)) {
+            return List.of("&&", "st_intersects_extent");
+        }
+        return List.of();
     }
 
     /**
@@ -206,9 +274,12 @@ public record FunctionMetadata(
      * @return a copy with the pushdown flags set.
      */
     public FunctionMetadata withPushdown(boolean projection, boolean filter, boolean autoApply) {
+        List<String> profiles = filter && filterSemanticProfiles.isEmpty()
+                ? List.of("vgi.duckdb.standard.v1") : filterSemanticProfiles;
         return new FunctionMetadata(description, stability, nullHandling, autoApply, projection, filter,
                 samplingPushdown, categories, orderPreservation, supportsBatchIndex, partitionKind,
-                lateMaterialization, supportedExpressionFilters, examples, tags,
+                lateMaterialization, profiles, additionalFilterFunctions,
+                runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
@@ -220,8 +291,8 @@ public record FunctionMetadata(
     public FunctionMetadata withSamplingPushdown() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, true, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples, tags,
+                supportsBatchIndex, partitionKind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
@@ -234,8 +305,8 @@ public record FunctionMetadata(
     public FunctionMetadata withCategories(String... cats) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, List.of(cats), orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples, tags,
+                supportsBatchIndex, partitionKind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
@@ -248,8 +319,8 @@ public record FunctionMetadata(
     public FunctionMetadata withOrderPreservation(OrderPreservation op) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, op,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples, tags,
+                supportsBatchIndex, partitionKind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
@@ -260,7 +331,8 @@ public record FunctionMetadata(
     public FunctionMetadata withBatchIndex() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                true, partitionKind, lateMaterialization, supportedExpressionFilters, examples, tags,
+                true, partitionKind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
@@ -277,8 +349,8 @@ public record FunctionMetadata(
     public FunctionMetadata withSplits() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples, tags,
+                supportsBatchIndex, partitionKind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
                 true, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
@@ -295,8 +367,8 @@ public record FunctionMetadata(
     public FunctionMetadata withSplitTokenTtl(Long seconds) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
-                examples, tags,
+                supportsBatchIndex, partitionKind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, seconds);
     }
 
@@ -308,7 +380,8 @@ public record FunctionMetadata(
     public FunctionMetadata withPartitionKind(PartitionKind kind) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, kind, lateMaterialization, supportedExpressionFilters, examples, tags,
+                supportsBatchIndex, kind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
@@ -321,7 +394,8 @@ public record FunctionMetadata(
     public FunctionMetadata withLateMaterialization() {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, true, supportedExpressionFilters, examples, tags,
+                supportsBatchIndex, partitionKind, true, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
@@ -330,15 +404,57 @@ public record FunctionMetadata(
      *  {@code "st_intersects_extent"}, {@code "list_contains"}). The engine only
      *  pushes an expression filter into the function when every function name in
      *  the predicate tree appears here; otherwise it keeps a FILTER node above
-     *  the scan. Surfaced on the wire as {@code FunctionInfo.supported_expression_filters}.
+     *  the scan. This deprecated convenience maps onto the v2 semantic-profile
+     *  and versioned extension-function capabilities.
      *
      *  @param names the supported expression-filter function names.
      *  @return a copy declaring the given supported expression filters. */
     public FunctionMetadata withSupportedExpressionFilters(String... names) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, List.of(names), examples, tags,
+                supportsBatchIndex, partitionKind, lateMaterialization,
+                filterPushdown ? List.of("vgi.duckdb.standard.v1") : List.of(),
+                legacyAdditionalFunctions(List.of(names)), runtimeFilterAlgorithms,
+                filterEvaluationContexts, examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
+    }
+
+    /** Declare the complete Filter Encoding v2 semantic profiles implemented by this function. */
+    public FunctionMetadata withFilterSemanticProfiles(String... profiles) {
+        return withFilterCapabilities(List.of(profiles), additionalFilterFunctions,
+                runtimeFilterAlgorithms, filterEvaluationContexts);
+    }
+
+    /** Declare versioned extension filter functions implemented by this function. */
+    public FunctionMetadata withAdditionalFilterFunctions(FilterFunctionCapability... functions) {
+        return withFilterCapabilities(filterSemanticProfiles, List.of(functions),
+                runtimeFilterAlgorithms, filterEvaluationContexts);
+    }
+
+    /** Declare versioned runtime-filter artifact algorithms implemented by this function. */
+    public FunctionMetadata withRuntimeFilterAlgorithms(
+            RuntimeFilterAlgorithmCapability... algorithms) {
+        return withFilterCapabilities(filterSemanticProfiles, additionalFilterFunctions,
+                List.of(algorithms), filterEvaluationContexts);
+    }
+
+    /** Declare reproducible evaluation contexts implemented by this function. */
+    public FunctionMetadata withFilterEvaluationContexts(
+            EvaluationContextCapability... contexts) {
+        return withFilterCapabilities(filterSemanticProfiles, additionalFilterFunctions,
+                runtimeFilterAlgorithms, List.of(contexts));
+    }
+
+    private FunctionMetadata withFilterCapabilities(
+            List<String> profiles,
+            List<FilterFunctionCapability> functions,
+            List<RuntimeFilterAlgorithmCapability> algorithms,
+            List<EvaluationContextCapability> contexts) {
+        return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
+                projectionPushdown, filterPushdown, samplingPushdown, categories,
+                orderPreservation, supportsBatchIndex, partitionKind, lateMaterialization,
+                profiles, functions, algorithms, contexts, examples, tags, supportsSplits,
+                filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
 
     /** Declare the documented usage examples surfaced on {@code FunctionInfo.examples}.
@@ -350,7 +466,8 @@ public record FunctionMetadata(
     public FunctionMetadata withExamples(List<FunctionExample> examples) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
+                supportsBatchIndex, partitionKind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts,
                 examples == null ? List.of() : examples, tags,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }
@@ -371,7 +488,8 @@ public record FunctionMetadata(
         if (more != null) merged.putAll(more);
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
-                supportsBatchIndex, partitionKind, lateMaterialization, supportedExpressionFilters,
+                supportsBatchIndex, partitionKind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts,
                 examples, merged,
                 supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
     }

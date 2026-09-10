@@ -1076,8 +1076,7 @@ public final class SplitFunctions {
             // Decode with the JOIN KEYS: merging them is what produces the IN
             // filter a join pushes down. Without them a join renders as
             // "(none)" — the pushdown arrived and the fixture could not see it.
-            PushdownFilters pf = farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(
-                    params.pushdownFilters(), params.joinKeys());
+            PushdownFilters pf = params.decodeFilters();
             return new DynState(params, ranges, renderFiltersCanonical(pf));
         }
     }

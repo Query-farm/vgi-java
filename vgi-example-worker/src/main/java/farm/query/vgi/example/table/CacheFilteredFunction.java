@@ -92,7 +92,8 @@ public final class CacheFilteredFunction extends SimpleTableFunction {
                 for (int i = 0; i < size; i++) v.setSafe(i, start + i);
                 root.setRowCount(size);
                 if (filterBytes != null) {
-                    root = FilterApplier.from(filterBytes, joinKeysIpc).apply(root);
+                    root = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT,
+                            farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities.core()).apply(root);
                 }
                 if (md == null) out.emit(root); else out.emit(root, md);
                 emitted = true;

@@ -6,6 +6,7 @@ import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.VectorProjector;
 import farm.query.vgi.pushdown.FilterApplier;
+import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import farm.query.vgi.table.BatchState;
 import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
@@ -116,7 +117,8 @@ public final class ExpressionFilterTestFunction extends CountdownTableFunction {
             work.setRowCount(n);
 
             if (filterBytes != null) {
-                FilterApplier fa = FilterApplier.from(filterBytes, joinKeysIpc);
+                FilterApplier fa = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT_SCHEMA,
+                        PushdownFiltersDecoder.Capabilities.core());
                 work = fa.apply(work);                                            // column filters (id >= 50)
                 work = ExpressionFilterEvaluator.apply(work, fa.expressionPredicates()); // list_contains etc.
             }

@@ -92,8 +92,7 @@ public final class ValuePruneFunction extends CountdownTableFunction {
     private static Optional<List<Object>> resolveValues(TableInitParams params) {
         byte[] pfBytes = params.pushdownFilters();
         if (pfBytes == null) return Optional.empty();
-        PushdownFilters pf = PushdownFiltersDecoder.decode(
-                pfBytes, params.joinKeys() == null ? List.of() : params.joinKeys());
+        PushdownFilters pf = params.decodeFilters();
         return pf.getColumnValues("n");
     }
 

@@ -11,15 +11,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The projected column list of one scan, and the safe way to name a column in
- * a pushdown filter.
+ * The unprojected bind-output column list, used to create exact v2 references.
  *
- * <p>A pushdown filter's {@code column_index} must be the column's position in
- * the <em>projection</em> the client requested, not in the base schema (see
- * {@link ProjectedColumn} for why getting that wrong corrupts results
- * silently). Building the projection once and asking it for columns by name
- * makes the index impossible to get wrong: it comes from the same list the
- * client sends as {@code InitRequest.projection_ids}.
+ * <p>A v2 {@code column_index} is always the position in the function's full
+ * bind output, before projection. Building this helper from that schema keeps
+ * both the authoritative index and name together.
  *
  * <pre>{@code
  * // The scan projects two of the table's columns, in this order.

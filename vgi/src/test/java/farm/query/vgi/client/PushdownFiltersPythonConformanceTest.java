@@ -66,62 +66,44 @@ final class PushdownFiltersPythonConformanceTest {
 
         JsonNode decoded = runPythonDecoder(project, tmp, encoded);
 
-        assertEquals("1", decoded.get("version").asText(),
-                "Python must see the vgi_filter_version metadata on field 0");
-        JsonNode filters = decoded.get("filters");
+        assertEquals("vgi.duckdb.standard.v1", decoded.get("semantics").asText());
+        JsonNode filters = decoded.get("predicates");
         assertEquals(6, filters.size());
+        for (int i = 0; i < filters.size(); i++) {
+            assertEquals("p" + i, filters.get(i).get("id").asText());
+            assertEquals("required", filters.get(i).get("mode").asText());
+            assertEquals("query", filters.get(i).get("source").asText());
+        }
 
-        // 0: AND(n >= 5, n < 100) — children repeat the parent's column identity.
-        JsonNode and = filters.get(0);
-        assertEquals("and", and.get("type").asText());
-        assertEquals("n", and.get("column_name").asText());
-        assertEquals(0, and.get("column_index").asInt());
+        JsonNode and = filters.get(0).get("expression");
+        assertEquals("and", and.get("node").asText());
         assertEquals("ge", and.get("children").get(0).get("op").asText());
-        assertEquals(5, and.get("children").get(0).get("value").asInt());
-        assertEquals("int64", and.get("children").get(0).get("value_type").asText());
-        assertEquals("lt", and.get("children").get(1).get("op").asText());
-        assertEquals(100, and.get("children").get(1).get("value").asInt());
-        assertEquals("n", and.get("children").get(1).get("column_name").asText());
+        assertEquals(5, and.get("children").get(0).get("right").get("value").asInt());
+        assertEquals("n", and.get("children").get(1).get("left").get("column_name").asText());
 
-        // 1: OR(name = 'berlin', name IS NULL) — utf8 constant survives.
-        JsonNode or = filters.get(1);
-        assertEquals("or", or.get("type").asText());
-        assertEquals(1, or.get("column_index").asInt());
-        assertEquals("eq", or.get("children").get(0).get("op").asText());
-        assertEquals("berlin", or.get("children").get(0).get("value").asText());
-        assertEquals("string", or.get("children").get(0).get("value_type").asText());
-        assertEquals("is_null", or.get("children").get(1).get("type").asText());
+        JsonNode or = filters.get(1).get("expression");
+        assertEquals("or", or.get("node").asText());
+        assertEquals("berlin", or.get("children").get(0).get("right").get("value").asText());
+        assertEquals("is_null", or.get("children").get(1).get("node").asText());
 
-        // 2: score > 2.5 — float64 constant, and value_ref resolution past
-        // three earlier constants (the off-by-one that would break silently).
-        JsonNode score = filters.get(2);
-        assertEquals("constant", score.get("type").asText());
+        JsonNode score = filters.get(2).get("expression");
         assertEquals("gt", score.get("op").asText());
-        assertEquals(2.5d, score.get("value").asDouble());
-        assertEquals("double", score.get("value_type").asText());
+        assertEquals(2.5d, score.get("right").get("value").asDouble());
 
-        // 3: addr.city != 'paris'.
-        JsonNode struct = filters.get(3);
-        assertEquals("struct", struct.get("type").asText());
-        assertEquals(1, struct.get("child_index").asInt());
-        assertEquals("city", struct.get("child_name").asText());
-        assertEquals("ne", struct.get("child_filter").get("op").asText());
-        assertEquals("paris", struct.get("child_filter").get("value").asText());
+        JsonNode struct = filters.get(3).get("expression");
+        assertEquals("field_ref", struct.get("left").get("node").asText());
+        assertEquals("city", struct.get("left").get("field_name").asText());
+        assertEquals("paris", struct.get("right").get("value").asText());
 
-        // 4: key IS NOT NULL.
-        assertEquals("is_not_null", filters.get(4).get("type").asText());
+        JsonNode notNull = filters.get(4).get("expression");
+        assertEquals("is_null", notNull.get("node").asText());
+        assertEquals(true, notNull.get("negated").asBoolean());
 
-        // 5: join keys — Python resolves the node against the separate batch by
-        // column name and yields an InFilter over the key values.
-        JsonNode join = filters.get(5);
-        assertEquals("in", join.get("type").asText());
-        assertEquals("key", join.get("column_name").asText());
-        assertEquals(4, join.get("column_index").asInt());
-        assertEquals("int64", join.get("value_type").asText());
-        assertEquals(List.of(10, 20, 30),
-                List.of(join.get("values").get(0).asInt(),
-                        join.get("values").get(1).asInt(),
-                        join.get("values").get(2).asInt()));
+        JsonNode join = filters.get(5).get("expression");
+        assertEquals("in", join.get("node").asText());
+        assertEquals(true, join.get("external").asBoolean());
+        assertEquals(List.of(10, 20, 30), List.of(join.get("values").get(0).asInt(),
+                join.get("values").get(1).asInt(), join.get("values").get(2).asInt()));
     }
 
     // ------------------------------------------------------------------

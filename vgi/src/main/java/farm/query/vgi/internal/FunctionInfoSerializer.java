@@ -3,6 +3,9 @@
 package farm.query.vgi.internal;
 
 import farm.query.vgi.protocol.FunctionInfo;
+import farm.query.vgi.protocol.FilterFunctionCapability;
+import farm.query.vgi.protocol.RuntimeFilterAlgorithmCapability;
+import farm.query.vgi.protocol.EvaluationContextCapability;
 import org.apache.arrow.vector.dictionary.DictionaryProvider;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -97,13 +100,14 @@ final class FunctionInfoSerializer {
             nullable("projection_pushdown", BOOL),
             nullable("filter_pushdown", BOOL),
             nullable("sampling_pushdown", BOOL),
-            // late_materialization landed in the C++ FunctionInfoSchema between
-            // sampling_pushdown and supported_expression_filters
-            // (vgi_protocol_schemas.hpp). Nullable; only TableFunctions that
-            // expose an is_row_id virtual column + filter/projection pushdown
-            // opt in (Meta.late_materialization), everything else is null.
             nullable("late_materialization", BOOL),
-            listOfPrim("supported_expression_filters", UTF8),
+            listOfPrim("filter_semantic_profiles", UTF8),
+            filterIdentities("additional_filter_functions"),
+            filterIdentities("runtime_filter_algorithms"),
+            listOf("filter_evaluation_contexts", new Field("item",
+                    new FieldType(true, new ArrowType.Struct(), null),
+                    List.of(nonNull("profile", UTF8),
+                            nullable("provider_fingerprint", UTF8)))),
             ORDER_PRESERVATION.field(true),
             nullable("max_workers", I32),
             // supports_batch_index / partition_kind landed in the C++
@@ -171,7 +175,10 @@ final class FunctionInfoSerializer {
             writeNullableBool(v.get("filter_pushdown"), info.filter_pushdown());
             writeNullableBool(v.get("sampling_pushdown"), info.sampling_pushdown());
             writeNullableBool(v.get("late_materialization"), info.late_materialization());
-            writeStringList(v.get("supported_expression_filters"), info.supported_expression_filters());
+            writeStringList(v.get("filter_semantic_profiles"), info.filter_semantic_profiles());
+            writeFilterIdentities(v.get("additional_filter_functions"), info.additional_filter_functions());
+            writeRuntimeFilterIdentities(v.get("runtime_filter_algorithms"), info.runtime_filter_algorithms());
+            writeEvaluationContexts(v.get("filter_evaluation_contexts"), info.filter_evaluation_contexts());
             ORDER_PRESERVATION.write(v.get("order_preservation"), info.order_preservation());
             writeNullableInt32(v.get("max_workers"), info.max_workers());
             writeBool(v.get("supports_batch_index"), info.supports_batch_index());
@@ -192,6 +199,63 @@ final class FunctionInfoSerializer {
             writeStringList(v.get("required_settings"), info.required_settings());
             writeRequiredSecrets(v.get("required_secrets"), info.required_secrets());
         });
+    }
+
+    private static Field filterIdentities(String name) {
+        return listOf(name, new Field("item",
+                new FieldType(true, new ArrowType.Struct(), null),
+                List.of(nonNull("namespace", UTF8), nonNull("name", UTF8),
+                        nonNull("version", new ArrowType.Int(64, false)))));
+    }
+
+    private static void writeFilterIdentities(
+            org.apache.arrow.vector.FieldVector vector,
+            List<FilterFunctionCapability> capabilities) {
+        var writer = ((org.apache.arrow.vector.complex.ListVector) vector).getWriter();
+        writer.startList();
+        for (var capability : capabilities) {
+            writer.struct().start();
+            writer.struct().varChar("namespace").writeVarChar(capability.namespace());
+            writer.struct().varChar("name").writeVarChar(capability.name());
+            writer.struct().uInt8("version").writeUInt8(capability.version());
+            writer.struct().end();
+        }
+        writer.endList();
+        writer.setValueCount(1);
+    }
+
+    private static void writeRuntimeFilterIdentities(
+            org.apache.arrow.vector.FieldVector vector,
+            List<RuntimeFilterAlgorithmCapability> capabilities) {
+        var writer = ((org.apache.arrow.vector.complex.ListVector) vector).getWriter();
+        writer.startList();
+        for (var capability : capabilities) {
+            writer.struct().start();
+            writer.struct().varChar("namespace").writeVarChar(capability.namespace());
+            writer.struct().varChar("name").writeVarChar(capability.name());
+            writer.struct().uInt8("version").writeUInt8(capability.version());
+            writer.struct().end();
+        }
+        writer.endList();
+        writer.setValueCount(1);
+    }
+
+    private static void writeEvaluationContexts(
+            org.apache.arrow.vector.FieldVector vector,
+            List<EvaluationContextCapability> capabilities) {
+        var writer = ((org.apache.arrow.vector.complex.ListVector) vector).getWriter();
+        writer.startList();
+        for (var capability : capabilities) {
+            writer.struct().start();
+            writer.struct().varChar("profile").writeVarChar(capability.profile());
+            if (capability.provider_fingerprint() != null) {
+                writer.struct().varChar("provider_fingerprint")
+                        .writeVarChar(capability.provider_fingerprint());
+            }
+            writer.struct().end();
+        }
+        writer.endList();
+        writer.setValueCount(1);
     }
 
     /**

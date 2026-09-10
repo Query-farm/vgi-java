@@ -6,6 +6,8 @@ import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.VectorProjector;
 import farm.query.vgi.pushdown.FilterApplier;
+import farm.query.vgi.pushdown.FilterIdentity;
+import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import farm.query.vgi.table.BatchState;
 import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
@@ -131,7 +133,11 @@ public final class SpatialFilterExampleFunction extends CountdownTableFunction {
             work.setRowCount(n);
 
             if (filterBytes != null) {
-                FilterApplier fa = FilterApplier.from(filterBytes, joinKeysIpc);
+                FilterApplier fa = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT_SCHEMA,
+                        new PushdownFiltersDecoder.Capabilities(
+                                java.util.Set.of(new FilterIdentity(
+                                        "duckdb.spatial", "intersects_extent", 1)),
+                                java.util.Set.of(), java.util.Map.of()));
                 work = fa.apply(work);                                            // column filters (n < 50)
                 work = ExpressionFilterEvaluator.apply(work, fa.expressionPredicates()); // spatial && etc.
             }

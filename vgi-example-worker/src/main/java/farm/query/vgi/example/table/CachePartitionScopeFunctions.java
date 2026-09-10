@@ -206,7 +206,8 @@ public final class CachePartitionScopeFunctions {
                 long base = (long) countryIdx * 1_000_000L;
                 countryIdx++;
                 emitCountryBatch(OUTPUT, country, base, rowsPerCountry,
-                        filterBytes == null ? null : FilterApplier.from(filterBytes, joinKeysIpc),
+                        filterBytes == null ? null : FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT,
+                                farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities.core()),
                         null, OUTPUT, out);
             }
         }
@@ -282,7 +283,8 @@ public final class CachePartitionScopeFunctions {
                 Map<String, EmitMetadata.Range> explicit =
                         Map.of("country", new EmitMetadata.Range(country, country));
                 emitCountryBatch(OUTPUT, country, base, rowsPerCountry,
-                        filterBytes == null ? null : FilterApplier.from(filterBytes, joinKeysIpc),
+                        filterBytes == null ? null : FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT,
+                                farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities.core()),
                         explicit, OUTPUT, out);
             }
         }
@@ -365,7 +367,8 @@ public final class CachePartitionScopeFunctions {
                     }
                     root.setRowCount(rows);
                     if (filterBytes != null) {
-                        root = FilterApplier.from(filterBytes, joinKeysIpc).apply(root);
+                        root = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT,
+                                farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities.core()).apply(root);
                     }
                     Map<String, String> md = new LinkedHashMap<>();
                     Map<String, String> pv = EmitMetadata.partitionValues(OUTPUT, root, null);
@@ -447,7 +450,8 @@ public final class CachePartitionScopeFunctions {
                 Map<String, EmitMetadata.Range> explicit =
                         Map.of("country", new EmitMetadata.Range(country, country));
                 emitCountryBatch(projected.get(), country, base, rowsPerCountry,
-                        filterBytes == null ? null : FilterApplier.from(filterBytes, joinKeysIpc),
+                        filterBytes == null ? null : FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT,
+                                farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities.core()),
                         explicit, OUTPUT, out);
             }
         }

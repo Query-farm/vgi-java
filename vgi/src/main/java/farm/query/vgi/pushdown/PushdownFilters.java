@@ -4,19 +4,80 @@ package farm.query.vgi.pushdown;
 
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 
+import java.math.BigDecimal;
+import java.math.MathContext;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Container for the parsed top-level filter list (implicit AND).
  *
- * @param filters the top-level filters, conjoined as a logical AND
- * @param version the pushdown wire-format version (currently {@code "1"})
+ * Parsed v2 filter snapshot/state, with compatibility views used by existing fixtures.
  */
-public record PushdownFilters(List<PushdownFilter> filters, String version) {
+public final class PushdownFilters {
+    private final List<PushdownFilter> filters;
+    private final String version;
+    private final List<FilterPredicateV2> predicates;
+    private final Map<String, Long> revisions;
+    private final Set<String> requiredIds;
+    private final FilterEvaluationContext evaluationContext;
+    private final Schema outputSchema;
+    private final List<PushdownFiltersDecoder.ExternalBatch> joinKeys;
+    private final PushdownFiltersDecoder.Capabilities capabilities;
+
+    public PushdownFilters(List<PushdownFilter> filters, String version) {
+        this(filters, version, List.of(), Map.of(), Set.of(), FilterEvaluationContext.none(),
+                null, List.of(), PushdownFiltersDecoder.Capabilities.core());
+    }
+
+    private PushdownFilters(
+            List<PushdownFilter> filters, String version, List<FilterPredicateV2> predicates,
+            Map<String, Long> revisions, Set<String> requiredIds,
+            FilterEvaluationContext evaluationContext, Schema outputSchema,
+            List<PushdownFiltersDecoder.ExternalBatch> joinKeys,
+            PushdownFiltersDecoder.Capabilities capabilities) {
+        this.filters = List.copyOf(filters);
+        this.version = version;
+        this.predicates = List.copyOf(predicates);
+        this.revisions = Map.copyOf(revisions);
+        this.requiredIds = Set.copyOf(requiredIds);
+        this.evaluationContext = evaluationContext;
+        this.outputSchema = outputSchema;
+        this.joinKeys = List.copyOf(joinKeys);
+        this.capabilities = capabilities;
+    }
+
+    static PushdownFilters v2(
+            List<FilterPredicateV2> predicates, Map<String, Long> revisions,
+            Set<String> requiredIds, FilterEvaluationContext evaluationContext,
+            Schema outputSchema, List<PushdownFiltersDecoder.ExternalBatch> joinKeys,
+            PushdownFiltersDecoder.Capabilities capabilities) {
+        List<PushdownFilter> views = new ArrayList<>();
+        for (FilterPredicateV2 predicate : predicates) {
+            views.add(compatibilityView(predicate.expression()));
+        }
+        return new PushdownFilters(views, "2", predicates, revisions, requiredIds,
+                evaluationContext, outputSchema, joinKeys, capabilities);
+    }
+
+    public List<PushdownFilter> filters() { return filters; }
+    public String version() { return version; }
+    public List<FilterPredicateV2> predicates() { return predicates; }
+    public Map<String, Long> revisions() { return revisions; }
+    public Set<String> requiredIds() { return requiredIds; }
+    public FilterEvaluationContext evaluationContext() { return evaluationContext; }
+    Schema outputSchema() { return outputSchema; }
+    List<PushdownFiltersDecoder.ExternalBatch> joinKeys() { return joinKeys; }
+    PushdownFiltersDecoder.Capabilities capabilities() { return capabilities; }
 
     /**
      * An empty filter set at the current supported version.
@@ -24,7 +85,194 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
      * @return a {@code PushdownFilters} with no filters
      */
     public static PushdownFilters empty() {
-        return new PushdownFilters(List.of(), "1");
+        return new PushdownFilters(List.of(), "2");
+    }
+
+    /** Atomically apply one tick-time advisory delta to this scan state. */
+    public PushdownFilters applyDelta(byte[] delta) {
+        return PushdownFiltersDecoder.applyDelta(this, delta);
+    }
+
+    /** Conjoin two initial/refinement snapshots without losing their typed v2 state. */
+    public PushdownFilters mergeSnapshot(PushdownFilters refinement) {
+        if (refinement == null) return this;
+        if (!version.equals("2") || !refinement.version.equals("2")) {
+            throw new FilterV2Exception("only v2 snapshots can be merged");
+        }
+        if (!evaluationContext.equals(refinement.evaluationContext)) {
+            throw new FilterV2Exception("refinement changed the evaluation context");
+        }
+        Map<String, Long> mergedRevisions = new LinkedHashMap<>(revisions);
+        Map<String, String> renamed = new LinkedHashMap<>();
+        for (var entry : refinement.revisions.entrySet()) {
+            String id = entry.getKey();
+            while (mergedRevisions.containsKey(id)) id = "refinement:" + id;
+            renamed.put(entry.getKey(), id);
+            mergedRevisions.put(id, entry.getValue());
+        }
+        List<FilterPredicateV2> mergedPredicates = new ArrayList<>(predicates);
+        for (FilterPredicateV2 predicate : refinement.predicates) {
+            mergedPredicates.add(new FilterPredicateV2(renamed.get(predicate.id()), predicate.revision(),
+                    predicate.mode(), predicate.source(), predicate.expression()));
+        }
+        Set<String> mergedRequired = new java.util.LinkedHashSet<>(requiredIds);
+        for (String id : refinement.requiredIds) mergedRequired.add(renamed.get(id));
+        List<PushdownFiltersDecoder.ExternalBatch> mergedKeys = new ArrayList<>(joinKeys);
+        mergedKeys.addAll(refinement.joinKeys);
+        return v2(mergedPredicates, mergedRevisions, mergedRequired, evaluationContext,
+                outputSchema == null ? refinement.outputSchema : outputSchema,
+                mergedKeys, capabilities);
+    }
+
+    private static PushdownFilter compatibilityView(FilterExpression expression) {
+        if (expression instanceof FilterExpression.Comparison comparison) {
+            Path path = path(comparison.left());
+            FilterExpression.Literal literal = comparison.right() instanceof FilterExpression.Literal value
+                    ? value : null;
+            if (path == null || literal == null) {
+                path = path(comparison.right());
+                literal = comparison.left() instanceof FilterExpression.Literal value ? value : null;
+            }
+            if (path != null && literal != null) {
+                return wrap(path, new PushdownFilter.Constant(
+                        path.leafName(), path.leafIndex(), comparison.op(), literal.value()));
+            }
+        }
+        if (expression instanceof FilterExpression.IsNull isNull) {
+            Path path = path(isNull.expression());
+            if (path != null) {
+                PushdownFilter leaf = isNull.negated()
+                        ? new PushdownFilter.IsNotNull(path.leafName(), path.leafIndex())
+                        : new PushdownFilter.IsNull(path.leafName(), path.leafIndex());
+                return wrap(path, leaf);
+            }
+        }
+        if (expression instanceof FilterExpression.In in) {
+            Path path = path(in.expression());
+            if (path != null && !in.negated()) {
+                List<Object> values = in.set() instanceof FilterExpression.LiteralSet set
+                        ? set.values() : ((FilterExpression.ExternalSet) in.set()).values();
+                return wrap(path, new PushdownFilter.In(path.leafName(), path.leafIndex(), values));
+            }
+        }
+        if (expression instanceof FilterExpression.BooleanExpression booleanExpression) {
+            List<PushdownFilter> children = booleanExpression.children().stream()
+                    .map(PushdownFilters::compatibilityView).toList();
+            Path first = firstPath(expression);
+            String name = first == null ? null : first.rootName();
+            int index = first == null ? -1 : first.rootIndex();
+            return booleanExpression.conjunction()
+                    ? new PushdownFilter.And(name, index, children)
+                    : new PushdownFilter.Or(name, index, children);
+        }
+        Path first = firstPath(expression);
+        return new PushdownFilter.Expression(first == null ? null : first.rootName(),
+                first == null ? -1 : first.rootIndex(), expressionSql(expression));
+    }
+
+    private record Path(String rootName, int rootIndex, List<PathPart> parts) {
+        String leafName() { return parts.isEmpty() ? rootName : parts.getLast().name(); }
+        int leafIndex() { return parts.isEmpty() ? rootIndex : parts.getLast().index(); }
+    }
+
+    private record PathPart(String name, int index) {}
+
+    private static Path path(FilterExpression expression) {
+        if (expression instanceof FilterExpression.ColumnRef column) {
+            return new Path(column.columnName(), Math.toIntExact(column.columnIndex()), List.of());
+        }
+        if (expression instanceof FilterExpression.FieldRef field) {
+            Path parent = path(field.expression());
+            if (parent == null) return null;
+            List<PathPart> parts = new ArrayList<>(parent.parts());
+            parts.add(new PathPart(field.fieldName(), Math.toIntExact(field.fieldIndex())));
+            return new Path(parent.rootName(), parent.rootIndex(), List.copyOf(parts));
+        }
+        return null;
+    }
+
+    private static PushdownFilter wrap(Path path, PushdownFilter leaf) {
+        PushdownFilter result = leaf;
+        for (int i = path.parts().size() - 1; i >= 0; i--) {
+            PathPart part = path.parts().get(i);
+            String parentName = i == 0 ? path.rootName() : path.parts().get(i - 1).name();
+            int parentIndex = i == 0 ? path.rootIndex() : path.parts().get(i - 1).index();
+            result = new PushdownFilter.Struct(parentName, parentIndex, part.index(), part.name(), result);
+        }
+        return result;
+    }
+
+    private static Path firstPath(FilterExpression expression) {
+        Path direct = path(expression);
+        if (direct != null) return direct;
+        return switch (expression) {
+            case FilterExpression.Comparison value -> firstNonNull(firstPath(value.left()), firstPath(value.right()));
+            case FilterExpression.BooleanExpression value -> value.children().stream()
+                    .map(PushdownFilters::firstPath).filter(Objects::nonNull).findFirst().orElse(null);
+            case FilterExpression.Not value -> firstPath(value.expression());
+            case FilterExpression.IsNull value -> firstPath(value.expression());
+            case FilterExpression.In value -> firstPath(value.expression());
+            case FilterExpression.Cast value -> firstPath(value.expression());
+            case FilterExpression.Arithmetic value -> firstNonNull(firstPath(value.left()), firstPath(value.right()));
+            case FilterExpression.Negate value -> firstPath(value.expression());
+            case FilterExpression.Call value -> value.arguments().stream()
+                    .map(PushdownFilters::firstPath).filter(Objects::nonNull).findFirst().orElse(null);
+            case FilterExpression.RuntimeFilter value -> firstPath(value.input());
+            default -> null;
+        };
+    }
+
+    private static Path firstNonNull(Path left, Path right) { return left == null ? right : left; }
+
+    private static String expressionSql(FilterExpression expression) {
+        return switch (expression) {
+            case FilterExpression.ColumnRef value -> quoteIdentifier(value.columnName());
+            case FilterExpression.FieldRef value -> expressionSql(value.expression()) + "."
+                    + quoteIdentifier(value.fieldName());
+            case FilterExpression.Literal value -> sqlLiteral(value.value());
+            case FilterExpression.Comparison value -> "(" + expressionSql(value.left()) + " "
+                    + value.op().symbol() + " " + expressionSql(value.right()) + ")";
+            case FilterExpression.BooleanExpression value -> "(" + value.children().stream()
+                    .map(PushdownFilters::expressionSql)
+                    .collect(Collectors.joining(value.conjunction() ? " AND " : " OR ")) + ")";
+            case FilterExpression.Not value -> "(NOT " + expressionSql(value.expression()) + ")";
+            case FilterExpression.IsNull value -> "(" + expressionSql(value.expression())
+                    + (value.negated() ? " IS NOT NULL)" : " IS NULL)");
+            case FilterExpression.In value -> "(" + expressionSql(value.expression())
+                    + (value.negated() ? " NOT IN (...)" : " IN (...)") + ")";
+            case FilterExpression.Cast value -> "CAST(" + expressionSql(value.expression()) + " AS "
+                    + value.field().getType() + ")";
+            case FilterExpression.Arithmetic value -> "(" + expressionSql(value.left()) + " "
+                    + arithmeticSymbol(value.op()) + " " + expressionSql(value.right()) + ")";
+            case FilterExpression.Negate value -> "(-" + expressionSql(value.expression()) + ")";
+            case FilterExpression.Call value -> functionName(value.function()) + "("
+                    + value.arguments().stream().map(PushdownFilters::expressionSql)
+                    .collect(Collectors.joining(", ")) + ")";
+            case FilterExpression.RuntimeFilter value -> "runtime_filter(" + expressionSql(value.input()) + ")";
+        };
+    }
+
+    private static String quoteIdentifier(String value) {
+        return "\"" + value.replace("\"", "\"\"") + "\"";
+    }
+
+    private static String arithmeticSymbol(FilterExpression.ArithmeticOperator op) {
+        return switch (op) {
+            case ADD -> "+";
+            case SUBTRACT -> "-";
+            case MULTIPLY -> "*";
+            case DIVIDE -> "/";
+            case MODULO -> "%";
+        };
+    }
+
+    private static String functionName(Object function) {
+        if (function instanceof FilterExpression.StandardFunction standard) {
+            return standard.name().toLowerCase();
+        }
+        FilterIdentity identity = (FilterIdentity) function;
+        if (identity.equals(new FilterIdentity("duckdb.spatial", "intersects_extent", 1))) return "&&";
+        return identity.namespace() + "." + identity.name();
     }
 
     /**
@@ -324,6 +572,26 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
         int rows = root.getRowCount();
         boolean[] mask = new boolean[rows];
         java.util.Arrays.fill(mask, true);
+        if (!predicates.isEmpty()) {
+            for (FilterPredicateV2 predicate : predicates) {
+                if (predicate.expression() instanceof FilterExpression.RuntimeFilter runtime
+                        && !runtime.supported()) continue;
+                boolean[] candidate = mask.clone();
+                try {
+                    for (int row = 0; row < rows; row++) {
+                        if (!candidate[row]) continue;
+                        if (truth(predicate.expression(), root, row) != Truth.TRUE) mask[row] = false;
+                    }
+                } catch (RuntimeException e) {
+                    if (predicate.mode() == PredicateMode.REQUIRED) {
+                        throw new FilterV2Exception(
+                                "failed to evaluate required predicate " + predicate.id(), e);
+                    }
+                    mask = candidate;
+                }
+            }
+            return mask;
+        }
         for (PushdownFilter f : filters) {
             for (int i = 0; i < rows; i++) {
                 if (!mask[i]) continue;
@@ -331,6 +599,244 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
             }
         }
         return mask;
+    }
+
+    private enum Truth {
+        TRUE, FALSE, NULL;
+
+        Truth not() { return this == TRUE ? FALSE : this == FALSE ? TRUE : NULL; }
+    }
+
+    private record Scalar(Object value, Field field) {}
+    private record StructCell(org.apache.arrow.vector.complex.StructVector vector, int row) {}
+
+    private static Truth truth(FilterExpression expression, VectorSchemaRoot root, int row) {
+        if (expression instanceof FilterExpression.Comparison comparison) {
+            Scalar left = scalar(comparison.left(), root, row);
+            Scalar right = scalar(comparison.right(), root, row);
+            if (comparison.op() == ComparisonOperator.DISTINCT_FROM) {
+                if (left.value() == null || right.value() == null) {
+                    return left.value() == right.value() ? Truth.FALSE : Truth.TRUE;
+                }
+            } else if (comparison.op() == ComparisonOperator.NOT_DISTINCT_FROM) {
+                if (left.value() == null || right.value() == null) {
+                    return left.value() == right.value() ? Truth.TRUE : Truth.FALSE;
+                }
+            } else if (left.value() == null || right.value() == null) {
+                return Truth.NULL;
+            }
+            return compare(comparison.op(), left.value(), right.value()) ? Truth.TRUE : Truth.FALSE;
+        }
+        if (expression instanceof FilterExpression.BooleanExpression bool) {
+            Truth result = bool.conjunction() ? Truth.TRUE : Truth.FALSE;
+            for (FilterExpression child : bool.children()) {
+                Truth value = truth(child, root, row);
+                if (bool.conjunction()) {
+                    if (value == Truth.FALSE) return Truth.FALSE;
+                    if (value == Truth.NULL) result = Truth.NULL;
+                } else {
+                    if (value == Truth.TRUE) return Truth.TRUE;
+                    if (value == Truth.NULL) result = Truth.NULL;
+                }
+            }
+            return result;
+        }
+        if (expression instanceof FilterExpression.Not not) return truth(not.expression(), root, row).not();
+        if (expression instanceof FilterExpression.IsNull isNull) {
+            boolean result = scalar(isNull.expression(), root, row).value() == null;
+            return result != isNull.negated() ? Truth.TRUE : Truth.FALSE;
+        }
+        if (expression instanceof FilterExpression.In in) {
+            List<Object> values = in.set() instanceof FilterExpression.LiteralSet set
+                    ? set.values() : ((FilterExpression.ExternalSet) in.set()).values();
+            if (values.isEmpty()) return in.negated() ? Truth.TRUE : Truth.FALSE;
+            Object input = scalar(in.expression(), root, row).value();
+            if (input == null) return Truth.NULL;
+            boolean sawNull = false;
+            for (Object value : values) {
+                if (value == null) sawNull = true;
+                else if (compare(ComparisonOperator.EQ, input, value)) {
+                    return in.negated() ? Truth.FALSE : Truth.TRUE;
+                }
+            }
+            Truth result = sawNull ? Truth.NULL : Truth.FALSE;
+            return in.negated() ? result.not() : result;
+        }
+        if (expression instanceof FilterExpression.Call call) {
+            Object value = scalar(call, root, row).value();
+            return value == null ? Truth.NULL : (Boolean) value ? Truth.TRUE : Truth.FALSE;
+        }
+        if (expression instanceof FilterExpression.Literal literal
+                && literal.field().getType() instanceof ArrowType.Bool) {
+            return literal.value() == null ? Truth.NULL
+                    : (Boolean) literal.value() ? Truth.TRUE : Truth.FALSE;
+        }
+        if (expression instanceof FilterExpression.ColumnRef
+                || expression instanceof FilterExpression.FieldRef
+                || expression instanceof FilterExpression.Cast) {
+            Scalar value = scalar(expression, root, row);
+            if (!(value.field().getType() instanceof ArrowType.Bool)) {
+                throw new FilterV2Exception("predicate root does not resolve to BOOLEAN");
+            }
+            return value.value() == null ? Truth.NULL
+                    : (Boolean) value.value() ? Truth.TRUE : Truth.FALSE;
+        }
+        if (expression instanceof FilterExpression.RuntimeFilter runtime) {
+            if (!runtime.supported()) return Truth.TRUE;
+            throw new FilterV2Exception("runtime-filter evaluator is unavailable");
+        }
+        throw new FilterV2Exception("expression does not resolve to BOOLEAN");
+    }
+
+    private static Scalar scalar(FilterExpression expression, VectorSchemaRoot root, int row) {
+        if (expression instanceof FilterExpression.ColumnRef column) {
+            FieldVector vector = resolve(root, column.columnName(), column.columnIndex());
+            Field actual = vector.getField();
+            if (column.field() != null && !column.field().getType().equals(actual.getType())) {
+                throw new FilterV2Exception("referenced column changed type before evaluation");
+            }
+            Object value = vector.isNull(row) ? null
+                    : vector instanceof org.apache.arrow.vector.complex.StructVector struct
+                            ? new StructCell(struct, row)
+                            : farm.query.vgi.internal.VectorScalarCodec.read(vector, row);
+            return new Scalar(value, actual);
+        }
+        if (expression instanceof FilterExpression.FieldRef field) {
+            Scalar parent = scalar(field.expression(), root, row);
+            if (!(parent.field().getType() instanceof ArrowType.Struct)) {
+                throw new FilterV2Exception("field_ref input is not a struct");
+            }
+            if (field.fieldIndex() >= parent.field().getChildren().size()) {
+                throw new FilterV2Exception("field_ref index is out of range");
+            }
+            Field child = parent.field().getChildren().get((int) field.fieldIndex());
+            if (!child.getName().equals(field.fieldName())) {
+                throw new FilterV2Exception("field_ref name does not match its index");
+            }
+            if (parent.value() == null) return new Scalar(null, child);
+            if (parent.value() instanceof StructCell cell) {
+                FieldVector childVector = (FieldVector) cell.vector()
+                        .getChildByOrdinal((int) field.fieldIndex());
+                if (childVector == null || !childVector.getName().equals(field.fieldName())) {
+                    throw new FilterV2Exception("field_ref child vector does not match its index and name");
+                }
+                Object value = childVector.isNull(cell.row()) ? null
+                        : childVector instanceof org.apache.arrow.vector.complex.StructVector struct
+                                ? new StructCell(struct, cell.row())
+                                : farm.query.vgi.internal.VectorScalarCodec.read(childVector, cell.row());
+                return new Scalar(value, child);
+            }
+            if (!(parent.value() instanceof Map<?, ?> values)) {
+                throw new FilterV2Exception("field_ref input value is not a struct");
+            }
+            return new Scalar(values.get(field.fieldName()), child);
+        }
+        if (expression instanceof FilterExpression.Literal literal) {
+            return new Scalar(literal.value(), literal.field());
+        }
+        if (expression instanceof FilterExpression.Cast cast) {
+            Scalar input = scalar(cast.expression(), root, row);
+            return new Scalar(cast(input.value(), cast.field().getType()), cast.field());
+        }
+        if (expression instanceof FilterExpression.Arithmetic arithmetic) {
+            Scalar left = scalar(arithmetic.left(), root, row);
+            Scalar right = scalar(arithmetic.right(), root, row);
+            return new Scalar(arithmetic(arithmetic.op(), left.value(), right.value()), left.field());
+        }
+        if (expression instanceof FilterExpression.Negate negate) {
+            Scalar value = scalar(negate.expression(), root, row);
+            return new Scalar(value.value() == null ? null : decimal(value.value()).negate(), value.field());
+        }
+        if (expression instanceof FilterExpression.Call call) {
+            List<Object> args = call.arguments().stream().map(arg -> scalar(arg, root, row).value()).toList();
+            if (!(call.function() instanceof FilterExpression.StandardFunction function)) {
+                return new Scalar(true, new Field("result",
+                        org.apache.arrow.vector.types.pojo.FieldType.nullable(new ArrowType.Bool()), null));
+            }
+            Object result = switch (function) {
+                case STARTS_WITH -> stringCall(args, String::startsWith);
+                case ENDS_WITH -> stringCall(args, String::endsWith);
+                case CONTAINS -> stringCall(args, String::contains);
+                case LIST_CONTAINS -> listContains(args);
+            };
+            return new Scalar(result, new Field("result", org.apache.arrow.vector.types.pojo.FieldType.nullable(
+                    new ArrowType.Bool()), null));
+        }
+        throw new FilterV2Exception("expression cannot be used as a scalar");
+    }
+
+    private static FieldVector resolve(VectorSchemaRoot root, String name, long index) {
+        if (index < root.getFieldVectors().size()
+                && root.getSchema().getFields().get((int) index).getName().equals(name)) {
+            return root.getVector((int) index);
+        }
+        List<FieldVector> matches = root.getFieldVectors().stream()
+                .filter(vector -> vector.getName().equals(name)).toList();
+        if (matches.size() != 1) throw new FilterV2Exception("referenced column is unavailable or ambiguous: " + name);
+        return matches.getFirst();
+    }
+
+    private static Object cast(Object value, ArrowType target) {
+        if (value == null) return null;
+        if (target instanceof ArrowType.Utf8 || target instanceof ArrowType.LargeUtf8) return value.toString();
+        if (target instanceof ArrowType.Bool) {
+            if (value instanceof Boolean b) return b;
+            if (value.toString().equalsIgnoreCase("true")) return true;
+            if (value.toString().equalsIgnoreCase("false")) return false;
+            throw new FilterV2Exception("invalid BOOLEAN cast");
+        }
+        if (target instanceof ArrowType.Int integer) {
+            BigDecimal number = decimal(value);
+            long result = number.longValueExact();
+            int bits = integer.getBitWidth();
+            if (integer.getIsSigned()) {
+                if (bits < 64) {
+                    long min = -(1L << (bits - 1));
+                    long max = (1L << (bits - 1)) - 1;
+                    if (result < min || result > max) throw new ArithmeticException("integer cast overflow");
+                }
+            } else if (result < 0 || (bits < 63 && result >= (1L << bits))) {
+                throw new ArithmeticException("unsigned integer cast overflow");
+            }
+            return result;
+        }
+        if (target instanceof ArrowType.FloatingPoint) return Double.valueOf(value.toString());
+        if (target instanceof ArrowType.Decimal decimal) {
+            return PushdownFilters.decimal(value).setScale(decimal.getScale());
+        }
+        throw new FilterV2Exception("unsupported cast target " + target);
+    }
+
+    private static Object arithmetic(FilterExpression.ArithmeticOperator op, Object left, Object right) {
+        if (left == null || right == null) return null;
+        BigDecimal a = decimal(left);
+        BigDecimal b = decimal(right);
+        return switch (op) {
+            case ADD -> a.add(b);
+            case SUBTRACT -> a.subtract(b);
+            case MULTIPLY -> a.multiply(b);
+            case DIVIDE -> a.divide(b, MathContext.DECIMAL128);
+            case MODULO -> a.remainder(b);
+        };
+    }
+
+    private static BigDecimal decimal(Object value) {
+        return value instanceof BigDecimal decimal ? decimal : new BigDecimal(value.toString());
+    }
+
+    private static Object stringCall(List<Object> args,
+                                     java.util.function.BiPredicate<String, String> operation) {
+        if (args.size() != 2) throw new FilterV2Exception("string function requires two arguments");
+        if (args.get(0) == null || args.get(1) == null) return null;
+        return operation.test(args.get(0).toString(), args.get(1).toString());
+    }
+
+    private static Object listContains(List<Object> args) {
+        if (args.size() != 2) throw new FilterV2Exception("list_contains requires two arguments");
+        if (args.get(0) == null || args.get(1) == null) return null;
+        if (!(args.get(0) instanceof List<?> list)) throw new FilterV2Exception("list_contains input is not a list");
+        for (Object value : list) if (Objects.equals(value, args.get(1))) return true;
+        return false;
     }
 
     private static boolean evalRow(PushdownFilter f, VectorSchemaRoot root, int row) {
@@ -426,14 +932,17 @@ public record PushdownFilters(List<PushdownFilter> filters, String version) {
 
     private static boolean compare(ComparisonOperator op, Object a, Object b) {
         if (a == null || b == null) return false;
-        // Normalise byte[] (Arrow VarBinary/VarChar) to string for comparison.
-        if (a instanceof byte[] ab) a = new String(ab, java.nio.charset.StandardCharsets.UTF_8);
-        if (b instanceof byte[] bb) b = new String(bb, java.nio.charset.StandardCharsets.UTF_8);
-        // Arrow's getObject for VarChar returns Text; coerce both sides to String.
+        if (a instanceof byte[] left && b instanceof byte[] right) {
+            int cmp = java.util.Arrays.compareUnsigned(left, right);
+            return op.test(cmp);
+        }
         a = a instanceof org.apache.arrow.vector.util.Text t ? t.toString() : a;
         b = b instanceof org.apache.arrow.vector.util.Text t ? t.toString() : b;
-        if (a instanceof Number na && b instanceof Number nb) {
-            return op.test(Double.compare(na.doubleValue(), nb.doubleValue()));
+        if (a instanceof Number && b instanceof Number) {
+            if (a instanceof Float || a instanceof Double || b instanceof Float || b instanceof Double) {
+                return op.test(Double.compare(((Number) a).doubleValue(), ((Number) b).doubleValue()));
+            }
+            return op.test(decimal(a).compareTo(decimal(b)));
         }
         if (a instanceof Comparable && a.getClass() == b.getClass()) {
             @SuppressWarnings({"unchecked", "rawtypes"})

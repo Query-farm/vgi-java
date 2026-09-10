@@ -5,6 +5,7 @@ package farm.query.vgi.pushdown;
 import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
 
@@ -24,37 +25,75 @@ public final class FilterApplier {
     // lazily after a round-trip).
     private byte[] filterBytes;
     private List<byte[]> joinKeysIpc;
+    private List<byte[]> filterDeltas;
+    private Schema bindOutputSchema;
+    private PushdownFiltersDecoder.Capabilities capabilities;
     private transient PushdownFilters cached;
 
     /** No-arg constructor for state deserialization; {@link #from} is the API. */
     private FilterApplier() {
         this.joinKeysIpc = List.of();
+        this.filterDeltas = List.of();
+        this.capabilities = PushdownFiltersDecoder.Capabilities.core();
     }
 
     /**
-     * Create an applier over the init-time pushdown payload; decoding is deferred
-     * to first {@link #apply}.
+     * Create an applier without a bind schema only for an empty filter payload.
      *
      * @param filterBytes the pushdown-filter IPC bytes, or {@code null} when none were pushed
      * @param joinKeysIpc the {@code InitRequest.join_keys} IPC batches, or {@code null} for none
-     * @return a reusable applier
+     * @return an empty reusable applier
+     * @deprecated V2 filter evaluation requires the authoritative unprojected bind output schema
+     *     whenever a filter payload is present.
      */
+    @Deprecated(forRemoval = true)
     public static FilterApplier from(byte[] filterBytes, List<byte[]> joinKeysIpc) {
-        return new FilterApplier(filterBytes, joinKeysIpc);
+        if (filterBytes == null || filterBytes.length == 0) {
+            return new FilterApplier(null, joinKeysIpc, null,
+                    PushdownFiltersDecoder.Capabilities.core());
+        }
+        throw new FilterV2Exception(
+                "v2 filter evaluation requires the authoritative bind output schema");
     }
 
-    private FilterApplier(byte[] filterBytes, List<byte[]> joinKeysIpc) {
+    /** Create an applier with the authoritative bind schema and negotiated capabilities. */
+    public static FilterApplier from(
+            byte[] filterBytes, List<byte[]> joinKeysIpc, Schema bindOutputSchema,
+            PushdownFiltersDecoder.Capabilities capabilities) {
+        return new FilterApplier(filterBytes, joinKeysIpc, bindOutputSchema, capabilities);
+    }
+
+    private FilterApplier(byte[] filterBytes, List<byte[]> joinKeysIpc, Schema bindOutputSchema,
+                          PushdownFiltersDecoder.Capabilities capabilities) {
         this.filterBytes = filterBytes;
         this.joinKeysIpc = joinKeysIpc == null ? List.of() : joinKeysIpc;
+        this.filterDeltas = new java.util.ArrayList<>();
+        this.bindOutputSchema = bindOutputSchema;
+        this.capabilities = capabilities == null
+                ? PushdownFiltersDecoder.Capabilities.core() : capabilities;
     }
 
     private PushdownFilters filters() {
         if (cached == null) {
             cached = filterBytes == null
                     ? PushdownFilters.empty()
-                    : PushdownFiltersDecoder.decode(filterBytes, joinKeysIpc);
+                    : PushdownFiltersDecoder.decode(filterBytes, bindOutputSchema,
+                            joinKeysIpc, capabilities == null
+                                    ? PushdownFiltersDecoder.Capabilities.core() : capabilities);
+            if (filterDeltas != null) {
+                for (byte[] delta : filterDeltas) cached = cached.applyDelta(delta);
+            }
         }
         return cached;
+    }
+
+    /** Validate and atomically apply a tick-time v2 advisory delta. */
+    public void applyDelta(byte[] delta) {
+        if (delta == null || delta.length == 0) return;
+        PushdownFilters updated = filters().applyDelta(delta);
+        if (filterDeltas == null) filterDeltas = new java.util.ArrayList<>();
+        filterDeltas.add(delta.clone());
+        cached = updated;
     }
 
     /**

@@ -29,26 +29,19 @@ import java.util.Map;
  * producer. The wire form is one single-row record batch:
  *
  * <ul>
- *   <li>column 0, {@code filter_spec}: a UTF-8 JSON <em>array</em> of filter
- *       nodes. Its field carries the metadata {@code vgi_filter_version = "1"};
- *       a worker rejects the payload outright without it.</li>
- *   <li>columns {@code _val_0} … {@code _val_N-1}: the typed constants. A node's
+ *   <li>column 0, {@code filter_spec}: the v2 snapshot JSON document.</li>
+ *   <li>columns {@code value_0} … {@code value_N-1}: the typed constants. A node's
  *       {@code value_ref: N} resolves to batch column {@code N + 1} — the JSON
  *       stays type-agnostic and the constants keep their Arrow types.</li>
  * </ul>
  *
  * <p>{@code join_keys} predicates are the exception: their values do
- * <em>not</em> occupy a {@code _val_N} column but ride as separate
+ * <em>not</em> occupy a {@code value_N} column but ride as separate
  * single-column batches, matched to their node by column name. Both artefacts
  * come back together in {@link EncodedPushdownFilters}.
  *
- * <p><strong>Column indices are projected positions.</strong> Every node
- * carries {@code column_name} and {@code column_index}, and the index is the
- * column's position in the <em>projected</em> column list — not in the base
- * schema. A worker applies a filter by index, so a base-schema index filters
- * the wrong column with no error. Build columns through
- * {@link ProjectedColumns} rather than counting by hand; see
- * {@link ProjectedColumn} for the full argument.
+ * <p>Column indices address the complete unprojected bind-output schema. Build
+ * references through {@link ProjectedColumns} constructed from that schema.
  *
  * <pre>{@code
  * ProjectedColumns cols = ProjectedColumns.of(List.of("n", "name"));
@@ -65,8 +58,8 @@ import java.util.Map;
  */
 public final class PushdownFiltersEncoder {
 
-    /** The only filter-spec version any VGI worker accepts today. */
-    public static final String FILTER_VERSION = "1";
+    /** The only filter-spec version emitted by this VGI 2.0 SDK. */
+    public static final String FILTER_VERSION = "2";
 
     /** Schema-level version marker the C++ extension stamps on each join-key batch. */
     private static final String JOIN_KEYS_VERSION = "2";
@@ -110,33 +103,43 @@ public final class PushdownFiltersEncoder {
      * @return the filter batch plus one batch per join-key predicate
      */
     public EncodedPushdownFilters encode() {
-        ArrayNode specs = JSON.createArrayNode();
+        ObjectNode document = JSON.createObjectNode();
+        document.put("encoding", "vgi.filters.v2");
+        document.put("semantics", "vgi.duckdb.standard.v1");
+        document.put("kind", "snapshot");
+        ArrayNode specs = document.putArray("predicates");
         List<ScalarValue> values = new ArrayList<>();
         List<JoinKeyColumn> joinKeyColumns = new ArrayList<>();
 
         for (int i = 0; i < columns.size(); i++) {
-            specs.add(node(columns.get(i), predicates.get(i), values, joinKeyColumns));
+            ObjectNode predicate = specs.addObject();
+            predicate.put("id", "p" + i);
+            predicate.put("revision", 0);
+            predicate.put("mode", "required");
+            predicate.put("source", "query");
+            predicate.set("expression", node(columnRef(columns.get(i)), predicates.get(i),
+                    values, joinKeyColumns));
         }
 
-        String filterSpec = specs.toString();
+        String filterSpec = document.toString();
 
-        // Field 0 carries the version metadata; without it every decoder —
-        // Java, Python, C++ — rejects the batch before looking at the JSON.
-        Map<String, String> versionMetadata = new LinkedHashMap<>();
-        versionMetadata.put("vgi_filter_version", FILTER_VERSION);
         List<Field> fields = new ArrayList<>(values.size() + 1);
         fields.add(new Field("filter_spec",
-                new FieldType(true, new ArrowType.Utf8(), null, versionMetadata), null));
+                new FieldType(false, new ArrowType.Utf8(), null), null));
         for (int i = 0; i < values.size(); i++) {
-            fields.add(values.get(i).field("_val_" + i));
+            fields.add(values.get(i).field("value_" + i));
         }
 
         byte[] filterBytes;
-        try (VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(fields), Allocators.root())) {
+        Schema schema = new Schema(fields, Map.of(
+                "vgi_filter_encoding", "vgi.filters.v2",
+                "vgi_filter_version", FILTER_VERSION,
+                "vgi_evaluation_context", "vgi.none.v1"));
+        try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root())) {
             root.allocateNew();
             ScalarValue.of(filterSpec).write(root.getVector("filter_spec"), 0);
             for (int i = 0; i < values.size(); i++) {
-                values.get(i).write(root.getVector("_val_" + i), 0);
+                values.get(i).write(root.getVector("value_" + i), 0);
             }
             for (FieldVector v : root.getFieldVectors()) v.setValueCount(1);
             root.setRowCount(1);
@@ -154,51 +157,75 @@ public final class PushdownFiltersEncoder {
      * the parent's column identity down the tree and the decoders read it from
      * each node independently.
      */
-    private ObjectNode node(ProjectedColumn column, FilterPredicate predicate,
+    private ObjectNode node(ObjectNode input, FilterPredicate predicate,
                             List<ScalarValue> values, List<JoinKeyColumn> joinKeyColumns) {
         ObjectNode obj = JSON.createObjectNode();
-        obj.put("column_name", column.name());
-        obj.put("column_index", column.projectedIndex());
 
         switch (predicate) {
             case FilterPredicate.Compare c -> {
-                obj.put("type", "constant");
+                obj.put("node", "comparison");
                 obj.put("op", c.op().wireToken());
-                obj.put("value_ref", values.size());
+                obj.set("left", input);
+                ObjectNode literal = obj.putObject("right");
+                literal.put("node", "literal");
+                literal.put("value_ref", values.size());
                 values.add(c.value());
             }
-            case FilterPredicate.IsNull ignored -> obj.put("type", "is_null");
-            case FilterPredicate.IsNotNull ignored -> obj.put("type", "is_not_null");
+            case FilterPredicate.IsNull ignored -> {
+                obj.put("node", "is_null");
+                obj.set("expression", input);
+                obj.put("negated", false);
+            }
+            case FilterPredicate.IsNotNull ignored -> {
+                obj.put("node", "is_null");
+                obj.set("expression", input);
+                obj.put("negated", true);
+            }
             case FilterPredicate.And a -> {
-                obj.put("type", "and");
-                obj.set("children", children(column, a.children(), values, joinKeyColumns));
+                obj.put("node", "and");
+                obj.set("children", children(input, a.children(), values, joinKeyColumns));
             }
             case FilterPredicate.Or o -> {
-                obj.put("type", "or");
-                obj.set("children", children(column, o.children(), values, joinKeyColumns));
+                obj.put("node", "or");
+                obj.set("children", children(input, o.children(), values, joinKeyColumns));
             }
             case FilterPredicate.StructField s -> {
-                obj.put("type", "struct");
-                obj.put("child_index", s.childIndex());
-                obj.put("child_name", s.childName());
-                obj.set("child_filter", node(column, s.childFilter(), values, joinKeyColumns));
+                ObjectNode field = JSON.createObjectNode();
+                field.put("node", "field_ref");
+                field.set("expression", input);
+                field.put("field_index", s.childIndex());
+                field.put("field_name", s.childName());
+                return node(field, s.childFilter(), values, joinKeyColumns);
             }
             case FilterPredicate.JoinKeys j -> {
-                obj.put("type", "join_keys");
-                // Matched back to its batch by name, so the batch's single
-                // column is named after this filter's column.
-                obj.put("keys_column", column.name());
-                joinKeyColumns.add(new JoinKeyColumn(column.name(), j.type(), j.values()));
+                obj.put("node", "in");
+                obj.set("expression", input);
+                ObjectNode set = obj.putObject("set");
+                set.put("kind", "external");
+                set.put("batch_index", joinKeyColumns.size());
+                set.put("column_index", 0);
+                String keyName = "key";
+                set.put("column_name", keyName);
+                obj.put("negated", false);
+                joinKeyColumns.add(new JoinKeyColumn(keyName, j.type(), j.values()));
             }
         }
         return obj;
     }
 
-    private ArrayNode children(ProjectedColumn column, List<FilterPredicate> children,
+    private ObjectNode columnRef(ProjectedColumn column) {
+        ObjectNode ref = JSON.createObjectNode();
+        ref.put("node", "column_ref");
+        ref.put("column_index", column.bindIndex());
+        ref.put("column_name", column.name());
+        return ref;
+    }
+
+    private ArrayNode children(ObjectNode input, List<FilterPredicate> children,
                                List<ScalarValue> values, List<JoinKeyColumn> joinKeyColumns) {
         ArrayNode arr = JSON.createArrayNode();
         for (FilterPredicate child : children) {
-            arr.add(node(column, child, values, joinKeyColumns));
+            arr.add(node(input.deepCopy(), child, values, joinKeyColumns));
         }
         return arr;
     }

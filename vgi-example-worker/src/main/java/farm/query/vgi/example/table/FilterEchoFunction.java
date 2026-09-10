@@ -23,6 +23,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -59,8 +60,9 @@ public final class FilterEchoFunction extends CountdownTableFunction {
         byte[] pfBytes = params.pushdownFilters();
         PushdownFilters pf = pfBytes == null
                 ? PushdownFilters.empty()
-                : PushdownFiltersDecoder.decode(pfBytes, params.joinKeys());
+                : params.decodeFilters();
         return new State(new BatchState(count, batchSize), pf.formatInline(), pfBytes,
+                params.bindOutputSchema(),
                 new CachedSchema(params.outputSchema()),
                 params.joinKeys());
     }
@@ -69,22 +71,28 @@ public final class FilterEchoFunction extends CountdownTableFunction {
         public BatchState batch;
         public String filterStr;
         public byte[] filterBytes;
+        public Schema bindOutputSchema;
+        public List<byte[]> filterDeltas;
         public CachedSchema outputSchema;
         public List<byte[]> joinKeysIpc;
+        public transient PushdownFilters currentFilters;
 
         public State() {}
 
-        State(BatchState batch, String filterStr, byte[] filterBytes, CachedSchema outputSchema,
+        State(BatchState batch, String filterStr, byte[] filterBytes, Schema bindOutputSchema,
+                CachedSchema outputSchema,
                 List<byte[]> joinKeysIpc) {
             this.batch = batch;
             this.filterStr = filterStr;
             this.filterBytes = filterBytes;
+            this.bindOutputSchema = bindOutputSchema;
+            this.filterDeltas = new ArrayList<>();
             this.outputSchema = outputSchema;
             this.joinKeysIpc = joinKeysIpc;
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            emitOneBatch(out, filterStr, filterBytes);
+            emitOneBatch(out, filterStr);
         }
 
         @Override public void produceTick(farm.query.vgirpc.AnnotatedBatch input,
@@ -94,24 +102,39 @@ public final class FilterEchoFunction extends CountdownTableFunction {
             // `vgi_pushdown_filters` (base64). Decode and let it shadow the
             // init-time filter for this batch.
             String fs = filterStr;
-            byte[] fb = filterBytes;
             if (input != null) {
                 java.util.Map<String, String> meta = input.customMetadata();
                 String encoded = meta == null ? null : meta.get("vgi_pushdown_filters");
                 if (encoded != null && !encoded.isEmpty()) {
                     try {
                         byte[] bytes = java.util.Base64.getDecoder().decode(encoded);
-                        PushdownFilters pf = PushdownFiltersDecoder.decode(
-                                bytes, joinKeysIpc == null ? List.of() : joinKeysIpc);
-                        fs = pf.formatInline();
-                        fb = bytes;
+                        PushdownFilters pf = filters().applyDelta(bytes);
+                        if (filterDeltas == null) filterDeltas = new ArrayList<>();
+                        filterDeltas.add(bytes);
+                        currentFilters = pf;
+                        fs = currentFilters.formatInline();
+                        filterStr = fs;
                     } catch (Exception ignore) { /* keep init-time filter */ }
                 }
             }
-            emitOneBatch(out, fs, fb);
+            emitOneBatch(out, fs);
         }
 
-        private void emitOneBatch(OutputCollector out, String fs, byte[] fb) {
+        private PushdownFilters filters() {
+            if (currentFilters == null) {
+                currentFilters = filterBytes == null
+                        ? PushdownFilters.empty()
+                        : PushdownFiltersDecoder.decode(filterBytes, bindOutputSchema,
+                                joinKeysIpc == null ? List.of() : joinKeysIpc,
+                                PushdownFiltersDecoder.Capabilities.core());
+                if (filterDeltas != null) {
+                    for (byte[] delta : filterDeltas) currentFilters = currentFilters.applyDelta(delta);
+                }
+            }
+            return currentFilters;
+        }
+
+        private void emitOneBatch(OutputCollector out, String fs) {
             if (batch.done()) { out.finish(); return; }
             int n = batch.nextBatchSize();
             long start = batch.index();
@@ -128,8 +151,9 @@ public final class FilterEchoFunction extends CountdownTableFunction {
                 pv.setSafe(i, filterText);
             }
             work.setRowCount(n);
-            if (fb != null) {
-                work = FilterApplier.from(fb, joinKeysIpc).apply(work);
+            PushdownFilters filters = filters();
+            if (!filters.predicates().isEmpty()) {
+                work = FilterApplier.compact(work, filters.evaluate(work));
             }
             out.emit(VectorProjector.project(work, outputSchema.get()));
             batch.advance(n);

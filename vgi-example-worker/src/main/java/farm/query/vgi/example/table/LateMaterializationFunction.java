@@ -23,6 +23,7 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -111,20 +112,14 @@ public final class LateMaterializationFunction extends CountdownTableFunction {
         boolean dupRowId = p.named("dup_row_id").asBool().orElse(false);
         long nullOrdStride = p.named("null_ord_stride").asLong().orElse(0L);
         List<byte[]> joinKeys = params.joinKeys() == null ? List.of() : params.joinKeys();
-        String witness = computeWitness(params.pushdownFilters(), joinKeys);
+        String witness = params.pushdownFilters() == null
+                ? EMPTY_WITNESS : witnessOf(params.decodeFilters());
         return new State(params.outputSchema(), count, batchSize, dupRowId, nullOrdStride,
-                joinKeys, witness);
+                params.pushdownFilters(), params.bindOutputSchema(), joinKeys, witness);
     }
 
     /** Decode the pushed filters (init or per-tick) and summarize the rowid
      *  filter the worker received. Returns {@link #EMPTY_WITNESS} when none. */
-    private static String computeWitness(byte[] filterBytes, List<byte[]> joinKeys) {
-        if (filterBytes == null) return EMPTY_WITNESS;
-        PushdownFilters pf = PushdownFiltersDecoder.decode(
-                filterBytes, joinKeys == null ? List.of() : joinKeys);
-        return witnessOf(pf);
-    }
-
     private static String witnessOf(PushdownFilters pf) {
         Acc acc = new Acc();
         for (PushdownFilter f : pf.filters()) walk(f, acc);
@@ -167,19 +162,26 @@ public final class LateMaterializationFunction extends CountdownTableFunction {
         public long batchSize;
         public boolean dupRowId;
         public long nullOrdStride;
+        public byte[] filterBytes;
+        public Schema bindOutputSchema;
+        public List<byte[]> filterDeltas;
         public List<byte[]> joinKeysIpc;
         public String witness;
         public long index;
+        public transient PushdownFilters currentFilters;
 
         public State() {}
 
         State(Schema projected, long count, long batchSize, boolean dupRowId, long nullOrdStride,
-                List<byte[]> joinKeysIpc, String witness) {
+                byte[] filterBytes, Schema bindOutputSchema, List<byte[]> joinKeysIpc, String witness) {
             this.projected = projected;
             this.count = count;
             this.batchSize = batchSize;
             this.dupRowId = dupRowId;
             this.nullOrdStride = nullOrdStride;
+            this.filterBytes = filterBytes;
+            this.bindOutputSchema = bindOutputSchema;
+            this.filterDeltas = new ArrayList<>();
             this.joinKeysIpc = joinKeysIpc;
             this.witness = witness;
             this.index = 0;
@@ -199,7 +201,11 @@ public final class LateMaterializationFunction extends CountdownTableFunction {
             if (encoded != null && !encoded.isEmpty()) {
                 try {
                     byte[] bytes = Base64.getDecoder().decode(encoded);
-                    String tick = computeWitness(bytes, joinKeysIpc);
+                    PushdownFilters next = filters().applyDelta(bytes);
+                    if (filterDeltas == null) filterDeltas = new ArrayList<>();
+                    filterDeltas.add(bytes);
+                    currentFilters = next;
+                    String tick = witnessOf(currentFilters);
                     if (!EMPTY_WITNESS.equals(tick) || EMPTY_WITNESS.equals(witness)) {
                         witness = tick;
                     }
@@ -208,6 +214,20 @@ public final class LateMaterializationFunction extends CountdownTableFunction {
                 }
             }
             emitNextBatch(out);
+        }
+
+        private PushdownFilters filters() {
+            if (currentFilters == null) {
+                currentFilters = filterBytes == null
+                        ? PushdownFilters.empty()
+                        : PushdownFiltersDecoder.decode(filterBytes, bindOutputSchema,
+                                joinKeysIpc == null ? List.of() : joinKeysIpc,
+                                PushdownFiltersDecoder.Capabilities.core());
+                if (filterDeltas != null) {
+                    for (byte[] delta : filterDeltas) currentFilters = currentFilters.applyDelta(delta);
+                }
+            }
+            return currentFilters;
         }
 
         private void emitNextBatch(OutputCollector out) {

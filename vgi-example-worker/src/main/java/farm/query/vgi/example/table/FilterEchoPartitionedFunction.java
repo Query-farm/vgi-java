@@ -90,7 +90,7 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
         byte[] pfBytes = params.pushdownFilters();
         PushdownFilters pf = pfBytes == null
                 ? PushdownFilters.empty()
-                : PushdownFiltersDecoder.decode(pfBytes, params.joinKeys());
+                : params.decodeFilters();
         return new State(queue, execKey, pf.formatInline(), pfBytes,
                 new CachedSchema(params.outputSchema()),
                 params.joinKeys());
@@ -153,7 +153,8 @@ public final class FilterEchoPartitionedFunction implements TableFunction {
             work.setRowCount(n);
             currentIdx += n;
             if (filterBytes != null) {
-                work = FilterApplier.from(filterBytes, joinKeysIpc).apply(work);
+                work = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT_SCHEMA,
+                        PushdownFiltersDecoder.Capabilities.core()).apply(work);
             }
             out.emit(VectorProjector.project(work, outputSchema.get()));
         }

@@ -74,7 +74,7 @@ public final class NestedSequenceFunction extends CountdownTableFunction {
         long historySize = p.named("history_size").asLong().orElse(20L);
         return new State(new BatchState(count, batchSize), historySize,
                 new CachedSchema(params.outputSchema()),
-                FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
+                params.filters());
     }
 
     public static final class State extends TableProducerState {

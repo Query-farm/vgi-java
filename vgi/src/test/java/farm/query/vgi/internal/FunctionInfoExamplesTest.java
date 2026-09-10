@@ -69,5 +69,7 @@ class FunctionInfoExamplesTest {
     void scalarWithoutExamplesYieldsEmptyList() {
         FunctionInfo info = VgiServiceImpl.scalarFunctionInfo(new NoExamples(), "main");
         assertTrue(info.examples().isEmpty());
+        assertNull(info.comment(), "description must not be duplicated into the distinct comment field");
+        assertEquals("doc", info.description());
     }
 }

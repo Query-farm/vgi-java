@@ -26,6 +26,9 @@ import farm.query.vgi.protocol.CopyFromFormatInfo;
 import farm.query.vgi.protocol.CopyToContext;
 import farm.query.vgi.protocol.DynamicToStringResponse;
 import farm.query.vgi.protocol.FunctionExample;
+import farm.query.vgi.protocol.FilterFunctionCapability;
+import farm.query.vgi.protocol.RuntimeFilterAlgorithmCapability;
+import farm.query.vgi.protocol.EvaluationContextCapability;
 import farm.query.vgi.protocol.FunctionInfo;
 import farm.query.vgi.protocol.FunctionRequiredSecret;
 import farm.query.vgi.protocol.ForeignKeyInfo;
@@ -306,6 +309,12 @@ class WireRecordSchemaConformanceTest {
         m.put(CopyToContext.class, new Codec("CopyToContext", BY_NAME));
         m.put(DynamicToStringResponse.class, new Codec("TableFunctionDynamicToStringResult", ORDERED));
         m.put(FunctionExample.class, new Codec("FunctionInfo.examples[]", ORDERED));
+        m.put(FilterFunctionCapability.class,
+                new Codec("FunctionInfo.additional_filter_functions[]", ORDERED));
+        m.put(RuntimeFilterAlgorithmCapability.class,
+                new Codec("FunctionInfo.runtime_filter_algorithms[]", ORDERED));
+        m.put(EvaluationContextCapability.class,
+                new Codec("FunctionInfo.filter_evaluation_contexts[]", ORDERED));
         m.put(FunctionRequiredSecret.class, new Codec("FunctionInfo.required_secrets[]", ORDERED));
         m.put(ForeignKeyInfo.class, new Codec("ForeignKeyInfo", ORDERED));
         m.put(GlobalInitResponse.class, new Codec("GlobalInitResponse", BY_NAME));

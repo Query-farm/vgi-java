@@ -144,7 +144,8 @@ public final class DictFilterEchoFunction extends CountdownTableFunction {
             Arrays.fill(all, true);
             if (filterBytes == null) return all;
             PushdownFilters pf = PushdownFiltersDecoder.decode(
-                    filterBytes, joinKeysIpc == null ? List.of() : joinKeysIpc);
+                    filterBytes, OUTPUT_SCHEMA, joinKeysIpc == null ? List.of() : joinKeysIpc,
+                    PushdownFiltersDecoder.Capabilities.core());
             if (pf.filters().isEmpty()) return all;
             Schema plain = Schemas.of(
                     Schemas.nullable("n", Schemas.INT64),

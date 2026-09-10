@@ -1,15 +1,5 @@
 # Copyright 2026 Query Farm LLC - https://query.farm
-"""Decode Java-encoded pushdown filters with vgi-python's reference decoder.
-
-Cross-language conformance harness for ``PushdownFiltersEncoder``: the Java
-side writes the filter batch (and any join-key batches) to files and runs this
-script through vgi-python, which decodes them with the canonical
-``deserialize_filters``. The parsed AST is printed as JSON on stdout so the
-Java test can assert on it.
-
-Usage:
-    python decode_filters.py <filters.ipc> [<join_keys_0.ipc> ...]
-"""
+"""Cross-language Filter Encoding v2 decoder harness."""
 
 from __future__ import annotations
 
@@ -18,16 +8,16 @@ import sys
 from typing import Any
 
 import pyarrow as pa
-from vgi.table_filter_pushdown import (
-    AndFilter,
-    ConstantFilter,
-    Filter,
-    InFilter,
-    IsNotNullFilter,
-    IsNullFilter,
-    OrFilter,
-    StructFilter,
-    deserialize_filters,
+from vgi.filter_v2 import (
+    BooleanExpression,
+    ColumnRef,
+    Comparison,
+    ExternalSet,
+    FieldRef,
+    In,
+    IsNull,
+    Literal,
+    deserialize_snapshot,
 )
 
 
@@ -36,50 +26,47 @@ def read_batch(path: str) -> pa.RecordBatch:
         return reader.read_next_batch()
 
 
-def dump(f: Filter) -> dict[str, Any]:
-    base: dict[str, Any] = {
-        "column_name": f.column_name,
-        "column_index": f.column_index,
-    }
-    if isinstance(f, ConstantFilter):
-        return base | {
-            "type": "constant",
-            "op": f.op.value,
-            "value": f.value.as_py(),
-            "value_type": str(f.value.type),
-        }
-    if isinstance(f, IsNullFilter):
-        return base | {"type": "is_null"}
-    if isinstance(f, IsNotNullFilter):
-        return base | {"type": "is_not_null"}
-    if isinstance(f, InFilter):
-        return base | {
-            "type": "in",
-            "values": f.values.to_pylist(),
-            "value_type": str(f.values.type),
-        }
-    if isinstance(f, AndFilter):
-        return base | {"type": "and", "children": [dump(c) for c in f.children]}
-    if isinstance(f, OrFilter):
-        return base | {"type": "or", "children": [dump(c) for c in f.children]}
-    if isinstance(f, StructFilter):
-        return base | {
-            "type": "struct",
-            "child_index": f.child_index,
-            "child_name": f.child_name,
-            "child_filter": dump(f.child_filter),
-        }
-    return base | {"type": type(f).__name__}
+def dump_expression(expression: Any) -> dict[str, Any]:
+    if isinstance(expression, ColumnRef):
+        return {"node": "column_ref", "column_name": expression.column_name,
+                "column_index": expression.column_index}
+    if isinstance(expression, FieldRef):
+        return {"node": "field_ref", "expression": dump_expression(expression.expression),
+                "field_name": expression.field_name, "field_index": expression.field_index}
+    if isinstance(expression, Literal):
+        return {"node": "literal", "value": expression.value.as_py(),
+                "value_type": str(expression.value.type)}
+    if isinstance(expression, Comparison):
+        return {"node": "comparison", "op": expression.op.value,
+                "left": dump_expression(expression.left), "right": dump_expression(expression.right)}
+    if isinstance(expression, BooleanExpression):
+        return {"node": expression.node, "children": [dump_expression(c) for c in expression.children]}
+    if isinstance(expression, IsNull):
+        return {"node": "is_null", "negated": expression.negated,
+                "expression": dump_expression(expression.expression)}
+    if isinstance(expression, In):
+        values = expression.set.values.to_pylist()
+        return {"node": "in", "negated": expression.negated,
+                "expression": dump_expression(expression.expression), "values": values,
+                "external": isinstance(expression.set, ExternalSet)}
+    return {"node": type(expression).__name__}
 
 
 def main(argv: list[str]) -> int:
-    filters_path = argv[1]
-    join_keys = [read_batch(p) for p in argv[2:]]
-    parsed = deserialize_filters(read_batch(filters_path), join_keys or None)
-    json.dump(
-        {"version": parsed.version, "filters": [dump(f) for f in parsed.filters]},
-        sys.stdout,
-    )
+    join_keys = [read_batch(path) for path in argv[2:]]
+    output_schema = pa.schema([
+        pa.field("n", pa.int64()),
+        pa.field("name", pa.string()),
+        pa.field("score", pa.float64()),
+        pa.field("addr", pa.struct([pa.field("zip", pa.int64()), pa.field("city", pa.string())])),
+        pa.field("key", pa.int64()),
+    ])
+    state = deserialize_snapshot(read_batch(argv[1]), output_schema=output_schema,
+                                 join_keys=join_keys or None)
+    json.dump({"semantics": state.semantics,
+               "predicates": [{"id": p.id, "mode": p.mode.value, "source": p.source.value,
+                               "expression": dump_expression(p.expression)}
+                              for p in state.predicates]}, sys.stdout)
     return 0
 
 

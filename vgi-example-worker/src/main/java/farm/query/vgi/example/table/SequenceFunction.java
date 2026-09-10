@@ -56,7 +56,7 @@ public final class SequenceFunction extends CountdownTableFunction {
         long batchSize = p.named("batch_size").asLong().ge(1).orElse(2048L);
         long increment = p.named("increment").asLong().ge(1).orElse(1L);
         return new SequenceState(new BatchState(count, batchSize), increment,
-                FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
+                params.filters());
     }
 
     public static final class SequenceState extends TableProducerState {

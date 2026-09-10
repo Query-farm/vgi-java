@@ -50,8 +50,10 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import farm.query.vgi.catalog.CatalogTable;
 import farm.query.vgi.catalog.Macro;
 import farm.query.vgi.catalog.MacroType;
@@ -708,10 +710,11 @@ public final class VgiServiceImpl implements VgiService {
             fnOutputSchema = projectSchema(realOutputSchema, projIds);
         }
         TableInitParams params = new TableInitParams(
-                bt.fn().name(), bt.args(), fnOutputSchema, bt.settings(), Allocators.root(),
+                bt.fn().name(), bt.args(), fnOutputSchema, realOutputSchema, bt.settings(), Allocators.root(),
                 request.pushdown_filters(),
                 projIds,
                 request.join_keys() == null ? List.of() : request.join_keys(),
+                filterCapabilities(bt.fn().metadata()),
                 request.tablesample_percentage(),
                 request.tablesample_seed(),
                 request.order_by_column_name(),
@@ -808,9 +811,10 @@ public final class VgiServiceImpl implements VgiService {
         farm.query.vgi.storage.BoundStorage storage =
                 new farm.query.vgi.storage.BoundStorage(this.storage, execId, bb.attachId());
         TableInitParams initParams = new TableInitParams(
-                bb.fn().name(), bb.args(), fnOutputSchema, bb.settings(), Allocators.root(),
+                bb.fn().name(), bb.args(), fnOutputSchema, realOutputSchema, bb.settings(), Allocators.root(),
                 request.pushdown_filters(), projIds,
                 request.join_keys() == null ? List.of() : request.join_keys(),
+                filterCapabilities(bb.fn().metadata()),
                 request.tablesample_percentage(), request.tablesample_seed(),
                 request.order_by_column_name(), request.order_by_direction(),
                 request.order_by_null_order(), request.order_by_limit(),
@@ -1020,7 +1024,9 @@ public final class VgiServiceImpl implements VgiService {
             TableFunction fn = OverloadResolver.pick(tables.get(embedded.function_name()),
                     constN + colN, args, inputSchema);
             params = new TableBindParams(embedded.function_name(), args, inputSchema, settings);
-            result = fn.plan(params, planRequestOf(request));
+            Schema bindOutputSchema = SchemaUtil.deserializeSchema(fn.onBind(params).output_schema());
+            result = fn.plan(params, planRequestOf(
+                    request, bindOutputSchema, filterCapabilities(fn.metadata())));
             planned = result.splits();
             // Gate on the DECLARATION, not on emptiness. Zero splits is a legal
             // answer from a split-capable function — a fully-pruned scan reaches
@@ -1077,7 +1083,9 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     /** Lift the plan call's pushdown and cursor onto the author-facing request. */
-    private static farm.query.vgi.table.PlanRequest planRequestOf(byte[] request) {
+    private static farm.query.vgi.table.PlanRequest planRequestOf(
+            byte[] request, Schema bindOutputSchema,
+            farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities capabilities) {
         Map<String, byte[]> f = IpcUnpacker.unpack(request, "cursor", "pushdown_filters", "refined_filters");
         byte[] cursor = f == null ? null : f.get("cursor");
         byte[] filters = f == null ? null : f.get("pushdown_filters");
@@ -1095,7 +1103,7 @@ public final class VgiServiceImpl implements VgiService {
             }
         }
         return new farm.query.vgi.table.PlanRequest(
-                mergePushdownFilters(filters, refined),
+                mergePushdownFilters(filters, refined, bindOutputSchema, capabilities),
                 projectionIds,
                 cursor == null ? new byte[0] : cursor,
                 longs == null ? null : longs.get("min_splits"),
@@ -1111,18 +1119,18 @@ public final class VgiServiceImpl implements VgiService {
      * author sees — both are top-level (implicit-AND) filter lists on the
      * wire, so merging them is just concatenating the two decoded lists.
      */
-    private static farm.query.vgi.pushdown.PushdownFilters mergePushdownFilters(byte[] filters, byte[] refined) {
+    private static farm.query.vgi.pushdown.PushdownFilters mergePushdownFilters(
+            byte[] filters, byte[] refined, Schema bindOutputSchema,
+            farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities capabilities) {
         farm.query.vgi.pushdown.PushdownFilters staticFilters = filters == null || filters.length == 0
-                ? null : farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(filters);
+                ? null : farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(
+                        filters, bindOutputSchema, List.of(), capabilities);
         farm.query.vgi.pushdown.PushdownFilters refinedFilters = refined == null || refined.length == 0
-                ? null : farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(refined);
+                ? null : farm.query.vgi.pushdown.PushdownFiltersDecoder.decode(
+                        refined, bindOutputSchema, List.of(), capabilities);
         if (refinedFilters == null) return staticFilters;
         if (staticFilters == null) return refinedFilters;
-        List<farm.query.vgi.pushdown.PushdownFilter> merged =
-                new ArrayList<>(staticFilters.filters().size() + refinedFilters.filters().size());
-        merged.addAll(staticFilters.filters());
-        merged.addAll(refinedFilters.filters());
-        return new farm.query.vgi.pushdown.PushdownFilters(merged, staticFilters.version());
+        return staticFilters.mergeSnapshot(refinedFilters);
     }
 
     /** The not-split-capable answer: one split standing for the whole scan. */
@@ -2598,7 +2606,8 @@ public final class VgiServiceImpl implements VgiService {
                 base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
-                base.supported_expression_filters(),
+                base.filter_semantic_profiles(), base.additional_filter_functions(),
+                base.runtime_filter_algorithms(), base.filter_evaluation_contexts(),
                 base.order_preservation(), (int) fn.maxWorkers(), base.supports_batch_index(),
                 base.supports_splits(), base.filters_exactly_applied(),
                 base.supports_positions(), base.split_token_ttl_seconds(),
@@ -2623,7 +2632,8 @@ public final class VgiServiceImpl implements VgiService {
                 base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
-                base.supported_expression_filters(),
+                base.filter_semantic_profiles(), base.additional_filter_functions(),
+                base.runtime_filter_algorithms(), base.filter_evaluation_contexts(),
                 base.order_preservation(), base.max_workers(), base.supports_batch_index(),
                 base.supports_splits(), base.filters_exactly_applied(),
                 base.supports_positions(), base.split_token_ttl_seconds(),
@@ -2647,7 +2657,8 @@ public final class VgiServiceImpl implements VgiService {
                 base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
-                base.supported_expression_filters(),
+                base.filter_semantic_profiles(), base.additional_filter_functions(),
+                base.runtime_filter_algorithms(), base.filter_evaluation_contexts(),
                 base.order_preservation(), base.max_workers(), base.supports_batch_index(),
                 base.supports_splits(), base.filters_exactly_applied(),
                 base.supports_positions(), base.split_token_ttl_seconds(),
@@ -2660,6 +2671,29 @@ public final class VgiServiceImpl implements VgiService {
 
     private static byte[] bindOutput(BindResponse r) {
         return r.output_schema() != null ? r.output_schema() : new byte[0];
+    }
+
+    private static farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities filterCapabilities(
+            FunctionMetadata metadata) {
+        Set<farm.query.vgi.pushdown.FilterIdentity> functions = new java.util.LinkedHashSet<>();
+        for (var value : metadata.additionalFilterFunctions()) {
+            functions.add(new farm.query.vgi.pushdown.FilterIdentity(
+                    value.namespace(), value.name(), value.version()));
+        }
+        Set<farm.query.vgi.pushdown.FilterIdentity> algorithms = new java.util.LinkedHashSet<>();
+        for (var value : metadata.runtimeFilterAlgorithms()) {
+            algorithms.add(new farm.query.vgi.pushdown.FilterIdentity(
+                    value.namespace(), value.name(), value.version()));
+        }
+        Map<String, Set<String>> contexts = new LinkedHashMap<>();
+        for (var value : metadata.filterEvaluationContexts()) {
+            contexts.computeIfAbsent(value.profile(), ignored -> new java.util.LinkedHashSet<>());
+            if (value.provider_fingerprint() != null) {
+                contexts.get(value.profile()).add(value.provider_fingerprint());
+            }
+        }
+        return new farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities(
+                functions, algorithms, contexts);
     }
 
     private static FunctionInfo baseFunctionInfo(farm.query.vgi.function.FunctionDescriptor fn,
@@ -2677,7 +2711,7 @@ public final class VgiServiceImpl implements VgiService {
                                            String type, byte[] arguments, byte[] outputSchema,
                                            boolean hasFinalize, int maxWorkers) {
         return new FunctionInfo(
-                md.description().isEmpty() ? null : md.description(),
+                null,
                 md.tags() == null ? Map.of() : md.tags(),
                 name,
                 List.of(schemaName),
@@ -2694,7 +2728,10 @@ public final class VgiServiceImpl implements VgiService {
                 md.filterPushdown() ? Boolean.TRUE : null,
                 md.samplingPushdown() ? Boolean.TRUE : null,
                 md.lateMaterialization() ? Boolean.TRUE : null,
-                md.supportedExpressionFilters() == null ? List.of() : md.supportedExpressionFilters(),
+                md.filterSemanticProfiles(),
+                md.additionalFilterFunctions(),
+                md.runtimeFilterAlgorithms(),
+                md.filterEvaluationContexts(),
                 md.orderPreservation() == null ? null : md.orderPreservation().wireName(),
                 maxWorkers,
                 md.supportsBatchIndex(),

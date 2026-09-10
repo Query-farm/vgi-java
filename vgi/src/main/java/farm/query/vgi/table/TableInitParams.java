@@ -4,6 +4,8 @@ package farm.query.vgi.table;
 
 import farm.query.vgi.function.Arguments;
 import farm.query.vgi.pushdown.FilterApplier;
+import farm.query.vgi.pushdown.PushdownFilters;
+import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 
@@ -22,6 +24,8 @@ import java.util.Map;
  * @param functionName the invoked table function's name
  * @param arguments the positional and named call arguments
  * @param outputSchema the schema to emit, already narrowed to the projected columns
+ * @param bindOutputSchema the authoritative, unprojected bind output schema used to
+ *        validate v2 filter column and nested-field indexes and names
  * @param settings session settings in effect for this call
  * @param allocator the allocator producers must use for emitted batches
  * @param pushdownFilters the encoded pushdown-filter bytes, or empty when none
@@ -58,11 +62,13 @@ public record TableInitParams(
         String functionName,
         Arguments arguments,
         Schema outputSchema,
+        Schema bindOutputSchema,
         Map<String, Object> settings,
         BufferAllocator allocator,
         byte[] pushdownFilters,
         List<Integer> projectionIds,
         List<byte[]> joinKeys,
+        PushdownFiltersDecoder.Capabilities filterCapabilities,
         Double tablesamplePercentage,
         Long tablesampleSeed,
         String orderByColumnName,
@@ -89,7 +95,14 @@ public record TableInitParams(
      * @return a filter applier over the pushdown filters and join keys
      */
     public FilterApplier filters() {
-        return FilterApplier.from(pushdownFilters, joinKeys);
+        return FilterApplier.from(pushdownFilters, joinKeys, bindOutputSchema, filterCapabilities);
+    }
+
+    /** Decode the current v2 snapshot against the authoritative bind output schema. */
+    public PushdownFilters decodeFilters() {
+        if (pushdownFilters == null || pushdownFilters.length == 0) return PushdownFilters.empty();
+        return PushdownFiltersDecoder.decode(
+                pushdownFilters, bindOutputSchema, joinKeys, filterCapabilities);
     }
 
     /**

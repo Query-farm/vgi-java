@@ -114,7 +114,8 @@ public final class RffRowidScanFunction extends SimpleTableFunction {
             }
             work.setRowCount(ROWS);
             if (filterBytes != null) {
-                work = FilterApplier.from(filterBytes, joinKeysIpc).apply(work);
+                work = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT_SCHEMA,
+                        farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities.core()).apply(work);
             }
             out.emit(VectorProjector.project(work, projected.get()));
         }

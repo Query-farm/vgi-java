@@ -22,6 +22,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -60,8 +61,9 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
         byte[] pfBytes = params.pushdownFilters();
         String initFilter = pfBytes == null
                 ? PushdownFilters.empty().formatRepr()
-                : PushdownFiltersDecoder.decode(pfBytes, params.joinKeys()).formatRepr();
-        return new State((int) count, (int) batchSize, initFilter, params.joinKeys());
+                : params.decodeFilters().formatRepr();
+        return new State((int) count, (int) batchSize, initFilter, pfBytes,
+                params.bindOutputSchema(), params.joinKeys());
     }
 
     public static final class State extends TableProducerState implements Serializable {
@@ -70,14 +72,22 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
         public int batchSize;
         public int produced;
         public String currentFilter;
+        public byte[] filterBytes;
+        public Schema bindOutputSchema;
+        public List<byte[]> filterDeltas;
         public List<byte[]> joinKeysIpc;
+        public transient PushdownFilters currentFilters;
 
         public State() {}
-        State(int total, int batchSize, String currentFilter, List<byte[]> joinKeysIpc) {
+        State(int total, int batchSize, String currentFilter, byte[] filterBytes, Schema bindOutputSchema,
+                List<byte[]> joinKeysIpc) {
             this.total = total;
             this.batchSize = batchSize;
             this.produced = 0;
             this.currentFilter = currentFilter;
+            this.filterBytes = filterBytes;
+            this.bindOutputSchema = bindOutputSchema;
+            this.filterDeltas = new ArrayList<>();
             this.joinKeysIpc = joinKeysIpc;
         }
 
@@ -94,14 +104,30 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
             if (encoded != null && !encoded.isEmpty()) {
                 try {
                     byte[] bytes = Base64.getDecoder().decode(encoded);
-                    PushdownFilters pf = PushdownFiltersDecoder.decode(
-                            bytes, joinKeysIpc == null ? List.of() : joinKeysIpc);
-                    currentFilter = pf.formatRepr();
+                    PushdownFilters pf = filters().applyDelta(bytes);
+                    if (filterDeltas == null) filterDeltas = new ArrayList<>();
+                    filterDeltas.add(bytes);
+                    currentFilters = pf;
+                    currentFilter = currentFilters.formatRepr();
                 } catch (Exception ignore) {
                     // Best-effort — fall back to the prior filter on decode error.
                 }
             }
             emitNextBatch(out);
+        }
+
+        private PushdownFilters filters() {
+            if (currentFilters == null) {
+                currentFilters = filterBytes == null
+                        ? PushdownFilters.empty()
+                        : PushdownFiltersDecoder.decode(filterBytes, bindOutputSchema,
+                                joinKeysIpc == null ? List.of() : joinKeysIpc,
+                                PushdownFiltersDecoder.Capabilities.core());
+                if (filterDeltas != null) {
+                    for (byte[] delta : filterDeltas) currentFilters = currentFilters.applyDelta(delta);
+                }
+            }
+            return currentFilters;
         }
 
         private void emitNextBatch(OutputCollector out) {

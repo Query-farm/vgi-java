@@ -33,7 +33,10 @@ import java.util.Map;
  * @param filter_pushdown              whether the function supports filter pushdown, or {@code null}.
  * @param sampling_pushdown            whether the function supports sampling pushdown, or {@code null}.
  * @param late_materialization         whether the function supports late materialization, or {@code null}.
- * @param supported_expression_filters expression-filter kinds the function can accept.
+ * @param filter_semantic_profiles      v2 expression semantic profiles implemented by the worker.
+ * @param additional_filter_functions   negotiated extension filter-function identities.
+ * @param runtime_filter_algorithms     negotiated runtime-filter artifact identities.
+ * @param filter_evaluation_contexts    reproducible evaluation contexts implemented by the worker.
  * @param order_preservation           dictionary-encoded order-preservation guarantee, or {@code null}.
  * @param max_workers                  maximum parallel worker count, or {@code null}
  *                                     when the function declares none. Boxed on purpose:
@@ -90,7 +93,10 @@ public record FunctionInfo(
         @Nullable Boolean filter_pushdown,
         @Nullable Boolean sampling_pushdown,
         @Nullable Boolean late_materialization,
-        List<String> supported_expression_filters,
+        List<String> filter_semantic_profiles,
+        List<FilterFunctionCapability> additional_filter_functions,
+        List<RuntimeFilterAlgorithmCapability> runtime_filter_algorithms,
+        List<EvaluationContextCapability> filter_evaluation_contexts,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String order_preservation,
         // Nullable COLUMN as well as a nullable row value: the protocol declares
         // it optional (vgi-rpc 0.43.0 corrected a derivation bug that reported

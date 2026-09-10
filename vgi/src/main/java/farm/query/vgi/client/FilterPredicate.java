@@ -36,7 +36,7 @@ public sealed interface FilterPredicate {
      * {@code column OP constant}.
      *
      * @param op    the comparison operator
-     * @param value the constant operand, written into a sibling {@code _val_N} column
+     * @param value the constant operand, written into a sibling {@code value_N} column
      */
     record Compare(ComparisonOperator op, ScalarValue value) implements FilterPredicate {}
 

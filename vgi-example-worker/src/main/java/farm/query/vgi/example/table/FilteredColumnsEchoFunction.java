@@ -68,7 +68,7 @@ public final class FilteredColumnsEchoFunction extends CountdownTableFunction {
         byte[] pfBytes = params.pushdownFilters();
         PushdownFilters pf = pfBytes == null
                 ? PushdownFilters.empty()
-                : PushdownFiltersDecoder.decode(pfBytes, params.joinKeys());
+                : params.decodeFilters();
 
         String filteredCols = String.join(",", new TreeSet<>(pf.filteredColumns()));
         boolean hasN = pf.hasFilterForColumn("n");
@@ -140,7 +140,8 @@ public final class FilteredColumnsEchoFunction extends CountdownTableFunction {
             }
             work.setRowCount(n);
             if (filterBytes != null) {
-                work = FilterApplier.from(filterBytes, joinKeysIpc).apply(work);
+                work = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT_SCHEMA,
+                        PushdownFiltersDecoder.Capabilities.core()).apply(work);
             }
             out.emit(VectorProjector.project(work, projected.get()));
             batch.advance(n);

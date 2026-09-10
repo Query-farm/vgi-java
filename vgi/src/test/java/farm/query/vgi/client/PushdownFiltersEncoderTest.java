@@ -7,6 +7,9 @@ import farm.query.vgi.pushdown.PushdownFilter;
 import farm.query.vgi.pushdown.PushdownFilters;
 import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -30,6 +33,16 @@ final class PushdownFiltersEncoderTest {
 
     private static final ProjectedColumns COLUMNS =
             ProjectedColumns.of(List.of("n", "name", "addr"));
+    private static final Schema OUTPUT_SCHEMA = new Schema(List.of(
+            field("n", new ArrowType.Int(64, true)),
+            field("name", new ArrowType.Utf8()),
+            field("addr", new ArrowType.FloatingPoint(
+                    org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE))));
+    private static final Schema STRUCT_OUTPUT_SCHEMA = new Schema(List.of(
+            field("n", new ArrowType.Int(64, true)),
+            field("name", new ArrowType.Utf8()),
+            new Field("addr", FieldType.nullable(new ArrowType.Struct()), List.of(
+                    field("zip", new ArrowType.Int(64, true)), field("city", new ArrowType.Utf8())))));
 
     @Test
     void roundTripsEveryComparisonOperator() {
@@ -110,7 +123,8 @@ final class PushdownFiltersEncoderTest {
     void roundTripsAStructFieldFilter() {
         PushdownFilters decoded = decode(PushdownFiltersEncoder.builder()
                 .filter(COLUMNS.column("addr"),
-                        FilterPredicate.structField(1, "city", FilterPredicate.eq("berlin"))));
+                        FilterPredicate.structField(1, "city", FilterPredicate.eq("berlin"))),
+                STRUCT_OUTPUT_SCHEMA);
 
         PushdownFilter.Struct s =
                 assertInstanceOf(PushdownFilter.Struct.class, decoded.filters().get(0));
@@ -132,7 +146,8 @@ final class PushdownFiltersEncoderTest {
         assertEquals(2, encoded.joinKeys().size(), "one batch per join-key filter");
 
         PushdownFilters decoded =
-                PushdownFiltersDecoder.decode(encoded.pushdownFilters(), encoded.joinKeys());
+                PushdownFiltersDecoder.decode(encoded.pushdownFilters(), OUTPUT_SCHEMA,
+                        encoded.joinKeys(), PushdownFiltersDecoder.Capabilities.core());
         PushdownFilter.In ints = assertInstanceOf(PushdownFilter.In.class, decoded.filters().get(0));
         assertEquals(List.of(10L, 20L, 30L), ints.values());
         assertEquals(0, ints.columnIndex());
@@ -141,15 +156,16 @@ final class PushdownFiltersEncoderTest {
     }
 
     @Test
-    void joinKeysDecodeToAnEmptySetWhenTheirBatchesAreNotSent() {
+    void missingExternalSetBatchIsRejected() {
         // The two artefacts are one payload; dropping the key batches leaves the
         // node unresolvable, which is why EncodedPushdownFilters hands back both.
         EncodedPushdownFilters encoded = PushdownFiltersEncoder.builder()
                 .filter(COLUMNS.column("n"), FilterPredicate.joinKeys(List.of(1L)))
                 .encode();
 
-        PushdownFilters decoded = PushdownFiltersDecoder.decode(encoded.pushdownFilters());
-        assertTrue(assertInstanceOf(PushdownFilter.In.class, decoded.filters().get(0)).values().isEmpty());
+        assertThrows(farm.query.vgi.pushdown.FilterV2Exception.class,
+                () -> PushdownFiltersDecoder.decode(encoded.pushdownFilters(), OUTPUT_SCHEMA,
+                        List.of(), PushdownFiltersDecoder.Capabilities.core()));
     }
 
     @Test
@@ -181,8 +197,17 @@ final class PushdownFiltersEncoderTest {
     }
 
     private static PushdownFilters decode(PushdownFiltersEncoder encoder) {
+        return decode(encoder, OUTPUT_SCHEMA);
+    }
+
+    private static PushdownFilters decode(PushdownFiltersEncoder encoder, Schema outputSchema) {
         EncodedPushdownFilters encoded = encoder.encode();
-        return PushdownFiltersDecoder.decode(encoded.pushdownFilters(), encoded.joinKeys());
+        return PushdownFiltersDecoder.decode(encoded.pushdownFilters(), outputSchema,
+                encoded.joinKeys(), PushdownFiltersDecoder.Capabilities.core());
+    }
+
+    private static Field field(String name, ArrowType type) {
+        return new Field(name, FieldType.nullable(type), null);
     }
 
     private static PushdownFilter.Constant constant(PushdownFilters filters, int index) {

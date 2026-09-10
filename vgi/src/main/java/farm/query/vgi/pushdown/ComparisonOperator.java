@@ -19,7 +19,11 @@ public enum ComparisonOperator {
     /** Less than ({@code <}). */
     LT("lt", "<"),
     /** Less than or equal ({@code <=}). */
-    LE("le", "<=");
+    LE("le", "<="),
+    /** SQL {@code IS DISTINCT FROM}. */
+    DISTINCT_FROM("distinct_from", "IS DISTINCT FROM"),
+    /** SQL {@code IS NOT DISTINCT FROM}. */
+    NOT_DISTINCT_FROM("not_distinct_from", "IS NOT DISTINCT FROM");
 
     private final String wireToken;
     private final String symbol;
@@ -75,6 +79,8 @@ public enum ComparisonOperator {
             case GE -> cmp >= 0;
             case LT -> cmp < 0;
             case LE -> cmp <= 0;
+            case DISTINCT_FROM -> cmp != 0;
+            case NOT_DISTINCT_FROM -> cmp == 0;
         };
     }
 
@@ -90,6 +96,8 @@ public enum ComparisonOperator {
         return switch (this) {
             case EQ -> equal;
             case NE -> !equal;
+            case DISTINCT_FROM -> !equal;
+            case NOT_DISTINCT_FROM -> equal;
             default -> false;
         };
     }

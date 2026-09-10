@@ -72,7 +72,7 @@ public final class OrderEchoFunction implements TableFunction {
         long limit = params.orderByLimit() == null ? -1L : params.orderByLimit();
         return new State(new BatchState(count, batchSize), col, dir, nul, limit,
                 new CachedSchema(params.outputSchema()),
-                FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
+                params.filters());
     }
 
     public static final class State extends TableProducerState {

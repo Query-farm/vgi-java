@@ -68,7 +68,7 @@ public final class SampleEchoFunction implements TableFunction {
         long seed = params.tablesampleSeed() == null ? -1L : params.tablesampleSeed();
         return new State(new BatchState(count, batchSize), pct, seed,
                 new CachedSchema(params.outputSchema()),
-                FilterApplier.from(params.pushdownFilters(), params.joinKeys()));
+                params.filters());
     }
 
     public static final class State extends TableProducerState {
