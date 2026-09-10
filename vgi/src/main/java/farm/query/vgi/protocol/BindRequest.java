@@ -56,7 +56,18 @@ public record BindRequest(
         @Nullable String at_value,
         @Nullable CopyFromContext copy_from,
         @Nullable CopyToContext copy_to,
-        @Nullable List<String> schema_path) implements ArrowSerializableRecord {
+        @Nullable List<String> schema_path,
+        @Nullable List<String> argument_names) implements ArrowSerializableRecord {
+    public BindRequest(String function_name, byte[] arguments, String function_type,
+            byte[] input_schema, byte[] settings, byte[] secrets, byte[] attach_opaque_data,
+            byte[] transaction_opaque_data, boolean resolved_secrets_provided, String at_unit,
+            String at_value, CopyFromContext copy_from, CopyToContext copy_to,
+            List<String> schema_path) {
+        this(function_name, arguments, function_type, input_schema, settings, secrets,
+                attach_opaque_data, transaction_opaque_data, resolved_secrets_provided, at_unit,
+                at_value, copy_from, copy_to, schema_path, null);
+    }
+
     public BindRequest(String function_name, byte[] arguments, String function_type,
             byte[] input_schema, byte[] settings, byte[] secrets, byte[] attach_opaque_data,
             byte[] transaction_opaque_data, boolean resolved_secrets_provided, String at_unit,
@@ -64,6 +75,6 @@ public record BindRequest(
         this(function_name, arguments, function_type, input_schema, settings, secrets,
                 attach_opaque_data, transaction_opaque_data, resolved_secrets_provided, at_unit,
                 at_value, copy_from, copy_to,
-                schema_name == null ? null : List.of(schema_name));
+                schema_name == null ? null : List.of(schema_name), null);
     }
 }

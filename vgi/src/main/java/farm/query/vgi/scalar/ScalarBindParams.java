@@ -6,6 +6,7 @@ import farm.query.vgi.function.Arguments;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.Map;
+import java.util.List;
 
 /**
  * Parameters passed to {@link ScalarFunction#onBind}.
@@ -26,7 +27,15 @@ public record ScalarBindParams(
         Schema inputSchema,
         Map<String, Object> settings,
         byte[] secrets,
-        boolean resolvedSecretsProvided) {
+        boolean resolvedSecretsProvided,
+        List<String> argumentNames) {
+
+    public ScalarBindParams(String functionName, Arguments arguments, Schema inputSchema,
+                              Map<String, Object> settings, byte[] secrets,
+                              boolean resolvedSecretsProvided) {
+        this(functionName, arguments, inputSchema, settings, secrets,
+                resolvedSecretsProvided, null);
+    }
 
     /**
      * Convenience constructor for bindings with no secrets.
@@ -38,6 +47,6 @@ public record ScalarBindParams(
      */
     public ScalarBindParams(String functionName, Arguments arguments, Schema inputSchema,
                               Map<String, Object> settings) {
-        this(functionName, arguments, inputSchema, settings, null, false);
+        this(functionName, arguments, inputSchema, settings, null, false, null);
     }
 }

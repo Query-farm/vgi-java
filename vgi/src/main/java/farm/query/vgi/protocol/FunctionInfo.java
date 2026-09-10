@@ -84,6 +84,7 @@ public record FunctionInfo(
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String function_type,
         byte[] arguments,
         byte[] output_schema,
+        @Nullable byte[] parameter_default_values,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String stability,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String null_handling,
         String description,

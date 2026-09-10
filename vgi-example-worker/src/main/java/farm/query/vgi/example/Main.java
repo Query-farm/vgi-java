@@ -9,6 +9,7 @@ import farm.query.vgirpc.AuthContext;
 import farm.query.vgirpc.http.HttpServer;
 import farm.query.vgirpc.http.auth.BearerAuthenticator;
 import farm.query.vgi.example.scalar.AddValuesFunction;
+import farm.query.vgi.example.scalar.ArgumentNamesProbeFunction;
 import farm.query.vgi.example.scalar.BinaryPacketFunction;
 import farm.query.vgi.example.scalar.AnyMixedFunctions;
 import farm.query.vgi.example.scalar.BernoulliFunction;
@@ -428,6 +429,7 @@ public final class Main {
     private static void registerScalars(Worker w) {
         w.registerScalars(List.of(
                 new AddValuesFunction(),
+                new ArgumentNamesProbeFunction(),
                 new ConditionalMessageFunction(),
                 new DoubleFunction(),
                 new HashSeedFunction(),

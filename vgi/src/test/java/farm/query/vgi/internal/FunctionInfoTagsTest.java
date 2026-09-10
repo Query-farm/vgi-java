@@ -3,10 +3,17 @@
 package farm.query.vgi.internal;
 
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.protocol.FunctionExample;
 import farm.query.vgi.protocol.FunctionInfo;
 import farm.query.vgi.scalar.ScalarFn;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
+import farm.query.vgi.types.Schemas;
+import farm.query.vgirpc.wire.Allocators;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -14,6 +21,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Verifies that worker-provided per-function tags declared on a function's
@@ -55,6 +63,32 @@ class FunctionInfoTagsTest {
         }
     }
 
+    static final class WithDefaults extends ScalarFn implements AutoCloseable {
+        private final VectorSchemaRoot defaults;
+
+        WithDefaults() {
+            defaults = VectorSchemaRoot.create(new Schema(List.of(
+                    new Field("v", FieldType.nullable(Schemas.INT64), null))), Allocators.root());
+            defaults.allocateNew();
+            ((BigIntVector) defaults.getVector("v")).setSafe(0, 7L);
+            defaults.getVector("v").setValueCount(1);
+            defaults.setRowCount(1);
+        }
+
+        @Override public String name() { return "with_defaults"; }
+        @Override public String description() { return "doc"; }
+        @Override public List<ArgSpec> argumentSpecs() {
+            return List.of(ArgSpec.positional("v", 0, Schemas.INT64));
+        }
+        @Override public VectorSchemaRoot parameterDefaultValues() { return defaults; }
+
+        public void compute(@farm.query.vgi.scalar.Vector BigIntVector v, BigIntVector result) {
+            for (int i = 0; i < v.getValueCount(); i++) result.setSafe(i, v.get(i));
+        }
+
+        @Override public void close() { defaults.close(); }
+    }
+
     @Test
     void functionTagsSurfaceOnFunctionInfo() {
         FunctionInfo info = VgiServiceImpl.scalarFunctionInfo(new Tagged(), "main");
@@ -85,5 +119,28 @@ class FunctionInfoTagsTest {
     void noTagsConfiguredYieldsEmptyMap() {
         FunctionInfo info = VgiServiceImpl.scalarFunctionInfo(new Untagged(), "main");
         assertTrue(info.tags().isEmpty(), "tags should default to empty");
+    }
+
+    @Test
+    void absentParameterDefaultsAreNullOnTheWire() {
+        FunctionInfo info = VgiServiceImpl.scalarFunctionInfo(new Untagged(), "main");
+        try (VectorSchemaRoot encoded = BatchUtil.readSingleBatch(
+                FunctionInfoSerializer.serialize(info), Allocators.root())) {
+            assertTrue(encoded.getVector("parameter_default_values").isNull(0));
+        }
+    }
+
+    @Test
+    void typedParameterDefaultsSurfaceAsOneRowIpc() {
+        try (var fn = new WithDefaults()) {
+            FunctionInfo info = VgiServiceImpl.scalarFunctionInfo(fn, "main");
+            assertNotNull(info.parameter_default_values());
+            try (VectorSchemaRoot defaults = BatchUtil.readSingleBatch(
+                    info.parameter_default_values(), Allocators.root())) {
+                assertEquals(1, defaults.getRowCount());
+                assertEquals(List.of("v"), defaults.getSchema().getFields().stream()
+                        .map(Field::getName).toList());
+            }
+        }
     }
 }

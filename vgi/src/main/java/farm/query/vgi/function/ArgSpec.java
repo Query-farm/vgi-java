@@ -26,7 +26,7 @@ import java.util.List;
  * @param arrowType   declared Arrow type; a {@code null}/{@link ArrowType.Null} placeholder for "any" and TABLE inputs.
  * @param doc         human-readable parameter description.
  * @param isConst     {@code true} for a compile-time-constant (bind-validated) argument.
- * @param hasDefault  {@code true} when {@code defaultValue} applies (named-only arguments only).
+ * @param hasDefault  {@code true} when {@code defaultValue} applies.
  * @param defaultValue default literal used when {@code hasDefault}.
  * @param typeBound   bind-time predicates applied to an "any"-typed argument.
  * @param varargs     {@code true} when this argument absorbs a variable number of trailing positionals.
@@ -52,19 +52,11 @@ public record ArgSpec(
         List<Field> children,
         Constraints constraints) {
 
-    /** Canonical constructor: rejects positional + hasDefault (DuckDB's binder
-     *  does not apply per-positional defaults — declaring one is dead metadata
-     *  at the SQL call site; use {@link #named(String, ArrowType, String)} for
-     *  defaultable kwarg-style arguments) and normalises a {@code null}
-     *  {@code constraints} to {@link Constraints#NONE}. */
+    /** Canonical constructor normalises a {@code null} {@code constraints} to
+     * {@link Constraints#NONE}. Typed defaults are authoritative through
+     * {@link FunctionDescriptor#parameterDefaultValues()}; {@code defaultValue}
+     * remains legacy discovery metadata for either fixed or named-only args. */
     public ArgSpec {
-        if (position >= 0 && hasDefault) {
-            throw new IllegalArgumentException(
-                    "ArgSpec '" + name + "' at position " + position
-                            + " cannot have hasDefault=true: DuckDB's binder does not apply"
-                            + " positional defaults. Use a named-only ArgSpec (position=-1)"
-                            + " if you need a default value.");
-        }
         if (constraints == null) {
             constraints = Constraints.NONE;
         }

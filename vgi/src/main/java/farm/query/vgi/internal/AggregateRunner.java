@@ -59,6 +59,12 @@ public final class AggregateRunner {
      */
     public AggregateBindResponse bind(AggregateFunction<?> fn, String functionName, byte[] inputSchemaIpc,
                                        byte[] argumentsIpc, byte[] secretsIpc) {
+        return bind(fn, functionName, inputSchemaIpc, argumentsIpc, secretsIpc, null);
+    }
+
+    public AggregateBindResponse bind(AggregateFunction<?> fn, String functionName, byte[] inputSchemaIpc,
+                                       byte[] argumentsIpc, byte[] secretsIpc,
+                                       java.util.List<String> argumentNames) {
         Schema inputSchema = inputSchemaIpc == null ? null : SchemaUtil.deserializeSchema(inputSchemaIpc);
         farm.query.vgi.function.Arguments bindArgs = (argumentsIpc == null || argumentsIpc.length == 0)
                 ? farm.query.vgi.function.Arguments.empty()
@@ -66,7 +72,7 @@ public final class AggregateRunner {
         farm.query.vgi.Secrets secrets = farm.query.vgi.Secrets.parse(secretsIpc);
         farm.query.vgi.function.ConstraintEnforcer.enforce(bindArgs, fn.argumentSpecs());
         byte[] outputSchemaIpc = SchemaUtil.serializeSchema(
-                fn.bindOutputSchema(inputSchema, bindArgs, secrets));
+                fn.bindOutputSchema(inputSchema, bindArgs, secrets, argumentNames));
         byte[] executionId = newExecutionId();
         if (argumentsIpc != null && argumentsIpc.length > 0) {
             store.saveArgs(executionId, functionName, argumentsIpc);

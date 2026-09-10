@@ -82,6 +82,16 @@ public interface AggregateFunction<S> extends FunctionDescriptor {
     }
 
     /**
+     * Variant that also receives the full logical argument-name vector. Fixed
+     * arguments retain their declared names and unnamed varargs are null.
+     */
+    default Schema bindOutputSchema(Schema inputSchema, farm.query.vgi.function.Arguments args,
+                                     farm.query.vgi.Secrets secrets,
+                                     java.util.List<String> argumentNames) {
+        return bindOutputSchema(inputSchema, args, secrets);
+    }
+
+    /**
      * Secrets this aggregate needs the extension to pre-resolve and deliver on
      * {@code AggregateBindRequest.secrets}. Surfaced on the wire as
      * {@code FunctionInfo.required_secrets}; the C++ extension resolves each

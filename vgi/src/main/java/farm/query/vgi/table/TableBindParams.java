@@ -6,6 +6,7 @@ import farm.query.vgi.function.Arguments;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.Map;
+import java.util.List;
 
 /**
  * Parameters passed to {@link TableFunction#onBind} and the other bind-time
@@ -38,7 +39,19 @@ public record TableBindParams(
         byte[] attachId,
         TransactionStorage transactionStorage,
         farm.query.vgi.storage.BoundStorage attachStorage,
-        farm.query.vgi.protocol.CopyFromContext copyFrom) {
+        farm.query.vgi.protocol.CopyFromContext copyFrom,
+        List<String> argumentNames) {
+
+    public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
+                           Map<String, Object> settings, byte[] secrets,
+                           boolean resolvedSecretsProvided, byte[] attachId,
+                           TransactionStorage transactionStorage,
+                           farm.query.vgi.storage.BoundStorage attachStorage,
+                           farm.query.vgi.protocol.CopyFromContext copyFrom) {
+        this(functionName, arguments, inputSchema, settings, secrets,
+                resolvedSecretsProvided, attachId, transactionStorage, attachStorage,
+                copyFrom, null);
+    }
 
     /**
      * Convenience constructor with no secrets, attach id, or transaction storage.
@@ -50,7 +63,13 @@ public record TableBindParams(
      */
     public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
                             Map<String, Object> settings) {
-        this(functionName, arguments, inputSchema, settings, null, false, null, null, null, null);
+        this(functionName, arguments, inputSchema, settings, null, false, null, null, null, null, null);
+    }
+
+    public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
+                            Map<String, Object> settings, List<String> argumentNames) {
+        this(functionName, arguments, inputSchema, settings, null, false, null, null, null, null,
+                argumentNames);
     }
 
     /**
@@ -67,7 +86,7 @@ public record TableBindParams(
                             Map<String, Object> settings, byte[] secrets,
                             boolean resolvedSecretsProvided) {
         this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 
     /**
@@ -85,6 +104,6 @@ public record TableBindParams(
                             Map<String, Object> settings, byte[] secrets,
                             boolean resolvedSecretsProvided, byte[] attachId) {
         this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided,
-                attachId, null, null, null);
+                attachId, null, null, null, null);
     }
 }

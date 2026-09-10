@@ -6,6 +6,7 @@ import farm.query.vgi.function.Arguments;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.Map;
+import java.util.List;
 
 /**
  * Bind-time inputs for a {@link TableInOutFunction}: the resolved arguments and
@@ -40,7 +41,17 @@ public record TableInOutBindParams(
         boolean resolvedSecretsProvided,
         byte[] attachOpaqueData,
         farm.query.vgi.storage.BoundStorage attachStorage,
-        farm.query.vgi.protocol.CopyToContext copyTo) {
+        farm.query.vgi.protocol.CopyToContext copyTo,
+        List<String> argumentNames) {
+
+    public TableInOutBindParams(String functionName, Arguments arguments, Schema inputSchema,
+                                 Map<String, Object> settings, byte[] secrets,
+                                 boolean resolvedSecretsProvided, byte[] attachOpaqueData,
+                                 farm.query.vgi.storage.BoundStorage attachStorage,
+                                 farm.query.vgi.protocol.CopyToContext copyTo) {
+        this(functionName, arguments, inputSchema, settings, secrets,
+                resolvedSecretsProvided, attachOpaqueData, attachStorage, copyTo, null);
+    }
 
     /**
      * Convenience constructor with no attach context (catalog enumeration).
@@ -52,7 +63,7 @@ public record TableInOutBindParams(
      */
     public TableInOutBindParams(String functionName, Arguments arguments, Schema inputSchema,
                                  Map<String, Object> settings) {
-        this(functionName, arguments, inputSchema, settings, null, false, null, null, null);
+        this(functionName, arguments, inputSchema, settings, null, false, null, null, null, null);
     }
 
     /**
@@ -72,6 +83,6 @@ public record TableInOutBindParams(
                                  boolean resolvedSecretsProvided, byte[] attachOpaqueData,
                                  farm.query.vgi.storage.BoundStorage attachStorage) {
         this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided,
-                attachOpaqueData, attachStorage, null);
+                attachOpaqueData, attachStorage, null, null);
     }
 }
