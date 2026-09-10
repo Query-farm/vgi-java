@@ -324,7 +324,7 @@ public interface VgiService {
      * Create a schema (DDL). Read-only catalogs reject this.
      *
      * @param attach_opaque_data      the attach handle
-     * @param name                    schema name to create
+     * @param path                    schema path to create
      * @param on_conflict             conflict policy (dictionary-encoded on the wire)
      * @param comment                 optional schema comment
      * @param tags                    schema tag key/value pairs
@@ -342,7 +342,7 @@ public interface VgiService {
      * Add a column to a table (DDL). Read-only catalogs reject this.
      *
      * @param attach_opaque_data      the attach handle
-     * @param schema_name             owning schema
+     * @param schema_path             owning schema path
      * @param name                    table name
      * @param column_definition       serialised column definition
      * @param ignore_not_found        skip silently when the table is missing
@@ -361,7 +361,7 @@ public interface VgiService {
      * Drop a column from a table (DDL). Read-only catalogs reject this.
      *
      * @param attach_opaque_data      the attach handle
-     * @param schema_name             owning schema
+     * @param schema_path             owning schema path
      * @param name                    table name
      * @param column_name             column to drop
      * @param ignore_not_found        skip silently when the table is missing
@@ -395,7 +395,7 @@ public interface VgiService {
      * Fetch a single schema by name.
      *
      * @param attach_opaque_data      the attach handle
-     * @param name                    schema name
+     * @param path                    schema path
      * @param transaction_opaque_data optional in-flight transaction handle
      * @return the matching schema item, or empty when not found
      */
@@ -426,7 +426,7 @@ public interface VgiService {
      * List the tables in a schema.
      *
      * @param attach_opaque_data      the attach handle
-     * @param name                    schema name
+     * @param path                    schema path
      * @param transaction_opaque_data optional in-flight transaction handle
      * @param ctx                     per-call context
      * @return one item per table; default is empty
@@ -441,7 +441,7 @@ public interface VgiService {
      * List the views in a schema.
      *
      * @param attach_opaque_data      the attach handle
-     * @param name                    schema name
+     * @param path                    schema path
      * @param transaction_opaque_data optional in-flight transaction handle
      * @return one item per view; default is empty
      */
@@ -466,7 +466,7 @@ public interface VgiService {
      * that sends them fails against the reference implementation.
      *
      * @param attach_opaque_data      the attach handle
-     * @param name                    schema name
+     * @param path                    schema path
      * @param type                    function kind to list: {@code SCALAR_FUNCTION} /
      *                                {@code TABLE_FUNCTION} / {@code AGGREGATE_FUNCTION}
      *                                (dictionary-encoded on the wire)
@@ -485,7 +485,7 @@ public interface VgiService {
      * List the macros in a schema, filtered by {@code type}.
      *
      * @param attach_opaque_data      the attach handle
-     * @param name                    schema name
+     * @param path                    schema path
      * @param type                    macro kind to list (dictionary-encoded on the wire)
      * @param transaction_opaque_data optional in-flight transaction handle
      * @return one item per matching macro; default is empty
@@ -502,7 +502,7 @@ public interface VgiService {
      * List the indexes in a schema.
      *
      * @param attach_opaque_data      the attach handle
-     * @param name                    schema name
+     * @param path                    schema path
      * @param transaction_opaque_data optional in-flight transaction handle
      * @return one item per index; default is empty
      */
@@ -519,7 +519,7 @@ public interface VgiService {
      * Fetch a single table's metadata, optionally at a point in time.
      *
      * @param attach_opaque_data      the attach handle
-     * @param schema_name             owning schema
+     * @param schema_path             owning schema path
      * @param name                    table name
      * @param at_unit                 time-travel unit (e.g. {@code "version"}), or null
      * @param at_value                time-travel value, or null
@@ -539,7 +539,7 @@ public interface VgiService {
      * single-function path; see {@link #catalog_table_scan_branches_get}).
      *
      * @param attach_opaque_data      the attach handle
-     * @param schema_name             owning schema
+     * @param schema_path             owning schema path
      * @param name                    table name
      * @param at_unit                 time-travel unit, or null
      * @param at_value                time-travel value, or null
@@ -565,7 +565,7 @@ public interface VgiService {
      * for <em>every</em> scannable table, not just multi-branch ones.
      *
      * @param attach_opaque_data      the attach handle
-     * @param schema_name             owning schema
+     * @param schema_path             owning schema path
      * @param name                    table name
      * @param at_unit                 time-travel unit, or null
      * @param at_value                time-travel value, or null
@@ -584,7 +584,7 @@ public interface VgiService {
      * Fetch per-column statistics for a table.
      *
      * @param attach_opaque_data      the attach handle
-     * @param schema_name             owning schema
+     * @param schema_path             owning schema path
      * @param name                    table name
      * @param transaction_opaque_data optional in-flight transaction handle
      * @param ctx                     per-call context
@@ -600,7 +600,7 @@ public interface VgiService {
      * Fetch a single view's metadata.
      *
      * @param attach_opaque_data      the attach handle
-     * @param schema_name             owning schema
+     * @param schema_path             owning schema path
      * @param name                    view name
      * @param transaction_opaque_data optional in-flight transaction handle
      * @return the view item, or empty when not found
@@ -615,7 +615,7 @@ public interface VgiService {
      * Fetch a single macro's metadata.
      *
      * @param attach_opaque_data      the attach handle
-     * @param schema_name             owning schema
+     * @param schema_path             owning schema path
      * @param name                    macro name
      * @param transaction_opaque_data optional in-flight transaction handle
      * @return the macro item, or empty when not found
