@@ -164,7 +164,10 @@ COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_REQUIRE_LAUNCHER_TRANSPORT' \
 	--allow-skip 'require-env VGI_ATTACH_OPTIONS_REQUIRED_WORKER' \
 	--allow-skip 'require-env VGI_BAD_ENUM_WORKER' \
-	--allow-skip 'require-env VGI_BAD_PROTOCOL_WORKER'
+	--allow-skip 'require-env VGI_BAD_PROTOCOL_WORKER' \
+	--allow-skip 'require-env VGI_DATABASE_BUN_WORKER' \
+	--allow-skip 'require-env VGI_DATABASE_PYTHON_WORKER' \
+	--allow-skip 'require-env VGI_DATABASE_RUST_WORKER'
 
 test: build
 	@cd $(HOME)/Development/vgi && $(FIXTURE_ENV) \
