@@ -97,6 +97,7 @@ install -m 0755 "$DATABASE_WORKER_FIXTURE" \
 #   http   — boot the worker as an HTTP server and attach over http:// (mirrors
 #            vgi's `make test_http`).
 export VGI_WORKER_BIN
+export VGI_DATABASE_PACKAGE_WORKER="$VGI_WORKER_BIN"
 # Scratch dir for the native-branch / required-field-filter fixtures. The tests
 # COPY their parquet/csv here and the worker's scan branches read the same path
 # back, so both sides must name the SAME directory (upstream gates those 6 tests
