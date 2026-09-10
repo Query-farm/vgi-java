@@ -532,7 +532,7 @@ public final class Worker {
      * ambiguous names return {@code null}.
      *
      * @param functionName the function named by a scan result
-     * @param tableSchema the schema containing the table being resolved
+     * @param tableSchemaPath the schema path containing the table being resolved
      * @param catalogName the auxiliary catalog owner, or {@code null} for this worker
      * @return the authoritative function schema, or {@code null}
      */

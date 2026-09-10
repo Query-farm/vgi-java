@@ -1592,7 +1592,7 @@ public final class VgiServiceImpl implements VgiService {
      * Fetch a single schema by name.
      *
      * @param attach_opaque_data the attach token
-     * @param name the schema name
+     * @param path the schema path
      * @param transaction_opaque_data the optional transaction token
      * @return a one-item response, or empty when the schema is unknown
      */
@@ -1801,7 +1801,7 @@ public final class VgiServiceImpl implements VgiService {
      * List the user-visible tables in a schema, version-resolved for the attach's data version.
      *
      * @param attach_opaque_data the attach token
-     * @param name the schema name
+     * @param path the schema path
      * @param transaction_opaque_data the optional transaction token
      * @param ctx the per-call RPC context
      * @return one serialised {@code TableInfo} per visible table
@@ -1846,7 +1846,7 @@ public final class VgiServiceImpl implements VgiService {
      * Resolve the scan function (name + arguments) for a table, honouring an {@code AT} time-travel clause.
      *
      * @param attach_opaque_data the attach token
-     * @param schema_name the table's schema
+     * @param schema_path the table's schema path
      * @param name the table name
      * @param at_unit the time-travel unit (e.g. {@code version}), or {@code null}
      * @param at_value the time-travel value, or {@code null}
@@ -1916,7 +1916,7 @@ public final class VgiServiceImpl implements VgiService {
      * tables, else a single-branch wrap of the regular scan function.
      *
      * @param attach_opaque_data the attach token
-     * @param schema_name the table's schema
+     * @param schema_path the table's schema path
      * @param name the table name
      * @param at_unit the time-travel unit, or {@code null}
      * @param at_value the time-travel value, or {@code null}
@@ -2134,7 +2134,7 @@ public final class VgiServiceImpl implements VgiService {
      * Fetch a single table by name, version-resolved for any {@code AT} time-travel clause.
      *
      * @param attach_opaque_data the attach token
-     * @param schema_name the table's schema
+     * @param schema_path the table's schema path
      * @param name the table name
      * @param at_unit the time-travel unit, or {@code null}
      * @param at_value the time-travel value, or {@code null}
@@ -2179,7 +2179,7 @@ public final class VgiServiceImpl implements VgiService {
      * Per-column statistics for a catalog table (used when not inlined into {@code TableInfo}).
      *
      * @param attach_opaque_data the attach token
-     * @param schema_name the table's schema
+     * @param schema_path the table's schema path
      * @param name the table name
      * @param transaction_opaque_data the optional transaction token
      * @param ctx the per-call RPC context
@@ -2265,7 +2265,7 @@ public final class VgiServiceImpl implements VgiService {
      * List the views in a schema.
      *
      * @param attach_opaque_data the attach token
-     * @param name the schema name
+     * @param path the schema path
      * @param transaction_opaque_data the optional transaction token
      * @return one serialised {@code ViewInfo} per view
      */
@@ -2290,7 +2290,7 @@ public final class VgiServiceImpl implements VgiService {
      * Fetch a single view by name.
      *
      * @param attach_opaque_data the attach token
-     * @param schema_name the view's schema
+     * @param schema_path the view's schema path
      * @param name the view name
      * @param transaction_opaque_data the optional transaction token
      * @return a one-item response, or empty when the view is unknown
@@ -2313,7 +2313,7 @@ public final class VgiServiceImpl implements VgiService {
      * List the macros in a schema, filtered by macro type.
      *
      * @param attach_opaque_data the attach token
-     * @param name the schema name
+     * @param path the schema path
      * @param type macro type filter ({@code scalar} / {@code table}); {@code null} returns both
      * @param transaction_opaque_data the optional transaction token
      * @return one serialised {@code MacroInfo} per matching macro
@@ -2341,7 +2341,7 @@ public final class VgiServiceImpl implements VgiService {
      * Fetch a single macro by name.
      *
      * @param attach_opaque_data the attach token
-     * @param schema_name the macro's schema
+     * @param schema_path the macro's schema path
      * @param name the macro name
      * @param transaction_opaque_data the optional transaction token
      * @return a one-item response, or empty when the macro is unknown
@@ -2382,7 +2382,7 @@ public final class VgiServiceImpl implements VgiService {
      * carries the schema.
      *
      * @param attach_opaque_data the attach token
-     * @param name the schema to list
+     * @param path the schema path to list
      * @param type function type filter ({@code scalar} / {@code table} / {@code aggregate}); {@code null} returns all
      * @param transaction_opaque_data the optional transaction token
      * @param ctx the per-call RPC context
