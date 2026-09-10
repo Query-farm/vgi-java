@@ -108,40 +108,22 @@ VGI_WORKER_BIN="$PWD/vgi-example-worker/build/install/vgi-example-worker/bin/vgi
   ci/run-integration.sh
 ```
 
-## Version pins (and their coupling)
+## Integration revisions
 
-Two pins live in the workflow's `env:` block:
+The workflow's `env:` block identifies these upstream inputs:
 
-| Pin | What | Why |
-|-----|------|-----|
-| `VGI_REF` | the `Query-farm/vgi` commit supplying the `.test` files | must equal the commit the community vgi extension is built from — bump deliberately |
+| Input | What | Policy |
+|-------|------|--------|
+| `VGI_REF` | the `Query-farm/vgi` revision supplying the `.test` files | always `main`; no pin or fallback |
 | `VGI_RPC_JAVA_REF` | the `Query-farm/vgi-rpc-java` revision built from source | currently an untagged SHA; no release has the `LargeBinary` list-element fix the sources need |
-| `HAYBARN_RELEASE` | the Haybarn release supplying `haybarn-unittest` | must be ABI-compatible with the community vgi extension (both `v1.5.4`) |
+| `HAYBARN_RELEASE` | the Haybarn release supplying `haybarn-unittest` | resolved to the latest release at runtime |
 
-**`VGI_REF` is not free-floating, and setting it to `main` is a bug.** The
-extension half of the client comes from the community channel; the test half
-comes from `VGI_REF`. Skewing them tests one client against another client's
-tests. The authoritative value is `repo.ref` in
-[`Query-farm-haybarn/haybarn-community-extensions`](https://github.com/Query-farm-haybarn/haybarn-community-extensions)
-`extensions/vgi/description.yml`. On 2026-08-27 `VGI_REF: main` broke all three
-lanes exactly this way: upstream `27b6ded` / `f10b9bc` / `a0eb66b` (2026-08-26)
-added the `reason=secret_dependent` assertion to
-`cache/secret_ineligible.test` and the callable-discovery RPC-count assertion
-to `macro/macros.test` *together with the C++ client code that satisfies them*.
-The suite picked up the tests, the published extension did not have the code,
-and both files fail against a Java worker that is in fact correct — they pass
-against a from-source extension built at vgi `main` with the same worker. When
-the community channel republishes, bump `VGI_REF` to the new `repo.ref` and
-re-validate locally.
-
-**The coupling to know about:** the vgi extension is pulled live from the
-community channel (`INSTALL vgi FROM community`), which always serves the
-*currently published* build — it is not version-pinned here. So CI verifies the
-Java worker against **what users can actually install today**. If `VGI_REF`
-points at a commit whose tests exercise a protocol feature the published
-extension doesn't yet ship (or vice-versa), that test can fail or skip. When
-bumping `VGI_REF`, re-run the suite locally against the current community
-extension and adjust the pin / wrappers together. The catalog
+The vgi extension is pulled live from the community channel (`INSTALL vgi FROM
+community`), while the canonical test suite comes from VGI `main`. CI therefore
+checks both the current shared contract and what users can install today. If
+publication lags behind `main`, the resulting schema or behavior mismatch is an
+intentional signal to finish the publication; the workflow does not fall back
+to an older test revision. The catalog
 [`wrappers/`](wrappers) encode the canonical `versioned` /
 `versioned_tables` / `attach_options` fixture version sets and must track those
 fixtures when they move.
