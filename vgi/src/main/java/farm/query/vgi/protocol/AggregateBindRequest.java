@@ -28,10 +28,18 @@ public record AggregateBindRequest(
         @Nullable byte[] settings,
         @Nullable byte[] secrets,
         @Nullable byte[] attach_opaque_data,
-        @Nullable List<String> schema_path) implements ArrowSerializableRecord {
+        @Nullable List<String> schema_path,
+        @Nullable List<String> argument_names) implements ArrowSerializableRecord {
+    public AggregateBindRequest(String function_name, byte[] arguments, byte[] input_schema,
+            byte[] settings, byte[] secrets, byte[] attach_opaque_data,
+            List<String> schema_path) {
+        this(function_name, arguments, input_schema, settings, secrets, attach_opaque_data,
+                schema_path, null);
+    }
+
     public AggregateBindRequest(String function_name, byte[] arguments, byte[] input_schema,
             byte[] settings, byte[] secrets, byte[] attach_opaque_data, String schema_name) {
         this(function_name, arguments, input_schema, settings, secrets, attach_opaque_data,
-                schema_name == null ? null : List.of(schema_name));
+                schema_name == null ? null : List.of(schema_name), null);
     }
 }

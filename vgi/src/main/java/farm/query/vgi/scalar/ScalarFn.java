@@ -162,6 +162,7 @@ public abstract class ScalarFn implements ScalarFunction {
      */
     @Override
     public final BindResponse onBind(ScalarBindParams params) {
+        validateBind(params);
         // outputSchema first so fixtures with custom-worded rejects (e.g. DoubleFunction)
         // produce their domain-specific error before the framework's generic one.
         Schema out = outputSchema(params.inputSchema(), params.arguments());
@@ -172,6 +173,10 @@ public abstract class ScalarFn implements ScalarFunction {
             return BindResponse.forSchema(Schemas.singleResultAnyIpc());
         }
         return BindResponse.forSchema(SchemaUtil.serializeSchema(out));
+    }
+
+    /** Additional function-specific validation performed before the standard bind checks. */
+    protected void validateBind(ScalarBindParams params) {
     }
 
     /**

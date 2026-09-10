@@ -8,19 +8,16 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ArgSpecTest {
 
     @Test
-    void positionalWithDefaultIsRejected() {
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> new ArgSpec("station", 0, Schemas.UTF8, "doc",
-                        /*isConst=*/true, /*hasDefault=*/true, "asd",
-                        List.of(), false, false, false));
-        assertTrue(ex.getMessage().contains("station"));
-        assertTrue(ex.getMessage().contains("position 0"));
+    void positionalWithDefaultIsSupported() {
+        ArgSpec spec = new ArgSpec("station", 0, Schemas.UTF8, "doc",
+                /*isConst=*/true, /*hasDefault=*/true, "asd",
+                List.of(), false, false, false);
+        assertEquals(0, spec.position());
+        assertEquals(true, spec.hasDefault());
     }
 
     @Test

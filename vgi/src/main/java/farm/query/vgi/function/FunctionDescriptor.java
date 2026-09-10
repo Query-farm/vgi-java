@@ -3,6 +3,7 @@
 package farm.query.vgi.function;
 
 import java.util.List;
+import org.apache.arrow.vector.VectorSchemaRoot;
 
 /**
  * Common surface for scalar, table, table-in-out, and aggregate function
@@ -53,4 +54,13 @@ public interface FunctionDescriptor {
      * @return the argument specs, by default {@code spec().argumentSpecs()}.
      */
     default List<ArgSpec> argumentSpecs() { return spec().argumentSpecs(); }
+
+    /**
+     * Authoritative typed parameter defaults. When present this is exactly one
+     * row containing only defaulted parameters in signature order; a present
+     * null cell is an explicit SQL NULL default.
+     *
+     * @return the defaults batch, or {@code null} when no parameter defaults
+     */
+    default VectorSchemaRoot parameterDefaultValues() { return null; }
 }

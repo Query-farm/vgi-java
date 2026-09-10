@@ -30,6 +30,7 @@ import static farm.query.vgi.internal.IpcStructBuilder.writeNullableInt32;
 import static farm.query.vgi.internal.IpcStructBuilder.writeMap;
 import static farm.query.vgi.internal.IpcStructBuilder.writeNullableBool;
 import static farm.query.vgi.internal.IpcStructBuilder.writeStringList;
+import static farm.query.vgi.internal.IpcStructBuilder.writeNullableVarBinary;
 import static farm.query.vgi.internal.IpcStructBuilder.writeVarBinarySafe;
 import static farm.query.vgi.internal.IpcStructBuilder.writeVarChar;
 
@@ -88,6 +89,7 @@ final class FunctionInfoSerializer {
             FUNCTION_TYPE.field(false),
             nonNull("arguments", BINARY),
             nonNull("output_schema", BINARY),
+            nullable("parameter_default_values", BINARY),
             STABILITY.field(true),
             NULL_HANDLING.field(true),
             nonNull("description", UTF8),
@@ -166,6 +168,7 @@ final class FunctionInfoSerializer {
             FUNCTION_TYPE.write(v.get("function_type"), info.function_type());
             writeVarBinarySafe(v.get("arguments"), info.arguments());
             writeVarBinarySafe(v.get("output_schema"), info.output_schema());
+            writeNullableVarBinary(v.get("parameter_default_values"), info.parameter_default_values());
             STABILITY.write(v.get("stability"), info.stability());
             NULL_HANDLING.write(v.get("null_handling"), info.null_handling());
             writeVarChar(v.get("description"), info.description());

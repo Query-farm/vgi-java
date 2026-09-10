@@ -142,12 +142,13 @@ public final class VgiServiceImpl implements VgiService {
         byte[] argumentsIpc();
         byte[] settingsIpc();
         byte[] outputSchemaIpc();
+        List<String> argumentNames();
     }
 
     private record BoundScalar(ScalarFunction fn, Arguments args, Schema inputSchema,
                                 Schema outputSchema, Map<String, Object> settings,
                                 byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
-                                byte[] secrets)
+                                byte[] secrets, List<String> argumentNames)
             implements BoundEntry {}
 
     private record BoundTable(TableFunction fn, Arguments args, Schema inputSchema,
@@ -155,13 +156,14 @@ public final class VgiServiceImpl implements VgiService {
                                byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
                                byte[] secrets, byte[] attachId, byte[] bindOpaqueData,
                                String atUnit, String atValue,
-                               farm.query.vgi.protocol.CopyFromContext copyFrom)
+                               farm.query.vgi.protocol.CopyFromContext copyFrom,
+                               List<String> argumentNames)
             implements BoundEntry {}
 
     private record BoundTableInOut(TableInOutFunction fn, Arguments args, Schema inputSchema,
                                     Schema outputSchema, Map<String, Object> settings,
                                     byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
-                                    byte[] secrets, byte[] attachId)
+                                    byte[] secrets, byte[] attachId, List<String> argumentNames)
             implements BoundEntry {}
 
     private record BoundBuffering(farm.query.vgi.buffering.TableBufferingFunction fn, Arguments args,
@@ -169,7 +171,8 @@ public final class VgiServiceImpl implements VgiService {
                                    byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
                                    byte[] secrets, byte[] attachId, byte[] bindOpaqueData,
                                    byte[] inputSchemaIpc,
-                                   farm.query.vgi.protocol.CopyToContext copyTo)
+                                   farm.query.vgi.protocol.CopyToContext copyTo,
+                                   List<String> argumentNames)
             implements BoundEntry {}
 
     /**
@@ -446,14 +449,15 @@ public final class VgiServiceImpl implements VgiService {
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(),
-                attachPlain, attachScopedStorage(attachPlain), request.copy_to()));
+                attachPlain, attachScopedStorage(attachPlain), request.copy_to(),
+                request.argument_names()));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
         pendingBinds.put(bytesKey(token), new BoundBuffering(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
                 request.secrets(), attachPlain, bindOpaque,
-                request.input_schema(), request.copy_to()));
+                request.input_schema(), request.copy_to(), request.argument_names()));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -464,12 +468,12 @@ public final class VgiServiceImpl implements VgiService {
                                      int argCount, byte[] token) {
         ScalarFunction fn = OverloadResolver.pick(candidates, argCount, args, inputSchema);
         BindResponse upstream = fn.onBind(new ScalarBindParams(name, args, inputSchema, settings,
-                request.secrets(), request.resolved_secrets_provided()));
+                request.secrets(), request.resolved_secrets_provided(), request.argument_names()));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         pendingBinds.put(bytesKey(token), new BoundScalar(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
-                request.secrets()));
+                request.secrets(), request.argument_names()));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -487,7 +491,7 @@ public final class VgiServiceImpl implements VgiService {
         TableBindParams bindParams = new TableBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(), attachPlain,
                 transactionStore.view(txnPlain, attachPlain), attachScopedStorage(attachPlain),
-                request.copy_from());
+                request.copy_from(), request.argument_names());
         BindResponse upstream = fn.onBind(bindParams);
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
@@ -495,7 +499,7 @@ public final class VgiServiceImpl implements VgiService {
         pendingBinds.put(bytesKey(token), new BoundTable(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
                 request.secrets(), attachPlain, bindOpaque, request.at_unit(), request.at_value(),
-                request.copy_from()));
+                request.copy_from(), request.argument_names()));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -542,12 +546,12 @@ public final class VgiServiceImpl implements VgiService {
         byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(),
-                attachPlain, attachScopedStorage(attachPlain)));
+                attachPlain, attachScopedStorage(attachPlain), null, request.argument_names()));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         pendingBinds.put(bytesKey(token), new BoundTableInOut(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
-                request.secrets(), attachPlain));
+                request.secrets(), attachPlain, request.argument_names()));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
     }
@@ -741,7 +745,8 @@ public final class VgiServiceImpl implements VgiService {
         // secondary-init branch runs none either).
         if (splitPayloads != null && !splitPayloads.isEmpty()) {
             bt.fn().onSplit(splitPayloads,
-                    new TableBindParams(bt.fn().name(), bt.args(), null, bt.settings()));
+                    new TableBindParams(bt.fn().name(), bt.args(), null, bt.settings(),
+                            bt.argumentNames()));
         }
         TableProducerState state = bt.fn().createProducer(params);
         return RpcStream.producer(fnOutputSchema, state, header);
@@ -925,7 +930,8 @@ public final class VgiServiceImpl implements VgiService {
             BoundEntry e = pendingBinds.get(bytesKey(bindOpaque));
             if (e instanceof BoundTable bt) {
                 fn = bt.fn();
-                params = new TableBindParams(fn.name(), bt.args(), bt.inputSchema(), bt.settings());
+                params = new TableBindParams(fn.name(), bt.args(), bt.inputSchema(), bt.settings(),
+                        bt.argumentNames());
             }
         }
         if (fn == null && bindCall != null && bindCall.length > 0) {
@@ -938,7 +944,8 @@ public final class VgiServiceImpl implements VgiService {
                 int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
                 fn = OverloadResolver.pick(tables.get(embedded.function_name()),
                         constN + colN, args, inputSchema);
-                params = new TableBindParams(embedded.function_name(), args, inputSchema, settings);
+                params = new TableBindParams(embedded.function_name(), args, inputSchema, settings,
+                        embedded.argument_names());
             }
         }
         if (fn == null || params == null) return new byte[0];
@@ -1023,7 +1030,8 @@ public final class VgiServiceImpl implements VgiService {
             int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
             TableFunction fn = OverloadResolver.pick(tables.get(embedded.function_name()),
                     constN + colN, args, inputSchema);
-            params = new TableBindParams(embedded.function_name(), args, inputSchema, settings);
+            params = new TableBindParams(embedded.function_name(), args, inputSchema, settings,
+                    embedded.argument_names());
             Schema bindOutputSchema = SchemaUtil.deserializeSchema(fn.onBind(params).output_schema());
             result = fn.plan(params, planRequestOf(
                     request, bindOutputSchema, filterCapabilities(fn.metadata())));
@@ -1143,7 +1151,8 @@ public final class VgiServiceImpl implements VgiService {
             BoundEntry e = pendingBinds.get(bytesKey(request.bind_opaque_data()));
             if (e instanceof BoundTable bt) {
                 return bt.fn().cardinality(new TableBindParams(
-                        bt.fn().name(), bt.args(), bt.inputSchema(), bt.settings()));
+                        bt.fn().name(), bt.args(), bt.inputSchema(), bt.settings(),
+                        bt.argumentNames()));
             }
         }
         if (request.bind_call() != null && request.bind_call().length > 0) {
@@ -1157,7 +1166,7 @@ public final class VgiServiceImpl implements VgiService {
                 TableFunction fn = OverloadResolver.pick(tables.get(embedded.function_name()),
                         constN + colN, args, inputSchema);
                 return fn.cardinality(new TableBindParams(embedded.function_name(),
-                        args, inputSchema, settings));
+                        args, inputSchema, settings, embedded.argument_names()));
             }
         }
         return -1L;
@@ -1179,7 +1188,7 @@ public final class VgiServiceImpl implements VgiService {
                 resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data()),
                 request.function_name(), request.input_schema(), request.arguments(),
-                request.secrets());
+                request.secrets(), request.argument_names());
     }
 
     /**
@@ -2603,7 +2612,8 @@ public final class VgiServiceImpl implements VgiService {
         // result cache) and input_from_args for blended registrations.
         return new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
-                base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
+                base.arguments(), base.output_schema(), base.parameter_default_values(),
+                base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
                 base.filter_semantic_profiles(), base.additional_filter_functions(),
@@ -2629,7 +2639,8 @@ public final class VgiServiceImpl implements VgiService {
         // AggregateBindRequest.secrets.
         return new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
-                base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
+                base.arguments(), base.output_schema(), base.parameter_default_values(),
+                base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
                 base.filter_semantic_profiles(), base.additional_filter_functions(),
@@ -2649,12 +2660,13 @@ public final class VgiServiceImpl implements VgiService {
         BindResponse r = fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of()));
         FunctionInfo base = baseFunctionInfo(fn.name(), fn.metadata(), schemaName, "table_buffering",
                 ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), bindOutput(r),
-                /*hasFinalize=*/true, 1);
+                encodeParameterDefaults(fn), /*hasFinalize=*/true, 1);
         // Re-stamp the buffering-specific ordering flags (baseFunctionInfo
         // hardcodes them false; they're only meaningful for TableBuffering).
         return new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
-                base.arguments(), base.output_schema(), base.stability(), base.null_handling(),
+                base.arguments(), base.output_schema(), base.parameter_default_values(),
+                base.stability(), base.null_handling(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
                 base.filter_semantic_profiles(), base.additional_filter_functions(),
@@ -2703,12 +2715,14 @@ public final class VgiServiceImpl implements VgiService {
         // is single-worker by definition.
         int maxWorkers = fn instanceof TableFunction tf ? (int) tf.maxWorkers() : 1;
         return baseFunctionInfo(fn.name(), fn.metadata(), schemaName, type,
-                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), outputSchema, hasFinalize,
+                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), outputSchema,
+                encodeParameterDefaults(fn), hasFinalize,
                 maxWorkers);
     }
 
     private static FunctionInfo baseFunctionInfo(String name, FunctionMetadata md, String schemaName,
                                            String type, byte[] arguments, byte[] outputSchema,
+                                           byte[] parameterDefaultValues,
                                            boolean hasFinalize, int maxWorkers) {
         return new FunctionInfo(
                 null,
@@ -2718,6 +2732,7 @@ public final class VgiServiceImpl implements VgiService {
                 type,
                 arguments,
                 outputSchema,
+                parameterDefaultValues,
                 stabilityWire(md.stability()),
                 (BAD_ENUM_MODE && "scalar".equals(type) && "double".equals(name))
                         ? "WEIRD" : nullHandlingWire(md.nullHandling()),
@@ -2751,6 +2766,39 @@ public final class VgiServiceImpl implements VgiService {
                 false,  // input_from_args — re-stamped true for RowTransformFunction
                 List.of(),
                 List.of());
+    }
+
+    private static byte[] encodeParameterDefaults(
+            farm.query.vgi.function.FunctionDescriptor fn) {
+        var defaults = fn.parameterDefaultValues();
+        if (defaults == null) return null;
+        if (defaults.getRowCount() != 1) {
+            throw new IllegalArgumentException(
+                    "parameterDefaultValues must contain exactly one row, got "
+                            + defaults.getRowCount());
+        }
+        var arguments = ArgumentSpecSerializer.toSchema(fn.argumentSpecs()).getFields();
+        int argumentIndex = 0;
+        for (var defaultField : defaults.getSchema().getFields()) {
+            while (argumentIndex < arguments.size()
+                    && !arguments.get(argumentIndex).getName().equals(defaultField.getName())) {
+                argumentIndex++;
+            }
+            if (argumentIndex == arguments.size()) {
+                throw new IllegalArgumentException(
+                        "parameterDefaultValues field '" + defaultField.getName()
+                                + "' is not in argument signature order");
+            }
+            var argumentField = arguments.get(argumentIndex);
+            if (!argumentField.getType().equals(defaultField.getType())) {
+                throw new IllegalArgumentException(
+                        "parameterDefaultValues field '" + defaultField.getName()
+                                + "' has type " + defaultField.getType()
+                                + ", expected " + argumentField.getType());
+            }
+            argumentIndex++;
+        }
+        return BatchUtil.writeSingleBatch(defaults);
     }
 
     private static String stabilityWire(farm.query.vgi.function.Stability s) {
