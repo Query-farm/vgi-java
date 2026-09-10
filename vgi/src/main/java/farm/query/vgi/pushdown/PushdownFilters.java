@@ -229,7 +229,7 @@ public final class PushdownFilters {
             case FilterExpression.ColumnRef value -> quoteIdentifier(value.columnName());
             case FilterExpression.FieldRef value -> expressionSql(value.expression()) + "."
                     + quoteIdentifier(value.fieldName());
-            case FilterExpression.Literal value -> sqlLiteral(value.value());
+            case FilterExpression.Literal value -> literalSql(value);
             case FilterExpression.Comparison value -> "(" + expressionSql(value.left()) + " "
                     + value.op().symbol() + " " + expressionSql(value.right()) + ")";
             case FilterExpression.BooleanExpression value -> "(" + value.children().stream()
@@ -271,8 +271,22 @@ public final class PushdownFilters {
             return standard.name().toLowerCase();
         }
         FilterIdentity identity = (FilterIdentity) function;
-        if (identity.equals(new FilterIdentity("duckdb.spatial", "intersects_extent", 1))) return "&&";
+        if (identity.equals(new FilterIdentity("duckdb.spatial", "intersects_extent", 1))) {
+            return "st_intersects_extent";
+        }
         return identity.namespace() + "." + identity.name();
+    }
+
+    private static String literalSql(FilterExpression.Literal literal) {
+        if (isWkb(literal.field()) && literal.value() instanceof byte[] bytes) {
+            return "ST_GeomFromHEXWKB('" + java.util.HexFormat.of().formatHex(bytes) + "')";
+        }
+        return sqlLiteral(literal.value());
+    }
+
+    private static boolean isWkb(org.apache.arrow.vector.types.pojo.Field field) {
+        return field != null && field.getMetadata() != null
+                && "geoarrow.wkb".equals(field.getMetadata().get("ARROW:extension:name"));
     }
 
     /**

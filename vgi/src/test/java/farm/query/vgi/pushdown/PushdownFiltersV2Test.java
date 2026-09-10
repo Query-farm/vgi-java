@@ -254,6 +254,31 @@ final class PushdownFiltersV2Test {
     }
 
     @Test
+    void spatialExpressionsRenderWkbAsGeometry() {
+        Field geometry = new Field("geom", new FieldType(true, new ArrowType.Binary(), null,
+                Map.of("ARROW:extension:name", "geoarrow.wkb",
+                        "ARROW:extension:metadata", "{}")), null);
+        Field literal = new Field("value_0", new FieldType(true, new ArrowType.Binary(), null,
+                Map.of("ARROW:extension:name", "geoarrow.wkb",
+                        "ARROW:extension:metadata", "{}")), null);
+        String expression = "{\"node\":\"call\",\"function\":{"
+                + "\"namespace\":\"duckdb.spatial\",\"name\":\"intersects_extent\",\"version\":1},"
+                + "\"arguments\":[" + column("geom")
+                + ",{\"node\":\"literal\",\"value_ref\":0}]}";
+        PushdownFiltersDecoder.Capabilities capabilities = new PushdownFiltersDecoder.Capabilities(
+                java.util.Set.of(new FilterIdentity("duckdb.spatial", "intersects_extent", 1)),
+                java.util.Set.of(), Map.of());
+        PushdownFilters filters = PushdownFiltersDecoder.decode(
+                batch(snapshot(predicate("spatial", "required", expression)),
+                        List.of(literal), List.of(new byte[] {1, 2, (byte) 0xff})),
+                new Schema(List.of(geometry)), List.of(), capabilities);
+
+        assertEquals(List.of("st_intersects_extent(\"geom\", "
+                        + "ST_GeomFromHEXWKB('0102ff'))"),
+                filters.expressionPredicates());
+    }
+
+    @Test
     void configuredLimitsAndFullUint64RevisionsAreEnforced() {
         String longId = "x".repeat(129);
         assertThrows(FilterV2Exception.class, () -> decode(batch(snapshot(
