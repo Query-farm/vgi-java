@@ -74,7 +74,7 @@ public final class TableExample extends CountdownTableFunction {
         long count = p.positional(0, "count").asLong().required();
         long batchSize = p.named("batch_size").asLong().ge(1).orElse(2048L);
         return new NumbersState(count, batchSize,
-                FilterApplier.from(params.pushdownFilters(), params.joinKeys()),
+                params.filters(),
                 params.storage());
     }
 
