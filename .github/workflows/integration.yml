@@ -5,11 +5,11 @@
 # from source, it drives a prebuilt standalone `haybarn-unittest` (the
 # DuckDB/Haybarn sqllogictest runner) and installs the SIGNED vgi extension
 # from the Haybarn community channel + its deps from core. The .test files
-# come from a pinned Query-farm/vgi checkout; ci/preprocess-require.awk turns
+# come from Query-farm/vgi main; ci/preprocess-require.awk turns
 # each `require <ext>` gate into an explicit INSTALL+LOAD so the standalone
 # runner (which links none of these extensions) can run them.
 #
-# See ci/README.md for the full design and the version-pin coupling.
+# See ci/README.md for the full design.
 name: Integration suite
 
 on:
@@ -25,27 +25,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # The Query-farm/vgi commit whose test/sql/integration suite we run.
-  #
-  # This MUST be the same commit the community channel's vgi extension is built
-  # from -- see `repo.ref` in Query-farm-haybarn/haybarn-community-extensions
-  # extensions/vgi/description.yml -- because the extension is installed live
-  # (`INSTALL vgi FROM community`) and is NOT pinned here. The .test files and
-  # the extension binary are two halves of one client; skewing them tests a
-  # client against another client's tests.
-  #
-  # It was `main` (floating), which is how the 2026-08-26 upstream trio
-  # 27b6ded / f10b9bc / a0eb66b broke all three lanes: those commits added the
-  # `reason=secret_dependent` result-cache assertion to
-  # cache/secret_ineligible.test and the shared callable-discovery RPC-count
-  # assertion to macro/macros.test, TOGETHER WITH the C++ client code that
-  # satisfies them. The suite picked up the tests; the published extension did
-  # not have the code. Neither is a Java worker defect -- both files pass
-  # against a from-source extension built at vgi main with this same worker.
-  #
-  # Bump deliberately, in lockstep with the community republish, and
-  # re-validate locally (see ci/README.md "Version pins").
-  VGI_REF: 557fed836305d03eb796e6ee061cf2d2b116b686
+  # Track the shared implementation directly. There is deliberately no VGI
+  # commit pin or fallback: CI should expose any lag in the published artifact.
+  VGI_REF: main
   # The Haybarn release providing the prebuilt haybarn-unittest binary is
   # resolved to the latest release at run time (see the "Resolve latest haybarn
   # release" step) so the unittest host stays ABI-compatible with the rebuilt
@@ -77,7 +59,7 @@ jobs:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
 
-      - name: Checkout pinned vgi test suite
+      - name: Checkout current vgi test suite
         uses: actions/checkout@v4
         with:
           repository: Query-farm/vgi
