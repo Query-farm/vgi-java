@@ -13,10 +13,12 @@ Rather than building the vgi DuckDB extension from source, CI drives a
 runner, published in Haybarn's releases) and installs the **signed** vgi
 extension from the Haybarn community channel:
 
-1. **Build the worker** — `./gradlew :vgi-example-worker:installDist`.
-2. **Checkout the test suite** — `Query-farm/vgi` at a pinned commit; its
+1. **Build the worker once** — a producer job runs
+   `./gradlew :vgi-example-worker:installDist`, archives the generated
+   distribution, and every transport lane downloads that same artifact.
+2. **Checkout the test suite** — `Query-farm/vgi` at `main`; its
    `test/sql/integration/*.test` files are the suite.
-3. **Download the runner** — `haybarn_unittest-linux-amd64.zip` from the pinned
+3. **Download the runner** — `haybarn_unittest-linux-amd64.zip` from the latest
    Haybarn release.
 4. **Preprocess** — the standalone runner links none of the extensions the
    tests gate on, so [`preprocess-require.awk`](preprocess-require.awk) rewrites

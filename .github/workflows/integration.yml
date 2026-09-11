@@ -41,34 +41,13 @@ env:
   VGI_RPC_JAVA_REF: 920dc42cb7d7e652d582de7fbb5b0b7ee3836a34
 
 jobs:
-  integration:
+  build-worker:
+    name: Build worker once
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # launch: the AF_UNIX worker pool. shm: same, plus the POSIX
-          # shared-memory side channel (VGI_RPC_SHM_SIZE_BYTES). http: the whole
-          # suite over the stateless HTTP transport (state-token continuations),
-          # mirroring vgi's `make test_http`.
-          - { lane: launch }
-          - { lane: shm, shm_bytes: '67108864' }
-          - { lane: http, transport: http }
-    name: integration (${{ matrix.lane }})
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
 
-      - name: Checkout current vgi test suite
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi
-          ref: ${{ env.VGI_REF }}
-          path: vgi-upstream
-
-      # Build the vgirpc RPC layer from source (composite include) so the worker
-      # picks up the HTTP features the integration suite needs (gzip negotiation,
-      # sticky cookies) ahead of the next published vgirpc release.
       - name: Checkout pinned vgi-rpc-java
         uses: actions/checkout@v4
         with:
@@ -95,6 +74,59 @@ jobs:
         run: ./gradlew --no-daemon :vgi-example-worker:installDist
         env:
           VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
+
+      # Archive before upload because upload-artifact does not preserve the
+      # executable bit on the generated launcher script.
+      - name: Package worker
+        run: tar -czf vgi-java-worker.tar.gz vgi-example-worker/build/install/vgi-example-worker
+
+      - name: Upload worker
+        uses: actions/upload-artifact@v4
+        with:
+          name: vgi-java-worker-${{ github.sha }}
+          path: vgi-java-worker.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  integration:
+    needs: build-worker
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # launch: the AF_UNIX worker pool. shm: same, plus the POSIX
+          # shared-memory side channel (VGI_RPC_SHM_SIZE_BYTES). http: the whole
+          # suite over the stateless HTTP transport (state-token continuations),
+          # mirroring vgi's `make test_http`.
+          - { lane: launch }
+          - { lane: shm, shm_bytes: '67108864' }
+          - { lane: http, transport: http }
+    name: integration (${{ matrix.lane }})
+    steps:
+      - name: Checkout vgi-java
+        uses: actions/checkout@v4
+
+      - name: Checkout current vgi test suite
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi
+          ref: ${{ env.VGI_REF }}
+          path: vgi-upstream
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Download worker
+        uses: actions/download-artifact@v4
+        with:
+          name: vgi-java-worker-${{ github.sha }}
+
+      - name: Extract worker
+        run: tar -xzf vgi-java-worker.tar.gz
 
       - name: Resolve latest haybarn release
         run: |
