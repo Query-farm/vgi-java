@@ -2,6 +2,7 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.client.TableInfoDecoder;
 import farm.query.vgi.protocol.TableInfo;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -30,7 +31,7 @@ class TableInfoSerializerTest {
         return new TableInfo(
                 null, Map.of(), "filings", "company", new byte[0],
                 List.of(), List.of(), List.of(), List.of(), List.of(),
-                false, false, false, false, false,
+                Map.of("insert", "changes", "delete", "rows"), false,
                 null, null, null, null,
                 null, null, null, null,
                 cnf);
@@ -78,5 +79,12 @@ class TableInfoSerializerTest {
             ListVector vec = (ListVector) root.getVector("required_filters");
             assertEquals(0, ((List<?>) vec.getObject(0)).size());
         }
+    }
+
+    @Test
+    void writeResultModesRoundTripAsMapOfUtf8() {
+        TableInfo decoded = TableInfoDecoder.decode(
+                TableInfoSerializer.serialize(tableInfoWithRequiredFilters(List.of())));
+        assertEquals(Map.of("insert", "changes", "delete", "rows"), decoded.write_result_modes());
     }
 }
