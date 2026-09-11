@@ -2613,7 +2613,7 @@ public final class VgiServiceImpl implements VgiService {
         return new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.parameter_default_values(),
-                base.stability(), base.null_handling(),
+                base.stability(), base.null_handling(), base.argument_monotonicity(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
                 base.filter_semantic_profiles(), base.additional_filter_functions(),
@@ -2640,7 +2640,7 @@ public final class VgiServiceImpl implements VgiService {
         return new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.parameter_default_values(),
-                base.stability(), base.null_handling(),
+                base.stability(), base.null_handling(), base.argument_monotonicity(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
                 base.filter_semantic_profiles(), base.additional_filter_functions(),
@@ -2660,13 +2660,13 @@ public final class VgiServiceImpl implements VgiService {
         BindResponse r = fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of()));
         FunctionInfo base = baseFunctionInfo(fn.name(), fn.metadata(), schemaName, "table_buffering",
                 ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), bindOutput(r),
-                encodeParameterDefaults(fn), /*hasFinalize=*/true, 1);
+                encodeParameterDefaults(fn), /*hasFinalize=*/true, 1, null);
         // Re-stamp the buffering-specific ordering flags (baseFunctionInfo
         // hardcodes them false; they're only meaningful for TableBuffering).
         return new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.parameter_default_values(),
-                base.stability(), base.null_handling(),
+                base.stability(), base.null_handling(), base.argument_monotonicity(),
                 base.description(), base.examples(), base.categories(), base.projection_pushdown(),
                 base.filter_pushdown(), base.sampling_pushdown(), base.late_materialization(),
                 base.filter_semantic_profiles(), base.additional_filter_functions(),
@@ -2714,16 +2714,38 @@ public final class VgiServiceImpl implements VgiService {
         // Only TableFunction has a meaningful maxWorkers; everything else
         // is single-worker by definition.
         int maxWorkers = fn instanceof TableFunction tf ? (int) tf.maxWorkers() : 1;
+        List<String> argumentMonotonicity = null;
+        if (fn.argumentMonotonicity() != null) {
+            if (!"scalar".equals(type)) {
+                throw new IllegalArgumentException(
+                        "argumentMonotonicity is only valid for scalar functions");
+            }
+            if (fn.argumentMonotonicity().size() != fn.argumentSpecs().size()) {
+                throw new IllegalArgumentException("argumentMonotonicity has "
+                        + fn.argumentMonotonicity().size() + " entries, expected "
+                        + fn.argumentSpecs().size() + " declaration slots");
+            }
+            argumentMonotonicity = fn.argumentMonotonicity().stream()
+                    .map(value -> {
+                        if (value == null) {
+                            throw new IllegalArgumentException(
+                                    "argumentMonotonicity must not contain null entries");
+                        }
+                        return value.wireName();
+                    })
+                    .toList();
+        }
         return baseFunctionInfo(fn.name(), fn.metadata(), schemaName, type,
                 ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), outputSchema,
                 encodeParameterDefaults(fn), hasFinalize,
-                maxWorkers);
+                maxWorkers, argumentMonotonicity);
     }
 
     private static FunctionInfo baseFunctionInfo(String name, FunctionMetadata md, String schemaName,
                                            String type, byte[] arguments, byte[] outputSchema,
                                            byte[] parameterDefaultValues,
-                                           boolean hasFinalize, int maxWorkers) {
+                                           boolean hasFinalize, int maxWorkers,
+                                           List<String> argumentMonotonicity) {
         return new FunctionInfo(
                 null,
                 md.tags() == null ? Map.of() : md.tags(),
@@ -2736,6 +2758,7 @@ public final class VgiServiceImpl implements VgiService {
                 stabilityWire(md.stability()),
                 (BAD_ENUM_MODE && "scalar".equals(type) && "double".equals(name))
                         ? "WEIRD" : nullHandlingWire(md.nullHandling()),
+                argumentMonotonicity,
                 md.description(),
                 md.examples() == null ? List.of() : md.examples(),
                 md.categories() == null ? List.of() : md.categories(),

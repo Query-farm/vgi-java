@@ -99,6 +99,13 @@ public final class DemoWorker {
 
 The `compute()` signature drives everything: `@Vector` parameters are per-row input columns, `@Const` parameters are bind-time constants, `@Setting` parameters read session settings, and the last unannotated Arrow vector is the framework-allocated output.
 
+Scalar functions may override `argumentMonotonicity()` and return a
+`List<ArgumentMonotonicity>`. The optional list follows `argumentSpecs()`
+declaration order and must contain exactly one entry per declaration. Fixed,
+defaulted, and constant arguments each occupy one slot; a vararg declaration
+occupies one slot regardless of call-time expansion. Named SQL invocation order
+does not reorder these claims. Returning `null` makes no claims.
+
 **The worker JVM needs two flags** — Apache Arrow requires access to `java.nio` internals, and the shared-memory transport uses the FFM API:
 
 ```

@@ -752,6 +752,11 @@ class WireRecordSchemaConformanceTest {
     }
 
     private static Object sampleValue(RecordComponent component) {
+        // Scalar-only and shape-dependent; its dedicated serializer test
+        // supplies a real argument schema and exercises a present list.
+        if (component.getName().equals("argument_monotonicity")) {
+            return null;
+        }
         Class<?> type = component.getType();
         if (type == String.class) {
             return "sample";

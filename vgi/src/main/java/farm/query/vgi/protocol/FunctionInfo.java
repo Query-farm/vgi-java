@@ -26,6 +26,7 @@ import java.util.Map;
  * @param output_schema                IPC-encoded output schema.
  * @param stability                    dictionary-encoded function stability, or {@code null}.
  * @param null_handling                dictionary-encoded null-handling policy, or {@code null}.
+ * @param argument_monotonicity        scalar-only claims in argument declaration order, or {@code null}.
  * @param description                  human-readable description.
  * @param examples                     usage examples.
  * @param categories                   classification categories.
@@ -87,6 +88,7 @@ public record FunctionInfo(
         @Nullable byte[] parameter_default_values,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String stability,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String null_handling,
+        @Nullable List<String> argument_monotonicity,
         String description,
         List<FunctionExample> examples,
         List<String> categories,

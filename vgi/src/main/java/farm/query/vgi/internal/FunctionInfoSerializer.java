@@ -20,6 +20,7 @@ import static farm.query.vgi.internal.IpcStructBuilder.I32;
 import static farm.query.vgi.internal.IpcStructBuilder.I64;
 import static farm.query.vgi.internal.IpcStructBuilder.UTF8;
 import static farm.query.vgi.internal.IpcStructBuilder.writeNullableInt64;
+import static farm.query.vgi.internal.IpcStructBuilder.writeNullableStringList;
 import static farm.query.vgi.internal.IpcStructBuilder.listOf;
 import static farm.query.vgi.internal.IpcStructBuilder.listOfPrim;
 import static farm.query.vgi.internal.IpcStructBuilder.mapUtf8Utf8;
@@ -92,6 +93,9 @@ final class FunctionInfoSerializer {
             nullable("parameter_default_values", BINARY),
             STABILITY.field(true),
             NULL_HANDLING.field(true),
+            new Field("argument_monotonicity",
+                    new FieldType(true, new ArrowType.List(), null),
+                    List.of(nullable("item", UTF8))),
             nonNull("description", UTF8),
             listOf("examples", new Field("item",
                     new FieldType(true, new ArrowType.Struct(), null),
@@ -157,6 +161,7 @@ final class FunctionInfoSerializer {
                             nullable("secret_name", UTF8))))));
 
     static byte[] serialize(FunctionInfo info) {
+        validateArgumentMonotonicity(info);
         DictionaryProvider.MapDictionaryProvider provider = new DictionaryProvider.MapDictionaryProvider();
         for (EnumDict d : DICTS) d.register(provider);
 
@@ -171,6 +176,7 @@ final class FunctionInfoSerializer {
             writeNullableVarBinary(v.get("parameter_default_values"), info.parameter_default_values());
             STABILITY.write(v.get("stability"), info.stability());
             NULL_HANDLING.write(v.get("null_handling"), info.null_handling());
+            writeNullableStringList(v.get("argument_monotonicity"), info.argument_monotonicity());
             writeVarChar(v.get("description"), info.description());
             writeStringList(v.get("examples"), List.of());
             writeStringList(v.get("categories"), info.categories());
@@ -202,6 +208,27 @@ final class FunctionInfoSerializer {
             writeStringList(v.get("required_settings"), info.required_settings());
             writeRequiredSecrets(v.get("required_secrets"), info.required_secrets());
         });
+    }
+
+    private static void validateArgumentMonotonicity(FunctionInfo info) {
+        List<String> values = info.argument_monotonicity();
+        if (values == null) return;
+        if (!"scalar".equals(info.function_type())) {
+            throw new IllegalArgumentException("argument_monotonicity is only valid for scalar functions");
+        }
+        int expected = SchemaUtil.deserializeSchema(info.arguments()).getFields().size();
+        if (values.size() != expected) {
+            throw new IllegalArgumentException("argument_monotonicity has " + values.size()
+                    + " entries, expected " + expected + " declaration slots");
+        }
+        var allowed = java.util.Set.of("UNKNOWN", "CONSTANT", "NON_DECREASING",
+                "STRICTLY_INCREASING", "NON_INCREASING", "STRICTLY_DECREASING");
+        for (int i = 0; i < values.size(); i++) {
+            if (!allowed.contains(values.get(i))) {
+                throw new IllegalArgumentException("argument_monotonicity[" + i
+                        + "] has unknown value " + values.get(i));
+            }
+        }
     }
 
     private static Field filterIdentities(String name) {

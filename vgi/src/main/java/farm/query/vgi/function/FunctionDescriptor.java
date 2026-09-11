@@ -56,6 +56,15 @@ public interface FunctionDescriptor {
     default List<ArgSpec> argumentSpecs() { return spec().argumentSpecs(); }
 
     /**
+     * Scalar-only monotonicity claims in {@link #argumentSpecs()} declaration
+     * order. {@code null} makes no claims; a vararg declaration occupies one
+     * slot regardless of call-time expansion.
+     *
+     * @return one claim per argument declaration, or {@code null}.
+     */
+    default List<ArgumentMonotonicity> argumentMonotonicity() { return null; }
+
+    /**
      * Authoritative typed parameter defaults. When present this is exactly one
      * row containing only defaulted parameters in signature order; a present
      * null cell is an explicit SQL NULL default.

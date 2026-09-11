@@ -296,6 +296,17 @@ public final class IpcStructBuilder {
         w.setValueCount(1);
     }
 
+    /** Write a nullable list of non-null strings into row 0. */
+    public static void writeNullableStringList(FieldVector v, List<String> values) {
+        ListVector lv = (ListVector) v;
+        if (values == null) {
+            lv.setNull(0);
+            lv.setValueCount(1);
+            return;
+        }
+        writeStringList(v, values);
+    }
+
     /**
      * Write a list of ints into row 0 of a {@code ListVector}. Nulls in
      * {@code values} are skipped.

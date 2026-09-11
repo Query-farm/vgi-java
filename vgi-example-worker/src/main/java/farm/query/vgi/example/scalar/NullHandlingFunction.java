@@ -3,6 +3,7 @@
 package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.FunctionMetadata;
+import farm.query.vgi.function.ArgumentMonotonicity;
 import farm.query.vgi.function.NullHandling;
 import farm.query.vgi.function.Stability;
 import farm.query.vgi.scalar.ScalarFn;
@@ -17,6 +18,10 @@ public final class NullHandlingFunction extends ScalarFn {
         return new FunctionMetadata(
                 "Returns value or -5000 if null",
                 Stability.CONSISTENT, NullHandling.SPECIAL, false, false, false, false);
+    }
+
+    @Override public java.util.List<ArgumentMonotonicity> argumentMonotonicity() {
+        return java.util.List.of(ArgumentMonotonicity.STRICTLY_INCREASING);
     }
 
     public void compute(@Vector BigIntVector value, BigIntVector result) {
