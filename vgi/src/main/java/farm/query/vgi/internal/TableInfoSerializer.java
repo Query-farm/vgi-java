@@ -55,10 +55,7 @@ public final class TableInfoSerializer {
             listOfPrim("check_constraints", UTF8),
             listOfListOfInt32("primary_key_constraints"),
             listOfPrim("foreign_key_constraints", BINARY),
-            nonNull("supports_insert", BOOL),
-            nonNull("supports_update", BOOL),
-            nonNull("supports_delete", BOOL),
-            nonNull("supports_returning", BOOL),
+            mapUtf8Utf8("write_result_modes"),
             nonNull("supports_column_statistics", BOOL),
             nullable("scan_function", BINARY),
             nullable("insert_function", BINARY),
@@ -88,10 +85,7 @@ public final class TableInfoSerializer {
             writeStringList(v.get("check_constraints"), info.check_constraints());
             writeListListInt32(v.get("primary_key_constraints"), info.primary_key_constraints());
             writeListBinary(v.get("foreign_key_constraints"), info.foreign_key_constraints());
-            writeBool(v.get("supports_insert"), info.supports_insert());
-            writeBool(v.get("supports_update"), info.supports_update());
-            writeBool(v.get("supports_delete"), info.supports_delete());
-            writeBool(v.get("supports_returning"), info.supports_returning());
+            writeMap(v.get("write_result_modes"), info.write_result_modes());
             writeBool(v.get("supports_column_statistics"), info.supports_column_statistics());
             writeVarBinarySafe(v.get("scan_function"), info.scan_function());
             writeVarBinarySafe(v.get("insert_function"), info.insert_function());

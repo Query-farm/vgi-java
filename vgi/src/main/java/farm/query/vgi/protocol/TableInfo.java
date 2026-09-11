@@ -27,10 +27,7 @@ import java.util.Map;
  * @param check_constraints           CHECK constraint expressions.
  * @param primary_key_constraints     column-index groups forming the primary key.
  * @param foreign_key_constraints     IPC-encoded foreign-key constraint definitions.
- * @param supports_insert             whether the table supports INSERT.
- * @param supports_update             whether the table supports UPDATE.
- * @param supports_delete             whether the table supports DELETE.
- * @param supports_returning          whether DML supports RETURNING.
+ * @param write_result_modes          maximum result mode per supported operation.
  * @param supports_column_statistics  whether per-column statistics are available.
  * @param scan_function               IPC-encoded scan function descriptor, or {@code null}.
  * @param insert_function             IPC-encoded insert function descriptor, or {@code null}.
@@ -68,10 +65,7 @@ public record TableInfo(
         List<String> check_constraints,
         @ArrowField(ArrowFieldType.INT32) List<List<Integer>> primary_key_constraints,
         List<byte[]> foreign_key_constraints,
-        boolean supports_insert,
-        boolean supports_update,
-        boolean supports_delete,
-        boolean supports_returning,
+        Map<String, String> write_result_modes,
         boolean supports_column_statistics,
         // Nullable binary columns; this SDK sends "no such function" as empty
         // bytes rather than null.
@@ -91,15 +85,13 @@ public record TableInfo(
             byte[] columns, List<Integer> not_null_constraints,
             List<List<Integer>> unique_constraints, List<String> check_constraints,
             List<List<Integer>> primary_key_constraints, List<byte[]> foreign_key_constraints,
-            boolean supports_insert, boolean supports_update, boolean supports_delete,
-            boolean supports_returning, boolean supports_column_statistics, byte[] scan_function,
+            Map<String, String> write_result_modes, boolean supports_column_statistics, byte[] scan_function,
             byte[] insert_function, byte[] update_function, byte[] delete_function,
             Long cardinality_estimate, Long cardinality_max, byte[] column_statistics,
             byte[] bind_result, List<List<String>> required_filters) {
         this(comment, tags, name, List.of(schema_name), columns, not_null_constraints,
                 unique_constraints, check_constraints, primary_key_constraints,
-                foreign_key_constraints, supports_insert, supports_update, supports_delete,
-                supports_returning, supports_column_statistics, scan_function, insert_function,
+                foreign_key_constraints, write_result_modes, supports_column_statistics, scan_function, insert_function,
                 update_function, delete_function, cardinality_estimate, cardinality_max,
                 column_statistics, bind_result, required_filters);
     }
