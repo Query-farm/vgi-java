@@ -117,7 +117,7 @@ The workflow's `env:` block identifies these upstream inputs:
 | Input | What | Policy |
 |-------|------|--------|
 | `VGI_REF` | the `Query-farm/vgi` revision supplying the `.test` files | always `main`; no pin or fallback |
-| `VGI_RPC_JAVA_REF` | the `Query-farm/vgi-rpc-java` revision built from source | currently an untagged SHA; no release has the `LargeBinary` list-element fix the sources need |
+| `VGI_RPC_JAVA_REF` | the `Query-farm/vgi-rpc-java` revision built from source | a release tag (`v0.25.0`), kept in step with `farm.query:vgirpc` in `vgi/build.gradle.kts`; an untagged SHA only while a needed fix is unreleased |
 | `HAYBARN_RELEASE` | the Haybarn release supplying `haybarn-unittest` | resolved to the latest release at runtime |
 
 The vgi extension is pulled live from the community channel (`INSTALL vgi FROM
