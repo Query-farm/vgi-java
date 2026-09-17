@@ -32,13 +32,15 @@ env:
   # disagree: keep this tag and `farm.query:vgirpc` in vgi/build.gradle.kts
   # pointing at the same release, and move them in the same commit.
   #
-  # Back on a release tag as of v0.25.0. It had been an untagged SHA
-  # (920dc42) because no release yet carried vgi-rpc-java 306e182, the
-  # `writeListElement` LargeBinary case without which serializing
-  # InitRequest.split_tokens throws `unsupported list element type:
-  # LargeBinary`; v0.25.0 contains it. Keep in step with the identical pin in
-  # integration.yml.
-  VGI_RPC_JAVA_REF: v0.25.0
+  # v0.25.1 is what carries `@ProtocolName`, without which this repo cannot
+  # declare the `vgi.v2` wire name at all: the name would fall back to the
+  # VgiService interface's simple name, and no Java identifier contains a dot.
+  # A stale pin here fails as `cannot find symbol: class ProtocolName`.
+  #
+  # (It had earlier been an untagged SHA, 920dc42, because no release yet
+  # carried the `writeListElement` LargeBinary case; v0.25.0 contains it.)
+  # Keep in step with the identical pin in integration.yml.
+  VGI_RPC_JAVA_REF: v0.25.1
 
 jobs:
   test:

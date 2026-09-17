@@ -26,6 +26,7 @@ import farm.query.vgirpc.StreamState;
 import farm.query.vgirpc.schema.ArrowField;
 import farm.query.vgirpc.schema.ArrowFieldType;
 import farm.query.vgirpc.schema.Nullable;
+import farm.query.vgirpc.schema.ProtocolName;
 import farm.query.vgirpc.schema.ProtocolVersion;
 import farm.query.vgirpc.schema.StreamHeader;
 
@@ -46,6 +47,24 @@ import farm.query.vgirpc.schema.StreamHeader;
  * <p>Method and parameter / record-field names are the wire contract — they
  * MUST match the canonical Python/Go {@code snake_case}.</p>
  *
+ * <p>The {@link ProtocolName} is this protocol's wire identity: the
+ * {@code vgi_rpc.protocol} routing key on every request, and the protocol path
+ * segment over HTTP. Declared rather than derived from the Java type, because a
+ * derived name is an accident of the local type system and six implementations
+ * of this one protocol derived four different names -- Python {@code
+ * VgiProtocol}, Java and C# {@code VgiService}, Go the framework default {@code
+ * Service}, TypeScript {@code vgi} -- so no client could address them all. That
+ * stayed invisible until the transports made the routing key required. The
+ * canonical name is {@code vgi.v2}, and Java could not have expressed it by
+ * renaming this interface: no Java identifier contains a dot.
+ *
+ * <p>The major version is in the name deliberately. An incompatible major
+ * becomes a <em>different</em> protocol and therefore a 404 -- an answer every
+ * proxy and load balancer understands without an Arrow parser -- and {@code
+ * vgi.v2} can be served beside a future {@code vgi.v3} while clients migrate.
+ * That property was chosen for this consumer specifically: the DuckDB extension
+ * ships to users and cannot be flag-dayed.
+ *
  * <p>The {@link ProtocolVersion} is what a <em>client</em> of this interface
  * stamps on every request. A VGI worker enforces it at its dispatch boundary
  * (exact major+minor), so a client that sends nothing is refused outright — the
@@ -53,8 +72,18 @@ import farm.query.vgirpc.schema.StreamHeader;
  * vgi-python or vgi-go. It shares {@link Worker#VGI_PROTOCOL_VERSION} with the
  * server side so the two cannot drift.</p>
  */
+@ProtocolName(VgiService.PROTOCOL_NAME)
 @ProtocolVersion(Worker.VGI_PROTOCOL_VERSION)
 public interface VgiService {
+
+    /**
+     * The VGI protocol's wire name -- the {@code vgi_rpc.protocol} routing key.
+     *
+     * <p>Shared across every implementation of the protocol and emitted by the DuckDB C++
+     * extension from {@code vgi_protocol_names.hpp}. Changing it here does not rename the
+     * protocol; it makes this worker unreachable.
+     */
+    String PROTOCOL_NAME = "vgi.v2";
 
     // -----------------------------------------------------------------------
     // Function execution (packed request)

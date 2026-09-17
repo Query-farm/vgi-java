@@ -37,7 +37,7 @@ env:
   # coordinate declared in vgi/build.gradle.kts, so this ref, not the declared
   # version, is what the worker actually compiles against: see the pin's full
   # comment in ci.yml, and keep the two in step.
-  VGI_RPC_JAVA_REF: v0.25.0
+  VGI_RPC_JAVA_REF: v0.25.1
 
 jobs:
   build-worker:
