@@ -35,10 +35,9 @@ env:
   # The vgi-rpc-java revision built from source (composite include) for the
   # worker's HTTP features. The composite substitutes the `farm.query:vgirpc`
   # coordinate declared in vgi/build.gradle.kts, so this ref, not the declared
-  # version, is what the worker actually compiles against. An untagged SHA
-  # rather than a tag: see the pin's full comment in ci.yml, and keep the two
-  # in step.
-  VGI_RPC_JAVA_REF: 920dc42cb7d7e652d582de7fbb5b0b7ee3836a34
+  # version, is what the worker actually compiles against: see the pin's full
+  # comment in ci.yml, and keep the two in step.
+  VGI_RPC_JAVA_REF: v0.25.0
 
 jobs:
   build-worker:
