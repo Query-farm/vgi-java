@@ -685,6 +685,9 @@ public final class Main {
                 new BlendedFunctions.RowSumFunction(),
                 new BlendedFunctions.BlendedDropFunction(),
                 new BlendedFunctions.BlendedExplodeFunction(),
+                // ANY-typed blended positionals (blended_any.test).
+                new BlendedFunctions.BlendedAnyFunction(),
+                new BlendedFunctions.BlendedAnyVarargsFunction(),
                 new BlendedFunctions.ProjectableBlendedFunction(),
                 new BlendedFunctions.HostileProvenanceFunction(),
                 new BlendedFunctions.CachedDoubleFunction(),

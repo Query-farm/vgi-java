@@ -21,9 +21,11 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.arrow.vector.util.TransferPair;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -39,7 +41,8 @@ import java.util.Map;
  * Blended ("UNNEST-style") {@link RowTransformFunction} fixtures — positional
  * args ARE the per-row input columns, so one registration serves the literal /
  * column / LATERAL call shapes ({@code table_in_out/blended.test},
- * {@code table_in_out/lateral_batch.test}, {@code cache/exchange_*.test}).
+ * {@code table_in_out/blended_any.test}, {@code table_in_out/lateral_batch.test},
+ * {@code cache/exchange_*.test}).
  * Mirrors the vgi-python fixtures in {@code _test_fixtures/table_in_out.py}.
  */
 public final class BlendedFunctions {
@@ -344,6 +347,127 @@ public final class BlendedFunctions {
                 out.emit(outRoot, RowTransformFunction.parentRows(
                         parentRows, values.size(), null));
             }
+        }
+    }
+
+    /**
+     * Output schema for the ANY-typed echo fixtures: one nullable field per
+     * input field, named by {@code namer}, carrying the input field's RESOLVED
+     * type (dictionary encoding + nested children included) — the declared arg
+     * is ANY, so the input schema the client built from the call is the only
+     * place the concrete type exists. Top-level field metadata is dropped.
+     *
+     * <p>Catalog enumeration binds every function with NO input schema to
+     * advertise a static output schema; an input-typed echo has none, so it
+     * answers the empty schema there (the {@code PassthroughTIOFunction}
+     * convention). The real per-call bind always carries the input schema.
+     */
+    private static Schema echoSchema(Schema input, java.util.function.IntFunction<String> namer) {
+        if (input == null) return new Schema(List.of());
+        List<Field> fields = new ArrayList<>(input.getFields().size());
+        for (int i = 0; i < input.getFields().size(); i++) {
+            Field in = input.getFields().get(i);
+            fields.add(new Field(namer.apply(i),
+                    new FieldType(true, in.getType(), in.getDictionary(), null),
+                    in.getChildren()));
+        }
+        return new Schema(fields);
+    }
+
+    /**
+     * Shared exchange for the ANY-typed echo fixtures: moves every input column
+     * (positionally) into a fresh root under the bound output field, so values,
+     * row count and validity — a NULL struct vs. a struct with a NULL field —
+     * round-trip untouched. Transfers rather than emitting {@code input.root()}
+     * because the framework closes the emitted root, which would release the
+     * input reader's buffers (see {@code EchoFunction}). Named + no-arg, with a
+     * public {@link Schema} field, for the HTTP state-token round-trip.
+     */
+    public static final class AnyEchoState extends TableInOutExchangeState {
+        /** The bound output schema: one field per input column, same order. */
+        public Schema outSchema;
+
+        /** No-arg constructor for HTTP state-token deserialization. */
+        public AnyEchoState() {}
+
+        AnyEchoState(Schema outSchema) { this.outSchema = outSchema; }
+
+        @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+            VectorSchemaRoot in = input.root();
+            List<Field> outFields = outSchema.getFields();
+            List<FieldVector> moved = new ArrayList<>(outFields.size());
+            for (int i = 0; i < outFields.size(); i++) {
+                TransferPair tp = in.getVector(i).getTransferPair(outFields.get(i), Allocators.root());
+                tp.transfer();
+                moved.add((FieldVector) tp.getTo());
+            }
+            VectorSchemaRoot outRoot = new VectorSchemaRoot(moved);
+            outRoot.setRowCount(in.getRowCount());
+            // 1->1 identity map: no provenance needed.
+            out.emit(outRoot);
+        }
+    }
+
+    /**
+     * {@code blended_any(value ANY) -> value <resolved input type>} — blended
+     * 1-&gt;1 echo of one ANY-typed input column. ANY is a binder placeholder,
+     * not a type Arrow can carry, so the client builds the worker-input schema
+     * from the type DuckDB resolved for the call; the output is bound from
+     * input field 0 and the column is echoed unchanged. Assertions
+     * ({@code table_in_out/blended_any.test}) use DuckDB's own
+     * {@code typeof(value)} and the round-tripped values.
+     */
+    public static final class BlendedAnyFunction implements RowTransformFunction {
+
+        private static final FunctionSpec SPEC = FunctionSpec.builder("blended_any")
+                .metadata(FunctionMetadata.describe(
+                                "Blended 1->1 echo of one ANY-typed input column (output typed from the input)")
+                        .withCategories("blended", "test"))
+                .arg(new farm.query.vgi.function.ArgSpec("value", 0, new ArrowType.Null(),
+                        "Input column of any type (echoed back)", false, false, "", List.of(),
+                        /*varargs=*/false, /*anyType=*/true))
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
+
+        @Override public BindResponse onBind(TableInOutBindParams params) {
+            return BindResponse.forSchema(SchemaUtil.serializeSchema(
+                    echoSchema(params.inputSchema(), i -> "value")));
+        }
+
+        @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
+            return new AnyEchoState(params.outputSchema());
+        }
+    }
+
+    /**
+     * {@code blended_any_varargs(values ANY...) -> col0..colN-1} — the varargs
+     * counterpart of {@code blended_any}: every runtime column may resolve to a
+     * different concrete type, so the client takes each column's type from the
+     * call rather than from the (ANY) vararg element type. Output columns are
+     * {@code col0..colN-1} — the names the client generates for varargs blended
+     * input — each bound to its own resolved input type.
+     */
+    public static final class BlendedAnyVarargsFunction implements RowTransformFunction {
+
+        private static final FunctionSpec SPEC = FunctionSpec.builder("blended_any_varargs")
+                .metadata(FunctionMetadata.describe(
+                                "Blended 1->1 echo of N ANY-typed varargs input columns (col0..colN-1)")
+                        .withCategories("blended", "test"))
+                .arg(new farm.query.vgi.function.ArgSpec("values", 0, new ArrowType.Null(),
+                        "Input columns of any types (echoed back)", false, false, "", List.of(),
+                        /*varargs=*/true, /*anyType=*/true))
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
+
+        @Override public BindResponse onBind(TableInOutBindParams params) {
+            return BindResponse.forSchema(SchemaUtil.serializeSchema(
+                    echoSchema(params.inputSchema(), i -> "col" + i)));
+        }
+
+        @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
+            return new AnyEchoState(params.outputSchema());
         }
     }
 
