@@ -62,7 +62,7 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
         String initFilter = pfBytes == null
                 ? PushdownFilters.empty().formatRepr()
                 : params.decodeFilters().formatRepr();
-        return new State((int) count, (int) batchSize, initFilter, pfBytes,
+        return new State(params, (int) count, (int) batchSize, initFilter, pfBytes,
                 params.bindOutputSchema(), params.joinKeys());
     }
 
@@ -79,8 +79,9 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
         public transient PushdownFilters currentFilters;
 
         public State() {}
-        State(int total, int batchSize, String currentFilter, byte[] filterBytes, Schema bindOutputSchema,
-                List<byte[]> joinKeysIpc) {
+        State(TableInitParams params, int total, int batchSize, String currentFilter, byte[] filterBytes,
+                Schema bindOutputSchema, List<byte[]> joinKeysIpc) {
+            super(params);
             this.total = total;
             this.batchSize = batchSize;
             this.produced = 0;
@@ -134,14 +135,18 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
             if (produced >= total) { out.finish(); return; }
             int n = Math.min(batchSize, total - produced);
             int startProduced = produced;
-            BatchUtil.emit(OUTPUT_SCHEMA, n, out, (root, rows, start) -> {
+            // Emit exactly the projected schema. The stream's schema is the
+            // projection; a batch carrying the unprojected columns is not a
+            // batch of that stream, and over HTTP it becomes the response's
+            // schema, so the continuation-token batch that follows no longer
+            // matches it and the client stops reading after the first batch.
+            BatchUtil.emit(outputSchema, n, out, (root, rows, start) -> {
                 BigIntVector nv = (BigIntVector) root.getVector("n");
                 VarCharVector pv = (VarCharVector) root.getVector("pushed_filters");
-                Text filterText = new Text(currentFilter);
+                Text filterText = pv == null ? null : new Text(currentFilter);
                 for (int i = 0; i < rows; i++) {
-                    long row = total - 1 - (startProduced + i);
-                    nv.setSafe(i, row);
-                    pv.setSafe(i, filterText);
+                    if (nv != null) nv.setSafe(i, total - 1L - (startProduced + i));
+                    if (pv != null) pv.setSafe(i, filterText);
                 }
             });
             produced += n;
