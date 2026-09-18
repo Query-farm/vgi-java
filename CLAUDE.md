@@ -635,6 +635,16 @@ suite-wide).** Landed as three commits; key Java-side decisions:
   accumulated state — that's `substream_partial_sum`. `InitRequest` gained
   trailing `substream_id` (client-minted, stable per substream), surfaced as
   `TableInOutInitParams.substreamId`.
+  **(2026-09-18) The `TIO_STATE` row is keyed per substream, not per process**
+  — `TableInOutInitParams.substreamStateKey()`: the `substream_id`, else the
+  packed pid only for a client that sent none (vgi-python `072e543`). Storage
+  is already execution-scoped and every connection of a fanned-out scan shares
+  the execution, so a pid key let connections one process serves (launcher,
+  TCP, threaded HTTP) overwrite each other and `finish()` undercounted. The
+  fixtures capture the key at `createExchange` into their serialized state.
+  Proof: `vgi-example-worker`'s `SubstreamStateKeyTest` (two substreams, one
+  server, both reach `finish()`) — note `:vgi-example-worker:test` is not run
+  by CI; `:vgi:test` carries `TableInOutInitParamsTest` for the key choice.
 - **Cache/scalar opt-ins were nearly framework-free**: exchange fixtures emit
   `vgi.cache.*` via the existing `emit(root, customMetadata)`; revalidation
   validators are read straight off the exchange input's

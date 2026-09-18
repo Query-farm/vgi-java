@@ -19,10 +19,14 @@ import java.util.List;
  * finalize ({@link #hasFinalize()} + {@link #finish}): under per-substream
  * worker fan-out, DuckDB runs one substream per PipelineExecutor and issues a
  * {@code FINALIZE}-phase init (same {@code execution_id} as the substream's
- * INPUT phase) after input EOS. The finalize sees only <em>this</em>
- * substream's accumulated state — coordinate it through
- * {@code params.storage()} (execution-scoped), never a global cross-substream
- * merge.
+ * INPUT phase) after input EOS. The finalize sees the state accumulated
+ * under that execution — coordinate it through {@code params.storage()}
+ * (execution-scoped), keeping one row per substream under
+ * {@link TableInOutInitParams#substreamStateKey()} in the
+ * {@link farm.query.vgi.storage.FrameworkNs#TIO_STATE} namespace, never a
+ * global cross-substream merge. The key is per substream, not per process:
+ * one process serves many connections under the launcher, TCP or HTTP, and a
+ * client may fan one execution across several of them.
  *
  * <p>Functions that need a <em>global</em> Sink+Combine+Source shape — buffer
  * the whole input across every substream, then emit a summary at the end
@@ -61,7 +65,9 @@ public interface TableInOutFunction extends FunctionDescriptor {
      * Produce this substream's finalize output after all of its input batches
      * were processed. Runs on a dedicated {@code FINALIZE}-phase init whose
      * {@code execution_id} equals the INPUT phase's, so
-     * {@code params.storage()} sees the state the exchange accumulated.
+     * {@code params.storage()} sees the state the exchange accumulated — one
+     * row per substream of this execution that saw input, when each was
+     * stored under {@link TableInOutInitParams#substreamStateKey()}.
      *
      * @param params the finalize parameters (same shape as the exchange init;
      *     {@code inputSchema} comes from the embedded bind call).

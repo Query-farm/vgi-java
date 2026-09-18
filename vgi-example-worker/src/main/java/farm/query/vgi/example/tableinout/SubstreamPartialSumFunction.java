@@ -43,9 +43,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * and unions their finalize outputs, so the caller re-aggregates with an outer
  * {@code SELECT sum(...)} — correct no matter how the rows were partitioned.
  * State is coordinated through execution-scoped storage (the FINALIZE init
- * carries the INPUT phase's {@code execution_id});
- * {@code params.substreamId()} is the stable client-owned key available for
- * workers that manage cross-backend state themselves. This is NOT a global
+ * carries the INPUT phase's {@code execution_id}), one row per substream under
+ * {@link TableInOutInitParams#substreamStateKey()} — the client-minted
+ * {@code substream_id}, never the process id, because one process serves many
+ * substreams under the launcher, TCP or HTTP. This is NOT a global
  * cross-substream combine (that is a {@code TableBufferingFunction}; see
  * {@code sum_all_columns_simple_distributed}). Mirrors vgi-python's
  * {@code SubstreamPartialSumFunction}.
@@ -87,14 +88,14 @@ public final class SubstreamPartialSumFunction implements TableInOutFunction {
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
         String key = UUID.randomUUID().toString();
         LIVE_STORAGE.put(key, params.storage());
-        return new State(key, params.outputSchema());
+        return new State(key, params.outputSchema(), params.substreamStateKey());
     }
 
     /**
-     * Emit this substream's partial sum: the sum of every running total the
-     * exchange persisted into this execution's {@code TIO_STATE} namespace
-     * (one entry per exchange state that handled this substream's batches).
-     * An input-less substream drained nothing and emits a zero row.
+     * Emit this finalize's partial sum: the sum of every running total
+     * persisted into this execution's {@code TIO_STATE} namespace — one entry
+     * per substream of the execution that saw input. An execution that saw no
+     * input drained nothing and emits a zero row.
      */
     @Override public List<VectorSchemaRoot> finish(TableInOutInitParams params) {
         long total = 0;
@@ -124,15 +125,18 @@ public final class SubstreamPartialSumFunction implements TableInOutFunction {
         public Schema outputSchema;
         /** Running sum of column 0 across the batches seen so far. */
         public long total;
+        /** This substream's row in {@code TIO_STATE}; rides the token so every tick upserts the same row. */
+        public byte[] stateKey;
         /** Re-resolved on first use after a token round-trip. */
         private transient BoundStorage storageRef;
 
         /** No-arg constructor for HTTP state-token deserialization. */
         public State() {}
 
-        State(String storageKey, Schema outputSchema) {
+        State(String storageKey, Schema outputSchema, byte[] stateKey) {
             this.storageKey = storageKey;
             this.outputSchema = outputSchema;
+            this.stateKey = stateKey;
         }
 
         private BoundStorage storage() {
@@ -154,12 +158,12 @@ public final class SubstreamPartialSumFunction implements TableInOutFunction {
             for (int i = 0; i < rows; i++) {
                 if (!col.isNull(i)) total += ScalarHelpers.toLong(col, i);
             }
-            // Upsert the running total keyed like vgi-python (one entry per
-            // worker process); finish() drains and sums every entry.
+            // Upsert the running total under this substream's key (one entry
+            // per substream, as vgi-python keys it); finish() drains and sums
+            // every entry.
             byte[] value = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
                     .putLong(total).array();
-            storage().statePut(FrameworkNs.TIO_STATE,
-                    BoundStorage.packIntKey(ProcessHandle.current().pid()), value);
+            storage().statePut(FrameworkNs.TIO_STATE, stateKey, value);
             // Accumulate only; the exchange contract wants one (possibly
             // empty) output batch per input batch.
             VectorSchemaRoot empty = VectorSchemaRoot.create(outputSchema, Allocators.root());

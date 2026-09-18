@@ -92,7 +92,7 @@ public final class MultiBatchFinishFunction implements TableInOutFunction {
     @Override public TableInOutExchangeState createExchange(TableInOutInitParams params) {
         String key = UUID.randomUUID().toString();
         LIVE_STORAGE.put(key, params.storage());
-        return new State(key, params.outputSchema());
+        return new State(key, params.outputSchema(), params.substreamStateKey());
     }
 
     /**
@@ -128,15 +128,18 @@ public final class MultiBatchFinishFunction implements TableInOutFunction {
         public long total;
         /** Running count of rows seen so far — this is the batch count finish() emits. */
         public long rows;
+        /** This substream's row in {@code TIO_STATE}; rides the token so every tick upserts the same row. */
+        public byte[] stateKey;
         /** Re-resolved on first use after a token round-trip. */
         private transient BoundStorage storageRef;
 
         /** No-arg constructor for HTTP state-token deserialization. */
         public State() {}
 
-        State(String storageKey, Schema outputSchema) {
+        State(String storageKey, Schema outputSchema, byte[] stateKey) {
             this.storageKey = storageKey;
             this.outputSchema = outputSchema;
+            this.stateKey = stateKey;
         }
 
         private BoundStorage storage() {
@@ -159,12 +162,11 @@ public final class MultiBatchFinishFunction implements TableInOutFunction {
                 if (!col.isNull(i)) total += ScalarHelpers.toLong(col, i);
             }
             rows += n;
-            // Upsert (total, rows) keyed per worker process; finish() drains and
-            // sums every entry.
+            // Upsert (total, rows) under this substream's key — one entry per
+            // substream, not per process; finish() drains and sums every entry.
             byte[] value = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
                     .putLong(total).putLong(rows).array();
-            storage().statePut(FrameworkNs.TIO_STATE,
-                    BoundStorage.packIntKey(ProcessHandle.current().pid()), value);
+            storage().statePut(FrameworkNs.TIO_STATE, stateKey, value);
             VectorSchemaRoot empty = VectorSchemaRoot.create(outputSchema, Allocators.root());
             empty.setRowCount(0);
             out.emit(empty);
