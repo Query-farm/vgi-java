@@ -35,18 +35,12 @@ TRANSPORT="${TRANSPORT:-launch}"
 #     * projection_pushdown_repro.test — chunk=2 means one POST round-trip per two
 #       rows; transport-agnostic and fully covered by the launch lane (upstream's
 #       make test_http drops it for the same reason).
-#     * dynamic_filter.test — Top-N + dynamic-filter continuation terminates after
-#       the first batch over http in the *prebuilt* haybarn-unittest binary. This
-#       is a property of that C++ build, not the worker: vgi-python's worker fails
-#       the identical assertion against the same binary, while upstream's locally
-#       built unittest passes it. Out of scope for this prebuilt-binary lane.
 AWK_HTTP=0
 HTTP_SKIP=()
 if [ "$TRANSPORT" = "http" ]; then
   AWK_HTTP=1
   HTTP_SKIP=(
     -not -name 'projection_pushdown_repro.test'
-    -not -name 'dynamic_filter.test'
     # This test packages VGI_TEST_WORKER as an executable. An http:// URL is
     # deliberately not executable; the launch lane covers the package lifecycle.
     -not -path './database_worker/package.test'

@@ -949,8 +949,8 @@ failures are fixed and the whole suite is green over `TRANSPORT=http`:
   captured `segments` via a synthetic enclosing ref (serializes as null).
   Promoted to a named `ReadState` (public fields, no-arg ctor).
 
-**Two http failures that are NOT worker bugs** (proven by running vgi-python's
-worker against the *same* prebuilt `haybarn-unittest` — it fails them
+**An http failure that is NOT a worker bug** (proven by running vgi-python's
+worker against the *same* prebuilt `haybarn-unittest` — it fails it
 identically, while upstream's locally-built `unittest` passes):
 - **httpfs at ATTACH** — the prebuilt `haybarn-unittest` doesn't statically link
   httpfs, so `ATTACH … (TYPE vgi, LOCATION 'http://…')` errors with a binder
@@ -959,18 +959,25 @@ identically, while upstream's locally-built `unittest` passes):
   installs it); on the http lane *every* test attaches http from the start.
   `ci/preprocess-require.awk -v http=1` injects an idempotent `INSTALL httpfs
   FROM core; LOAD httpfs;` before each worker ATTACH.
-- **`table/dynamic_filter.test`** — Top-N + dynamic-filter continuation
-  *terminates after the first batch over http in the prebuilt binary* (the
-  `LIMIT 5` heap fills within batch 1, then the C++ http scan stops issuing
-  `/exchange`; `LIMIT 500` fills after 5 batches and runs to completion). The
-  worker's init response is byte-identical for both LIMITs, so the divergence is
-  in that C++ build, not the worker. Dropped on the http lane only (alongside
-  `projection_pushdown_repro.test`, which upstream's `make test_http` also drops).
+
+**`table/dynamic_filter.test` over http WAS a worker bug** (fixed 2026-09-18;
+it had been dropped from the http lane as a prebuilt-binary quirk). The failing
+query, `SELECT MIN(n) FROM (… dynamic_filter_echo(…) ORDER BY n LIMIT 5)`,
+projects `n` alone, and the fixture emitted its full `(n, pushed_filters)`
+batch anyway. vgirpc's `IpcStreamWriter` takes the first batch's schema as the
+response's stream schema, so the zero-row continuation-token batch written
+after it (against the declared, projected schema) was malformed; the extension
+stops reading at the first unreadable batch, never saw the token, and ended the
+scan after batch 1. It fails identically with the prebuilt binary and with a
+local build, and passes on both once the fixture emits `params.outputSchema()`.
+**Any producer that emits a batch whose columns differ from its declared output
+schema truncates its http stream this way** — the byte-stream transports carry
+no token batch and hide it.
 
 **http CI lane** — `.github/workflows/integration.yml` matrix gained
 `{ lane: http, transport: http }`; `ci/run-integration.sh` resolves `TRANSPORT`
-*before* staging (so the awk gets `-v http=1` and `HTTP_SKIP` drops the two
-files), boots the example + versioned + versioned_tables workers each as their
+*before* staging (so the awk gets `-v http=1` and `HTTP_SKIP` drops the files
+the prebuilt lane cannot serve), boots the example + versioned + versioned_tables workers each as their
 own http server, and deliberately does **not** set
 `VGI_REQUIRE_LAUNCHER_TRANSPORT` (so `launcher/options_smoke.test` skips). Green:
 **171 test cases / 9043 assertions / 11 skipped**. (Greening `bearer_token` over
