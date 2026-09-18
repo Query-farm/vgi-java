@@ -49,5 +49,5 @@ These build against `project(":vgi")` so they track the SDK at HEAD. A reader
 does the same thing with one line:
 
 ```kotlin
-implementation("farm.query:vgi:0.29.0")
+implementation("farm.query:vgi:0.30.0")
 ```
