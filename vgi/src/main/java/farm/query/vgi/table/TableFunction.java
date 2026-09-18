@@ -108,6 +108,23 @@ public interface TableFunction extends FunctionDescriptor {
     default long maxWorkers() { return 1L; }
 
     /**
+     * How many parallel workers may scan <em>this call</em> — the value sent in
+     * its {@code GlobalInitResponse.max_workers}, which is what DuckDB sizes
+     * the scan's reader count from. Defaults to {@link #maxWorkers()}.
+     *
+     * <p>Override when the useful parallelism depends on the arguments. A
+     * function that splits a call into N work items gains nothing from a reader
+     * beyond the Nth, and each one it is offered costs an init and an empty
+     * drain: DuckDB opens up to {@code min(max_workers, threads)} of them.
+     * Called at init, after {@link #createProducer}, so an implementation may
+     * size it from the work that producer set up.
+     *
+     * @param params the per-execution init parameters
+     * @return the maximum number of parallel scan workers for this call
+     */
+    default long maxWorkers(TableInitParams params) { return maxWorkers(); }
+
+    /**
      * EXPLAIN-ANALYZE-time diagnostics. DuckDB calls
      * {@code table_function_dynamic_to_string} once per parallel scan thread
      * at the end of the stream, passing the per-execution {@code

@@ -63,8 +63,17 @@ public final class PartitionedSequenceFunction extends SimpleTableFunction {
         return c instanceof Number n ? n.longValue() : -1L;
     }
 
-    /** Allow up to 8 concurrent scan workers; DuckDB clamps to its thread pool. */
+    /** At most 8 concurrent scan workers; DuckDB clamps to its thread pool. */
     @Override public long maxWorkers() { return 8L; }
+
+    /**
+     * No more readers than work items. A static 8 gave a 10,000-row call (one
+     * chunk) seven readers with nothing to do, each an init plus an empty drain.
+     */
+    @Override public long maxWorkers(TableInitParams p) {
+        long count = ParameterExtractor.of(p.arguments()).positional(0, "count").asLong().required();
+        return Math.max(1L, Math.min(maxWorkers(), Math.ceilDiv(count, CHUNK)));
+    }
 
     @Override public TableProducerState createProducer(TableInitParams p) {
         ParameterExtractor ex = ParameterExtractor.of(p.arguments());

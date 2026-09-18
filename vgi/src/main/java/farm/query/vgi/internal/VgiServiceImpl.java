@@ -597,16 +597,16 @@ public final class VgiServiceImpl implements VgiService {
         }
         Schema realOutputSchema = SchemaUtil.deserializeSchema(request.output_schema());
         byte[] execId = request.execution_id() != null ? request.execution_id() : newExecutionId();
-        long maxWorkers = bound instanceof BoundTable bt
-                ? bt.fn().maxWorkers() : 1L;
-        GlobalInitResponse header = new GlobalInitResponse(execId, maxWorkers, null);
+        // A table function sizes its own call (TableFunction.maxWorkers(params));
+        // every other kind is single-worker here.
+        GlobalInitResponse header = new GlobalInitResponse(execId, 1L, null);
 
         // Opened here, before any branch reaches user code.
         List<byte[]> splitPayloads = openSplitTokens(request, ctx);
 
         if (bound instanceof BoundScalar bs) return initScalar(request, bs, realOutputSchema, header);
         if (bound instanceof BoundTable bt) {
-            return initTable(request, bt, realOutputSchema, execId, header, splitPayloads);
+            return initTable(request, bt, realOutputSchema, execId, splitPayloads);
         }
         if (bound instanceof BoundTableInOut bio) return initTableInOut(request, bio, realOutputSchema, execId, header);
         if (bound instanceof BoundBuffering bb) return initBuffering(request, bb, realOutputSchema, execId, header);
@@ -678,7 +678,6 @@ public final class VgiServiceImpl implements VgiService {
 
     private RpcStream<? extends StreamState> initTable(InitRequest request, BoundTable bt,
                                                          Schema realOutputSchema, byte[] execId,
-                                                         GlobalInitResponse header,
                                                          List<byte[]> splitPayloads) {
         if (request.phase() != null) {
             // Mirror image of bindTableInOut's guard above: this is a plain
@@ -749,6 +748,7 @@ public final class VgiServiceImpl implements VgiService {
                             bt.argumentNames()));
         }
         TableProducerState state = bt.fn().createProducer(params);
+        GlobalInitResponse header = new GlobalInitResponse(execId, bt.fn().maxWorkers(params), null);
         return RpcStream.producer(fnOutputSchema, state, header);
     }
 
