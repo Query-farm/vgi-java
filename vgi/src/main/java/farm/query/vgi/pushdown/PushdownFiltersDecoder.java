@@ -105,6 +105,33 @@ public final class PushdownFiltersDecoder {
                 prior, prior.capabilities()).parseDelta());
     }
 
+    /** One update's {@code (id, revision)}, as a delta document carries it. */
+    record Revision(String id, long revision) {}
+
+    /**
+     * The {@code (id, revision)} of every update a delta document carries, in
+     * document order. A structural read for bookkeeping over deltas that were
+     * already applied (and so already validated); it applies and validates
+     * nothing, and must not be used on a delta that has not been.
+     */
+    static List<Revision> deltaRevisions(byte[] delta) {
+        try (var input = new ByteArrayInputStream(delta);
+             var reader = new ArrowStreamReader(input, Allocators.root())) {
+            if (!reader.loadNextBatch()) throw new FilterV2Exception("filter IPC stream has no RecordBatch");
+            Object raw = VectorScalarCodec.read(reader.getVectorSchemaRoot().getVector(0), 0);
+            List<Revision> result = new ArrayList<>();
+            for (JsonNode update : JSON.readTree((String) raw).get("updates")) {
+                result.add(new Revision(update.get("id").textValue(),
+                        update.get("revision").bigIntegerValue().longValue()));
+            }
+            return result;
+        } catch (FilterV2Exception e) {
+            throw e;
+        } catch (Exception e) {
+            throw new FilterV2Exception("failed to read an applied delta's revisions", e);
+        }
+    }
+
     private static PushdownFilters readBatch(byte[] data,
                                               java.util.function.Function<VectorSchemaRoot, PushdownFilters> body) {
         try (var input = new ByteArrayInputStream(data);

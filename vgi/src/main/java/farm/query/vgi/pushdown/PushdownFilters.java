@@ -93,6 +93,32 @@ public final class PushdownFilters {
         return PushdownFiltersDecoder.applyDelta(this, delta);
     }
 
+    /**
+     * These filters with their v2 predicates arranged in {@code order}; only the
+     * order changes. Restores the order a state had before its delta history was
+     * compacted: an ID removed and later re-added moves to the end, which a
+     * shorter replay does not reproduce by itself.
+     *
+     * @param order the live predicate IDs, in the order to restore
+     * @return filters with the same predicates arranged in {@code order}
+     * @throws FilterV2Exception if {@code order} does not name exactly the live predicates
+     */
+    PushdownFilters withPredicateOrder(List<String> order) {
+        List<String> current = new ArrayList<>(predicates.size());
+        for (FilterPredicateV2 p : predicates) current.add(p.id());
+        if (current.equals(order)) return this;
+        Map<String, FilterPredicateV2> byId = new LinkedHashMap<>();
+        for (FilterPredicateV2 p : predicates) byId.put(p.id(), p);
+        if (order.size() != byId.size() || !byId.keySet().containsAll(order)) {
+            throw new FilterV2Exception("recorded predicate order " + order
+                    + " does not name the replayed predicates " + current);
+        }
+        List<FilterPredicateV2> reordered = new ArrayList<>(order.size());
+        for (String id : order) reordered.add(byId.get(id));
+        return v2(reordered, revisions, requiredIds, evaluationContext, outputSchema, joinKeys,
+                capabilities);
+    }
+
     /** Conjoin two initial/refinement snapshots without losing their typed v2 state. */
     public PushdownFilters mergeSnapshot(PushdownFilters refinement) {
         if (refinement == null) return this;

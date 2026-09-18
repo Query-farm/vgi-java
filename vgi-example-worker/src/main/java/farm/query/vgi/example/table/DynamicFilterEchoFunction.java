@@ -5,8 +5,6 @@ package farm.query.vgi.example.table;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.internal.BatchUtil;
-import farm.query.vgi.pushdown.PushdownFilters;
-import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
@@ -14,17 +12,12 @@ import farm.query.vgi.types.Schemas;
 import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
-import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VarCharVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
-import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.Base64;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -54,42 +47,27 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
         ParameterExtractor p = ParameterExtractor.of(params.arguments());
         long count = p.positional(0, "count").asLong().required();
         long batchSize = p.named("batch_size").asLong().orElse(100L);
-        // Init-time filter — overridden each tick by the dynamic filter
-        // payload arriving in custom_metadata. Use the Python-repr-style
-        // representation so the dynamic_filter.test LIKE assertions match
-        // (`pushed_filters LIKE '%ConstantFilter(n <%'`).
-        byte[] pfBytes = params.pushdownFilters();
-        String initFilter = pfBytes == null
-                ? PushdownFilters.empty().formatRepr()
-                : params.decodeFilters().formatRepr();
-        return new State(params, (int) count, (int) batchSize, initFilter, pfBytes,
-                params.bindOutputSchema(), params.joinKeys());
+        return new State(params, (int) count, (int) batchSize);
     }
 
-    public static final class State extends TableProducerState implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static final class State extends TableProducerState {
         public int total;
         public int batchSize;
         public int produced;
         public String currentFilter;
-        public byte[] filterBytes;
-        public Schema bindOutputSchema;
-        public List<byte[]> filterDeltas;
-        public List<byte[]> joinKeysIpc;
-        public transient PushdownFilters currentFilters;
 
         public State() {}
-        State(TableInitParams params, int total, int batchSize, String currentFilter, byte[] filterBytes,
-                Schema bindOutputSchema, List<byte[]> joinKeysIpc) {
+
+        State(TableInitParams params, int total, int batchSize) {
             super(params);
             this.total = total;
             this.batchSize = batchSize;
             this.produced = 0;
-            this.currentFilter = currentFilter;
-            this.filterBytes = filterBytes;
-            this.bindOutputSchema = bindOutputSchema;
-            this.filterDeltas = new ArrayList<>();
-            this.joinKeysIpc = joinKeysIpc;
+            // Init-time filter, overridden each tick by the dynamic filter
+            // payload arriving in custom_metadata. The Python-repr-style
+            // rendering is what the dynamic_filter.test LIKE assertions match
+            // (`pushed_filters LIKE '%ConstantFilter(n <%'`).
+            this.currentFilter = filters.current().formatRepr();
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
@@ -104,31 +82,13 @@ public final class DynamicFilterEchoFunction extends CountdownTableFunction {
             String encoded = meta == null ? null : meta.get("vgi_pushdown_filters");
             if (encoded != null && !encoded.isEmpty()) {
                 try {
-                    byte[] bytes = Base64.getDecoder().decode(encoded);
-                    PushdownFilters pf = filters().applyDelta(bytes);
-                    if (filterDeltas == null) filterDeltas = new ArrayList<>();
-                    filterDeltas.add(bytes);
-                    currentFilters = pf;
-                    currentFilter = currentFilters.formatRepr();
+                    filters.applyDelta(Base64.getDecoder().decode(encoded));
+                    currentFilter = filters.current().formatRepr();
                 } catch (Exception ignore) {
                     // Best-effort — fall back to the prior filter on decode error.
                 }
             }
             emitNextBatch(out);
-        }
-
-        private PushdownFilters filters() {
-            if (currentFilters == null) {
-                currentFilters = filterBytes == null
-                        ? PushdownFilters.empty()
-                        : PushdownFiltersDecoder.decode(filterBytes, bindOutputSchema,
-                                joinKeysIpc == null ? List.of() : joinKeysIpc,
-                                PushdownFiltersDecoder.Capabilities.core());
-                if (filterDeltas != null) {
-                    for (byte[] delta : filterDeltas) currentFilters = currentFilters.applyDelta(delta);
-                }
-            }
-            return currentFilters;
         }
 
         private void emitNextBatch(OutputCollector out) {

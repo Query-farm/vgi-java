@@ -8,7 +8,6 @@ import farm.query.vgi.function.ParameterExtractor;
 import farm.query.vgi.pushdown.ComparisonOperator;
 import farm.query.vgi.pushdown.PushdownFilter;
 import farm.query.vgi.pushdown.PushdownFilters;
-import farm.query.vgi.pushdown.PushdownFiltersDecoder;
 import farm.query.vgi.table.CountdownTableFunction;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
@@ -23,7 +22,6 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -111,11 +109,7 @@ public final class LateMaterializationFunction extends CountdownTableFunction {
         long batchSize = p.named("batch_size").asLong().orElse(2048L);
         boolean dupRowId = p.named("dup_row_id").asBool().orElse(false);
         long nullOrdStride = p.named("null_ord_stride").asLong().orElse(0L);
-        List<byte[]> joinKeys = params.joinKeys() == null ? List.of() : params.joinKeys();
-        String witness = params.pushdownFilters() == null
-                ? EMPTY_WITNESS : witnessOf(params.decodeFilters());
-        return new State(params.outputSchema(), count, batchSize, dupRowId, nullOrdStride,
-                params.pushdownFilters(), params.bindOutputSchema(), joinKeys, witness);
+        return new State(params, count, batchSize, dupRowId, nullOrdStride);
     }
 
     /** Decode the pushed filters (init or per-tick) and summarize the rowid
@@ -157,33 +151,23 @@ public final class LateMaterializationFunction extends CountdownTableFunction {
     }
 
     public static final class State extends TableProducerState {
-        public Schema projected;
         public long count;
         public long batchSize;
         public boolean dupRowId;
         public long nullOrdStride;
-        public byte[] filterBytes;
-        public Schema bindOutputSchema;
-        public List<byte[]> filterDeltas;
-        public List<byte[]> joinKeysIpc;
         public String witness;
         public long index;
-        public transient PushdownFilters currentFilters;
 
         public State() {}
 
-        State(Schema projected, long count, long batchSize, boolean dupRowId, long nullOrdStride,
-                byte[] filterBytes, Schema bindOutputSchema, List<byte[]> joinKeysIpc, String witness) {
-            this.projected = projected;
+        State(TableInitParams params, long count, long batchSize, boolean dupRowId, long nullOrdStride) {
+            super(params);
             this.count = count;
             this.batchSize = batchSize;
             this.dupRowId = dupRowId;
             this.nullOrdStride = nullOrdStride;
-            this.filterBytes = filterBytes;
-            this.bindOutputSchema = bindOutputSchema;
-            this.filterDeltas = new ArrayList<>();
-            this.joinKeysIpc = joinKeysIpc;
-            this.witness = witness;
+            this.witness = params.pushdownFilters() == null
+                    ? EMPTY_WITNESS : witnessOf(filters.current());
             this.index = 0;
         }
 
@@ -200,12 +184,8 @@ public final class LateMaterializationFunction extends CountdownTableFunction {
             String encoded = meta == null ? null : meta.get("vgi_pushdown_filters");
             if (encoded != null && !encoded.isEmpty()) {
                 try {
-                    byte[] bytes = Base64.getDecoder().decode(encoded);
-                    PushdownFilters next = filters().applyDelta(bytes);
-                    if (filterDeltas == null) filterDeltas = new ArrayList<>();
-                    filterDeltas.add(bytes);
-                    currentFilters = next;
-                    String tick = witnessOf(currentFilters);
+                    filters.applyDelta(Base64.getDecoder().decode(encoded));
+                    String tick = witnessOf(filters.current());
                     if (!EMPTY_WITNESS.equals(tick) || EMPTY_WITNESS.equals(witness)) {
                         witness = tick;
                     }
@@ -216,25 +196,11 @@ public final class LateMaterializationFunction extends CountdownTableFunction {
             emitNextBatch(out);
         }
 
-        private PushdownFilters filters() {
-            if (currentFilters == null) {
-                currentFilters = filterBytes == null
-                        ? PushdownFilters.empty()
-                        : PushdownFiltersDecoder.decode(filterBytes, bindOutputSchema,
-                                joinKeysIpc == null ? List.of() : joinKeysIpc,
-                                PushdownFiltersDecoder.Capabilities.core());
-                if (filterDeltas != null) {
-                    for (byte[] delta : filterDeltas) currentFilters = currentFilters.applyDelta(delta);
-                }
-            }
-            return currentFilters;
-        }
-
         private void emitNextBatch(OutputCollector out) {
             if (index >= count) { out.finish(); return; }
             int n = (int) Math.min(batchSize, count - index);
             long start = index;
-            BatchUtil.emit(projected, n, out, (root, rows, ignored) -> {
+            BatchUtil.emit(outputSchema, n, out, (root, rows, ignored) -> {
                 BigIntVector rid = (BigIntVector) root.getVector(ROWID);
                 BigIntVector ord = (BigIntVector) root.getVector("ord");
                 VarCharVector payload = (VarCharVector) root.getVector("payload");

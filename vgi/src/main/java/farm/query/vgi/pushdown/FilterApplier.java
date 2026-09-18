@@ -7,7 +7,11 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Helper for table-function fixtures that opt into filter pushdown
@@ -25,7 +29,10 @@ public final class FilterApplier {
     // lazily after a round-trip).
     private byte[] filterBytes;
     private List<byte[]> joinKeysIpc;
+    // The dynamic-filter deltas a rebuild replays over the init snapshot, compacted
+    // by applyDelta, and the live predicate order that replay must restore.
     private List<byte[]> filterDeltas;
+    private List<String> predicateOrder;
     private Schema bindOutputSchema;
     private PushdownFiltersDecoder.Capabilities capabilities;
     private transient PushdownFilters cached;
@@ -34,6 +41,7 @@ public final class FilterApplier {
     private FilterApplier() {
         this.joinKeysIpc = List.of();
         this.filterDeltas = List.of();
+        this.predicateOrder = List.of();
         this.capabilities = PushdownFiltersDecoder.Capabilities.core();
     }
 
@@ -67,7 +75,8 @@ public final class FilterApplier {
                           PushdownFiltersDecoder.Capabilities capabilities) {
         this.filterBytes = filterBytes;
         this.joinKeysIpc = joinKeysIpc == null ? List.of() : joinKeysIpc;
-        this.filterDeltas = new java.util.ArrayList<>();
+        this.filterDeltas = List.of();
+        this.predicateOrder = List.of();
         this.bindOutputSchema = bindOutputSchema;
         this.capabilities = capabilities == null
                 ? PushdownFiltersDecoder.Capabilities.core() : capabilities;
@@ -75,25 +84,82 @@ public final class FilterApplier {
 
     private PushdownFilters filters() {
         if (cached == null) {
-            cached = filterBytes == null
+            PushdownFilters rebuilt = filterBytes == null
                     ? PushdownFilters.empty()
                     : PushdownFiltersDecoder.decode(filterBytes, bindOutputSchema,
                             joinKeysIpc, capabilities == null
                                     ? PushdownFiltersDecoder.Capabilities.core() : capabilities);
-            if (filterDeltas != null) {
-                for (byte[] delta : filterDeltas) cached = cached.applyDelta(delta);
+            if (filterDeltas != null && !filterDeltas.isEmpty()) {
+                for (byte[] delta : filterDeltas) rebuilt = rebuilt.applyDelta(delta);
+                if (predicateOrder != null) rebuilt = rebuilt.withPredicateOrder(predicateOrder);
             }
+            cached = rebuilt;
         }
         return cached;
     }
 
-    /** Validate and atomically apply a tick-time v2 advisory delta. */
+    /**
+     * The current filter state: the init snapshot with every applied delta.
+     *
+     * @return the parsed filters this applier evaluates
+     */
+    public PushdownFilters current() {
+        return filters();
+    }
+
+    /**
+     * Validate and atomically apply a tick-time v2 advisory delta.
+     *
+     * <p>An HTTP stream keeps no parsed state between turns: each turn
+     * deserialises this applier and rebuilds its filters from the init snapshot
+     * plus the deltas it carries. Keeping <em>every</em> delta made turn
+     * {@code k} replay {@code k} of them and grew the continuation token by one
+     * delta per tick -- quadratic in the tick count, and a Top-N scan tightens
+     * its bound on nearly every tick. So the carried history is compacted to the
+     * deltas that installed some predicate's <em>current</em> revision,
+     * tombstones included: for each {@code (id, revision)} of the live state, the
+     * first delta that carried it. Replaying just those reproduces the same
+     * predicates, values and revisions -- an ID's earlier updates are overwritten
+     * by its current revision, and later ones were stale and stay stale -- so the
+     * history is bounded by the number of predicate IDs, not the number of ticks.
+     * Replay cannot always reproduce predicate order (an ID removed and re-added
+     * moves to the end), so the live order is recorded and restored.
+     *
+     * @param delta the delta's Arrow IPC bytes; {@code null} or empty is a no-op
+     * @throws FilterV2Exception if the delta is malformed; the state is then unchanged
+     */
     public void applyDelta(byte[] delta) {
         if (delta == null || delta.length == 0) return;
         PushdownFilters updated = filters().applyDelta(delta);
-        if (filterDeltas == null) filterDeltas = new java.util.ArrayList<>();
-        filterDeltas.add(delta.clone());
+        List<byte[]> history = new ArrayList<>(filterDeltas == null ? List.of() : filterDeltas);
+        history.add(delta.clone());
+        filterDeltas = compact(history, updated);
+        List<String> order = new ArrayList<>(updated.predicates().size());
+        for (FilterPredicateV2 predicate : updated.predicates()) order.add(predicate.id());
+        predicateOrder = order;
         cached = updated;
+    }
+
+    /** The deltas of {@code history} that first carried each {@code (id, revision)} of {@code live}. */
+    private static List<byte[]> compact(List<byte[]> history, PushdownFilters live) {
+        Set<PushdownFiltersDecoder.Revision> wanted = new HashSet<>();
+        for (Map.Entry<String, Long> entry : live.revisions().entrySet()) {
+            wanted.add(new PushdownFiltersDecoder.Revision(entry.getKey(), entry.getValue()));
+        }
+        List<byte[]> kept = new ArrayList<>();
+        for (byte[] delta : history) {
+            boolean needed = false;
+            for (PushdownFiltersDecoder.Revision carried : PushdownFiltersDecoder.deltaRevisions(delta)) {
+                needed |= wanted.remove(carried);
+            }
+            if (needed) kept.add(delta);
+        }
+        return kept;
+    }
+
+    /** How many deltas a rebuild of this applier replays. */
+    int retainedDeltaCount() {
+        return filterDeltas == null ? 0 : filterDeltas.size();
     }
 
     /**
