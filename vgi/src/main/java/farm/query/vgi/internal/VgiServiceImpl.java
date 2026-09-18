@@ -2409,21 +2409,85 @@ public final class VgiServiceImpl implements VgiService {
         boolean wantAggregate = type == null
                 || type.equalsIgnoreCase("aggregate")
                 || type.equalsIgnoreCase("AGGREGATE_FUNCTION");
-        List<byte[]> items = new ArrayList<>();
         // MetaWorker-style routing: an auxiliary catalog's attach sees only the
         // functions it owns; the main catalog hides them.
         Worker.ExtraCatalog extraAttach = extraCatalogOf(attach_opaque_data_plain);
+        boolean isProjReproAttach = wantTable
+                && "projection_repro".equals(catalogRegistry.catalogName(attach_opaque_data_plain));
+        FunctionListingKey key = new FunctionListingKey(name, wantScalar, wantTable, wantAggregate,
+                extraAttach == null ? null : extraAttach.name(), isProjReproAttach);
+        // An empty listing is not kept: the schema name is the caller's, so
+        // caching every name asked about would let a client grow the map without
+        // bound, and an empty listing is cheap to rebuild.
+        List<byte[]> items = functionListings.computeIfAbsent(key, k -> {
+            List<byte[]> built = buildFunctionListing(k);
+            return built.isEmpty() ? null : built;
+        });
+        return new ItemsResponse(items == null ? List.of() : items);
+    }
+
+    /**
+     * What a function listing depends on: the schema, the requested function
+     * types, and which catalog the attach is for (an auxiliary catalog, or the
+     * {@code projection_repro} catalog that owns the {@code proj_repro_*}
+     * fixtures). Nothing else -- not the attach instance, not the transaction.
+     */
+    private record FunctionListingKey(String schema, boolean scalar, boolean table, boolean aggregate,
+                                      String extraCatalog, boolean projectionRepro) {}
+
+    /**
+     * Function listings by {@link FunctionListingKey}, built on first request.
+     *
+     * <p>A listing derives only from the registered functions' static metadata,
+     * and the registries are fixed once the service is built, yet building one
+     * binds every function in the schema with empty arguments and Arrow-encodes
+     * its {@code FunctionInfo}, and every attach that loads a function set asks
+     * for one. Each distinct listing is built once, from items encoded once
+     * ({@link #encodedFunctionInfos}).
+     */
+    private final java.util.concurrent.ConcurrentMap<FunctionListingKey, List<byte[]>> functionListings =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Encoded {@code FunctionInfo} items by (function, schema), shared by every listing that includes them. */
+    private final java.util.concurrent.ConcurrentMap<FunctionItemKey, byte[]> encodedFunctionInfos =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** A registered function (by identity) listed under one schema. */
+    private record FunctionItemKey(Object function, String schema) {
+        @Override public boolean equals(Object o) {
+            return o instanceof FunctionItemKey k && k.function == function
+                    && java.util.Objects.equals(k.schema, schema);
+        }
+
+        @Override public int hashCode() {
+            return System.identityHashCode(function) * 31 + java.util.Objects.hashCode(schema);
+        }
+    }
+
+    private byte[] encodedFunctionInfo(Object fn, String schema,
+                                       java.util.function.Supplier<FunctionInfo> info) {
+        return encodedFunctionInfos.computeIfAbsent(new FunctionItemKey(fn, schema),
+                ignored -> FunctionInfoSerializer.serialize(info.get()));
+    }
+
+    private List<byte[]> buildFunctionListing(FunctionListingKey key) {
+        String name = key.schema();
+        boolean wantScalar = key.scalar();
+        boolean wantTable = key.table();
+        boolean wantAggregate = key.aggregate();
+        Worker.ExtraCatalog extraAttach =
+                key.extraCatalog() == null ? null : worker.extraCatalogs().get(key.extraCatalog());
+        boolean isProjReproAttach = key.projectionRepro();
+        List<byte[]> items = new ArrayList<>();
         if (wantScalar) {
             for (List<ScalarFunction> variants : scalars.values()) {
                 for (ScalarFunction fn : variants) {
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(FunctionInfoSerializer.serialize(toScalarFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name, () -> toScalarFunctionInfo(fn, name)));
                 }
             }
         }
         if (wantTable) {
-            String attachCatName = catalogRegistry.catalogName(attach_opaque_data_plain);
-            boolean isProjReproAttach = "projection_repro".equals(attachCatName);
             for (List<TableFunction> variants : tables.values()) {
                 for (TableFunction fn : variants) {
                     // proj_repro_* fixtures live in the example worker binary
@@ -2433,7 +2497,7 @@ public final class VgiServiceImpl implements VgiService {
                     if (!isProjReproAttach && fn.name().startsWith("proj_repro_")) continue;
                     if (isProjReproAttach && !fn.name().startsWith("proj_repro_")) continue;
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(FunctionInfoSerializer.serialize(toTableFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name, () -> toTableFunctionInfo(fn, name)));
                 }
             }
             // Table-in-out functions also register as function_type='table'
@@ -2443,7 +2507,7 @@ public final class VgiServiceImpl implements VgiService {
             for (List<TableInOutFunction> variants : tableInOuts.values()) {
                 for (TableInOutFunction fn : variants) {
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(FunctionInfoSerializer.serialize(toTableInOutFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name, () -> toTableInOutFunctionInfo(fn, name)));
                 }
             }
             // Buffering (Sink+Source) functions also surface as table functions;
@@ -2452,7 +2516,7 @@ public final class VgiServiceImpl implements VgiService {
             for (var variants : bufferingFns.values()) {
                 for (var fn : variants) {
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(FunctionInfoSerializer.serialize(toBufferingFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name, () -> toBufferingFunctionInfo(fn, name)));
                 }
             }
         }
@@ -2460,11 +2524,11 @@ public final class VgiServiceImpl implements VgiService {
             for (List<AggregateFunction<?>> variants : aggregates.values()) {
                 for (AggregateFunction<?> fn : variants) {
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(FunctionInfoSerializer.serialize(toAggregateFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name, () -> toAggregateFunctionInfo(fn, name)));
                 }
             }
         }
-        return new ItemsResponse(items);
+        return List.copyOf(items);
     }
 
     /**
