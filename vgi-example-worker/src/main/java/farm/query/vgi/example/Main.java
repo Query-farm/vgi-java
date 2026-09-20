@@ -40,6 +40,7 @@ import farm.query.vgi.example.scalar.CollatzStepsFunction;
 import farm.query.vgi.example.scalar.Sha256HexFunction;
 import farm.query.vgi.example.scalar.HashRoundsFunction;
 import farm.query.vgi.example.scalar.WhoAmIFunction;
+import farm.query.vgi.example.table.BoolFilterEchoFunction;
 import farm.query.vgi.example.table.DictFilterEchoFunction;
 import farm.query.vgi.example.table.LateMaterializationFunction;
 import farm.query.vgi.example.table.ValuePruneFunction;
@@ -596,6 +597,7 @@ public final class Main {
                 new GeneratorExceptionFunction(),
                 new TenThousandFunction(),
                 new FilterEchoFunction(),
+                new BoolFilterEchoFunction(),
                 new FilterEchoPartitionedFunction(),
                 new ProjectedDataFunction(),
                 new NestedSequenceFunction(),

@@ -150,7 +150,47 @@ public final class PushdownFilters {
                 mergedKeys, capabilities);
     }
 
+    /**
+     * {@code WHERE flag} / {@code WHERE NOT flag} projected onto the equality leaf.
+     *
+     * <p>DuckDB pushes a predicate that <em>is</em> a boolean column down as a bare
+     * {@code column_ref} rather than rewriting it to {@code flag = true}, and the schema admits
+     * that: {@code coreExpression} lists {@code columnRef} first. The decoder accepts the shape
+     * already — its boolean gate asks for the resolved type — but without this projection it
+     * lands in the compatibility view as a {@link PushdownFilter.Expression}, which reports no
+     * column/operator/value, so a SQL-backed worker loses pushdown on the commonest boolean
+     * predicate there is. That is a wrong answer rather than a slow one: DuckDB does not
+     * re-apply a predicate it pushed into a table function.
+     *
+     * <p>The rewrite is exact rather than approximate, including under NULLs. {@code WHERE flag}
+     * keeps only TRUE (a NULL predicate is not satisfied) and so does {@code flag = true};
+     * {@code WHERE NOT flag} keeps only FALSE ({@code NOT NULL} is NULL) and so does
+     * {@code flag = false}. Three-valued logic makes both pairs agree on every input, which is
+     * what lets this be a projection and not a change of meaning.
+     *
+     * <p>A column that is not BOOLEAN is left alone rather than guessed at.
+     *
+     * @param expression the candidate expression
+     * @return the equivalent constant filter, or {@code null} when it is neither shape
+     */
+    private static PushdownFilter booleanColumnView(FilterExpression expression) {
+        FilterExpression target = expression;
+        boolean value = true;
+        if (expression instanceof FilterExpression.Not not) {
+            target = not.expression();
+            value = false;
+        }
+        if (!(target instanceof FilterExpression.ColumnRef column)) return null;
+        if (column.field() == null || !(column.field().getType() instanceof ArrowType.Bool)) {
+            return null;
+        }
+        return new PushdownFilter.Constant(column.columnName(),
+                Math.toIntExact(column.columnIndex()), ComparisonOperator.EQ, value);
+    }
+
     private static PushdownFilter compatibilityView(FilterExpression expression) {
+        PushdownFilter booleanLeaf = booleanColumnView(expression);
+        if (booleanLeaf != null) return booleanLeaf;
         if (expression instanceof FilterExpression.Comparison comparison) {
             Path path = path(comparison.left());
             FilterExpression.Literal literal = comparison.right() instanceof FilterExpression.Literal value

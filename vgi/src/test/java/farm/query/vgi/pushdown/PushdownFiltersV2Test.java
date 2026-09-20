@@ -211,6 +211,50 @@ final class PushdownFiltersV2Test {
                         List.of(text), List.of("abc")), new Schema(List.of())));
     }
 
+    /**
+     * A BOOLEAN column is a predicate on its own.
+     *
+     * <p>{@code rootTypeAndStandardFunctionBindingAreValidatedAtDecode} already covers the
+     * decode and the evaluator. This covers what nothing did: the compatibility view. Left
+     * unprojected a bare {@code column_ref} lands there as a {@code PushdownFilter.Expression},
+     * which reports no column/operator/value — so a SQL-backed worker loses pushdown on the
+     * commonest boolean predicate there is, and DuckDB does not re-apply what it pushed into a
+     * table function. See vgi-python 0.36.2.
+     */
+    @Test
+    void aBooleanColumnProjectsOntoTheEqualityLeaf() {
+        Schema schema = new Schema(List.of(
+                new Field("flag", FieldType.nullable(new ArrowType.Bool()), null),
+                new Field("n", FieldType.nullable(new ArrowType.Int(64, true)), null)));
+
+        // `WHERE flag` keeps only TRUE -- a NULL predicate is not satisfied -- which is
+        // exactly `flag = true`, and is what makes this a projection and not a change of
+        // meaning.
+        PushdownFilters positive = decode(
+                batch(snapshot(predicate("query", "required", column("flag")))), schema);
+        assertEquals("flag = true", positive.formatInline());
+        assertEquals("PushdownFilters([ConstantFilter(flag = true)])", positive.formatRepr());
+
+        // `NOT NULL` is NULL, so `WHERE NOT flag` keeps only FALSE -- exactly `flag = false`.
+        String notFlag = "{\"node\":\"not\",\"expression\":" + column("flag") + "}";
+        PushdownFilters negative = decode(
+                batch(snapshot(predicate("query", "required", notFlag))), schema);
+        assertEquals("flag = false", negative.formatInline());
+
+        // The shape that actually turns up: one unprojected child used to cost the whole
+        // conjunction its rendering.
+        String conjunction = "{\"node\":\"and\",\"children\":["
+                + "{\"node\":\"comparison\",\"op\":\"gt\",\"left\":" + column(1, "n")
+                + ",\"right\":{\"node\":\"literal\",\"value_ref\":0}},"
+                + notFlag + "]}";
+        Field value = new Field("value_0", FieldType.nullable(new ArrowType.Int(64, true)), null);
+        PushdownFilters mixed = decode(
+                batch(snapshot(predicate("query", "required", conjunction)),
+                        List.of(value), List.of(2L)),
+                schema);
+        assertEquals("(n > 2 AND flag = false)", mixed.formatInline());
+    }
+
     @Test
     void arithmeticAndMembershipTypesBindBeforeStateIsInstalled() {
         Schema mixed = new Schema(List.of(
