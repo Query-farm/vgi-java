@@ -125,6 +125,26 @@ public interface TableFunction extends FunctionDescriptor {
     default long maxWorkers(TableInitParams params) { return maxWorkers(); }
 
     /**
+     * Secrets the extension resolves before the first bind and sends on it,
+     * surfaced on the wire as {@code FunctionInfo.required_secrets}. They reach
+     * {@link TableBindParams#secrets()} and, because init replays the bind,
+     * {@link TableInitParams#secrets()}. A secret that does not exist is simply
+     * absent, not an error. Default: none.
+     *
+     * <p>The alternative is the two-phase bind: {@link #onBind} returns a
+     * {@code BindResponse} naming the lookups, and the extension binds again
+     * with them resolved. Use that when which secret to ask for depends on the
+     * arguments (a scope taken from a path, say); declare it here when it does
+     * not. Either way the result cache keys on a fingerprint of the secrets the
+     * bind resolved, so a cacheable function stays cacheable.
+     *
+     * @return the required-secret declarations, or an empty list
+     */
+    default java.util.List<farm.query.vgi.protocol.FunctionRequiredSecret> requiredSecrets() {
+        return java.util.List.of();
+    }
+
+    /**
      * EXPLAIN-ANALYZE-time diagnostics. DuckDB calls
      * {@code table_function_dynamic_to_string} once per parallel scan thread
      * at the end of the stream, passing the per-execution {@code

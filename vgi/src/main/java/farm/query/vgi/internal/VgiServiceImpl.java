@@ -2645,17 +2645,31 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private FunctionInfo toTableFunctionInfo(TableFunction fn, String schemaName) {
+        return tableFunctionInfo(fn, schemaName);
+    }
+
+    /**
+     * Build the {@code FunctionInfo} for a table function exactly as the
+     * catalog-enumeration path does. Package-private + static for the same
+     * reason as {@link #scalarFunctionInfo}.
+     *
+     * @param fn the table function.
+     * @param schemaName the owning schema name.
+     * @return the wire {@link FunctionInfo}.
+     */
+    static FunctionInfo tableFunctionInfo(TableFunction fn, String schemaName) {
         if (fn instanceof farm.query.vgi.table.CopyFromFunction) {
             // COPY-FROM readers have no static output schema — it's the COPY
             // target's columns, supplied per-statement via the copy_from bind
             // context. Calling onBind here would (intentionally) throw, so
             // advertise an empty output schema, mirroring vgi-python's
             // _function_to_info (which emits an empty schema for table funcs).
-            return baseFunctionInfo(fn, schemaName, "table",
-                    SchemaUtil.serializeSchema(new Schema(List.of())), false);
+            return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "table",
+                    SchemaUtil.serializeSchema(new Schema(List.of())), false), fn.requiredSecrets());
         }
         BindResponse r = fn.onBind(new TableBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return baseFunctionInfo(fn, schemaName, "table", bindOutput(r), false);
+        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "table", bindOutput(r), false),
+                fn.requiredSecrets());
     }
 
     private FunctionInfo toTableInOutFunctionInfo(TableInOutFunction fn, String schemaName) {
@@ -2691,13 +2705,20 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
-        FunctionInfo base = baseFunctionInfo(fn, schemaName, "aggregate",
-                SchemaUtil.serializeSchema(fn.outputSchema()), false);
-        var required = fn.requiredSecrets();
+        // The C++ extension pre-resolves the declared secrets and delivers them
+        // on AggregateBindRequest.secrets.
+        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "aggregate",
+                SchemaUtil.serializeSchema(fn.outputSchema()), false), fn.requiredSecrets());
+    }
+
+    /**
+     * Re-stamp {@code required_secrets}, which {@code baseFunctionInfo}
+     * hardcodes empty. The extension resolves each declared secret before the
+     * first bind rather than waiting for a two-phase request.
+     */
+    private static FunctionInfo withRequiredSecrets(
+            FunctionInfo base, List<farm.query.vgi.protocol.FunctionRequiredSecret> required) {
         if (required == null || required.isEmpty()) return base;
-        // Re-stamp required_secrets (baseFunctionInfo hardcodes an empty list);
-        // the C++ extension pre-resolves these and delivers them on
-        // AggregateBindRequest.secrets.
         return new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.parameter_default_values(),

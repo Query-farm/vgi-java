@@ -479,6 +479,9 @@ public final class Main {
                 new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedDoubleScalarFunction(),
                 new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedAddConstScalarFunction(),
                 new farm.query.vgi.example.scalar.CachedScalarFunctions.CachedLabelScalarFunction(),
+                // Secret-dependent + per_value: memoized per secret fingerprint
+                // (cache/secret_scope.test).
+                new farm.query.vgi.example.scalar.SecretCachedScalarFunction(),
                 new UnnestTensorFunction()));
         // Schema-disambiguation probes: the SAME registered name in two schemas
         // of this catalog, backed by two different implementations. A
@@ -558,6 +561,9 @@ public final class Main {
                 new farm.query.vgi.example.table.CacheFunctions.CacheRevalidatable(),
                 new farm.query.vgi.example.table.CacheFunctions.CacheWhoami(),
                 new farm.query.vgi.example.table.CacheFunctions.CacheVersioned(),
+                // Secret-dependent + cacheable: keyed on the secret's fingerprint
+                // (cache/secret_scope.test). Also the data.secret_cache_nonce table.
+                new farm.query.vgi.example.table.SecretCacheNonceFunction(),
                 new farm.query.vgi.example.table.CacheFunctions.CacheProjection(),
                 new farm.query.vgi.example.table.CacheFunctions.CachePoison(),
                 new farm.query.vgi.example.table.CacheFunctions.CacheExternalFail(),
@@ -678,6 +684,9 @@ public final class Main {
                 new SlowCancellableInoutFunction(),
                 new UnnestTensorRowsFunction(),
                 new SecretInOutFunction(),
+                // Secret-dependent + per_value, secret requested in the two-phase
+                // bind: cached per secret fingerprint (cache/secret_scope.test).
+                new farm.query.vgi.example.tableinout.SecretCachedLateralFunction(),
                 // Per-substream streaming finalize (parallel_finalize.test).
                 new MultiBatchFinishFunction(),
                 new SubstreamPartialSumFunction(),
@@ -900,6 +909,14 @@ public final class Main {
                         cols(col("nonce", Schemas.INT64, true)),
                         "One-row cacheable result whose value changes per real invocation",
                         "cache_nonce"))
+                // Secret-dependent counterpart. vgi-python pre-binds this table
+                // (inline bind: no bind RPC, secrets resolved client-side); this SDK
+                // has no inline bind, so the scan binds over the RPC with the
+                // secret its function declares.
+                .registerCatalogTable(CatalogTable.functionBacked("data", "secret_cache_nonce",
+                        cols(col("secret_string", Schemas.UTF8, true), col("nonce", Schemas.INT64, true)),
+                        "One-row cacheable result keyed on the vgi_example secret",
+                        "secret_cache_nonce"))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_multicol",
                         cols(col("a", Schemas.INT64, true), col("b", Schemas.INT64, true),
                                 col("c", Schemas.INT64, true)),

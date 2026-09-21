@@ -288,6 +288,42 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## State of play (as of 2026-09-21, secret-keyed result cache)
+
+**The extension caches secret-dependent results now** (vgi `d91b7c4`): instead
+of refusing them, it keys them on a fingerprint of the secrets the bind
+resolved, so an unchanged secret HITs and a rotated, re-fielded or dropped one
+MISSes. `cache/secret_scope.test` drives one fixture per path the fingerprint
+must reach, each mirroring vgi-python `752c4ba`:
+
+- `secret_cache_nonce()` (`table/SecretCacheNonceFunction`): producer with the
+  secret *declared*; also the function-backed table `data.secret_cache_nonce`.
+  vgi-python inline-binds that table. This SDK has no inline bind, so it binds
+  over the RPC, which upstream `98a11cb` made the test accept.
+- `secret_cached_scalar(value)`: per-value scalar on the older `ScalarFunction`
+  interface, requesting the secret two-phase (`ScalarFn` still has no secrets
+  accessor). The label is `'|<nonce>'` when no secret resolves, never an error.
+- `secret_cached_lateral(x)`: per-value blended map requesting the secret from
+  `onBind` (two-phase).
+- Nonces are 56 random bits, never a counter: a pooled worker runs several
+  processes, and per-process counters repeat across them.
+
+**New SDK hook, `TableFunction.requiredSecrets()`.** Only `AggregateFunction`
+could declare a secret before; a table function had to request one two-phase.
+`baseFunctionInfo` hardcodes `required_secrets` empty, and one helper,
+`withRequiredSecrets`, now re-stamps it for both kinds. Pinned by
+`FunctionInfoRequiredSecretsTest`.
+
+**Also ported `trailing_partition_sales`** (vgi `48d4196`, vgi-python
+`8cf1d64`), which landed upstream just before and which the portable table
+count (now 170) includes. The partition column sits last, projection pushdown is
+on, and it is also the table `data.trailing_partition_sales`. Two details:
+- The table's columns must carry the `vgi.partition_column` annotation. The
+  extension reads it off the TABLE's schema, not the function's, so the
+  registration reuses the function's `OUTPUT`.
+- Partition values are passed explicitly. The extension requires them on every
+  non-empty batch, including one whose projection dropped `country`.
+
 ## State of play (as of 2026-08-10, gated attach options)
 
 **Global functions were already done** (0.22.0 — `Worker.registerGlobalFunctions` /
