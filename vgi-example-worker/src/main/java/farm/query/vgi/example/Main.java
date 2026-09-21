@@ -629,6 +629,8 @@ public final class Main {
                 new farm.query.vgi.example.table.BrokenBatchIndexFunctions.BatchIndexOverflow(),
                 new farm.query.vgi.example.table.PartitionColumnsFunctions.CountryPartitionedSales(),
                 new farm.query.vgi.example.table.PartitionColumnsFunctions.RegionYearPartitioned(),
+                // Partition column declared LAST; also the data.trailing_partition_sales table.
+                new farm.query.vgi.example.table.PartitionColumnsFunctions.TrailingPartitionSales(),
                 new farm.query.vgi.example.table.PartitionColumnsFunctions.PartitionedWithExplicitOverride(),
                 new farm.query.vgi.example.table.PartitionColumnsFunctions.DisjointRangePartitioned(),
                 new farm.query.vgi.example.table.PartitionColumnsFunctions.OverlappingRangePartitioned(),
@@ -965,6 +967,18 @@ public final class Main {
                         List.of((Object) 123456L),
                         Map.of(),
                         null, null, false, /*inlineScanFunction=*/true))
+                // PartitionColumns as a CATALOG TABLE: a table's scan function is
+                // built on a different path than a direct call, so only a table
+                // proves partitioned aggregates reach it. The columns reuse the
+                // function's schema because the extension reads the partition
+                // annotation off the TABLE's fields. See TrailingPartitionSales.
+                .registerCatalogTable(CatalogTable.builder("data", "trailing_partition_sales",
+                                SchemaUtil.serializeSchema(farm.query.vgi.example.table
+                                        .PartitionColumnsFunctions.TrailingPartitionSales.OUTPUT))
+                        .comment("Per-country sales, SINGLE_VALUE partition column declared last; "
+                                + "GROUP BY country must plan as PARTITIONED_AGGREGATE")
+                        .scanFunction("trailing_partition_sales", List.of((Object) 100L), Map.of())
+                        .build())
                 .registerCatalogTable(stubTable("data", "volatile_numbers",
                         "Numbers with volatile stats (TTL=0, always re-fetched)",
                         col("value", Schemas.INT64, true))

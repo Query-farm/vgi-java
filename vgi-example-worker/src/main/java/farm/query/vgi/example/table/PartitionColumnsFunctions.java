@@ -131,6 +131,115 @@ public final class PartitionColumnsFunctions {
     }
 
     // =====================================================================
+    // trailing_partition_sales(rows_per_country) -> (seq, label, sales, country)
+    // =====================================================================
+
+    /**
+     * {@link CountryPartitionedSales}'s contract and sales values, with the
+     * partition column declared LAST (index 3) instead of first.
+     *
+     * <p>Every other partitioned fixture puts its partition column at index 0,
+     * where two index spaces happen to agree: the planner asks
+     * {@code get_partition_info} about WORKER-SCHEMA indices, but the sink asks
+     * {@code get_partition_data} about SCAN-LOCAL ones. {@code GROUP BY country}
+     * projects just {@code country} and {@code sales}, so here the sink asks
+     * about scan-local 0 while the declared index is 3, and a client comparing
+     * them unmapped fails (fatally, in the C++ extension). Also registered as
+     * the catalog table {@code data.trailing_partition_sales}, because a table's
+     * scan function is built on a different path than a direct call and a
+     * client can wire partition info for one and silently not the other.
+     *
+     * <p>Projection pushdown is deliberate: without it DuckDB 1.5's
+     * {@code CanUsePartitionedAggregate} maps the projection's base-column
+     * indices a second time and crashes the planner (duckdb/duckdb#24327, not
+     * backported to 1.5). Backs {@code table/partition_columns.test}; mirrors
+     * vgi-python's {@code TrailingPartitionSalesFunction}.
+     */
+    public static final class TrailingPartitionSales implements TableFunction {
+
+        private static final String[] COUNTRIES = CountryPartitionedSales.COUNTRIES;
+        /** Full declared schema; the catalog table's columns reuse it, partition annotation included. */
+        public static final Schema OUTPUT = Schemas.of(
+                Schemas.nullable("seq", Schemas.INT64),
+                Schemas.nullable("label", Schemas.UTF8),
+                Schemas.nullable("sales", Schemas.INT64),
+                EmitMetadata.partitionField("country", Schemas.UTF8));
+        private static final byte[] OUTPUT_IPC = SchemaUtil.serializeSchema(OUTPUT);
+
+        private static final FunctionSpec SPEC = FunctionSpec.builder("trailing_partition_sales")
+                .metadata(FunctionMetadata.describe(
+                        "Per-country sales rows, one Arrow batch per country, with the SINGLE_VALUE "
+                        + "partition column declared LAST in the schema instead of first.")
+                        .withPushdown(/*projection=*/true, /*filter=*/false, /*autoApply=*/false)
+                        .withCategories("generator", "partitioning")
+                        .withPartitionKind(PartitionKind.SINGLE_VALUE_PARTITIONS))
+                .constArg("rows_per_country", Schemas.INT64)
+                .build();
+
+        @Override public FunctionSpec spec() { return SPEC; }
+
+        @Override public BindResponse onBind(TableBindParams p) {
+            return BindResponse.forSchema(OUTPUT_IPC);
+        }
+
+        @Override public long maxWorkers() { return 8L; }
+
+        @Override public TableProducerState createProducer(TableInitParams p) {
+            int rpc = (int) ParameterExtractor.of(p.arguments())
+                    .positional(0, "rows_per_country").asLong().required();
+            String key = HexId.encode(p.executionId());
+            return new State(p, buildQueue(key, COUNTRIES.length), key, rpc);
+        }
+
+        /** Emits the projected columns only; partition values name the country explicitly. */
+        public static final class State extends TableProducerState {
+            public String execKey;
+            public int rpc;
+            public transient ConcurrentLinkedQueue<Integer> queueRef;
+
+            public State() {}
+
+            State(TableInitParams p, ConcurrentLinkedQueue<Integer> q, String execKey, int rpc) {
+                super(p);
+                this.queueRef = q;
+                this.execKey = execKey;
+                this.rpc = rpc;
+            }
+
+            private ConcurrentLinkedQueue<Integer> queue() {
+                if (queueRef == null) queueRef = QUEUES.get(execKey);
+                return queueRef;
+            }
+
+            @Override public void produceTick(OutputCollector out, CallContext ctx) {
+                Integer idx = queue() == null ? null : queue().poll();
+                if (idx == null) { out.finish(); return; }
+                String country = COUNTRIES[idx];
+                long base = (long) idx * 1_000_000L;
+                VectorSchemaRoot root = VectorSchemaRoot.create(outputSchema, Allocators.root());
+                root.allocateNew();
+                for (var field : outputSchema.getFields()) {
+                    var vector = root.getVector(field.getName());
+                    for (int i = 0; i < rpc; i++) {
+                        switch (field.getName()) {
+                            case "seq" -> ((BigIntVector) vector).setSafe(i, i);
+                            case "label" -> setUtf8((VarCharVector) vector, i, country + "-" + i);
+                            case "sales" -> ((BigIntVector) vector).setSafe(i, base + i);
+                            case "country" -> setUtf8((VarCharVector) vector, i, country);
+                            default -> throw new IllegalStateException("unexpected column " + field);
+                        }
+                    }
+                }
+                root.setRowCount(rpc);
+                // Explicit, so the values ride every batch even when country is
+                // projected out of it.
+                out.emit(root, EmitMetadata.partitionValues(OUTPUT, root,
+                        Map.of("country", new EmitMetadata.Range(country, country))));
+            }
+        }
+    }
+
+    // =====================================================================
     // region_year_partitioned(rows_per_partition) -> (region, year, value)
     // =====================================================================
 
