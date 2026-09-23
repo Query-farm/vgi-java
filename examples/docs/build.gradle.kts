@@ -10,7 +10,7 @@
 // the SDK at HEAD and a breaking change shows up here rather than in a reader's
 // editor. A reader does the same thing with one line instead:
 //
-//     implementation("farm.query:vgi:0.32.0")
+//     implementation("farm.query:vgi:0.33.0")
 //
 // which is what the documentation shows. The toolchain, `-parameters` and the
 // JVM opens all come from the root build, so nothing else is repeated here.
