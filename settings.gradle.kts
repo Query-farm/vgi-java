@@ -13,7 +13,7 @@ rootProject.name = "vgi-java"
 // the workspace and points here so it can build vgirpc from source — actions/
 // checkout can't write the default ../Development sibling path).
 val vgiRpcJavaDir = System.getenv("VGI_RPC_JAVA_DIR")?.let { file(it) }
-    ?: file("../Development/vgi-rpc-java")
+    ?: file("../vgi-rpc-java")
 if (vgiRpcJavaDir.isDirectory) {
     includeBuild(vgiRpcJavaDir) {
         dependencySubstitution {
