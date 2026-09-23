@@ -35,6 +35,12 @@ application {
     applicationDefaultJvmArgs = listOf(
         // Arrow's off-heap memory module needs access to java.nio internals.
         "--add-opens=java.base/java.nio=ALL-UNNAMED",
+    // Arrow 19 allocates through Netty 4.2, which disables sun.misc.Unsafe
+    // on Java 25+ unless told otherwise (apache/arrow-java#728).
+    "-Dio.netty.noUnsafe=false",
+        // Arrow 19 allocates through Netty 4.2, which disables sun.misc.Unsafe
+        // on Java 25+ unless told otherwise (apache/arrow-java#728).
+        "-Dio.netty.noUnsafe=false",
         // The shared-memory transport makes FFM (mmap/shm_open) downcalls.
         "--enable-native-access=ALL-UNNAMED",
     )
@@ -44,6 +50,9 @@ application {
 //   ./gradlew :examples:docs:runScalar --args="--unix /tmp/s.sock --idle-timeout 30"
 val workerJvmArgs = listOf(
     "--add-opens=java.base/java.nio=ALL-UNNAMED",
+    // Arrow 19 allocates through Netty 4.2, which disables sun.misc.Unsafe
+    // on Java 25+ unless told otherwise (apache/arrow-java#728).
+    "-Dio.netty.noUnsafe=false",
     "--enable-native-access=ALL-UNNAMED",
 )
 

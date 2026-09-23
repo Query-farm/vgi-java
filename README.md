@@ -106,10 +106,11 @@ defaulted, and constant arguments each occupy one slot; a vararg declaration
 occupies one slot regardless of call-time expansion. Named SQL invocation order
 does not reorder these claims. Returning `null` makes no claims.
 
-**The worker JVM needs two flags** — Apache Arrow requires access to `java.nio` internals, and the shared-memory transport uses the FFM API:
+**The worker JVM needs three flags** — Apache Arrow requires access to `java.nio` internals, Arrow's Netty 4.2 allocator needs `sun.misc.Unsafe` (which Netty switches off by default on Java 25+), and the shared-memory transport uses the FFM API:
 
 ```
 --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED
+-Dio.netty.noUnsafe=false
 --enable-native-access=ALL-UNNAMED
 ```
 
@@ -120,12 +121,13 @@ application {
     mainClass.set("DemoWorker")
     applicationDefaultJvmArgs = listOf(
         "--add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED",
+        "-Dio.netty.noUnsafe=false",
         "--enable-native-access=ALL-UNNAMED",
     )
 }
 ```
 
-Without the `--add-opens` flag the worker fails at first query with `Failed to initialize MemoryUtil`.
+Without the `--add-opens` flag the worker fails at first query with `Failed to initialize MemoryUtil`. vgirpc sets the Netty property itself when it is first to touch Arrow, but pass it anyway: without it, anything that allocates Arrow memory first fails with an `ExceptionInInitializerError` from `NettyAllocationManager` on Java 25+.
 
 Attach and query it from Haybarn:
 
