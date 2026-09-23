@@ -6,14 +6,10 @@ import farm.query.vgi.storage.BoundStorage;
 import farm.query.vgi.table.TableInitParams;
 import farm.query.vgi.table.TableProducerState;
 import farm.query.vgirpc.OutputCollector;
-import farm.query.vgirpc.wire.Allocators;
-import org.apache.arrow.vector.FieldVector;
+import farm.query.vgi.internal.VectorProjector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.util.TransferPair;
 
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Base producer for the Source phase of a buffering function. Holds the
@@ -85,34 +81,17 @@ public abstract class BufferingFinalizeProducer extends TableProducerState {
     }
 
     private VectorSchemaRoot transferAll(VectorSchemaRoot full) {
-        int rows = full.getRowCount();
-        List<FieldVector> out = new ArrayList<>();
-        for (FieldVector v : full.getFieldVectors()) {
-            TransferPair tp = v.getTransferPair(Allocators.root());
-            tp.transfer();
-            out.add((FieldVector) tp.getTo());
-        }
-        VectorSchemaRoot r = new VectorSchemaRoot(out);
-        r.setRowCount(rows);
-        return r;
+        return VectorProjector.detach(full, null);
     }
 
     private VectorSchemaRoot narrowByName(VectorSchemaRoot full) {
-        int rows = full.getRowCount();
-        List<FieldVector> out = new ArrayList<>();
         for (Field f : outputSchema.getFields()) {
-            FieldVector src = (FieldVector) full.getVector(f.getName());
-            if (src == null) {
+            if (full.getVector(f.getName()) == null) {
                 throw new IllegalStateException(
                         "buffering finalize: projected column '" + f.getName()
                         + "' missing from buffered batch " + full.getSchema());
             }
-            TransferPair tp = src.getTransferPair(Allocators.root());
-            tp.transfer();
-            out.add((FieldVector) tp.getTo());
         }
-        VectorSchemaRoot r = new VectorSchemaRoot(out);
-        r.setRowCount(rows);
-        return r;
+        return VectorProjector.detach(full, outputSchema);
     }
 }

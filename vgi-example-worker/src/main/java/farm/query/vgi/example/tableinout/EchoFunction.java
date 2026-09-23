@@ -3,6 +3,7 @@
 package farm.query.vgi.example.tableinout;
 
 import farm.query.vgi.function.ArgSpec;
+import farm.query.vgi.internal.VectorProjector;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgi.tableinout.PassthroughTIOFunction;
@@ -49,37 +50,18 @@ public final class EchoFunction extends PassthroughTIOFunction {
             this.outputSchema = outputSchema;
         }
         @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-            // Transfer the input batch's vectors into a fresh VSR so the
-            // framework can close() the emitted root after writing without
-            // releasing the inputReader's buffers. Naive emit(input.root())
-            // works for one tick but invalidates the reader on the second
-            // tick — observed as multi-batch truncation in nested-type
-            // round-trips. TransferPair preserves dict-encoded children
-            // because the dictionary provider lives on the IpcStreamReader
-            // (passed through by flushCollector), not on the vectors.
-            org.apache.arrow.vector.VectorSchemaRoot in = input.root();
-            int rows = in.getRowCount();
-            java.util.List<org.apache.arrow.vector.FieldVector> outVectors = new java.util.ArrayList<>();
-            // Select the (already projection-narrowed) output columns by name;
-            // falls back to all input columns when no schema was captured.
-            java.util.List<org.apache.arrow.vector.FieldVector> sources;
-            if (outputSchema == null) {
-                sources = in.getFieldVectors();
-            } else {
-                sources = new java.util.ArrayList<>();
-                for (org.apache.arrow.vector.types.pojo.Field f : outputSchema.getFields()) {
-                    sources.add((org.apache.arrow.vector.FieldVector) in.getVector(f.getName()));
-                }
-            }
-            for (org.apache.arrow.vector.FieldVector v : sources) {
-                org.apache.arrow.vector.util.TransferPair tp = v.getTransferPair(farm.query.vgirpc.wire.Allocators.root());
-                tp.transfer();
-                outVectors.add((org.apache.arrow.vector.FieldVector) tp.getTo());
-            }
-            org.apache.arrow.vector.VectorSchemaRoot copy =
-                    new org.apache.arrow.vector.VectorSchemaRoot(outVectors);
-            copy.setRowCount(rows);
-            out.emit(copy);
+            // Move the input batch's buffers into a fresh root so the framework
+            // can close() the emitted root after writing without releasing the
+            // inputReader's buffers. Naive emit(input.root()) works for one tick
+            // but invalidates the reader on the second — observed as multi-batch
+            // truncation in nested-type round-trips. A transfer also preserves
+            // dict-encoded children, since the dictionary provider lives on the
+            // IpcStreamReader (passed through by flushCollector), not on the
+            // vectors. detach() takes each column's field from the (already
+            // projection-narrowed) output schema, so extension tags such as
+            // arrow.uuid survive; falls back to the input schema when no output
+            // schema was captured.
+            out.emit(VectorProjector.detach(input.root(), outputSchema));
         }
     }
 }

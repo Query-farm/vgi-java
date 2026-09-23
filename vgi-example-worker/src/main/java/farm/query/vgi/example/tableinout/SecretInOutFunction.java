@@ -15,6 +15,7 @@ import farm.query.vgi.types.Schemas;
 import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
+import farm.query.vgi.internal.VectorProjector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -107,11 +108,7 @@ public final class SecretInOutFunction implements TableInOutFunction {
                     sv.setValueCount(rows);
                     outVectors.add(sv);
                 } else {
-                    FieldVector src = (FieldVector) in.getVector(f.getName());
-                    org.apache.arrow.vector.util.TransferPair tp =
-                            src.getTransferPair(farm.query.vgirpc.wire.Allocators.root());
-                    tp.transfer();
-                    outVectors.add((FieldVector) tp.getTo());
+                    outVectors.add(VectorProjector.transfer((FieldVector) in.getVector(f.getName()), f));
                 }
             }
             VectorSchemaRoot copy = new VectorSchemaRoot(outVectors);

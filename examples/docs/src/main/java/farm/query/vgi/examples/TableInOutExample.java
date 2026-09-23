@@ -22,12 +22,9 @@ import farm.query.vgi.tableinout.TableInOutInitParams;
 import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
-import farm.query.vgirpc.wire.Allocators;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
+import farm.query.vgi.internal.VectorProjector;
 import org.apache.arrow.vector.util.TransferPair;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /** {@code echo(data TABLE) -> *}: passes every input batch through unchanged. */
@@ -59,18 +56,13 @@ public final class TableInOutExample extends PassthroughTIOFunction {
             // emitted root after writing it. The input root is owned by the
             // reader and reused for the NEXT batch — closing it would corrupt the
             // stream. TransferPair moves the buffers into a root we own, leaving
-            // the reader intact. (TransferPair, not a row copy, also preserves
-            // dictionary-encoded children.)
-            VectorSchemaRoot in = input.root();
-            List<FieldVector> outVectors = new ArrayList<>();
-            for (FieldVector v : in.getFieldVectors()) {
-                TransferPair tp = v.getTransferPair(Allocators.root());
-                tp.transfer();
-                outVectors.add((FieldVector) tp.getTo());
-            }
-            VectorSchemaRoot copy = new VectorSchemaRoot(outVectors);
-            copy.setRowCount(in.getRowCount());
-            out.emit(copy);   // emit() takes ownership; do not close `copy` yourself
+            // the reader intact. (A buffer transfer, not a row copy, also
+            // preserves dictionary-encoded children.)
+            //
+            // Prefer VectorProjector.detach over a hand-rolled getTransferPair
+            // loop: Arrow's transfer pairs drop some fields' metadata, and with
+            // it the ARROW:extension:name tag that makes a UUID column a UUID.
+            out.emit(VectorProjector.detach(input.root(), null));   // emit() takes ownership
         }
     }
 
