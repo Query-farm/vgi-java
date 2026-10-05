@@ -256,6 +256,16 @@ EXPECTED_SKIP_REASONS=(
   'require-env VGI_TEST_DEDICATED_WORKER'
   'require-env VGI_MALFORMED_BATCH_WORKER'       # hostile malformed-Arrow fixture (vgi test/support only)
   'require-env VGI_ROWID_CONSTRAINT_WORKER'      # hostile rowid-constraint fixture (vgi test/support only)
+  # attach_secrets/ (upstream 31b881a). attach_with_secret + bearer_from_secret
+  # exercise the vgi_attach secret type, which is being withdrawn from the
+  # extension; their fixtures (host/truncated LOCATION, a bearer-gated
+  # attach-options server) belong to vgi's own http script. declared_secret_option
+  # needs an extension that reads the spec's `secret` column: this worker declares
+  # api_key secret since 0.34.1, but the signed community build CI installs
+  # predates the column. Enable VGI_ATTACH_OPTIONS_DECLARES_SECRET once it ships.
+  'require-env VGI_ATTACH_OPTIONS_HOST'
+  'require-env VGI_ATTACH_OPTIONS_BEARER_WORKER'
+  'require-env VGI_ATTACH_OPTIONS_DECLARES_SECRET'
 )
 # Lane-specific additions — a skip expected on one lane is a red flag on another.
 # The launch lane wires the bad-enum / launcher workers, so those tests RUN

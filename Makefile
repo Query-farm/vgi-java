@@ -169,7 +169,10 @@ COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_DATABASE_PYTHON_WORKER' \
 	--allow-skip 'require-env VGI_DATABASE_RUST_WORKER' \
 	--allow-skip 'require-env VGI_MALFORMED_BATCH_WORKER' \
-	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER'
+	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER' \
+	--allow-skip 'require-env VGI_ATTACH_OPTIONS_HOST' \
+	--allow-skip 'require-env VGI_ATTACH_OPTIONS_BEARER_WORKER' \
+	--allow-skip 'require-env VGI_ATTACH_OPTIONS_DECLARES_SECRET'
 
 test: build
 	@cd $(HOME)/Development/vgi && $(FIXTURE_ENV) \
