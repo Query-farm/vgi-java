@@ -34,16 +34,18 @@ import java.util.List;
  * <ul>
  *   <li>clients mask it in their options editors and keep it out of exported or
  *       shared configuration;</li>
- *   <li>the extension never writes it into a result-cache key in plain text (it
- *       contributes a salted HMAC digest instead, so results stay separate per
- *       credential), redacts it in {@code info.options}, and never logs it;</li>
- *   <li>the value can be supplied from a {@code vgi_attach} DuckDB secret
- *       instead of being written into the ATTACH statement:
- *       <pre>{@code
- * CREATE SECRET (TYPE vgi_attach, SCOPE 'https://sales.example.com', api_key 'sk-…');
- * ATTACH 'sales' (TYPE vgi, LOCATION 'https://sales.example.com');
- * }</pre></li>
+ *   <li>the extension redacts it from {@code duckdb_databases()}, keeps only a
+ *       salted hash of it in its result-cache key (so results stay separate per
+ *       credential), and never logs it.</li>
  * </ul>
+ *
+ * <p>The credential is still passed inline as an ATTACH option. To keep it out
+ * of the SQL text, pass an expression rather than a literal:
+ *
+ * <pre>{@code
+ * ATTACH 'sales' (TYPE vgi, LOCATION 'https://sales.example.com',
+ *                 api_key getenv('SALES_API_KEY'));
+ * }</pre>
  *
  * <p>Declare one with {@link #requiredSecret(String, String, ArrowType)}, or
  * mark any spec with {@link #asSecret()}:
@@ -65,8 +67,8 @@ import java.util.List;
  *                      default, since an option that falls back to a value is by definition
  *                      satisfiable without the caller
  * @param secret        the value is a credential (API key, token, password): clients mask it,
- *                      the extension keeps it out of cache keys, {@code info.options} and logs,
- *                      and it may be supplied from a {@code vgi_attach} DuckDB secret. Every
+ *                      and the extension redacts it from {@code duckdb_databases()}, keeps only a
+ *                      salted hash of it in its cache key, and never logs it. Every
  *                      credential option must set this. Combines with {@code required}; allowed
  *                      with a default, though a secret option normally has none
  */
