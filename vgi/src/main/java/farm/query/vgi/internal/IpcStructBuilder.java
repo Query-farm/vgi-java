@@ -394,8 +394,9 @@ public final class IpcStructBuilder {
     }
 
     /**
-     * Write a string→string map into row 0 of a {@code MapVector}. Null values
-     * are written as null entries.
+     * Write a string→string map into row 0 of a {@code MapVector}, in key order
+     * so equal maps encode to equal bytes ({@link farm.query.vgi.protocol.WireMaps}).
+     * Null values are written as null entries.
      *
      * @param v      the target map vector
      * @param values the entries, or {@code null} for an empty map
@@ -405,7 +406,7 @@ public final class IpcStructBuilder {
         UnionMapWriter w = mv.getWriter();
         w.startMap();
         if (values != null) {
-            for (Map.Entry<String, String> e : values.entrySet()) {
+            for (Map.Entry<String, String> e : farm.query.vgi.protocol.WireMaps.sorted(values).entrySet()) {
                 w.startEntry();
                 w.key().varChar().writeVarChar(e.getKey());
                 if (e.getValue() != null) w.value().varChar().writeVarChar(e.getValue());

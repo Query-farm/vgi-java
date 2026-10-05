@@ -31,6 +31,12 @@ public record SchemaInfo(
         List<String> path,
         @Nullable Map<String, Long> estimated_object_count) implements ArrowSerializableRecord {
 
+    /** Canonicalises the map columns to key order, so equal schemas encode to equal bytes. */
+    public SchemaInfo {
+        tags = WireMaps.sorted(tags);
+        estimated_object_count = WireMaps.sorted(estimated_object_count);
+    }
+
     /**
      * Convenience constructor with no {@code estimated_object_count} map
      * (eager-load gating disabled).

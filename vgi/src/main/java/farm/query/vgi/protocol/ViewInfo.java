@@ -25,4 +25,10 @@ public record ViewInfo(
         List<String> schema_path,
         String definition,
         Map<String, String> column_comments) implements ArrowSerializableRecord {
+
+    /** Canonicalises the map columns to key order, so equal views encode to equal bytes. */
+    public ViewInfo {
+        tags = WireMaps.sorted(tags);
+        column_comments = WireMaps.sorted(column_comments);
+    }
 }
