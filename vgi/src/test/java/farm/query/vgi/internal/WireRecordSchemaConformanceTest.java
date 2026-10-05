@@ -19,6 +19,7 @@ import farm.query.vgi.protocol.CardinalityRequest;
 import farm.query.vgi.protocol.CardinalityResponse;
 import farm.query.vgi.protocol.CatalogAttachRequest;
 import farm.query.vgi.protocol.CatalogAttachResult;
+import farm.query.vgi.protocol.CatalogContentsResponse;
 import farm.query.vgi.protocol.CatalogVersionResponse;
 import farm.query.vgi.protocol.ClientCapabilities;
 import farm.query.vgi.protocol.CopyFromContext;
@@ -39,6 +40,7 @@ import farm.query.vgi.protocol.MacroInfo;
 import farm.query.vgi.protocol.PlanResponse;
 import farm.query.vgi.protocol.TableFunctionPlanRequest;
 import farm.query.vgi.protocol.ScanSplit;
+import farm.query.vgi.protocol.SchemaContents;
 import farm.query.vgi.protocol.SchemaInfo;
 import farm.query.vgi.protocol.TableBufferingCombineRequest;
 import farm.query.vgi.protocol.TableBufferingCombineResponse;
@@ -303,6 +305,7 @@ class WireRecordSchemaConformanceTest {
         m.put(CardinalityResponse.class, new Codec("TableFunctionCardinalityResult", ORDERED));
         m.put(CatalogAttachRequest.class, new Codec("CatalogAttachRequest", BY_NAME));
         m.put(CatalogAttachResult.class, new Codec("CatalogAttachResult", ORDERED));
+        m.put(CatalogContentsResponse.class, new Codec("CatalogContentsResult", ORDERED));
         m.put(ClientCapabilities.class, new Codec("ClientCapabilities", ORDERED));
         m.put(CatalogVersionResponse.class, new Codec("CatalogVersionResult", ORDERED));
         m.put(CopyFromContext.class, new Codec("CopyFromContext", BY_NAME));
@@ -324,6 +327,7 @@ class WireRecordSchemaConformanceTest {
         // is the comparison.
         m.put(ItemsResponse.class, new Codec("CatalogSchemasResult", ORDERED));
         m.put(PlanResponse.class, new Codec("TableFunctionPlanResult", ORDERED));
+        m.put(SchemaContents.class, new Codec("SchemaContents", ORDERED));
         m.put(SchemaInfo.class, new Codec("SchemaInfo", ORDERED));
         m.put(TableBufferingCombineRequest.class, new Codec("TableBufferingCombineRequest", BY_NAME));
         m.put(TableBufferingCombineResponse.class, new Codec("TableBufferingCombineResult", ORDERED));
@@ -523,8 +527,6 @@ class WireRecordSchemaConformanceTest {
         m.put("CatalogCatalogsResult", "same {items: list<binary>} shape as CatalogSchemasResult,"
                 + " which ItemsResponse is checked against");
         m.put("CatalogCopyFromFormatsResult", "same shape as CatalogSchemasResult (see above)");
-        m.put("CatalogContentsResult", "the bulk catalog_contents RPC is not implemented in this SDK;"
-                + " it never advertises supports_catalog_contents, so the client never calls it");
         m.put("CatalogMacroGetResult", "same shape as CatalogSchemasResult (see above)");
         m.put("CatalogSchemaContentsFunctionsResult", "same shape as CatalogSchemasResult (see above)");
         m.put("CatalogSchemaContentsMacrosResult", "same shape as CatalogSchemasResult (see above)");

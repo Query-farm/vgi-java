@@ -1532,7 +1532,23 @@ public final class Main {
     }
 
     private static void runWorker(Worker w, String[] args) {
+        w.supportsCatalogContents(catalogContentsEnabled(System.getenv("VGI_WORKER_CATALOG_CONTENTS")));
         w.runFromArgs(args, Main::customizeHttpConfig);
+    }
+
+    /**
+     * Whether the fixture worker advertises {@code catalog_contents}: on unless
+     * {@code VGI_WORKER_CATALOG_CONTENTS} is {@code 0}/{@code false}/{@code off}.
+     * The off switch exists so the integration suite can be run both ways and
+     * compared — the client's per-schema path must see the same catalog.
+     *
+     * @param value the environment value, or {@code null} when unset
+     * @return whether to advertise {@code supports_catalog_contents}
+     */
+    static boolean catalogContentsEnabled(String value) {
+        if (value == null) return true;
+        String v = value.trim().toLowerCase(java.util.Locale.ROOT);
+        return !(v.equals("0") || v.equals("false") || v.equals("off") || v.equals("no"));
     }
 
     /**

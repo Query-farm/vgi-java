@@ -53,7 +53,8 @@ public final class Worker {
      *
      *  <p>2.1.0 added the {@code catalog_contents} RPC and the trailing
      *  {@code supports_catalog_contents} column on the {@code catalog_attach}
-     *  result; this worker reports {@code false}, so the RPC is never called. */
+     *  result. A {@code Worker} catalog is declarative and read-only, so it
+     *  advertises the RPC by default (see {@link #supportsCatalogContents(boolean)}). */
     public static final String VGI_PROTOCOL_VERSION = "2.1.0";
 
     private String catalogName = "vgi";
@@ -78,6 +79,7 @@ public final class Worker {
     private final List<AggregateFunction<?>> aggregates = new ArrayList<>();
     private final List<farm.query.vgi.function.FunctionDescriptor> globalFunctions = new ArrayList<>();
     private String globalFunctionPrefix = "";
+    private boolean supportsCatalogContents = true;
     private final List<SettingSpec> settings = new ArrayList<>();
     private final List<SecretTypeSpec> secretTypes = new ArrayList<>();
     private final List<farm.query.vgi.protocol.AttachCatalogInfo> attachCatalogs = new ArrayList<>();
@@ -951,6 +953,34 @@ public final class Worker {
      * @return the global-name prefix; empty when unset
      */
     public String globalFunctionPrefix() { return globalFunctionPrefix; }
+
+    /**
+     * Whether {@code catalog_attach} advertises {@code supports_catalog_contents},
+     * letting the client load the whole catalog with one {@code catalog_contents}
+     * call instead of {@code catalog_schemas} plus a
+     * {@code catalog_schema_contents_*} call per schema and kind.
+     *
+     * <p>On by default: a {@code Worker} catalog is declarative and read-only,
+     * which is the case vgi-python's {@code ReadOnlyCatalogInterface} advertises
+     * it for. The RPC is served either way ({@link VgiService#catalog_contents}
+     * composes the per-schema RPCs); this only decides whether the client is told
+     * to use it. Turn it off for a catalog whose contents depend on the
+     * transaction, since the bulk answer is cached for the whole attach.</p>
+     *
+     * @param enabled whether to advertise {@code catalog_contents}
+     * @return this builder
+     */
+    public Worker supportsCatalogContents(boolean enabled) {
+        supportsCatalogContents = enabled;
+        return this;
+    }
+
+    /**
+     * Whether {@code catalog_attach} advertises {@code supports_catalog_contents}.
+     *
+     * @return the flag set by {@link #supportsCatalogContents(boolean)}; {@code true} by default
+     */
+    public boolean supportsCatalogContents() { return supportsCatalogContents; }
 
     /**
      * Advertise custom session settings in the {@code catalog_attach} result.

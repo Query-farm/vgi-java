@@ -1426,9 +1426,7 @@ public final class VgiServiceImpl implements VgiService {
                     "",
                     extra.dataVersion(),
                     extra.implementationVersion(),
-                    // supports_catalog_contents: this SDK does not serve the bulk
-                    // catalog_contents RPC; the client uses schema_contents_*.
-                    false);
+                    worker.supportsCatalogContents());
         }
         // Options declared required must actually be supplied: fail the attach
         // loudly rather than yielding a catalog that reads as empty.
@@ -1497,9 +1495,9 @@ public final class VgiServiceImpl implements VgiService {
                 worker.globalFunctionPrefix(),
                 resolvedData,
                 resolvedImpl,
-                // supports_catalog_contents: not served by this SDK, so the client
-                // never calls catalog_contents and enumerates per schema instead.
-                false);
+                // supports_catalog_contents: the catalog is declarative, so the
+                // client may load it whole (VgiService#catalog_contents).
+                worker.supportsCatalogContents());
     }
 
     /**

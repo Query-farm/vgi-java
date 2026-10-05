@@ -14,6 +14,7 @@ import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.protocol.CardinalityRequest;
 import farm.query.vgi.protocol.CatalogAttachRequest;
 import farm.query.vgi.protocol.CatalogAttachResult;
+import farm.query.vgi.protocol.CatalogContentsResponse;
 import farm.query.vgi.protocol.CatalogVersionResponse;
 import farm.query.vgi.protocol.GlobalInitResponse;
 import farm.query.vgi.protocol.InitRequest;
@@ -445,6 +446,30 @@ public interface VgiService {
     default ItemsResponse catalog_copy_from_formats(
             byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data) {
         return ItemsResponse.empty();
+    }
+
+    /**
+     * Return every schema and all of its contents in one result.
+     *
+     * <p>Called only when the attach result sets
+     * {@code supports_catalog_contents}; it replaces {@link #catalog_schemas}
+     * plus a {@code catalog_schema_contents_*} call per schema and kind. Every
+     * item must be byte-for-byte what the matching per-schema RPC returns, and
+     * every kind is complete (an empty list means the schema has none). It takes
+     * no transaction: the client caches the answer for the whole attach, so it
+     * is the committed catalog at {@code catalog_version}.</p>
+     *
+     * <p>The default composes this service's own per-schema RPCs
+     * ({@link CatalogContents#compose}), so any implementation can serve it;
+     * override it to build the snapshot more cheaply.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param ctx                per-call context
+     * @return the catalog version and one serialised {@code SchemaContents} per schema,
+     *         parents before children
+     */
+    default CatalogContentsResponse catalog_contents(byte[] attach_opaque_data, CallContext ctx) {
+        return CatalogContents.compose(this, attach_opaque_data, ctx);
     }
 
     // -----------------------------------------------------------------------
