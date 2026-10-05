@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -36,7 +37,7 @@ class ExtraCatalogAttachOptionsTest {
                 .catalogName("host")
                 .registerExtraCatalog(new Worker.ExtraCatalog(GATED, null, null, "gated catalog",
                         List.of(
-                                AttachOptionSpec.required("api_key", "API key", Schemas.UTF8),
+                                AttachOptionSpec.requiredSecret("api_key", "API key", Schemas.UTF8),
                                 AttachOptionSpec.of("region", "Region", Schemas.UTF8, "us-east-1"))));
     }
 
@@ -67,6 +68,26 @@ class ExtraCatalogAttachOptionsTest {
         assertEquals(2, catalogs.items().size());
         assertEquals(0, declaredOptionCount(catalogs.items().get(0)), "main catalog declares none");
         assertEquals(2, declaredOptionCount(catalogs.items().get(1)));
+    }
+
+    /** The gated catalog's credential is advertised required + secret; its
+     *  defaulted neighbour is neither. */
+    @Test
+    void discoveryAdvertisesTheSecretFlag() {
+        byte[] gated = service(worker()).catalog_catalogs().items().get(1);
+        java.util.List<AttachOptionSpecSerializer.Decoded> specs = BatchUtil.withReadBatch(gated,
+                Allocators.root(), root -> {
+                    ListVector lv = (ListVector) root.getVector("attach_option_specs");
+                    java.util.List<AttachOptionSpecSerializer.Decoded> out = new java.util.ArrayList<>();
+                    for (Object o : lv.getObject(0)) out.add(AttachOptionSpecSerializer.decode((byte[]) o));
+                    return out;
+                });
+        assertEquals("api_key", specs.get(0).name());
+        assertTrue(specs.get(0).required());
+        assertTrue(specs.get(0).secret());
+        assertEquals("region", specs.get(1).name());
+        assertFalse(specs.get(1).required());
+        assertFalse(specs.get(1).secret());
     }
 
     @Test

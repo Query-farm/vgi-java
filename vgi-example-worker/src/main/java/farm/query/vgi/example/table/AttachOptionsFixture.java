@@ -95,13 +95,14 @@ public final class AttachOptionsFixture {
     /**
      * Options of the {@link #REQUIRED_CATALOG_NAME} catalog: one the caller has
      * to supply (no default to fall back on) next to one that defaults, so a
-     * test can tell the two apart in the discovery listing.
+     * test can tell the two apart in the discovery listing. The required one is
+     * a credential, so it is also declared secret, matching the Python fixture.
      *
      * @return the gated catalog's declared option specs
      */
     public static List<AttachOptionSpec> requiredSpecs() {
         return List.of(
-                AttachOptionSpec.required("api_key", "API key", Schemas.UTF8),
+                AttachOptionSpec.requiredSecret("api_key", "API key", Schemas.UTF8),
                 AttachOptionSpec.of("region", "Region", Schemas.UTF8, "us-east-1"));
     }
 }
