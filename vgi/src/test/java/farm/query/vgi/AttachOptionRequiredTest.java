@@ -42,5 +42,7 @@ class AttachOptionRequiredTest {
                 AttachOptionSpec.required("api_key", "API key", new ArrowType.Utf8())));
         Files.write(Path.of(dir, "java_region.arrow"), AttachOptionSpecSerializer.serialize(
                 AttachOptionSpec.of("region", "AWS region", new ArrowType.Utf8(), "us-east-1")));
+        Files.write(Path.of(dir, "java_secret_api_key.arrow"), AttachOptionSpecSerializer.serialize(
+                AttachOptionSpec.requiredSecret("api_key", "API key", new ArrowType.Utf8())));
     }
 }

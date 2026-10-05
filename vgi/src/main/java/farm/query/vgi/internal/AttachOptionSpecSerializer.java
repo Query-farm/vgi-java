@@ -23,12 +23,13 @@ import java.util.List;
  * Serialises an {@link AttachOptionSpec} to the wire format:
  * one-row IPC stream with schema
  * {@code {name: utf8, description: utf8, type: binary, default_value: binary?,
- * required: bool?}}.
+ * required: bool?, secret: bool?}}.
  *
- * <p>{@code required} is nullable and appended LAST so a peer that predates the
- * column reads the batch by name and simply doesn't see it; absent and
- * explicit-null both mean "not required". It is written explicitly rather than
- * left null so readers see {@code false}.
+ * <p>{@code required} and then {@code secret} are nullable and appended after
+ * the original columns, so a peer that predates them reads the batch by name and
+ * simply doesn't see them; absent and explicit-null both mean {@code false}.
+ * Both are written explicitly rather than left null so readers see
+ * {@code false}. {@link #decode(byte[])} reads every column by name.
  *
  * <p>{@code type} is an IPC-encoded schema with a single field "value" of the
  * spec's type (children included). {@code default_value} is an IPC-encoded
@@ -56,7 +57,8 @@ public final class AttachOptionSpecSerializer {
                 new Field("description", new FieldType(false, UTF8, null), null),
                 new Field("type", new FieldType(false, BINARY, null), null),
                 new Field("default_value", new FieldType(true, BINARY, null), null),
-                new Field("required", new FieldType(true, BOOL, null), null)));
+                new Field("required", new FieldType(true, BOOL, null), null),
+                new Field("secret", new FieldType(true, BOOL, null), null)));
 
         Schema typeSchema = new Schema(List.of(spec.valueField()));
         byte[] typeBytes = SchemaUtil.serializeSchema(typeSchema);
@@ -73,9 +75,56 @@ public final class AttachOptionSpecSerializer {
             if (defaultBytes == null) defaultVec.setNull(0);
             else defaultVec.setSafe(0, defaultBytes);
             ((BitVector) root.getVector("required")).setSafe(0, spec.required() ? 1 : 0);
+            ((BitVector) root.getVector("secret")).setSafe(0, spec.secret() ? 1 : 0);
             root.setRowCount(1);
             return BatchUtil.writeSingleBatch(root);
         }
+    }
+
+    /**
+     * A spec as read off the wire. The default stays in its encoded form (a
+     * one-row IPC batch with a single {@code value} column), since decoding it
+     * needs an allocator the reader would then own.
+     *
+     * @param name         option name
+     * @param description  human-readable description
+     * @param valueField   the option's value field (named {@code "value"})
+     * @param defaultValue IPC-encoded one-row default batch, or {@code null} for none
+     * @param required     the option must be supplied at ATTACH time
+     * @param secret       the option carries a credential
+     */
+    public record Decoded(String name, String description, Field valueField,
+                          byte[] defaultValue, boolean required, boolean secret) {}
+
+    /**
+     * Decode one option spec's wire bytes. Columns are looked up by name;
+     * {@code required} and {@code secret} read as {@code false} when the column
+     * is absent (an older peer) or null.
+     *
+     * @param bytes the one-row IPC stream
+     * @return the decoded spec
+     */
+    public static Decoded decode(byte[] bytes) {
+        return BatchUtil.withReadBatch(bytes, Allocators.root(), root -> {
+            if (root == null || root.getRowCount() != 1) {
+                throw new IllegalArgumentException("attach option spec must be a one-row batch");
+            }
+            String name = ((VarCharVector) root.getVector("name")).getObject(0).toString();
+            String description = ((VarCharVector) root.getVector("description")).getObject(0).toString();
+            byte[] typeBytes = ((VarBinaryVector) root.getVector("type")).getObject(0);
+            Field valueField = SchemaUtil.deserializeSchema(typeBytes).getFields().get(0);
+            VarBinaryVector defaultVec = (VarBinaryVector) root.getVector("default_value");
+            byte[] defaultValue = defaultVec == null || defaultVec.isNull(0) ? null : defaultVec.getObject(0);
+            return new Decoded(name, description, valueField, defaultValue,
+                    readFlag(root, "required"), readFlag(root, "secret"));
+        });
+    }
+
+    /** A nullable boolean column by name; absent or null reads as {@code false}. */
+    private static boolean readFlag(VectorSchemaRoot root, String column) {
+        FieldVector v = root.getVector(column);
+        if (!(v instanceof BitVector bits) || bits.isNull(0)) return false;
+        return bits.get(0) != 0;
     }
 
     /** Copy the default vector into a fresh one-row VSR (schema {value: type})

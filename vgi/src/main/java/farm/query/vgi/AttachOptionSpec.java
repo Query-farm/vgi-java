@@ -24,6 +24,39 @@ import java.util.List;
  * at worker startup; the vector is owned by the spec and freed when the
  * process exits.
  *
+ * <h2>Credentials must be declared secret</h2>
+ *
+ * <p>An option that carries a credential (an API key, an access token, a
+ * password, a signing key) <strong>must</strong> be declared {@code secret}.
+ * The flag is advertised to clients in the option's spec, and changes how they
+ * and the DuckDB extension handle the value:
+ *
+ * <ul>
+ *   <li>clients mask it in their options editors and keep it out of exported or
+ *       shared configuration;</li>
+ *   <li>the extension never writes it into a result-cache key in plain text (it
+ *       contributes a salted HMAC digest instead, so results stay separate per
+ *       credential), redacts it in {@code info.options}, and never logs it;</li>
+ *   <li>the value can be supplied from a {@code vgi_attach} DuckDB secret
+ *       instead of being written into the ATTACH statement:
+ *       <pre>{@code
+ * CREATE SECRET (TYPE vgi_attach, SCOPE 'https://sales.example.com', api_key 'sk-…');
+ * ATTACH 'sales' (TYPE vgi, LOCATION 'https://sales.example.com');
+ * }</pre></li>
+ * </ul>
+ *
+ * <p>Declare one with {@link #requiredSecret(String, String, ArrowType)}, or
+ * mark any spec with {@link #asSecret()}:
+ *
+ * <pre>{@code
+ * AttachOptionSpec.requiredSecret("api_key", "API key", Schemas.UTF8);
+ * AttachOptionSpec.of("token", "Optional access token", Schemas.UTF8, null).asSecret();
+ * }</pre>
+ *
+ * <p>{@code secret} combines freely with {@code required}. It is also allowed
+ * together with a default, but a secret option normally has none: a default
+ * credential would ship in the worker's catalog metadata to every client.
+ *
  * @param name          option name as written in the ATTACH clause / wire key
  * @param description   human-readable description for catalog introspection
  * @param valueField    Arrow field describing the option's value type (named {@code "value"})
@@ -31,13 +64,19 @@ import java.util.List;
  * @param required      the caller must supply this option at ATTACH time; mutually exclusive with a
  *                      default, since an option that falls back to a value is by definition
  *                      satisfiable without the caller
+ * @param secret        the value is a credential (API key, token, password): clients mask it,
+ *                      the extension keeps it out of cache keys, {@code info.options} and logs,
+ *                      and it may be supplied from a {@code vgi_attach} DuckDB secret. Every
+ *                      credential option must set this. Combines with {@code required}; allowed
+ *                      with a default, though a secret option normally has none
  */
 public record AttachOptionSpec(
         String name,
         String description,
         Field valueField,
         FieldVector defaultVector,
-        boolean required) {
+        boolean required,
+        boolean secret) {
 
     /** Rejects the contradictory required-plus-default combination. */
     public AttachOptionSpec {
@@ -46,6 +85,44 @@ public record AttachOptionSpec(
                     "Attach option '" + name + "' is required but also declares a default; an option "
                             + "with a default is always satisfiable without the caller. Drop one.");
         }
+    }
+
+    /**
+     * A non-secret spec; kept so declarations written before {@code secret}
+     * existed still compile.
+     *
+     * @param name          option name
+     * @param description   human-readable description
+     * @param valueField    Arrow field describing the option's value type
+     * @param defaultVector length-1 default vector, or {@code null} for none
+     * @param required      the caller must supply this option at ATTACH time
+     */
+    public AttachOptionSpec(String name, String description, Field valueField,
+                            FieldVector defaultVector, boolean required) {
+        this(name, description, valueField, defaultVector, required, false);
+    }
+
+    /**
+     * Returns a copy of this spec declared {@code secret}. The copy shares this
+     * spec's default vector, so use it in place of the original.
+     *
+     * @return this spec with {@code secret = true}
+     */
+    public AttachOptionSpec asSecret() {
+        return new AttachOptionSpec(name, description, valueField, defaultVector, required, true);
+    }
+
+    /**
+     * Convenience: a credential the caller must supply at ATTACH time, such as
+     * an API key. Equivalent to {@code required(name, description, type).asSecret()}.
+     *
+     * @param name        option name
+     * @param description human-readable description
+     * @param type        the option's Arrow value type
+     * @return a spec with no default, {@code required = true} and {@code secret = true}
+     */
+    public static AttachOptionSpec requiredSecret(String name, String description, ArrowType type) {
+        return required(name, description, type).asSecret();
     }
 
     /**
@@ -68,6 +145,9 @@ public record AttachOptionSpec(
      * <p>A catalog that cannot be attached without this option advertises that
      * at discovery, so a client can say so before attempting the attach rather
      * than surfacing a failure that reads like an empty catalog.
+     *
+     * <p>If the option is a credential, use
+     * {@link #requiredSecret(String, String, ArrowType)} instead.
      *
      * @param name        option name
      * @param description human-readable description
