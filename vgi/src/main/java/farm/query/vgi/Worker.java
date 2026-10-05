@@ -49,8 +49,12 @@ public final class Worker {
      *  publish into its global namespace — see {@link #registerGlobalFunctions}
      *  and {@link #globalFunctionPrefix(String)}. A worker that opts out still
      *  carries the fields (empty list, empty prefix): the extension matches the
-     *  response schema exactly. */
-    public static final String VGI_PROTOCOL_VERSION = "2.0.0";
+     *  response schema exactly.</p>
+     *
+     *  <p>2.1.0 added the {@code catalog_contents} RPC and the trailing
+     *  {@code supports_catalog_contents} column on the {@code catalog_attach}
+     *  result; this worker reports {@code false}, so the RPC is never called. */
+    public static final String VGI_PROTOCOL_VERSION = "2.1.0";
 
     private String catalogName = "vgi";
     private String catalogComment = "";

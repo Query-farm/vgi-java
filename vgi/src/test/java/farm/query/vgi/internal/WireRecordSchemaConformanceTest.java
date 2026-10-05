@@ -523,6 +523,8 @@ class WireRecordSchemaConformanceTest {
         m.put("CatalogCatalogsResult", "same {items: list<binary>} shape as CatalogSchemasResult,"
                 + " which ItemsResponse is checked against");
         m.put("CatalogCopyFromFormatsResult", "same shape as CatalogSchemasResult (see above)");
+        m.put("CatalogContentsResult", "the bulk catalog_contents RPC is not implemented in this SDK;"
+                + " it never advertises supports_catalog_contents, so the client never calls it");
         m.put("CatalogMacroGetResult", "same shape as CatalogSchemasResult (see above)");
         m.put("CatalogSchemaContentsFunctionsResult", "same shape as CatalogSchemasResult (see above)");
         m.put("CatalogSchemaContentsMacrosResult", "same shape as CatalogSchemasResult (see above)");

@@ -30,6 +30,8 @@ import java.util.Map;
  *        globally visible name; empty string publishes bare names
  * @param resolved_data_version data version actually selected, or {@code null}
  * @param resolved_implementation_version worker implementation version actually selected, or {@code null}
+ * @param supports_catalog_contents whether the worker serves the bulk {@code catalog_contents} RPC;
+ *        when {@code false} the client enumerates the catalog with per-schema {@code schema_contents_*} calls
  */
 public record CatalogAttachResult(
         byte[] attach_opaque_data,
@@ -48,5 +50,6 @@ public record CatalogAttachResult(
         List<byte[]> global_functions,
         String global_function_prefix,
         @Nullable String resolved_data_version,
-        @Nullable String resolved_implementation_version) implements ArrowSerializableRecord {
+        @Nullable String resolved_implementation_version,
+        boolean supports_catalog_contents) implements ArrowSerializableRecord {
 }
