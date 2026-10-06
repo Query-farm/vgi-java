@@ -15,5 +15,8 @@ dependencies {
     implementation("com.google.code.gson:gson:2.14.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
+    // GrantBearerHttpTest's login authenticator reads the request (vgirpc's
+    // Authenticator takes a servlet request); Jetty supplies it at runtime.
+    testCompileOnly("jakarta.servlet:jakarta.servlet-api:6.0.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

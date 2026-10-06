@@ -85,7 +85,16 @@ public final class IdentityFixture {
     public static Authenticator authenticator() {
         return request -> {
             String principal = request.getHeader(PRINCIPAL_HEADER);
-            if (principal == null || principal.isEmpty()) return AuthContext.ANONYMOUS;
+            if (principal == null || principal.isEmpty()) {
+                // A bearer without a principal header is "not mine", so the identity bearer
+                // authenticators the server appends (sealed grants, resolveToken) are reached,
+                // as in the reference fixture. Neither header means anonymous.
+                String authorization = request.getHeader("Authorization");
+                if (authorization != null && !authorization.isEmpty()) {
+                    throw new farm.query.vgirpc.http.InvalidCredentials("no conformance principal header");
+                }
+                return AuthContext.ANONYMOUS;
+            }
             String authTime = request.getHeader(AUTH_TIME_HEADER);
             Map<String, Object> claims = authTime == null
                     ? Collections.emptyMap() : Map.of("auth_time", authTime);

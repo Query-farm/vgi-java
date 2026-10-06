@@ -106,3 +106,47 @@ Do not report an outage as `IllegalArgumentException` or an `AuthException`.
 Those read as a definitive "unknown". A proxy may negative-cache that answer,
 and then a thirty-second store blip locks valid users out for the life of the
 cache.
+
+## Sealed grants: grants that log in
+
+`issue_grant` mints a grant that unattended automation later presents as an
+ordinary bearer. Configure grant keys and the worker both mints those grants
+and accepts them back (IDENTITY_V1_SPEC §9):
+
+```bash
+# 32 random bytes, base64. The first key mints; every key listed verifies.
+export VGI_RPC_GRANT_KEYS="$(head -c 32 /dev/urandom | base64)"
+export VGI_RPC_GRANT_AUDIENCE="sales-prod"        # optional, bound into every token
+export VGI_RPC_GRANT_MAX_TTL_SECONDS=86400        # optional, default 7 days
+my-worker --http                                  # or --grant-key KEY (repeatable)
+```
+
+or in code: `Worker.builder()...grantKeys(new GrantKeys(List.of(key), "sales-prod", 86400))`.
+
+- **Off unless configured.** With no key nothing changes: no `issue_grant` is
+  hosted and no new bearer is accepted. A malformed key stops the worker at
+  startup.
+- **HTTP only**, like the rest of Identity.
+- **Minting.** Unless the worker supplies `mintGrant`, a freshly logged-in user
+  calling `issue_grant` gets a `vgig1.` token: XChaCha20-Poly1305 sealed,
+  carrying principal, scopes, purpose and expiry, and no server-side state.
+- **Accepting.** The worker's HTTP authentication runs in this order: your own
+  authenticator, then sealed grants, then `resolveToken`. A request with
+  `Authorization: Bearer vgig1.…` is authenticated as the user who minted it,
+  domain `grant`, with claims `{grant_id, scopes, purpose}`. A bad, expired or
+  foreign grant is a 401 and is never passed to `resolveToken`.
+- **Grants never mint grants.** A grant-authenticated caller has no
+  `auth_time`, so `issue_grant` refuses it (`stale_auth`).
+- **Revocation** is by expiry or by removing a key, which revokes every grant
+  that key minted. To rotate, put the new key first, keep the old one after it
+  until its grants expire, then remove it.
+
+With `resolveToken` set, HTTP authentication also asks it about bearers your
+own authenticator does not accept: a resolved credential authenticates as that
+identity (domain `token`), `null` is a 401, and `AuthUnavailableException` is a
+503 carrying your `Retry-After`. If your authenticator depends on proxy-injected
+evidence (a proxy-proof gate, mTLS headers), the server refuses to start rather
+than add these as alternatives beside it. In that case compose them yourself:
+put the gate around `IdentityBearer.compose(...)` and pass the result wrapped
+in `IdentityBearer.explicit(...)`.
+

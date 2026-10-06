@@ -78,6 +78,8 @@ public final class Worker {
     private farm.query.vgirpc.identity.GrantMintHook mintGrantHook;
     private List<String> introspectPrincipals;
     private Double maxAuthAge;
+    /** Sealed-grant keys set in code or by {@code --grant-key}; {@code null} reads the env. */
+    private farm.query.vgirpc.identity.GrantKeys grantKeys;
     private final List<ScalarFunction> scalars = new ArrayList<>();
     private final List<TableFunction> tables = new ArrayList<>();
     private final java.util.Set<String> unlistedTables = new java.util.HashSet<>();
@@ -341,6 +343,12 @@ public final class Worker {
      * HTTP only: the allowlist is a list of principals, which stdin/stdout, AF_UNIX and TCP do not
      * have.
      *
+     * <p>The worker's HTTP authentication also consults the hook for bearer credentials its own
+     * authenticator does not accept: a resolved credential authenticates as that identity
+     * (domain {@code "token"}), {@code null} falls through to 401, and an outage is a 503 with
+     * the hook's {@code Retry-After}. JWS-shaped, sealed-grant ({@code vgig1.}) and over-long
+     * tokens are never passed to it.
+     *
      * <p>Setting this makes an introspector allowlist mandatory -- {@link #introspectPrincipals}
      * or {@code VGI_INTROSPECT_PRINCIPALS} -- and {@link #runHttp} refuses to start without one:
      * "any authenticated caller" lets any user resolve any other user's credential to its owner.
@@ -376,6 +384,28 @@ public final class Worker {
      */
     public Worker mintGrant(farm.query.vgirpc.identity.GrantMintHook hook) {
         this.mintGrantHook = hook;
+        return this;
+    }
+
+    /**
+     * Turn on sealed grants (IDENTITY_V1_SPEC.md §9), overriding {@code VGI_RPC_GRANT_KEYS}.
+     *
+     * <p>With keys, over HTTP the worker hosts {@code issue_grant} and mints sealed grants itself
+     * (unless {@link #mintGrant} supplies a minter of its own), and its HTTP authentication accepts
+     * those grants back as bearer credentials: unattended automation presents the grant a user
+     * minted and is authenticated as that user, domain {@code "grant"}. A grant-authenticated
+     * caller carries no {@code auth_time}, so it cannot mint another grant.
+     *
+     * <p>Without this the environment decides: {@code VGI_RPC_GRANT_KEYS} (comma-separated
+     * base64 keys of 32 bytes, minting key first), {@code VGI_RPC_GRANT_AUDIENCE},
+     * {@code VGI_RPC_GRANT_MAX_TTL_SECONDS}, or {@code --grant-key} on the command line. Unset
+     * means grants are off and nothing changes. A malformed key stops the worker at startup.
+     *
+     * @param keys the grant keys, or {@code null} to defer to the environment
+     * @return this worker
+     */
+    public Worker grantKeys(farm.query.vgirpc.identity.GrantKeys keys) {
+        this.grantKeys = keys;
         return this;
     }
 
@@ -1594,8 +1624,13 @@ public final class Worker {
                         http, http ? opaqueDataKey : null));
         server.setProtocolVersion(advertisedProtocolVersion());
         hostExtraProtocols(server);
+        // Identity -- sealed grants included -- is HTTP-only: its allowlist and freshness rules
+        // read a caller principal, which stdin/stdout, AF_UNIX and TCP do not have. The port reads
+        // VGI_RPC_GRANT_KEYS on its own, so the other transports turn it off explicitly.
+        farm.query.vgirpc.identity.GrantKeys keys = http ? effectiveGrantKeys() : null;
+        server.setGrantKeys(keys);
         if (http) {
-            farm.query.vgirpc.identity.IdentityImpl identity = buildIdentity();
+            farm.query.vgirpc.identity.IdentityImpl identity = buildIdentity(keys);
             if (identity != null) server.setIdentity(identity);
         }
         return server;
@@ -1650,11 +1685,14 @@ public final class Worker {
      *     allowlist is configured: introspection is a distinct capability from authentication,
      *     and refusing to start beats an open oracle
      */
-    private farm.query.vgirpc.identity.IdentityImpl buildIdentity() {
-        if (resolveTokenHook == null && mintGrantHook == null) return null;
+    private farm.query.vgirpc.identity.IdentityImpl buildIdentity(farm.query.vgirpc.identity.GrantKeys keys) {
+        if (resolveTokenHook == null && mintGrantHook == null && keys == null) return null;
+        // With keys and no minter of the worker's own, the port installs the sealed minter; with
+        // a resolver or keys, HttpServer appends the grant / resolveToken bearer authenticators.
         farm.query.vgirpc.identity.IdentityImpl.Builder b = farm.query.vgirpc.identity.IdentityImpl.builder()
                 .resolveToken(resolveTokenHook)
-                .mintGrant(mintGrantHook);
+                .mintGrant(mintGrantHook)
+                .grantKeys(keys);
         if (maxAuthAge != null) b.maxAuthAge(maxAuthAge);
         if (resolveTokenHook != null) {
             List<String> principals = introspectPrincipals != null
@@ -1671,6 +1709,11 @@ public final class Worker {
             b.introspectPrincipals(principals);
         }
         return b.build();
+    }
+
+    /** {@link #grantKeys} when set in code or by {@code --grant-key}, else the environment. */
+    private farm.query.vgirpc.identity.GrantKeys effectiveGrantKeys() {
+        return grantKeys != null ? grantKeys : farm.query.vgirpc.identity.GrantKeys.fromEnv();
     }
 
     private static List<String> principalsFromEnvironment() {
@@ -1865,6 +1908,8 @@ public final class Worker {
      *   <li>{@code --iroh-issuer}, repeated {@code --iroh-trusted-proxy}, and
      *       {@code --iroh-observe}: Iroh bridge trust and authentication mode
      *   <li>{@code --idle-timeout <seconds>}: passed to {@code runUnixSocket} / {@code runTcp}
+     *   <li>{@code --grant-key <base64>}: sealed-grant key, repeatable, first mints (HTTP; see
+     *       {@link #grantKeys})
      *   <li>(default): stdio
      * </ul>
      * Also honours {@code VGI_WORKER_STDERR}: redirects {@link System#err} to
@@ -1896,6 +1941,7 @@ public final class Worker {
         String irohRawUpstream = null;
         String irohIssuer = null;
         List<String> irohTrustedProxies = new ArrayList<>();
+        List<String> grantKeyArgs = new ArrayList<>();
         boolean irohObserve = false;
         long idleTimeoutMs = 0;
         for (int i = 0; i < args.length; i++) {
@@ -1909,12 +1955,23 @@ public final class Worker {
                 case "--iroh-issuer" -> irohIssuer = args[++i];
                 case "--iroh-trusted-proxy" -> irohTrustedProxies.add(args[++i]);
                 case "--iroh-observe" -> irohObserve = true;
+                case "--grant-key" -> grantKeyArgs.add(args[++i]);
                 case "--idle-timeout" -> idleTimeoutMs =
                         (long) (Double.parseDouble(args[++i]) * 1000.0);
                 case "--describe", "--no-describe", "--threaded", "--quiet", "-q", "--debug" -> { }
                 case "--log-level" -> i++;
                 default -> { System.err.println("unknown arg: " + args[i]); System.exit(2); }
             }
+        }
+        if (!grantKeyArgs.isEmpty()) {
+            // --grant-key KEY, repeatable, first mints; audience and lifetime still come from
+            // VGI_RPC_GRANT_AUDIENCE / VGI_RPC_GRANT_MAX_TTL_SECONDS. A malformed key stops here.
+            String ttl = System.getenv(farm.query.vgirpc.identity.GrantKeys.MAX_TTL_ENV);
+            grantKeys(farm.query.vgirpc.identity.GrantKeys.parse(grantKeyArgs,
+                    System.getenv().getOrDefault(farm.query.vgirpc.identity.GrantKeys.AUDIENCE_ENV, ""),
+                    ttl == null || ttl.isBlank()
+                            ? farm.query.vgirpc.identity.GrantKeys.DEFAULT_MAX_TTL_SECONDS
+                            : Long.parseLong(ttl.strip())));
         }
         int selectedTransports = (http ? 1 : 0)
                 + (unixSocket != null ? 1 : 0)
