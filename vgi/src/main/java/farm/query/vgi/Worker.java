@@ -71,6 +71,13 @@ public final class Worker {
      *  opaque data. {@code null} ⇒ per-process random (single-replica only).
      *  See {@link #opaqueDataKey(byte[])}. */
     private byte[] opaqueDataKey;
+    /** Supplies the protocols hosted beside {@code vgi.v2}; see {@link #hostedProtocols}. */
+    private java.util.function.Supplier<? extends java.util.Collection<HostedProtocol>> hostedProtocolsHook;
+    /** {@code vgi_rpc.Identity.v1} hooks; absent unless set. See {@link #resolveToken}. */
+    private farm.query.vgirpc.identity.TokenResolveHook resolveTokenHook;
+    private farm.query.vgirpc.identity.GrantMintHook mintGrantHook;
+    private List<String> introspectPrincipals;
+    private Double maxAuthAge;
     private final List<ScalarFunction> scalars = new ArrayList<>();
     private final List<TableFunction> tables = new ArrayList<>();
     private final java.util.Set<String> unlistedTables = new java.util.HashSet<>();
@@ -292,6 +299,109 @@ public final class Worker {
      * @return the configured data-version spec, or {@code null} if unset
      */
     public String dataVersionSpec() { return dataVersionSpec; }
+
+    /**
+     * Install the hook that returns additional vgi-rpc protocols to host beside {@code vgi.v2}.
+     *
+     * <p>Use it to serve other protocols from the same process as the VGI protocol, on the
+     * <strong>same</strong> listener whatever the transport. The hook's result is hosted on every
+     * transport this worker serves -- stdin/stdout, AF_UNIX, TCP, the Iroh raw upstream and HTTP --
+     * after {@code vgi.v2} and in the order returned, so reflection's {@code list_protocols}
+     * reports {@code vgi.v2} first and then these.
+     *
+     * <p>The hook is called <strong>once</strong>, when a transport's server is built. It may
+     * consult configuration or the environment, but its answer is fixed for the life of that
+     * server, so reflection output and protocol hashes stay stable.
+     *
+     * <p>The protocol is the unit of optionality: there is no way to host a subset of a protocol's
+     * methods. A capability that is optional should be its own protocol, returned here or not.
+     *
+     * <p>Each protocol needs a distinct wire name ({@code @ProtocolName}). Names may not repeat,
+     * may not be {@code vgi.v2}, and may not use the reserved {@code vgi_rpc.} prefix: reflection
+     * is hosted automatically, and {@code vgi_rpc.Identity.v1} is enabled by
+     * {@link #resolveToken} / {@link #mintGrant}. A violation is a startup error naming this hook.
+     * Requests are routed on their {@code vgi_rpc.protocol} key, so hosting more protocols never
+     * changes how a {@code vgi.v2} request is dispatched.
+     *
+     * @param hook returns the pairs to host; {@code null} hosts none
+     * @return this worker
+     */
+    public Worker hostedProtocols(
+            java.util.function.Supplier<? extends java.util.Collection<HostedProtocol>> hook) {
+        this.hostedProtocolsHook = hook;
+        return this;
+    }
+
+    /**
+     * Host {@code vgi_rpc.Identity.v1}'s {@code introspect_token} on HTTP, backed by {@code hook}.
+     *
+     * <p>Lets a reverse proxy that terminates the only public listener resolve an opaque bearer
+     * credential to a principal. Absent unless set -- not hosted-and-refusing -- which keeps a
+     * dependency upgrade from growing a credential-to-identity oracle on every worker. Hosted on
+     * HTTP only: the allowlist is a list of principals, which stdin/stdout, AF_UNIX and TCP do not
+     * have.
+     *
+     * <p>Setting this makes an introspector allowlist mandatory -- {@link #introspectPrincipals}
+     * or {@code VGI_INTROSPECT_PRINCIPALS} -- and {@link #runHttp} refuses to start without one:
+     * "any authenticated caller" lets any user resolve any other user's credential to its owner.
+     *
+     * <p>The hook returns {@code null} for "the store answered and this credential is unknown".
+     * For "the answer is not knowable" (store down, timeout, 5xx), throw
+     * {@link farm.query.vgirpc.http.AuthUnavailableException} -- the same error an
+     * {@code Authenticator} throws when the same store is down. The framework translates it to
+     * {@code identity_unavailable} carrying its retry hint as {@code RetryInfo}, so a caller knows
+     * the failure is transient and when to ask again. ({@code IdentityUnavailableError} works
+     * too.) Never throw an {@code IllegalArgumentException} or an {@code AuthException} for an
+     * outage: those read as a definitive "unknown", which callers may negative-cache.
+     *
+     * @param hook resolves a credential to its identity
+     * @return this worker
+     */
+    public Worker resolveToken(farm.query.vgirpc.identity.TokenResolveHook hook) {
+        this.resolveTokenHook = hook;
+        return this;
+    }
+
+    /**
+     * Host {@code vgi_rpc.Identity.v1}'s {@code issue_grant} on HTTP, backed by {@code hook}.
+     *
+     * <p>The subject is always the authenticated caller, never a parameter. Throw
+     * {@code GrantRefusedError} to decline; for a transient failure throw
+     * {@link farm.query.vgirpc.http.AuthUnavailableException}, which reaches the caller as
+     * {@code identity_unavailable} with its retry hint. Needs no allowlist: minting is always
+     * about the caller.
+     *
+     * @param hook mints a grant for the calling principal
+     * @return this worker
+     */
+    public Worker mintGrant(farm.query.vgirpc.identity.GrantMintHook hook) {
+        this.mintGrantHook = hook;
+        return this;
+    }
+
+    /**
+     * Principals permitted to call {@code introspect_token}. Overrides
+     * {@code VGI_INTROSPECT_PRINCIPALS} (comma-separated). Required whenever
+     * {@link #resolveToken} is set; there is no permissive default.
+     *
+     * @param principals the allowlisted caller principals
+     * @return this worker
+     */
+    public Worker introspectPrincipals(String... principals) {
+        this.introspectPrincipals = principals == null ? null : List.of(principals);
+        return this;
+    }
+
+    /**
+     * How recently a caller must have authenticated to mint a grant, in seconds.
+     *
+     * @param seconds the ceiling on {@code now - auth_time}
+     * @return this worker
+     */
+    public Worker maxAuthAge(double seconds) {
+        this.maxAuthAge = seconds;
+        return this;
+    }
 
     /**
      * Provide a stable 32-byte key for sealing attach / transaction
@@ -1274,18 +1384,129 @@ public final class Worker {
     public List<AggregateFunction<?>> aggregates() { return aggregates; }
 
     /**
-     * @param sealOpaqueData HTTP-only AEAD sealing of attach / transaction
-     *        opaque data. Disabled for stdio / AF_UNIX, where OS process
-     *        ownership already enforces caller identity. When the caller
-     *        configured {@link #opaqueDataKey(byte[])}, that key is also
-     *        passed down so multi-replica deployments share a key.
+     * The transport a server is being built for. Only {@link #HTTP} changes what is hosted
+     * (opaque-data sealing and {@code vgi_rpc.Identity.v1}); the rest are named so the decision
+     * lives in {@link #buildServer} rather than at each call site.
      */
-    private RpcServer buildServer(boolean sealOpaqueData) {
+    enum Transport { PIPE, UNIX, TCP, IROH, HTTP }
+
+    /**
+     * The one place this worker's {@link RpcServer} is built, for every transport.
+     *
+     * <p>What a server hosts, in reflection order:
+     * <ol>
+     *   <li>{@code vgi.v2};</li>
+     *   <li>the {@link #hostedProtocols} hook's result, in the order returned -- on
+     *       <strong>every</strong> transport;</li>
+     *   <li>{@code vgi_rpc.Reflection.v1} -- always, on every transport;</li>
+     *   <li>{@code vgi_rpc.Identity.v1} -- HTTP only, and only when {@link #resolveToken} and/or
+     *       {@link #mintGrant} is set.</li>
+     * </ol>
+     *
+     * <p>Opaque-data sealing (AEAD of attach / transaction opaque data) is HTTP-only: on stdio /
+     * AF_UNIX OS process ownership already enforces caller identity. When the caller configured
+     * {@link #opaqueDataKey(byte[])}, that key is passed down so multi-replica deployments share
+     * a key.
+     *
+     * @param transport the transport this server will serve
+     * @return the configured server, not yet bound to any transport
+     * @throws IllegalArgumentException if the {@link #hostedProtocols} hook returned an invalid
+     *     protocol, or identity is enabled on HTTP without an introspector allowlist
+     */
+    RpcServer buildServer(Transport transport) {
+        boolean http = transport == Transport.HTTP;
         RpcServer server = new RpcServer(VgiService.class,
                 new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates,
-                        sealOpaqueData, sealOpaqueData ? opaqueDataKey : null));
+                        http, http ? opaqueDataKey : null));
         server.setProtocolVersion(advertisedProtocolVersion());
+        hostExtraProtocols(server);
+        if (http) {
+            farm.query.vgirpc.identity.IdentityImpl identity = buildIdentity();
+            if (identity != null) server.setIdentity(identity);
+        }
         return server;
+    }
+
+    /** Call the {@link #hostedProtocols} hook once and register its result, naming the hook in
+     *  every refusal -- the port's own messages name a protocol class, not the method to fix. */
+    private void hostExtraProtocols(RpcServer server) {
+        if (hostedProtocolsHook == null) return;
+        String owner = "Worker.hostedProtocols hook";
+        java.util.Collection<HostedProtocol> pairs = hostedProtocolsHook.get();
+        if (pairs == null) return;
+        int index = 0;
+        for (HostedProtocol pair : pairs) {
+            if (pair == null) {
+                throw new IllegalArgumentException(owner + " entry " + index + " is null.");
+            }
+            String name;
+            try {
+                name = farm.query.vgirpc.ServiceIntrospector.protocolName(pair.protocol());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(owner + " entry " + index + " ("
+                        + pair.protocol().getName() + "): " + e.getMessage(), e);
+            }
+            if (name.startsWith(farm.query.vgirpc.ProtocolNames.RESERVED_PREFIX)) {
+                throw new IllegalArgumentException(owner + " entry " + index + " ("
+                        + pair.protocol().getName() + ") is named '" + name + "', which claims the "
+                        + "reserved 'vgi_rpc.' prefix. Framework protocols are not supplied through "
+                        + "this hook: reflection is hosted automatically, and vgi_rpc.Identity.v1 is "
+                        + "enabled by Worker.resolveToken() and/or Worker.mintGrant().");
+            }
+            if (name.equals(server.protocolName())) {
+                throw new IllegalArgumentException(owner + " entry " + index + " ("
+                        + pair.protocol().getName() + ") is named '" + name + "', the worker's own "
+                        + "protocol. Give it a distinct @ProtocolName.");
+            }
+            try {
+                server.addProtocol(pair.protocol(), pair.implementation());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(owner + " entry " + index + " ("
+                        + pair.protocol().getName() + "): " + e.getMessage(), e);
+            }
+            index++;
+        }
+    }
+
+    /**
+     * Build {@code vgi_rpc.Identity.v1}, or {@code null} when neither hook is set -- so the
+     * protocol is <em>absent</em>, not hosted-and-refusing.
+     *
+     * @throws IllegalArgumentException when {@link #resolveToken} is set but no introspector
+     *     allowlist is configured: introspection is a distinct capability from authentication,
+     *     and refusing to start beats an open oracle
+     */
+    private farm.query.vgirpc.identity.IdentityImpl buildIdentity() {
+        if (resolveTokenHook == null && mintGrantHook == null) return null;
+        farm.query.vgirpc.identity.IdentityImpl.Builder b = farm.query.vgirpc.identity.IdentityImpl.builder()
+                .resolveToken(resolveTokenHook)
+                .mintGrant(mintGrantHook);
+        if (maxAuthAge != null) b.maxAuthAge(maxAuthAge);
+        if (resolveTokenHook != null) {
+            List<String> principals = introspectPrincipals != null
+                    ? introspectPrincipals : principalsFromEnvironment();
+            if (principals.stream().noneMatch(p -> p != null && !p.isBlank())) {
+                throw new IllegalArgumentException("Worker.resolveToken is set but no introspector "
+                        + "allowlist is configured. Set Worker.introspectPrincipals(...) or "
+                        + "VGI_INTROSPECT_PRINCIPALS (comma-separated) to the principal(s) -- "
+                        + "typically your reverse proxy -- allowed to call introspect_token. "
+                        + "Introspection is a distinct capability from authentication: allowing "
+                        + "any authenticated caller lets any user resolve any other user's "
+                        + "credential to its owner.");
+            }
+            b.introspectPrincipals(principals);
+        }
+        return b.build();
+    }
+
+    private static List<String> principalsFromEnvironment() {
+        String raw = System.getenv("VGI_INTROSPECT_PRINCIPALS");
+        if (raw == null || raw.isBlank()) return List.of();
+        List<String> out = new ArrayList<>();
+        for (String p : raw.split(",")) {
+            if (!p.isBlank()) out.add(p.trim());
+        }
+        return out;
     }
 
     /**
@@ -1324,13 +1545,13 @@ public final class Worker {
      * @return a configured server, not yet bound to any transport
      */
     public RpcServer rpcServer() {
-        return buildServer(false);
+        return buildServer(Transport.PIPE);
     }
 
     /** Block on stdin/stdout serving requests until the transport closes. */
     public void runStdio() {
         try (StdioTransport t = new StdioTransport()) {
-            buildServer(false).serve(t);
+            buildServer(Transport.PIPE).serve(t);
         }
     }
 
@@ -1352,7 +1573,7 @@ public final class Worker {
         // launcher passes --idle-timeout 300 by default; the watchdog inside
         // UnixSocketTransport.serveForever closes the listener when active
         // connections stay at zero past that boundary, letting the JVM exit.
-        UnixSocketTransport.serveForever(socketPath, buildServer(false), idleTimeoutMs);
+        UnixSocketTransport.serveForever(socketPath, buildServer(Transport.UNIX), idleTimeoutMs);
     }
 
     /**
@@ -1372,7 +1593,7 @@ public final class Worker {
      * @throws IOException if the socket cannot be bound or served
      */
     public void runTcp(String host, int port, long idleTimeoutMs) throws IOException {
-        TcpSocketTransport.serveForever(host, port, buildServer(false), idleTimeoutMs,
+        TcpSocketTransport.serveForever(host, port, buildServer(Transport.TCP), idleTimeoutMs,
                 (boundHost, boundPort) -> {
                     System.out.println("TCP:" + boundHost + ":" + boundPort);
                     System.out.flush();
@@ -1397,7 +1618,7 @@ public final class Worker {
         TcpSocketTransport.serveForever(
                 host,
                 port,
-                buildServer(false),
+                buildServer(Transport.IROH),
                 idleTimeoutMs,
                 (boundHost, boundPort) -> {
                     System.out.println("TCP:" + boundHost + ":" + boundPort);
@@ -1600,7 +1821,7 @@ public final class Worker {
         HttpServer.Config effective = config.landingInfo() != null
                 ? config
                 : config.withLandingInfo(farm.query.vgi.http.WorkerLandingInfo.of(this));
-        HttpServer http = new HttpServer(buildServer(true), effective);
+        HttpServer http = new HttpServer(buildServer(Transport.HTTP), effective);
         http.start();
         System.out.println("PORT:" + http.port());
         System.out.flush();

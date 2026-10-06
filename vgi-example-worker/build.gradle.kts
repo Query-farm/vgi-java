@@ -16,6 +16,10 @@ dependencies {
     // stay version-consistent on one classpath. Bump this only in lockstep
     // with arrowVersion in vgi-rpc-java/vgirpc/build.gradle.kts.
     implementation("org.apache.arrow:arrow-c-data:19.0.0")
+    // The conformance identity fixture's header authenticator reads the request
+    // (vgirpc's Authenticator takes a servlet request). Jetty supplies the API
+    // at runtime through vgirpc; compile against it only.
+    compileOnly("jakarta.servlet:jakarta.servlet-api:6.0.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

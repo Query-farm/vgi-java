@@ -62,6 +62,12 @@ public final class BatchUtil {
              ArrowStreamReader reader = new ArrowStreamReader(in, alloc)) {
             if (!reader.loadNextBatch()) return body.apply(null);
             return body.apply(reader.getVectorSchemaRoot());
+        } catch (RuntimeException e) {
+            // The body's own error -- a function refusing its input -- propagates as itself.
+            // Wrapped, the caller saw only "withReadBatch failed": the real type and message
+            // survived only inside the traceback, so a server with tracebacks turned off
+            // (WIRE_PROTOCOL.md §8) lost the cause entirely.
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("BatchUtil.withReadBatch failed", e);
         }

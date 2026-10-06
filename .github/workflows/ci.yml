@@ -93,3 +93,63 @@ jobs:
         with:
           name: test-results
           path: vgi/build/reports/tests/test
+
+  # vgi-rpc's hosted-protocols group against the example worker on stdio, unix
+  # and HTTP: conformance.Secondary.v1 hosted beside vgi.v2 through
+  # Worker.hostedProtocols, the error model, the traceback policy, and over HTTP
+  # the vgi_rpc.Identity.v1 conformance policy (--identity).
+  #
+  # The reference is cloned from main, deliberately unpinned -- the same pattern
+  # vgi-rpc-java's conformance lanes use: it is the yardstick, and a pinned
+  # yardstick lets a lane stay green against a stale contract.
+  hosted-protocols:
+    name: Hosted protocols (stdio, unix, http)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout vgi-java
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned vgi-rpc-java
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: ${{ env.VGI_RPC_JAVA_REF }}
+          path: vgi-rpc-java
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Clone vgi-rpc-python reference (main, deliberately unpinned)
+        run: git clone --depth 1 https://github.com/Query-farm/vgi-rpc-python.git "$RUNNER_TEMP/vgi-rpc-python"
+
+      - name: Install the reference's conformance runner
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "$RUNNER_TEMP/vgi-rpc-python[http,conformance]" pytest pytest-timeout
+
+      - name: Build example worker
+        run: ./gradlew --no-daemon :vgi-example-worker:installDist
+        env:
+          VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
+
+      - name: Run hosted-protocols group
+        run: ci/run-hosted-protocols.sh
+        env:
+          VGI_WORKER_BIN: ${{ github.workspace }}/vgi-example-worker/build/install/vgi-example-worker/bin/vgi-example-worker

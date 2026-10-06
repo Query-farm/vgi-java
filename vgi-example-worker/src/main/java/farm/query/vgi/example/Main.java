@@ -97,6 +97,7 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import farm.query.vgi.catalog.CatalogTable;
@@ -327,7 +328,24 @@ public final class Main {
             runWorker(ao, args);
             return;
         }
-        runWorker(buildWorker(catalogName, implVer, dataSpec), args);
+        Worker worker = buildWorker(catalogName, implVer, dataSpec);
+        // Test-only: host vgi_rpc.Identity.v1 over HTTP with the vgi-rpc conformance policy and
+        // its spoofable header authentication, for `vgi-rpc-test-hosted --url ... --identity`.
+        // Off by default so the DuckDB integration runs see the same worker as before.
+        List<String> rest = new ArrayList<>(List.of(args));
+        boolean identity = rest.remove("--identity") || isTruthy(System.getenv("VGI_FIXTURE_IDENTITY"));
+        if (identity) {
+            farm.query.vgi.example.conformance.IdentityFixture.apply(worker);
+            identityAuth = true;
+        }
+        runWorker(worker, rest.toArray(new String[0]));
+    }
+
+    /** Set by {@code --identity}: HTTP authenticates callers with the conformance header. */
+    private static boolean identityAuth;
+
+    private static boolean isTruthy(String v) {
+        return v != null && (v.equals("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes"));
     }
 
     /**
@@ -375,6 +393,12 @@ public final class Main {
         }
         registerViews(w);
         registerCatalogTables(w);
+        // conformance.Secondary.v1, hosted beside vgi.v2 on every transport through the hosting
+        // hook -- additive: vgi.v2 requests route exactly as before. Checked by vgi-rpc's
+        // hosted-protocols group (`vgi-rpc-test-hosted --expect vgi.v2,conformance.Secondary.v1`).
+        w.hostedProtocols(() -> List.of(farm.query.vgi.HostedProtocol.of(
+                farm.query.vgi.example.conformance.Secondary.class,
+                new farm.query.vgi.example.conformance.SecondaryImpl())));
         registerMultiBranch(w);
         registerMacros(w);
 
@@ -1599,6 +1623,10 @@ public final class Main {
      * HTTP-feature knobs ({@code VGI_HTTP_DISABLE_ZSTD}) are applied here too.
      */
     private static HttpServer.Config.Builder customizeHttpConfig(HttpServer.Config.Builder cb) {
+        if (identityAuth) {
+            cb.authenticator(farm.query.vgi.example.conformance.IdentityFixture.authenticator());
+            return cb;
+        }
         String bearer = System.getenv("VGI_TEST_BEARER_TOKEN");
         if (bearer != null && !bearer.isEmpty()) {
             cb.authenticator(BearerAuthenticator.fromMap(
