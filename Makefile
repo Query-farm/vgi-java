@@ -2,10 +2,20 @@
 #
 # Mirrors vgi-go's Makefile shape: build, test, test-single, test-http.
 # Tests are run by the C++ extension's unittest binary at
-# $(VGI_BUILD_DIR)/test/unittest. Set VGI_BUILD_DIR if your DuckDB checkout
-# isn't at ~/Development/vgi.
+# $(VGI_BUILD_DIR)/test/unittest, from inside the vgi extension checkout.
+#
+# VGI_DIR is that checkout (the C++ extension repo: test/sql, scripts/run_tests.py,
+# and its build/). It defaults to a sibling checkout of this repo; override it with
+#   make test VGI_DIR=/path/to/vgi
+# VGI_BUILD_DIR (default $(VGI_DIR)/build/release) is still honored on its own:
+# set only it, as older invocations did, and VGI_DIR is derived from it
+# (<vgi>/build/<type> -> <vgi>).
 
-VGI_BUILD_DIR ?= $(HOME)/Development/vgi/build/release
+ifneq ($(origin VGI_BUILD_DIR),undefined)
+VGI_DIR       ?= $(abspath $(VGI_BUILD_DIR)/../..)
+endif
+VGI_DIR       ?= ../vgi
+VGI_BUILD_DIR ?= $(VGI_DIR)/build/release
 DUCKDB        ?= $(VGI_BUILD_DIR)/duckdb
 VGI_EXT       ?= $(VGI_BUILD_DIR)/extension/vgi/vgi.duckdb_extension
 UNITTEST      ?= $(VGI_BUILD_DIR)/test/unittest
@@ -13,7 +23,7 @@ UNITTEST      ?= $(VGI_BUILD_DIR)/test/unittest
 EXAMPLE_WORKER := $(CURDIR)/vgi-example-worker/build/install/vgi-example-worker/bin/vgi-example-worker
 
 # launch:<argv> location → C++ extension uses the AF_UNIX launcher protocol
-# (see ~/Development/vgi/docs/launcher-protocol.md) instead of subprocess-fork
+# (see $(VGI_DIR)/docs/launcher-protocol.md) instead of subprocess-fork
 # per ATTACH. Amortises JVM cold-start across the whole test run.
 LAUNCHER_PREFIX ?= launch:
 EXAMPLE_LOCATION := $(LAUNCHER_PREFIX)$(EXAMPLE_WORKER)
@@ -84,7 +94,7 @@ build:
 smoke: build
 	@if [ ! -x "$(DUCKDB)" ]; then \
 	  echo "DuckDB binary missing at $(DUCKDB) — build the C++ extension first:"; \
-	  echo "  (cd $(HOME)/Development/vgi && make release)"; \
+	  echo "  (cd $(VGI_DIR) && make release)"; \
 	  exit 1; \
 	fi
 	@echo "Running smoke test against worker: $(EXAMPLE_LOCATION)"
@@ -173,7 +183,7 @@ COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_CATALOG_CONTENTS_WORKER'
 
 test: build
-	@cd $(HOME)/Development/vgi && $(FIXTURE_ENV) \
+	@cd $(VGI_DIR) && $(FIXTURE_ENV) \
 	    python3 scripts/run_tests.py -j $(JAVA_JOBS) $(COVERAGE_GATE) \
 	        "test/sql/integration/*" "~test/sql/integration/simple_writable/*"
 	@$(MAKE) --no-print-directory test-crash
@@ -187,7 +197,7 @@ test: build
 ## this target is what actually exercises them. run_tests.py derives
 ## VGI_TEST_DEDICATED_WORKER itself from the bare path, so it is not set here.
 test-crash: build
-	@cd $(HOME)/Development/vgi && VGI_TEST_WORKER=$(EXAMPLE_WORKER) \
+	@cd $(VGI_DIR) && VGI_TEST_WORKER=$(EXAMPLE_WORKER) \
 	    python3 scripts/run_tests.py -j 2 --min-executed 2 \
 	        "test/sql/integration/table_in_out/table_buffering_worker_crash.test" \
 	        "test/sql/integration/table_in_out/table_buffering_pool_recovery.test"
@@ -195,7 +205,7 @@ test-crash: build
 ## Run a single sqllogictest by file name.
 test-single: build
 	@if [ -z "$(TEST)" ]; then echo "usage: make test-single TEST=test/sql/integration/scalar/add_values.test"; exit 1; fi
-	@$(FIXTURE_ENV) $(UNITTEST) "$(TEST)"
+	@cd $(VGI_DIR) && $(FIXTURE_ENV) $(abspath $(UNITTEST)) "$(TEST)"
 
 clean:
 	./gradlew clean

@@ -4,6 +4,11 @@
 > development sessions. It references machine-specific paths (`~/Development`,
 > `/tmp` harness scripts) that exist only on the maintainer's machine. If
 > you're evaluating or using the library, start with [README.md](README.md).
+>
+> `~/Development/vgi` below is the maintainer's checkout of the vgi C++
+> extension. The Makefile does not assume it: it locates that checkout through
+> `VGI_DIR` (default: the sibling `../vgi`; e.g. `make test VGI_DIR=/path/to/vgi`),
+> and derives `VGI_BUILD_DIR` (default `$(VGI_DIR)/build/release`) from it.
 
 Java port of the VGI protocol (DuckDB extension that lets external workers
 serve catalog data over Arrow IPC). Driven by passing the integration suite
