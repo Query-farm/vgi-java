@@ -47,8 +47,11 @@ env:
   # translation that Worker.hostedProtocols / resolveToken build on; a stale
   # pin fails as `cannot find symbol: method addProtocol`, and the
   # hosted-protocols job below cannot pass without it.
+  #
+  # v0.29.0 adds sealed grants and resolveToken-backed bearer authentication
+  # (GrantKeys, IdentityBearer) that Worker.grantKeys builds on.
   # Keep in step with the identical pin in integration.yml.
-  VGI_RPC_JAVA_REF: v0.28.0
+  VGI_RPC_JAVA_REF: v0.29.0
 
 jobs:
   test:
