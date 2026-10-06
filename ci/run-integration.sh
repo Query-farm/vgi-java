@@ -256,7 +256,6 @@ EXPECTED_SKIP_REASONS=(
   'require-env VGI_TEST_DEDICATED_WORKER'
   'require-env VGI_MALFORMED_BATCH_WORKER'       # hostile malformed-Arrow fixture (vgi test/support only)
   'require-env VGI_ROWID_CONSTRAINT_WORKER'      # hostile rowid-constraint fixture (vgi test/support only)
-  'require-env VGI_CATALOG_CONTENTS_WORKER'      # vgi-python contents_* fixture catalogs; catalog_contents_conformance.test covers this port
 )
 # Lane-specific additions — a skip expected on one lane is a red flag on another.
 # The launch lane wires the bad-enum / launcher workers, so those tests RUN
@@ -273,10 +272,12 @@ fi
 # Query-farm/vgi main: the launch (and shm, which runs TRANSPORT=launch) lane
 # executes 271, the http lane 265. The floors sit ~16 below, leaving headroom for
 # churn while staying far above the handful a silent collapse would leave.
+# Both floors were raised by 5 when the catalog/catalog_contents*.test files
+# started running against this worker's contents_* fixture catalogs.
 if [ "$TRANSPORT" = "http" ]; then
-  MIN_EXECUTED="${MIN_EXECUTED:-248}"
+  MIN_EXECUTED="${MIN_EXECUTED:-253}"
 else
-  MIN_EXECUTED="${MIN_EXECUTED:-255}"
+  MIN_EXECUTED="${MIN_EXECUTED:-260}"
 fi
 
 cd "$STAGE"

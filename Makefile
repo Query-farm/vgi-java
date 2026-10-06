@@ -140,8 +140,9 @@ smoke: build
 # repo could pass `make test` while the CI script would have caught the same
 # lane silently shrinking. Same two gates, same reasoning, now on both paths.
 #
-# Java runs 294 today.
-JAVA_MIN_EXECUTED ?= 290
+# Java runs 299 today (294, plus the five catalog/catalog_contents*.test files,
+# which now run against this worker's own contents_* fixture catalogs).
+JAVA_MIN_EXECUTED ?= 295
 
 # Parallel. This lane was pinned serial because raising it to -j 6 failed 8
 # table_buffering files reproducibly, which read as a java-worker concurrency
@@ -179,8 +180,7 @@ COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_DATABASE_PYTHON_WORKER' \
 	--allow-skip 'require-env VGI_DATABASE_RUST_WORKER' \
 	--allow-skip 'require-env VGI_MALFORMED_BATCH_WORKER' \
-	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER' \
-	--allow-skip 'require-env VGI_CATALOG_CONTENTS_WORKER'
+	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER'
 
 test: build
 	@cd $(VGI_DIR) && $(FIXTURE_ENV) \

@@ -336,6 +336,7 @@ class WireRecordSchemaConformanceTest {
         m.put(TableBufferingProcessRequest.class, new Codec("TableBufferingProcessRequest", BY_NAME));
         m.put(TableBufferingProcessResponse.class, new Codec("TableBufferingProcessResult", ORDERED));
         m.put(TableFunctionPlanRequest.class, new Codec("TableFunctionPlanRequest", BY_NAME));
+        m.put(farm.query.vgi.protocol.TableCreateRequest.class, new Codec("TableCreateRequest", BY_NAME));
         m.put(TableScanFunctionGetResponse.class, new Codec("ScanFunctionResult", ORDERED));
         m.put(TransactionBeginResponse.class, new Codec("CatalogTransactionBeginResult", ORDERED));
         m.put(ViewInfo.class, new Codec("ViewInfo", ORDERED));
@@ -510,7 +511,7 @@ class WireRecordSchemaConformanceTest {
                 "AggregateStreamingCloseRequest", "AggregateStreamingOpenRequest",
                 "AggregateWindowBatchRequest", "AggregateWindowDestructorRequest",
                 "AggregateWindowInitRequest", "AggregateWindowRequest", "CatalogCreateRequest",
-                "IndexCreateRequest", "MacroCreateRequest", "TableCreateRequest",
+                "IndexCreateRequest", "MacroCreateRequest",
                 "TableFunctionDynamicToStringRequest", "TableFunctionStatisticsRequest")) {
             m.put(request, "the corresponding protocol 2.0 operation is not implemented as a Java wire record");
         }
@@ -545,6 +546,33 @@ class WireRecordSchemaConformanceTest {
      * {@code FunctionInfo.examples} carries — the shape a record that appears
      * only nested has to match.</p>
      */
+    /**
+     * The DDL methods' params envelopes, which vgi-rpc-java derives from the
+     * {@link farm.query.vgi.VgiService} method signatures, are the ones the
+     * protocol defines. A mismatch is rejected by the server's parameter
+     * contract check before the call reaches the catalog.
+     *
+     * @param method the RPC method
+     * @param schemaName the generated params schema it must match
+     */
+    @ParameterizedTest(name = "{0}")
+    @org.junit.jupiter.params.provider.CsvSource({
+            "catalog_schema_create, CatalogSchemaCreateParams",
+            "catalog_schema_drop, CatalogSchemaDropParams",
+            "catalog_table_create, CatalogTableCreateParams",
+            "catalog_table_drop, CatalogTableDropParams",
+            "catalog_view_create, CatalogViewCreateParams",
+            "catalog_view_drop, CatalogViewDropParams"})
+    void ddlParamsMatchTheProtocol(String method, String schemaName) {
+        farm.query.vgirpc.RpcMethodInfo info = farm.query.vgirpc.ServiceIntrospector
+                .describe(farm.query.vgi.VgiService.class).get(method);
+        assertTrue(info != null, () -> method + " is not a VgiService RPC");
+        List<String> problems = compare(method, resolveProtocolSchema(schemaName), info.paramsSchema(),
+                true, Ordering.BY_NAME);
+        assertTrue(problems.isEmpty(), () -> method + ": params differ from " + schemaName + ".\n  "
+                + String.join("\n  ", problems));
+    }
+
     private static Schema resolveProtocolSchema(String name) {
         int dot = name.indexOf('.');
         if (dot < 0) {

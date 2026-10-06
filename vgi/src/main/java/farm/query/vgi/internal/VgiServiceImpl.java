@@ -309,9 +309,15 @@ public final class VgiServiceImpl implements VgiService {
      * or a bind that carries none at all, such as a COPY handler).
      */
     private String attachExtraCatalogName(byte[] attachOpaqueData, CallContext ctx) {
-        if (worker.extraCatalogs().isEmpty() || attachOpaqueData == null) return null;
+        if ((worker.extraCatalogs().isEmpty() && worker.catalogInterfaces().isEmpty())
+                || attachOpaqueData == null) return null;
         try {
-            Worker.ExtraCatalog extra = extraCatalogOf(sealer.unsealAttach(attachOpaqueData, authOf(ctx)));
+            byte[] plain = sealer.unsealAttach(attachOpaqueData, authOf(ctx));
+            // A code-implemented catalog owns no functions, so naming it here
+            // makes every bind on its attach fail with "not registered in catalog".
+            String recorded = catalogRegistry.catalogName(plain);
+            if (recorded != null && worker.catalogInterfaces().containsKey(recorded)) return recorded;
+            Worker.ExtraCatalog extra = extraCatalogOf(plain);
             return extra == null ? null : extra.name();
         } catch (RuntimeException notOurs) {
             return null;
@@ -1309,6 +1315,11 @@ public final class VgiServiceImpl implements VgiService {
                     extra.name(), extra.implementationVersion(), extra.dataVersion(),
                     extraOptionBytes, List.of(), null));
         }
+        for (farm.query.vgi.CatalogInterface hosted : worker.catalogInterfaces().values()) {
+            items.add(CatalogInfoSerializer.serialize(
+                    hosted.name(), hosted.implementationVersion(), hosted.dataVersionSpec(),
+                    List.of(), List.of(), null));
+        }
         return new ItemsResponse(items);
     }
 
@@ -1322,6 +1333,10 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.CatalogVersionResponse catalog_version(byte[] attach_opaque_data,
             byte[] transaction_opaque_data, CallContext ctx) {
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
+        if (hosted != null) {
+            return new farm.query.vgi.protocol.CatalogVersionResponse(hosted.catalog().version(hosted.attachId()));
+        }
         // Versioned fixture: assert the routing cookie set at ATTACH is echoed
         // back. Over HTTP a populated cookie jar that's missing vgi_sticky means
         // the client failed to plumb Set-Cookie -> Cookie. Over subprocess the
@@ -1398,6 +1413,8 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public CatalogAttachResult catalog_attach(CatalogAttachRequest request, CallContext ctx) {
+        farm.query.vgi.CatalogInterface hostedCatalog = worker.catalogInterfaces().get(request.name());
+        if (hostedCatalog != null) return attachHosted(hostedCatalog, request, ctx);
         Worker.ExtraCatalog extra = worker.extraCatalogs().get(request.name());
         if (extra != null) {
             // Enforced against THIS catalog's specs, not the main catalog's: the
@@ -1412,12 +1429,12 @@ public final class VgiServiceImpl implements VgiService {
             catalogRegistry.recordAttach(extraAttachId, extra.dataVersion(), request.name());
             return new CatalogAttachResult(
                     sealer.sealAttach(extraAttachId, authOf(ctx)),
-                    false, false, false,
-                    1L,
+                    false, false, extra.versionFrozen(),
+                    CATALOG_VERSION,
                     true,  // attach_opaque_data_required
                     "main",
                     List.of(), List.of(), List.of(),
-                    extra.schemaComment(),
+                    extra.catalogComment() != null ? extra.catalogComment() : extra.schemaComment(),
                     Map.of(),
                     false,
                     // global_functions / global_function_prefix (protocol 1.3.0):
@@ -1426,7 +1443,8 @@ public final class VgiServiceImpl implements VgiService {
                     "",
                     extra.dataVersion(),
                     extra.implementationVersion(),
-                    worker.supportsCatalogContents());
+                    extra.ownsCatalogContents()
+                            ? extra.supportsCatalogContents() : worker.supportsCatalogContents());
         }
         // Options declared required must actually be supplied: fail the attach
         // loudly rather than yielding a catalog that reads as empty.
@@ -1576,6 +1594,136 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public void catalog_detach(byte[] attach_opaque_data) {
+        Hosted hosted = hostedOf(attach_opaque_data, null);
+        if (hosted != null) {
+            hosted.catalog().detach(hosted.attachId());
+            catalogRegistry.forget(hosted.attachId());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Catalogs implemented in code (Worker#registerCatalog)
+    // -----------------------------------------------------------------------
+
+    /** A {@link farm.query.vgi.CatalogInterface} attach: the catalog and its plain attach id. */
+    private record Hosted(farm.query.vgi.CatalogInterface catalog, byte[] attachId) {}
+
+    /**
+     * The code-implemented catalog an attach belongs to, or {@code null} when it
+     * is the worker's own catalog or an auxiliary one. Unsealing is the auth
+     * check; a call that carries no {@link CallContext} resolves the attach the
+     * way {@link #extraCatalogOf} does.
+     */
+    private Hosted hostedOf(byte[] attachOpaqueData, CallContext ctx) {
+        if (worker.catalogInterfaces().isEmpty() || attachOpaqueData == null) return null;
+        byte[] plain;
+        String name = null;
+        if (ctx != null) {
+            plain = sealer.unsealAttach(attachOpaqueData, authOf(ctx));
+            name = catalogRegistry.catalogName(plain);
+        } else {
+            plain = attachOpaqueData;
+            name = catalogRegistry.catalogName(plain);
+            if (name == null) {
+                try {
+                    plain = sealer.unsealAttach(attachOpaqueData, null);
+                    name = catalogRegistry.catalogName(plain);
+                } catch (RuntimeException sealedWithoutAuth) {
+                    return null;
+                }
+            }
+        }
+        farm.query.vgi.CatalogInterface catalog = name == null ? null : worker.catalogInterfaces().get(name);
+        return catalog == null ? null : new Hosted(catalog, plain);
+    }
+
+    private CatalogAttachResult attachHosted(farm.query.vgi.CatalogInterface catalog, CatalogAttachRequest request,
+                                             CallContext ctx) {
+        byte[] attachId = new byte[16];
+        rng.nextBytes(attachId);
+        farm.query.vgi.CatalogInterface.AttachInfo info = catalog.attach(attachId, request);
+        catalogRegistry.recordAttach(attachId, null, catalog.name());
+        long version = catalog.version(attachId);
+        return new CatalogAttachResult(
+                sealer.sealAttach(attachId, authOf(ctx)),
+                false, false, info.versionFrozen(),
+                version,
+                true,  // attach_opaque_data_required: the state is keyed on it
+                info.defaultSchema(),
+                List.of(), List.of(), List.of(),
+                info.comment(),
+                info.tags(),
+                false,
+                List.of(), "",
+                null, null,
+                info.supportsCatalogContents());
+    }
+
+    private static List<byte[]> hostedSchemaItems(List<SchemaInfo> schemas) {
+        List<byte[]> items = new ArrayList<>(schemas.size());
+        for (SchemaInfo s : schemas) {
+            items.add(RecordCodec.serializeToBytes(new SchemaInfo(s.comment(), s.tags(),
+                    FIXED_ITEM_ATTACH_ID.clone(), s.path(), s.estimated_object_count())));
+        }
+        return items;
+    }
+
+    @Override
+    public void catalog_schema_create(byte[] attach_opaque_data, List<String> path, String on_conflict,
+                                      String comment, Map<String, String> tags, byte[] transaction_opaque_data,
+                                      CallContext ctx) {
+        Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_schema_create");
+        h.catalog().schemaCreate(h.attachId(), path,
+                farm.query.vgi.catalog.OnConflict.fromWire(on_conflict), comment, tags == null ? Map.of() : tags);
+    }
+
+    @Override
+    public void catalog_schema_drop(byte[] attach_opaque_data, List<String> path, boolean ignore_not_found,
+                                    boolean cascade, byte[] transaction_opaque_data, CallContext ctx) {
+        Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_schema_drop");
+        h.catalog().schemaDrop(h.attachId(), path, ignore_not_found, cascade);
+    }
+
+    @Override
+    public void catalog_table_create(byte[] request, CallContext ctx) {
+        farm.query.vgi.protocol.TableCreateRequest req =
+                RecordCodec.deserializeFromBytes(request, farm.query.vgi.protocol.TableCreateRequest.class);
+        Hosted h = requireHosted(req.attach_opaque_data(), ctx, "catalog_table_create");
+        h.catalog().tableCreate(h.attachId(), req);
+    }
+
+    @Override
+    public void catalog_table_drop(byte[] attach_opaque_data, List<String> schema_path, String name,
+                                   boolean ignore_not_found, boolean cascade, byte[] transaction_opaque_data,
+                                   CallContext ctx) {
+        Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_table_drop");
+        h.catalog().tableDrop(h.attachId(), schema_path, name, ignore_not_found, cascade);
+    }
+
+    @Override
+    public void catalog_view_create(byte[] attach_opaque_data, List<String> schema_path, String name,
+                                    String definition, String on_conflict, byte[] transaction_opaque_data,
+                                    CallContext ctx) {
+        Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_view_create");
+        h.catalog().viewCreate(h.attachId(), schema_path, name, definition,
+                farm.query.vgi.catalog.OnConflict.fromWire(on_conflict));
+    }
+
+    @Override
+    public void catalog_view_drop(byte[] attach_opaque_data, List<String> schema_path, String name,
+                                  boolean ignore_not_found, boolean cascade, byte[] transaction_opaque_data,
+                                  CallContext ctx) {
+        Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_view_drop");
+        h.catalog().viewDrop(h.attachId(), schema_path, name, ignore_not_found, cascade);
+    }
+
+    /** The attach's code-implemented catalog; DDL on any other catalog of this worker is refused. */
+    private Hosted requireHosted(byte[] attachOpaqueData, CallContext ctx, String method) {
+        Hosted h = hostedOf(attachOpaqueData, ctx);
+        if (h == null) {
+            throw new UnsupportedOperationException("catalog is read-only: " + method + " not supported");
+        }
+        return h;
     }
 
     /**
@@ -1628,15 +1776,27 @@ public final class VgiServiceImpl implements VgiService {
         byte[] plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         String recorded = catalogRegistry.catalogName(plain);
         String catalogName = recorded != null ? recorded : worker.catalogName();
+        farm.query.vgi.CatalogInterface hosted = recorded == null ? null : worker.catalogInterfaces().get(recorded);
+        if (hosted != null) {
+            // A code-implemented catalog may change between calls (DDL), so its
+            // answer is never cached here: the catalog revalidates itself.
+            return farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx,
+                    catalogName, hosted::catalogContents, hosted.catalogContentsEtag());
+        }
+        Worker.ExtraCatalog contentsOwner = recorded == null ? null : worker.extraCatalogs().get(recorded);
+        farm.query.vgi.CatalogContentsProvider provider = contentsOwner != null && contentsOwner.ownsCatalogContents()
+                ? contentsOwner.contentsProvider() : worker.catalogContentsProvider();
+        farm.query.vgi.CatalogContentsEtag etagMode = contentsOwner != null && contentsOwner.ownsCatalogContents()
+                ? contentsOwner.contentsEtag() : worker.catalogContentsEtag();
         if (!worker.catalogContentsCache()) {
             return farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx,
-                    catalogName, worker.catalogContentsProvider(), worker.catalogContentsEtag());
+                    catalogName, provider, etagMode);
         }
         long version = catalog_version(attach_opaque_data, null, ctx).version();
         ContentsKey key = new ContentsKey(recorded, catalogRegistry.dataVersion(plain), version);
         farm.query.vgi.protocol.CatalogContentsResponse cached = contentsCache.computeIfAbsent(key,
                 k -> farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, null, ctx,
-                        catalogName, worker.catalogContentsProvider(), worker.catalogContentsEtag()));
+                        catalogName, provider, etagMode));
         if (if_none_match != null && if_none_match.equals(cached.etag())) {
             return new farm.query.vgi.protocol.CatalogContentsResponse(
                     cached.catalog_version(), cached.etag(), true, List.of());
@@ -1653,11 +1813,17 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_schemas(byte[] attach_opaque_data, byte[] transaction_opaque_data) {
+        Hosted hosted = hostedOf(attach_opaque_data, null);
+        if (hosted != null) return new ItemsResponse(hostedSchemaItems(hosted.catalog().schemas(hosted.attachId())));
         Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
         if (extra != null) {
-            return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                    new SchemaInfo(extra.schemaComment(), Map.of(), itemAttachId(attach_opaque_data), List.of("main"),
-                            extraSchemaCounts(extra)))));
+            List<byte[]> items = new ArrayList<>();
+            for (String schema : extraSchemas(extra)) {
+                items.add(RecordCodec.serializeToBytes(
+                        new SchemaInfo(extraSchemaComment(extra, schema), Map.of(), itemAttachId(attach_opaque_data),
+                                List.of(schema), extraSchemaCounts(extra, schema))));
+            }
+            return new ItemsResponse(items);
         }
         List<byte[]> items = new ArrayList<>();
         for (SchemaDesc s : workerSchemas()) {
@@ -1678,12 +1844,18 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public ItemsResponse catalog_schema_get(byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data) {
         String name = schemaLeaf(path);
+        Hosted hosted = hostedOf(attach_opaque_data, null);
+        if (hosted != null) {
+            return hosted.catalog().schema(hosted.attachId(), path)
+                    .map(s -> new ItemsResponse(hostedSchemaItems(List.of(s))))
+                    .orElseGet(ItemsResponse::empty);
+        }
         Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
         if (extra != null) {
-            if (!"main".equals(name)) return ItemsResponse.empty();
+            if (path == null || path.size() != 1 || !extraSchemas(extra).contains(name)) return ItemsResponse.empty();
             return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                    new SchemaInfo(extra.schemaComment(), Map.of(), itemAttachId(attach_opaque_data), path,
-                            extraSchemaCounts(extra)))));
+                    new SchemaInfo(extraSchemaComment(extra, name), Map.of(), itemAttachId(attach_opaque_data), path,
+                            extraSchemaCounts(extra, name)))));
         }
         for (SchemaDesc s : workerSchemas()) {
             if (s.name.equals(name)) {
@@ -1738,39 +1910,79 @@ public final class VgiServiceImpl implements VgiService {
      * Zero counts let the C++ extension skip the corresponding contents RPCs
      * entirely, so a count that under-reports makes the function unreachable.
      */
-    private Map<String, Long> extraSchemaCounts(Worker.ExtraCatalog extra) {
+    private Map<String, Long> extraSchemaCounts(Worker.ExtraCatalog extra, String schema) {
         long scalarCount = 0;
         long tableFnCount = 0;
         long aggregateCount = 0;
         for (var v : scalars.values()) {
-            for (ScalarFunction fn : v) if (visibleIn(fn, "main", extra)) scalarCount++;
+            for (ScalarFunction fn : v) if (visibleIn(fn, schema, extra)) scalarCount++;
         }
         for (var v : tables.values()) {
             for (TableFunction fn : v) {
                 if (worker.unlistedTables().contains(fn.name())) continue;
-                if (visibleIn(fn, "main", extra)) tableFnCount++;
+                if (visibleIn(fn, schema, extra)) tableFnCount++;
             }
         }
         for (var v : tableInOuts.values()) {
-            for (TableInOutFunction fn : v) if (visibleIn(fn, "main", extra)) tableFnCount++;
+            for (TableInOutFunction fn : v) if (visibleIn(fn, schema, extra)) tableFnCount++;
         }
         for (var v : bufferingFns.values()) {
-            for (var fn : v) if (visibleIn(fn, "main", extra)) tableFnCount++;
+            for (var fn : v) if (visibleIn(fn, schema, extra)) tableFnCount++;
         }
         for (var v : aggregates.values()) {
-            for (var fn : v) if (visibleIn(fn, "main", extra)) aggregateCount++;
+            for (var fn : v) if (visibleIn(fn, schema, extra)) aggregateCount++;
         }
-        List<CatalogTable> ownedTables = worker.extraCatalogTables().get(extra.name());
-        long tableCount = ownedTables == null ? 0L : ownedTables.size();
+        long tableCount = 0;
+        for (CatalogTable t : worker.extraCatalogTables().getOrDefault(extra.name(), List.of())) {
+            if (t.schema().equals(schema)) tableCount++;
+        }
+        long viewCount = 0;
+        for (View v : worker.extraCatalogViews().getOrDefault(extra.name(), List.of())) {
+            if (v.schema().equals(schema)) viewCount++;
+        }
+        long macroCount = 0;
+        for (Macro m : worker.extraCatalogMacros().getOrDefault(extra.name(), List.of())) {
+            if (m.schema().equals(schema)) macroCount++;
+        }
         Map<String, Long> m = new java.util.LinkedHashMap<>();
         m.put("scalar_function", scalarCount);
         m.put("table_function", tableFnCount);
         m.put("aggregate_function", aggregateCount);
         m.put("table", tableCount);
-        m.put("view", 0L);
-        m.put("macro", 0L);
+        m.put("view", viewCount);
+        m.put("macro", macroCount);
         m.put("index", 0L);
         return m;
+    }
+
+    /**
+     * The schemas of an auxiliary catalog: {@code main} first, then every other
+     * schema one of its tables, views, macros or functions is declared in, in
+     * registration order.
+     */
+    private List<String> extraSchemas(Worker.ExtraCatalog extra) {
+        java.util.LinkedHashSet<String> schemas = new java.util.LinkedHashSet<>();
+        schemas.add("main");
+        for (CatalogTable t : worker.extraCatalogTables().getOrDefault(extra.name(), List.of())) schemas.add(t.schema());
+        for (View v : worker.extraCatalogViews().getOrDefault(extra.name(), List.of())) schemas.add(v.schema());
+        for (Macro m : worker.extraCatalogMacros().getOrDefault(extra.name(), List.of())) schemas.add(m.schema());
+        List<List<?>> registries = List.of(
+                new ArrayList<>(scalars.values()), new ArrayList<>(tables.values()),
+                new ArrayList<>(tableInOuts.values()), new ArrayList<>(bufferingFns.values()),
+                new ArrayList<>(aggregates.values()));
+        for (List<?> registry : registries) {
+            for (Object variants : registry) {
+                for (Object fn : (List<?>) variants) {
+                    if (extra.name().equals(worker.catalogOf(fn))) schemas.add(worker.schemaOf(fn));
+                }
+            }
+        }
+        return List.copyOf(schemas);
+    }
+
+    private static String extraSchemaComment(Worker.ExtraCatalog extra, String schema) {
+        if ("main".equals(schema)) return extra.schemaComment();
+        return extra.schemaComments().getOrDefault(schema, "");
     }
 
     /**
@@ -1889,6 +2101,14 @@ public final class VgiServiceImpl implements VgiService {
     public ItemsResponse catalog_schema_contents_tables(
             byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data, CallContext ctx) {
         String name = schemaLeaf(path);
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
+        if (hosted != null) {
+            List<byte[]> hostedItems = new ArrayList<>();
+            for (farm.query.vgi.protocol.TableInfo t : hosted.catalog().tables(hosted.attachId(), path)) {
+                hostedItems.add(TableInfoSerializer.serialize(t));
+            }
+            return new ItemsResponse(hostedItems);
+        }
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         List<CatalogTable> extraTables = extraCatalogTablesFor(attach_opaque_data_plain, name);
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
@@ -1939,6 +2159,10 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, List<String> schema_path, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         String schema_name = schemaLeaf(schema_path);
+        if (hostedOf(attach_opaque_data, ctx) != null) {
+            throw new IllegalArgumentException("scan_function_get: table " + schema_name + "." + name
+                    + " holds metadata only and cannot be scanned");
+        }
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
@@ -2009,6 +2233,10 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, List<String> schema_path, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         String schema_name = schemaLeaf(schema_path);
+        if (hostedOf(attach_opaque_data, ctx) != null) {
+            throw new IllegalArgumentException("scan_branches_get: table " + schema_name + "." + name
+                    + " holds metadata only and cannot be scanned");
+        }
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
@@ -2226,6 +2454,12 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, List<String> schema_path, String name,
             String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
         String schema_name = schemaLeaf(schema_path);
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
+        if (hosted != null) {
+            return hosted.catalog().table(hosted.attachId(), schema_path, name)
+                    .map(t -> new ItemsResponse(List.of(TableInfoSerializer.serialize(t))))
+                    .orElseGet(ItemsResponse::empty);
+        }
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
@@ -2269,7 +2503,9 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, List<String> schema_path, String name, byte[] transaction_opaque_data,
             CallContext ctx) {
         String schema_name = schemaLeaf(schema_path);
+        if (hostedOf(attach_opaque_data, ctx) != null) return new byte[0];
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        if (extraCatalogOf(attach_opaque_data_plain) != null) return new byte[0];
         if (catalogRegistry.isHiddenInVersionedTables(name, attach_opaque_data_plain)) return new byte[0];
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
@@ -2350,6 +2586,20 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data) {
         String name = schemaLeaf(path);
         List<byte[]> items = new ArrayList<>();
+        Hosted hosted = hostedOf(attach_opaque_data, null);
+        if (hosted != null) {
+            for (farm.query.vgi.protocol.ViewInfo v : hosted.catalog().views(hosted.attachId(), path)) {
+                items.add(RecordCodec.serializeToBytes(v));
+            }
+            return new ItemsResponse(items);
+        }
+        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        if (extra != null) {
+            for (View v : worker.extraCatalogViews().getOrDefault(extra.name(), List.of())) {
+                if (v.schema().equals(name)) items.add(RecordCodec.serializeToBytes(toViewInfo(v)));
+            }
+            return new ItemsResponse(items);
+        }
         // Versioned-tables catalog ships no user-visible views.
         if ("versioned_tables".equals(worker.catalogName())) {
             return new ItemsResponse(items);
@@ -2375,6 +2625,21 @@ public final class VgiServiceImpl implements VgiService {
     public ItemsResponse catalog_view_get(byte[] attach_opaque_data, List<String> schema_path, String name,
             byte[] transaction_opaque_data) {
         String schema_name = schemaLeaf(schema_path);
+        Hosted hosted = hostedOf(attach_opaque_data, null);
+        if (hosted != null) {
+            return hosted.catalog().view(hosted.attachId(), schema_path, name)
+                    .map(v -> new ItemsResponse(List.of(RecordCodec.serializeToBytes(v))))
+                    .orElseGet(ItemsResponse::empty);
+        }
+        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        if (extra != null) {
+            for (View v : worker.extraCatalogViews().getOrDefault(extra.name(), List.of())) {
+                if (v.schema().equals(schema_name) && v.name().equals(name)) {
+                    return new ItemsResponse(List.of(RecordCodec.serializeToBytes(toViewInfo(v))));
+                }
+            }
+            return ItemsResponse.empty();
+        }
         for (View v : worker.views()) {
             if (v.schema().equals(schema_name) && v.name().equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
@@ -2403,7 +2668,23 @@ public final class VgiServiceImpl implements VgiService {
         boolean wantTable = type == null || type.equalsIgnoreCase("table")
                 || type.equalsIgnoreCase("table_macro");
         List<byte[]> items = new ArrayList<>();
-        for (Macro m : worker.macros()) {
+        Hosted hosted = hostedOf(attach_opaque_data, null);
+        if (hosted != null) {
+            if (wantScalar) {
+                for (farm.query.vgi.protocol.MacroInfo m : hosted.catalog().macros(hosted.attachId(), path, MacroType.SCALAR)) {
+                    items.add(MacroInfoSerializer.serialize(m));
+                }
+            }
+            if (wantTable) {
+                for (farm.query.vgi.protocol.MacroInfo m : hosted.catalog().macros(hosted.attachId(), path, MacroType.TABLE)) {
+                    items.add(MacroInfoSerializer.serialize(m));
+                }
+            }
+            return new ItemsResponse(items);
+        }
+        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        for (Macro m : extra != null ? worker.extraCatalogMacros().getOrDefault(extra.name(), List.of())
+                                      : worker.macros()) {
             if (!m.schema().equals(name)) continue;
             boolean isScalar = m.macroType() == MacroType.SCALAR;
             if (isScalar && !wantScalar) continue;
@@ -2426,12 +2707,25 @@ public final class VgiServiceImpl implements VgiService {
     public ItemsResponse catalog_macro_get(byte[] attach_opaque_data, List<String> schema_path, String name,
             byte[] transaction_opaque_data) {
         String schema_name = schemaLeaf(schema_path);
-        for (Macro m : worker.macros()) {
+        Hosted hosted = hostedOf(attach_opaque_data, null);
+        if (hosted != null) {
+            return hosted.catalog().macro(hosted.attachId(), schema_path, name)
+                    .map(m -> new ItemsResponse(List.of(MacroInfoSerializer.serialize(m))))
+                    .orElseGet(ItemsResponse::empty);
+        }
+        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        for (Macro m : extra != null ? worker.extraCatalogMacros().getOrDefault(extra.name(), List.of())
+                                      : worker.macros()) {
             if (m.schema().equals(schema_name) && m.name().equals(name)) {
                 return new ItemsResponse(List.of(MacroInfoSerializer.serialize(toMacroInfo(m))));
             }
         }
         return ItemsResponse.empty();
+    }
+
+    private static farm.query.vgi.protocol.ViewInfo toViewInfo(View v) {
+        return new farm.query.vgi.protocol.ViewInfo(
+                v.comment(), v.tags(), v.name(), List.of(v.schema()), v.definition(), v.columnComments());
     }
 
     private static farm.query.vgi.protocol.MacroInfo toMacroInfo(Macro m) {
@@ -2469,6 +2763,8 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, List<String> path, String type, byte[] transaction_opaque_data,
             CallContext ctx) {
         String name = schemaLeaf(path);
+        // A code-implemented catalog declares no functions.
+        if (hostedOf(attach_opaque_data, ctx) != null) return ItemsResponse.empty();
         byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         boolean wantScalar = type == null
                 || type.equalsIgnoreCase("scalar")
@@ -2641,6 +2937,7 @@ public final class VgiServiceImpl implements VgiService {
         // COPY formats are owned by the main catalog; an auxiliary catalog's
         // attach advertises none (parallels catalog_schemas' extra-catalog gate).
         if (extraCatalogOf(attach_opaque_data) != null) return ItemsResponse.empty();
+        if (hostedOf(attach_opaque_data, null) != null) return ItemsResponse.empty();
         boolean projReproAttach =
                 "projection_repro".equals(catalogRegistry.catalogName(attach_opaque_data));
         List<byte[]> items = new ArrayList<>();

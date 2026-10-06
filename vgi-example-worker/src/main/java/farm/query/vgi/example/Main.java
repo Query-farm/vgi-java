@@ -390,6 +390,8 @@ public final class Main {
             registerTwinCatalogs(w);
             registerCopyFrom(w);
             registerCopyTo(w);
+            // The six catalog_contents fixture catalogs (catalog/catalog_contents*.test).
+            farm.query.vgi.example.catalogcontents.CatalogContentsFixtures.register(w);
         }
         registerViews(w);
         registerCatalogTables(w);

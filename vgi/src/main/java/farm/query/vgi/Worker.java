@@ -535,11 +535,33 @@ public final class Worker {
      *                      takes none.
      */
     public record ExtraCatalog(String name, String implementationVersion, String dataVersion,
-                               String schemaComment, List<AttachOptionSpec> attachOptions) {
+                               String schemaComment, List<AttachOptionSpec> attachOptions,
+                               String catalogComment, Map<String, String> schemaComments,
+                               boolean versionFrozen, Boolean supportsCatalogContents,
+                               CatalogContentsProvider contentsProvider, CatalogContentsEtag contentsEtag) {
 
-        /** Defensive copy; a null option list reads as none declared. */
+        /** Defensive copies; a null option list reads as none declared, a null etag policy as NONE. */
         public ExtraCatalog {
             attachOptions = attachOptions == null ? List.of() : List.copyOf(attachOptions);
+            schemaComments = schemaComments == null ? Map.of() : Map.copyOf(schemaComments);
+            contentsEtag = contentsEtag == null ? CatalogContentsEtag.NONE : contentsEtag;
+        }
+
+        /**
+         * An auxiliary catalog with attach options and the defaults for everything
+         * added since: no catalog comment, version not frozen, {@code catalog_contents}
+         * served as the worker's own catalog serves it.
+         *
+         * @param name the catalog name used in {@code ATTACH '<name>' ...}
+         * @param implementationVersion the advertised/resolved implementation version
+         * @param dataVersion the advertised {@code data_version_spec} and resolved data version
+         * @param schemaComment the comment on the catalog's {@code main} schema
+         * @param attachOptions ATTACH-time options this catalog alone declares
+         */
+        public ExtraCatalog(String name, String implementationVersion, String dataVersion,
+                            String schemaComment, List<AttachOptionSpec> attachOptions) {
+            this(name, implementationVersion, dataVersion, schemaComment, attachOptions,
+                    null, Map.of(), false, null, null, null);
         }
 
         /**
@@ -554,6 +576,73 @@ public final class Worker {
                             String schemaComment) {
             this(name, implementationVersion, dataVersion, schemaComment, List.of());
         }
+
+        /**
+         * This catalog with a catalog-level comment (the attach result's {@code comment}).
+         *
+         * @param comment the comment, or {@code null}
+         * @return a copy
+         */
+        public ExtraCatalog withCatalogComment(String comment) {
+            return new ExtraCatalog(name, implementationVersion, dataVersion, schemaComment, attachOptions,
+                    comment, schemaComments, versionFrozen, supportsCatalogContents, contentsProvider,
+                    contentsEtag);
+        }
+
+        /**
+         * This catalog with a comment on one of its schemas other than {@code main}
+         * ({@code main}'s is {@link #schemaComment()}).
+         *
+         * @param schema  the schema name
+         * @param comment the comment
+         * @return a copy
+         */
+        public ExtraCatalog withSchemaComment(String schema, String comment) {
+            Map<String, String> comments = new LinkedHashMap<>(schemaComments);
+            comments.put(schema, comment);
+            return new ExtraCatalog(name, implementationVersion, dataVersion, schemaComment, attachOptions,
+                    catalogComment, comments, versionFrozen, supportsCatalogContents, contentsProvider,
+                    contentsEtag);
+        }
+
+        /**
+         * This catalog with {@code catalog_version_frozen} set: a static catalog whose
+         * version never changes, so the client never re-checks it.
+         *
+         * @param frozen whether the version is frozen
+         * @return a copy
+         */
+        public ExtraCatalog withVersionFrozen(boolean frozen) {
+            return new ExtraCatalog(name, implementationVersion, dataVersion, schemaComment, attachOptions,
+                    catalogComment, schemaComments, frozen, supportsCatalogContents, contentsProvider,
+                    contentsEtag);
+        }
+
+        /**
+         * This catalog with its own {@code catalog_contents} behaviour, instead of
+         * inheriting the worker's ({@link Worker#supportsCatalogContents(boolean)},
+         * {@link Worker#catalogContents(CatalogContentsProvider)},
+         * {@link Worker#catalogContentsEtag(CatalogContentsEtag)}).
+         *
+         * @param supports whether {@code catalog_attach} advertises {@code supports_catalog_contents}
+         * @param provider the catalog's own answer, or {@code null} for the default snapshot
+         * @param etag     the framework etag policy, or {@code null} for {@link CatalogContentsEtag#NONE}
+         * @return a copy
+         */
+        public ExtraCatalog withCatalogContents(boolean supports, CatalogContentsProvider provider,
+                                                CatalogContentsEtag etag) {
+            return new ExtraCatalog(name, implementationVersion, dataVersion, schemaComment, attachOptions,
+                    catalogComment, schemaComments, versionFrozen, supports, provider,
+                    etag == null ? CatalogContentsEtag.NONE : etag);
+        }
+
+        /**
+         * Whether this catalog's {@code catalog_contents} is configured on the catalog
+         * itself ({@link #withCatalogContents}) rather than inherited from the worker.
+         *
+         * @return {@code true} once {@link #withCatalogContents} was applied
+         */
+        public boolean ownsCatalogContents() { return supportsCatalogContents != null; }
     }
 
     private final Map<String, ExtraCatalog> extraCatalogs = new LinkedHashMap<>();
@@ -600,6 +689,77 @@ public final class Worker {
      * @return the extra-catalog tables keyed by catalog name
      */
     public Map<String, List<CatalogTable>> extraCatalogTables() { return extraCatalogTables; }
+
+    private final Map<String, List<View>> extraCatalogViews = new LinkedHashMap<>();
+    private final Map<String, List<Macro>> extraCatalogMacros = new LinkedHashMap<>();
+
+    /**
+     * Register a view owned by an auxiliary catalog, in the schema the view
+     * names. Listed only under that catalog's attaches.
+     *
+     * @param catalogName the owning auxiliary catalog name
+     * @param v the view
+     * @return this builder
+     */
+    public Worker registerExtraCatalogView(String catalogName, View v) {
+        extraCatalogViews.computeIfAbsent(catalogName, k -> new ArrayList<>()).add(v);
+        return this;
+    }
+
+    /**
+     * Views owned by auxiliary catalogs, keyed by catalog name.
+     *
+     * @return the extra-catalog views keyed by catalog name
+     */
+    public Map<String, List<View>> extraCatalogViews() { return extraCatalogViews; }
+
+    /**
+     * Register a macro owned by an auxiliary catalog, in the schema the macro
+     * names. Listed only under that catalog's attaches.
+     *
+     * @param catalogName the owning auxiliary catalog name
+     * @param m the macro
+     * @return this builder
+     */
+    public Worker registerExtraCatalogMacro(String catalogName, Macro m) {
+        extraCatalogMacros.computeIfAbsent(catalogName, k -> new ArrayList<>()).add(m);
+        return this;
+    }
+
+    /**
+     * Macros owned by auxiliary catalogs, keyed by catalog name.
+     *
+     * @return the extra-catalog macros keyed by catalog name
+     */
+    public Map<String, List<Macro>> extraCatalogMacros() { return extraCatalogMacros; }
+
+    private final Map<String, CatalogInterface> catalogInterfaces = new LinkedHashMap<>();
+
+    /**
+     * Serve a catalog implemented in code next to this worker's own (MetaWorker-style):
+     * it gets its own {@code catalog_catalogs()} row, and every catalog RPC for one of
+     * its attaches is routed to it. See {@link CatalogInterface}.
+     *
+     * @param catalog the catalog
+     * @return this builder
+     * @throws IllegalArgumentException if the name is already served by this worker
+     */
+    public Worker registerCatalog(CatalogInterface catalog) {
+        String name = catalog.name();
+        if (name == null || name.isEmpty()) throw new IllegalArgumentException("catalog name is empty");
+        if (name.equals(catalogName) || extraCatalogs.containsKey(name) || catalogInterfaces.containsKey(name)) {
+            throw new IllegalArgumentException("catalog " + name + " is already served by this worker");
+        }
+        catalogInterfaces.put(name, catalog);
+        return this;
+    }
+
+    /**
+     * The catalogs registered via {@link #registerCatalog(CatalogInterface)}.
+     *
+     * @return the catalogs keyed by name, in registration order
+     */
+    public Map<String, CatalogInterface> catalogInterfaces() { return catalogInterfaces; }
 
     /**
      * Where a registered function is declared: the catalog that owns it
@@ -853,6 +1013,20 @@ public final class Worker {
     public Worker registerExtraCatalogTableInOut(String catalogName, List<String> schemaPath, TableInOutFunction fn) {
         tableInOuts.add(fn);
         return home(fn, catalogName, schemaPath);
+    }
+
+    /**
+     * Register an aggregate function owned by an auxiliary catalog, in a named
+     * schema of it. See {@link #registerExtraCatalogScalar}.
+     *
+     * @param catalogName the owning auxiliary catalog (see {@link #registerExtraCatalog})
+     * @param schemaName  the schema within that catalog
+     * @param fn          the aggregate function
+     * @return this builder
+     */
+    public Worker registerExtraCatalogAggregate(String catalogName, String schemaName, AggregateFunction<?> fn) {
+        aggregates.add(fn);
+        return home(fn, catalogName, List.of(schemaName));
     }
 
     /**

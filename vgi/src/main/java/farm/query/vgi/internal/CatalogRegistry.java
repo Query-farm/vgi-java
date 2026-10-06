@@ -64,6 +64,15 @@ public final class CatalogRegistry {
     }
 
     /**
+     * Drop the per-attach state (at {@code catalog_detach}).
+     *
+     * @param attachId the attach identifier
+     */
+    public void forget(byte[] attachId) {
+        attaches.remove(HexId.encode(attachId));
+    }
+
+    /**
      * The data version negotiated at ATTACH time for this attach.
      *
      * @param attachId the attach identifier

@@ -359,13 +359,93 @@ public interface VgiService {
      * @param comment                 optional schema comment
      * @param tags                    schema tag key/value pairs
      * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx                     per-call context
      */
     default void catalog_schema_create(byte[] attach_opaque_data, java.util.List<String> path,
                                           @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String on_conflict,
                                           @Nullable String comment,
                                           @Nullable java.util.Map<String, String> tags,
-                                          @Nullable byte[] transaction_opaque_data) {
+                                          @Nullable byte[] transaction_opaque_data,
+                                          CallContext ctx) {
         throw new UnsupportedOperationException("catalog is read-only: catalog_schema_create not supported");
+    }
+
+    /**
+     * Drop a schema (DDL). Read-only catalogs reject this.
+     *
+     * @param attach_opaque_data      the attach handle
+     * @param path                    schema path to drop
+     * @param ignore_not_found        {@code IF EXISTS}
+     * @param cascade                 also drop the schema's objects
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx                     per-call context
+     */
+    default void catalog_schema_drop(byte[] attach_opaque_data, java.util.List<String> path,
+                                        boolean ignore_not_found, boolean cascade,
+                                        @Nullable byte[] transaction_opaque_data, CallContext ctx) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_schema_drop not supported");
+    }
+
+    /**
+     * Create a table (DDL). Read-only catalogs reject this.
+     *
+     * @param request the IPC-serialized {@link farm.query.vgi.protocol.TableCreateRequest}
+     * @param ctx     per-call context
+     */
+    default void catalog_table_create(byte[] request, CallContext ctx) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_table_create not supported");
+    }
+
+    /**
+     * Drop a table (DDL). Read-only catalogs reject this.
+     *
+     * @param attach_opaque_data      the attach handle
+     * @param schema_path             owning schema path
+     * @param name                    table name
+     * @param ignore_not_found        {@code IF EXISTS}
+     * @param cascade                 also drop dependents
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx                     per-call context
+     */
+    default void catalog_table_drop(byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
+                                       boolean ignore_not_found, boolean cascade,
+                                       @Nullable byte[] transaction_opaque_data, CallContext ctx) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_table_drop not supported");
+    }
+
+    /**
+     * Create a view (DDL). Read-only catalogs reject this.
+     *
+     * @param attach_opaque_data      the attach handle
+     * @param schema_path             owning schema path
+     * @param name                    view name
+     * @param definition              the view's SQL
+     * @param on_conflict             conflict policy (dictionary-encoded on the wire)
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx                     per-call context
+     */
+    default void catalog_view_create(byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
+                                        String definition,
+                                        @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String on_conflict,
+                                        @Nullable byte[] transaction_opaque_data, CallContext ctx) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_view_create not supported");
+    }
+
+    /**
+     * Drop a view (DDL). Read-only catalogs reject this.
+     *
+     * @param attach_opaque_data      the attach handle
+     * @param schema_path             owning schema path
+     * @param name                    view name
+     * @param ignore_not_found        {@code IF EXISTS}
+     * @param cascade                 also drop dependents
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx                     per-call context
+     */
+    default void catalog_view_drop(byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
+                                      boolean ignore_not_found, boolean cascade,
+                                      @Nullable byte[] transaction_opaque_data, CallContext ctx) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_view_drop not supported");
     }
 
     /**
