@@ -82,6 +82,8 @@ public final class Worker {
     private boolean supportsCatalogContents = true;
     private CatalogContentsProvider catalogContentsProvider;
     private CatalogContentsEtag catalogContentsEtag = CatalogContentsEtag.NONE;
+    private boolean attachScopedCatalogItems = false;
+    private boolean catalogContentsCache = true;
     private final List<SettingSpec> settings = new ArrayList<>();
     private final List<SecretTypeSpec> secretTypes = new ArrayList<>();
     private final List<farm.query.vgi.protocol.AttachCatalogInfo> attachCatalogs = new ArrayList<>();
@@ -1034,6 +1036,62 @@ public final class Worker {
      * @return the policy set by {@link #catalogContentsEtag(CatalogContentsEtag)}
      */
     public CatalogContentsEtag catalogContentsEtag() { return catalogContentsEtag; }
+
+    /**
+     * Whether catalog items embed the per-attach {@code attach_opaque_data}.
+     *
+     * <p>Off by default: a {@code Worker} catalog is declarative, so its items
+     * ({@code SchemaInfo.attach_opaque_data}) carry a fixed value
+     * ({@code VgiServiceImpl.FIXED_ITEM_ATTACH_ID}, the same bytes vgi-python's
+     * {@code ReadOnlyCatalogInterface} uses) and are identical for every
+     * attach. The client keeps and resends the per-attach envelope from
+     * {@code catalog_attach} either way, so auth, routing (extra catalogs) and
+     * data-version scoping are unaffected. Turn it on only for a catalog whose
+     * items genuinely need per-attach scoping; it also disables the
+     * {@code catalog_contents} cache ({@link #catalogContentsCache(boolean)}).</p>
+     *
+     * @param enabled whether to embed the per-attach id in catalog items
+     * @return this builder
+     */
+    public Worker attachScopedCatalogItems(boolean enabled) {
+        attachScopedCatalogItems = enabled;
+        return this;
+    }
+
+    /**
+     * Whether catalog items embed the per-attach {@code attach_opaque_data}.
+     *
+     * @return the flag set by {@link #attachScopedCatalogItems(boolean)}; {@code false} by default
+     */
+    public boolean attachScopedCatalogItems() { return attachScopedCatalogItems; }
+
+    /**
+     * Whether the worker caches its {@code catalog_contents} answer.
+     *
+     * <p>On by default. A {@code Worker} catalog never changes its version and
+     * (unless {@link #attachScopedCatalogItems(boolean)}) its items do not
+     * depend on the attach, so the answer depends only on the attached catalog
+     * (the worker's own or an extra catalog), the attach's resolved data
+     * version, and the catalog version. It is built once per such key — the
+     * {@link #catalogContents(CatalogContentsProvider) provider} is asked once,
+     * with no {@code if_none_match} — and every later call reuses it, answering
+     * a matching {@code if_none_match} with {@code not_modified} from the cached
+     * etag. Turn it off for a provider whose answer depends on anything else.</p>
+     *
+     * @param enabled whether to cache the {@code catalog_contents} answer
+     * @return this builder
+     */
+    public Worker catalogContentsCache(boolean enabled) {
+        catalogContentsCache = enabled;
+        return this;
+    }
+
+    /**
+     * Whether the {@code catalog_contents} answer is cached.
+     *
+     * @return {@code true} when the cache is on and items are attach-independent
+     */
+    public boolean catalogContentsCache() { return catalogContentsCache && !attachScopedCatalogItems; }
 
     /**
      * Advertise custom session settings in the {@code catalog_attach} result.

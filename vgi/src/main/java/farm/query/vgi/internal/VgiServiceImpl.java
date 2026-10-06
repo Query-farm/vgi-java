@@ -1579,14 +1579,42 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     /**
+     * The {@code attach_opaque_data} written into catalog items: a fixed value
+     * shared by every attach — the bytes vgi-python's
+     * {@code ReadOnlyCatalogInterface._FIXED_ATTACH_ID} uses — so items are
+     * attach-independent and snapshots can be shared. The client never reads it
+     * back: it resends the envelope from {@code catalog_attach}.
+     */
+    public static final byte[] FIXED_ITEM_ATTACH_ID =
+            "readonly-catalog-".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+
+    /** The item attach id: the per-attach token only when the worker opts in. */
+    private byte[] itemAttachId(byte[] attachOpaqueData) {
+        return worker.attachScopedCatalogItems() ? attachOpaqueData : FIXED_ITEM_ATTACH_ID.clone();
+    }
+
+    /**
+     * What a {@code catalog_contents} answer depends on when items are
+     * attach-independent: the attached catalog (recorded name, null for an
+     * unrecorded main-catalog attach), the attach's resolved data version, and
+     * the catalog version. The same inputs every per-schema listing branches on.
+     */
+    private record ContentsKey(String catalogName, String dataVersion, long version) {}
+
+    /** Cached {@code catalog_contents} answers ({@link Worker#catalogContentsCache()}). */
+    private final java.util.concurrent.ConcurrentMap<ContentsKey, farm.query.vgi.protocol.CatalogContentsResponse>
+            contentsCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
      * Return the whole catalog in one result, through the worker's
      * {@link Worker#catalogContents(farm.query.vgi.CatalogContentsProvider) provider}
      * and {@link Worker#catalogContentsEtag(farm.query.vgi.CatalogContentsEtag) etag policy}.
      *
-     * <p>No worker-side cache: every {@code SchemaInfo} item carries its
-     * attach's {@code attach_opaque_data} (a random per-ATTACH id), so the
-     * snapshot is never the same for two attaches. A provider with a cheap etag
-     * is how a catalog avoids rebuilding it.</p>
+     * <p>Cached ({@link Worker#catalogContentsCache()}): built once per
+     * {@link ContentsKey} with no {@code if_none_match} and reused; a matching
+     * {@code if_none_match} is answered {@code not_modified} from the cached
+     * etag. The response record is reused, so a hit skips the build but not
+     * the Arrow encode — vgi-rpc-java serialises a unary record result itself.</p>
      *
      * @param attach_opaque_data the attach token
      * @param if_none_match the etag of the snapshot the client holds, or {@code null}
@@ -1596,12 +1624,24 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.CatalogContentsResponse catalog_contents(
             byte[] attach_opaque_data, String if_none_match, CallContext ctx) {
-        // Open the envelope first, like every per-schema RPC: it is the auth check.
+        // Open the envelope first, even on a cache hit, like every per-schema RPC: it is the auth check.
         byte[] plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
         String recorded = catalogRegistry.catalogName(plain);
-        return farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx,
-                recorded != null ? recorded : worker.catalogName(),
-                worker.catalogContentsProvider(), worker.catalogContentsEtag());
+        String catalogName = recorded != null ? recorded : worker.catalogName();
+        if (!worker.catalogContentsCache()) {
+            return farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx,
+                    catalogName, worker.catalogContentsProvider(), worker.catalogContentsEtag());
+        }
+        long version = catalog_version(attach_opaque_data, null, ctx).version();
+        ContentsKey key = new ContentsKey(recorded, catalogRegistry.dataVersion(plain), version);
+        farm.query.vgi.protocol.CatalogContentsResponse cached = contentsCache.computeIfAbsent(key,
+                k -> farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, null, ctx,
+                        catalogName, worker.catalogContentsProvider(), worker.catalogContentsEtag()));
+        if (if_none_match != null && if_none_match.equals(cached.etag())) {
+            return new farm.query.vgi.protocol.CatalogContentsResponse(
+                    cached.catalog_version(), cached.etag(), true, List.of());
+        }
+        return cached;
     }
 
     /**
@@ -1616,13 +1656,13 @@ public final class VgiServiceImpl implements VgiService {
         Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
         if (extra != null) {
             return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                    new SchemaInfo(extra.schemaComment(), Map.of(), attach_opaque_data, List.of("main"),
+                    new SchemaInfo(extra.schemaComment(), Map.of(), itemAttachId(attach_opaque_data), List.of("main"),
                             extraSchemaCounts(extra)))));
         }
         List<byte[]> items = new ArrayList<>();
         for (SchemaDesc s : workerSchemas()) {
             items.add(RecordCodec.serializeToBytes(
-                    new SchemaInfo(s.comment, s.tags, attach_opaque_data, List.of(s.name), schemaCounts(s))));
+                    new SchemaInfo(s.comment, s.tags, itemAttachId(attach_opaque_data), List.of(s.name), schemaCounts(s))));
         }
         return new ItemsResponse(items);
     }
@@ -1642,13 +1682,13 @@ public final class VgiServiceImpl implements VgiService {
         if (extra != null) {
             if (!"main".equals(name)) return ItemsResponse.empty();
             return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                    new SchemaInfo(extra.schemaComment(), Map.of(), attach_opaque_data, path,
+                    new SchemaInfo(extra.schemaComment(), Map.of(), itemAttachId(attach_opaque_data), path,
                             extraSchemaCounts(extra)))));
         }
         for (SchemaDesc s : workerSchemas()) {
             if (s.name.equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
-                        new SchemaInfo(s.comment, s.tags, attach_opaque_data, path, schemaCounts(s)))));
+                        new SchemaInfo(s.comment, s.tags, itemAttachId(attach_opaque_data), path, schemaCounts(s)))));
             }
         }
         return ItemsResponse.empty();

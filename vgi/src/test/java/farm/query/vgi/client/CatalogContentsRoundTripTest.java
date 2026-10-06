@@ -177,7 +177,7 @@ final class CatalogContentsRoundTripTest {
             builds.incrementAndGet();
             return CatalogContentsResult.of(request.build(), "v1");
         };
-        try (PipeWorkerHarness h = PipeWorkerHarness.start(worker().catalogContents(provider))) {
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(worker().catalogContents(provider).catalogContentsCache(false))) {
             VgiService vgi = h.client();
             byte[] handle = attach(vgi).attach_opaque_data();
             assertEquals(2, vgi.catalog_contents(handle, null, null).schemas().size());
@@ -206,6 +206,75 @@ final class CatalogContentsRoundTripTest {
             assertTrue(same.not_modified());
             assertTrue(same.schemas().isEmpty());
             assertFalse(vgi.catalog_contents(handle, "0".repeat(64), null).not_modified());
+        }
+    }
+
+    @Test
+    @Timeout(60)
+    void itemsAreAttachIndependentByDefault() throws Exception {
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(worker())) {
+            VgiService vgi = h.client();
+            byte[] first = attach(vgi).attach_opaque_data();
+            byte[] second = attach(vgi).attach_opaque_data();
+            assertFalse(java.util.Arrays.equals(first, second), "each attach still gets its own envelope");
+
+            SchemaInfo info = RecordCodec.deserializeFromBytes(
+                    vgi.catalog_schemas(first, null).items().get(0), SchemaInfo.class);
+            assertArrayEquals(farm.query.vgi.internal.VgiServiceImpl.FIXED_ITEM_ATTACH_ID, info.attach_opaque_data());
+            assertSameItems("schemas", vgi.catalog_schemas(first, null).items(), vgi.catalog_schemas(second, null));
+
+            List<SchemaContents> a = vgi.catalog_contents(first, null, null).schemas();
+            List<SchemaContents> b = vgi.catalog_contents(second, null, null).schemas();
+            assertEquals(CatalogContents.digest(a), CatalogContents.digest(b), "one snapshot for every attach");
+        }
+    }
+
+    @Test
+    @Timeout(60)
+    void attachScopedItemsEmbedThePerAttachId() throws Exception {
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(worker().attachScopedCatalogItems(true))) {
+            VgiService vgi = h.client();
+            byte[] handle = attach(vgi).attach_opaque_data();
+            SchemaInfo info = RecordCodec.deserializeFromBytes(
+                    vgi.catalog_schemas(handle, null).items().get(0), SchemaInfo.class);
+            assertArrayEquals(handle, info.attach_opaque_data());
+            assertArrayEquals(handle, RecordCodec.deserializeFromBytes(
+                    vgi.catalog_contents(handle, null, null).schemas().get(0).schema(), SchemaInfo.class)
+                    .attach_opaque_data());
+            assertFalse(worker().attachScopedCatalogItems(true).catalogContentsCache(),
+                    "per-attach items turn the cache off");
+        }
+    }
+
+    @Test
+    @Timeout(60)
+    void contentsAreBuiltOncePerCatalogAndVersion() throws Exception {
+        AtomicInteger builds = new AtomicInteger();
+        CatalogContentsProvider counting = request -> {
+            builds.incrementAndGet();
+            return CatalogContentsProvider.versionEtag().catalogContents(request);
+        };
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(worker().catalogContents(counting))) {
+            VgiService vgi = h.client();
+            byte[] first = attach(vgi).attach_opaque_data();
+            byte[] second = attach(vgi).attach_opaque_data();
+            CatalogContentsResponse full = vgi.catalog_contents(first, null, null);
+            assertEquals(2, full.schemas().size());
+            assertEquals(2, vgi.catalog_contents(second, null, null).schemas().size());
+            assertEquals(2, vgi.catalog_contents(first, "stale", null).schemas().size());
+            CatalogContentsResponse same = vgi.catalog_contents(second, full.etag(), null);
+            assertTrue(same.not_modified());
+            assertTrue(same.schemas().isEmpty());
+            assertEquals(1, builds.get(), "built once, then served from the cache");
+        }
+        builds.set(0);
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(
+                worker().catalogContents(counting).catalogContentsCache(false))) {
+            VgiService vgi = h.client();
+            byte[] handle = attach(vgi).attach_opaque_data();
+            vgi.catalog_contents(handle, null, null);
+            vgi.catalog_contents(handle, null, null);
+            assertEquals(2, builds.get(), "no cache: the provider answers every call");
         }
     }
 
