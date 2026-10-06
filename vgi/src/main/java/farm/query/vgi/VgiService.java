@@ -449,7 +449,8 @@ public interface VgiService {
     }
 
     /**
-     * Return every schema and all of its contents in one result.
+     * Return every schema and all of its contents in one result, or
+     * {@code not_modified} when the client's snapshot is current.
      *
      * <p>Called only when the attach result sets
      * {@code supports_catalog_contents}; it replaces {@link #catalog_schemas}
@@ -459,17 +460,28 @@ public interface VgiService {
      * no transaction: the client caches the answer for the whole attach, so it
      * is the committed catalog at {@code catalog_version}.</p>
      *
-     * <p>The default composes this service's own per-schema RPCs
-     * ({@link CatalogContents#compose}), so any implementation can serve it;
-     * override it to build the snapshot more cheaply.</p>
+     * <p>{@code if_none_match} is the {@code etag} of a snapshot the client
+     * holds. When it equals the current etag the response is
+     * {@code not_modified} with no schemas; a worker whose answer carries no
+     * etag ignores it.</p>
+     *
+     * <p>The default composes this service's own per-schema RPCs with no etag
+     * ({@link CatalogContents#compose}), so any implementation can serve it. The
+     * {@link Worker}'s service applies the worker's
+     * {@link Worker#catalogContents(CatalogContentsProvider) provider} and
+     * {@link Worker#catalogContentsEtag(CatalogContentsEtag) etag policy}
+     * through {@link CatalogContents#serve}.</p>
      *
      * @param attach_opaque_data the attach handle
+     * @param if_none_match      the etag of the snapshot the client holds, or {@code null}
      * @param ctx                per-call context
-     * @return the catalog version and one serialised {@code SchemaContents} per schema,
-     *         parents before children
+     * @return the catalog version, etag and {@code not_modified} flag, and one
+     *         {@code SchemaContents} per schema, parents before children
      */
-    default CatalogContentsResponse catalog_contents(byte[] attach_opaque_data, CallContext ctx) {
-        return CatalogContents.compose(this, attach_opaque_data, ctx);
+    default CatalogContentsResponse catalog_contents(byte[] attach_opaque_data, @Nullable String if_none_match,
+                                                     CallContext ctx) {
+        return CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx, "", null,
+                CatalogContentsEtag.NONE);
     }
 
     // -----------------------------------------------------------------------

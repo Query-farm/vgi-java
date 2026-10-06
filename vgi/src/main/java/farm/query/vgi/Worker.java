@@ -80,6 +80,8 @@ public final class Worker {
     private final List<farm.query.vgi.function.FunctionDescriptor> globalFunctions = new ArrayList<>();
     private String globalFunctionPrefix = "";
     private boolean supportsCatalogContents = true;
+    private CatalogContentsProvider catalogContentsProvider;
+    private CatalogContentsEtag catalogContentsEtag = CatalogContentsEtag.NONE;
     private final List<SettingSpec> settings = new ArrayList<>();
     private final List<SecretTypeSpec> secretTypes = new ArrayList<>();
     private final List<farm.query.vgi.protocol.AttachCatalogInfo> attachCatalogs = new ArrayList<>();
@@ -981,6 +983,57 @@ public final class Worker {
      * @return the flag set by {@link #supportsCatalogContents(boolean)}; {@code true} by default
      */
     public boolean supportsCatalogContents() { return supportsCatalogContents; }
+
+    /**
+     * Install the catalog's own {@code catalog_contents} answer: it receives the
+     * client's {@code if_none_match} and returns the snapshot with an etag, or
+     * {@code not_modified} — so a cheap validator can short-circuit before
+     * anything is built. Without one, the worker serves the default snapshot
+     * (its per-schema RPCs composed) with no etag.
+     * {@link CatalogContentsProvider#versionEtag()} is a ready-made validator.
+     *
+     * <p>The answer goes through {@link CatalogContents#respond}: a
+     * {@code not_modified} must carry the etag equal to {@code if_none_match}
+     * and no schemas, schema paths must be unique with every parent present,
+     * and a full answer whose etag matches {@code if_none_match} is sent as
+     * {@code not_modified}.</p>
+     *
+     * @param provider the provider, or {@code null} for the default
+     * @return this builder
+     */
+    public Worker catalogContents(CatalogContentsProvider provider) {
+        catalogContentsProvider = provider;
+        return this;
+    }
+
+    /**
+     * The catalog's own {@code catalog_contents} answer.
+     *
+     * @return the provider set by {@link #catalogContents(CatalogContentsProvider)}, or {@code null}
+     */
+    public CatalogContentsProvider catalogContentsProvider() { return catalogContentsProvider; }
+
+    /**
+     * The framework's etag policy for {@code catalog_contents}.
+     * {@link CatalogContentsEtag#CONTENT_HASH}: when the catalog returns no etag
+     * of its own, the etag is the SHA-256 of the snapshot and a matching
+     * {@code if_none_match} becomes {@code not_modified}. Default
+     * {@link CatalogContentsEtag#NONE}.
+     *
+     * @param mode the policy
+     * @return this builder
+     */
+    public Worker catalogContentsEtag(CatalogContentsEtag mode) {
+        catalogContentsEtag = mode == null ? CatalogContentsEtag.NONE : mode;
+        return this;
+    }
+
+    /**
+     * The framework's etag policy for {@code catalog_contents}.
+     *
+     * @return the policy set by {@link #catalogContentsEtag(CatalogContentsEtag)}
+     */
+    public CatalogContentsEtag catalogContentsEtag() { return catalogContentsEtag; }
 
     /**
      * Advertise custom session settings in the {@code catalog_attach} result.

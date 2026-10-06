@@ -2,6 +2,10 @@
 
 package farm.query.vgi.client;
 
+import farm.query.vgi.CatalogContents;
+import farm.query.vgi.CatalogContentsEtag;
+import farm.query.vgi.CatalogContentsProvider;
+import farm.query.vgi.CatalogContentsResult;
 import farm.query.vgi.VgiService;
 import farm.query.vgi.Worker;
 import farm.query.vgi.catalog.Macro;
@@ -19,11 +23,14 @@ import org.junit.jupiter.api.Timeout;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -80,16 +87,21 @@ final class CatalogContentsRoundTripTest {
             VgiService vgi = h.client();
             byte[] handle = attach(vgi).attach_opaque_data();
 
-            CatalogContentsResponse response = vgi.catalog_contents(handle, null);
+            CatalogContentsResponse response = vgi.catalog_contents(handle, null, null);
             assertEquals(vgi.catalog_version(handle, null, null).version(), response.catalog_version());
+            assertNull(response.etag(), "no provider, no etag policy: the worker does not revalidate");
+            assertFalse(response.not_modified());
+            assertFalse(vgi.catalog_contents(handle, "whatever", null).not_modified(),
+                    "with no etag, if_none_match is ignored");
 
             List<byte[]> schemaItems = vgi.catalog_schemas(handle, null).items();
             assertEquals(schemaItems.size(), response.schemas().size(), "one entry per schema");
             List<String> names = new ArrayList<>();
             for (int i = 0; i < schemaItems.size(); i++) {
-                SchemaContents c = RecordCodec.deserializeFromBytes(response.schemas().get(i), SchemaContents.class);
+                SchemaContents c = response.schemas().get(i);
                 assertArrayEquals(schemaItems.get(i), c.schema(), "schema item " + i);
                 List<String> path = RecordCodec.deserializeFromBytes(c.schema(), SchemaInfo.class).path();
+                assertEquals(path, c.path(), "path equals SchemaInfo.path");
                 names.add(String.join(".", path));
                 assertSameItems(path + " tables", c.tables(),
                         vgi.catalog_schema_contents_tables(handle, path, null, null));
@@ -112,7 +124,7 @@ final class CatalogContentsRoundTripTest {
 
             // Spot-check that the fixture actually exercised every kind it registered.
             Function<Integer, SchemaContents> at = i ->
-                    RecordCodec.deserializeFromBytes(response.schemas().get(i), SchemaContents.class);
+                    response.schemas().get(i);
             SchemaContents main = at.apply(0);
             assertEquals(1, main.table_functions().size());
             assertEquals(1, main.scalar_functions().size());
@@ -124,6 +136,76 @@ final class CatalogContentsRoundTripTest {
             assertTrue(extra.table_functions().isEmpty() && extra.views().isEmpty()
                     && extra.scalar_macros().isEmpty() && extra.table_macros().isEmpty()
                     && extra.tables().isEmpty() && extra.indexes().isEmpty());
+        }
+    }
+
+    @Test
+    @Timeout(60)
+    void versionEtagRevalidatesOverTheWire() throws Exception {
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(
+                worker().catalogContents(CatalogContentsProvider.versionEtag()))) {
+            VgiService vgi = h.client();
+            byte[] handle = attach(vgi).attach_opaque_data();
+            long version = vgi.catalog_version(handle, null, null).version();
+
+            CatalogContentsResponse full = vgi.catalog_contents(handle, null, null);
+            assertEquals("gen-" + version, full.etag());
+            assertFalse(full.not_modified());
+            assertEquals(List.of(List.of("main"), List.of("extra")),
+                    full.schemas().stream().map(SchemaContents::path).toList());
+
+            CatalogContentsResponse same = vgi.catalog_contents(handle, full.etag(), null);
+            assertTrue(same.not_modified());
+            assertEquals(full.etag(), same.etag());
+            assertEquals(version, same.catalog_version());
+            assertTrue(same.schemas().isEmpty());
+
+            CatalogContentsResponse other = vgi.catalog_contents(handle, "gen-stale", null);
+            assertFalse(other.not_modified());
+            assertEquals(full.schemas().size(), other.schemas().size());
+        }
+    }
+
+    @Test
+    @Timeout(60)
+    void providerSeesTheCatalogAndCanShortCircuit() throws Exception {
+        AtomicInteger builds = new AtomicInteger();
+        List<String> names = new ArrayList<>();
+        CatalogContentsProvider provider = request -> {
+            names.add(request.catalogName());
+            if ("v1".equals(request.ifNoneMatch())) return CatalogContentsResult.notModified("v1");
+            builds.incrementAndGet();
+            return CatalogContentsResult.of(request.build(), "v1");
+        };
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(worker().catalogContents(provider))) {
+            VgiService vgi = h.client();
+            byte[] handle = attach(vgi).attach_opaque_data();
+            assertEquals(2, vgi.catalog_contents(handle, null, null).schemas().size());
+            assertTrue(vgi.catalog_contents(handle, "v1", null).not_modified());
+            assertEquals(1, builds.get(), "the not_modified answer built nothing");
+            assertEquals(List.of("testcat", "testcat"), names);
+        }
+    }
+
+    @Test
+    @Timeout(60)
+    void contentHashEtagOverTheWire() throws Exception {
+        try (PipeWorkerHarness h = PipeWorkerHarness.start(
+                worker().catalogContentsEtag(CatalogContentsEtag.CONTENT_HASH))) {
+            VgiService vgi = h.client();
+            byte[] handle = attach(vgi).attach_opaque_data();
+
+            CatalogContentsResponse full = vgi.catalog_contents(handle, null, null);
+            assertNotNull(full.etag());
+            assertEquals(CatalogContents.digest(full.schemas()), full.etag(),
+                    "the etag is the hash of exactly what was sent");
+            assertEquals(full.etag(), vgi.catalog_contents(handle, null, null).etag(),
+                    "two builds of the same catalog hash alike");
+
+            CatalogContentsResponse same = vgi.catalog_contents(handle, full.etag(), null);
+            assertTrue(same.not_modified());
+            assertTrue(same.schemas().isEmpty());
+            assertFalse(vgi.catalog_contents(handle, "0".repeat(64), null).not_modified());
         }
     }
 

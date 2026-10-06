@@ -4,6 +4,8 @@ package farm.query.vgi.example;
 
 import farm.query.vgi.SettingSpec;
 import farm.query.vgi.internal.SchemaUtil;
+import farm.query.vgi.CatalogContentsEtag;
+import farm.query.vgi.CatalogContentsProvider;
 import farm.query.vgi.Worker;
 import farm.query.vgirpc.AuthContext;
 import farm.query.vgirpc.http.HttpServer;
@@ -1532,8 +1534,47 @@ public final class Main {
     }
 
     private static void runWorker(Worker w, String[] args) {
-        w.supportsCatalogContents(catalogContentsEnabled(System.getenv("VGI_WORKER_CATALOG_CONTENTS")));
+        configureCatalogContents(w, System.getenv("VGI_WORKER_CATALOG_CONTENTS"),
+                System.getenv("VGI_WORKER_CATALOG_CONTENTS_ETAG"));
         w.runFromArgs(args, Main::customizeHttpConfig);
+    }
+
+    /**
+     * Configure how the fixture worker serves {@code catalog_contents}.
+     *
+     * <p>{@code advertise} is {@code VGI_WORKER_CATALOG_CONTENTS}
+     * ({@link #catalogContentsEnabled}). {@code etag} is
+     * {@code VGI_WORKER_CATALOG_CONTENTS_ETAG}, how the catalog revalidates:</p>
+     * <ul>
+     *   <li>{@code version} (the default): a cheap validator,
+     *       {@link CatalogContentsProvider#versionEtag()} — the etag is
+     *       {@code gen-<catalog version>}, and a matching {@code if_none_match}
+     *       is answered {@code not_modified} without building anything (the
+     *       analogue of vgi-python's {@code contents_reval}). This catalog has no
+     *       DDL, so the version — and the etag — only changes with the worker;
+     *       the point is that the client's conditional path runs against every
+     *       SDK's example worker.</li>
+     *   <li>{@code content-hash}: the framework's SHA-256 etag
+     *       ({@link CatalogContentsEtag#CONTENT_HASH}).</li>
+     *   <li>{@code none}/{@code off}: no etag; {@code if_none_match} is ignored.</li>
+     * </ul>
+     *
+     * @param w         the worker
+     * @param advertise the {@code VGI_WORKER_CATALOG_CONTENTS} value, or {@code null}
+     * @param etag      the {@code VGI_WORKER_CATALOG_CONTENTS_ETAG} value, or {@code null}
+     * @return {@code w}
+     */
+    static Worker configureCatalogContents(Worker w, String advertise, String etag) {
+        w.supportsCatalogContents(catalogContentsEnabled(advertise));
+        String mode = etag == null ? "" : etag.trim().toLowerCase(java.util.Locale.ROOT);
+        switch (mode) {
+            case "", "version" -> w.catalogContents(CatalogContentsProvider.versionEtag());
+            case "content-hash" -> w.catalogContentsEtag(CatalogContentsEtag.CONTENT_HASH);
+            case "none", "off", "0", "false" -> { }
+            default -> throw new IllegalArgumentException(
+                    "VGI_WORKER_CATALOG_CONTENTS_ETAG must be version, content-hash or none; got " + etag);
+        }
+        return w;
     }
 
     /**

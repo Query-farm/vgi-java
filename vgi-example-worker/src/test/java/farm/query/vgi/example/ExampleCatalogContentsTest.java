@@ -27,6 +27,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -93,16 +95,17 @@ final class ExampleCatalogContentsTest {
             assertTrue(attached.supports_catalog_contents(), "the example worker advertises catalog_contents");
             byte[] handle = attached.attach_opaque_data();
 
-            CatalogContentsResponse response = vgi.catalog_contents(handle, null);
+            CatalogContentsResponse response = vgi.catalog_contents(handle, null, null);
             assertEquals(vgi.catalog_version(handle, null, null).version(), response.catalog_version());
 
             List<byte[]> schemaItems = vgi.catalog_schemas(handle, null).items();
             assertEquals(schemaItems.size(), response.schemas().size());
             int[] totals = new int[8];
             for (int i = 0; i < schemaItems.size(); i++) {
-                SchemaContents c = RecordCodec.deserializeFromBytes(response.schemas().get(i), SchemaContents.class);
+                SchemaContents c = response.schemas().get(i);
                 assertArrayEquals(schemaItems.get(i), c.schema(), "schema item " + i);
                 List<String> path = RecordCodec.deserializeFromBytes(c.schema(), SchemaInfo.class).path();
+                assertEquals(path, c.path(), "path equals SchemaInfo.path");
                 Map<String, ItemsResponse> perSchema = Map.of(
                         "tables", vgi.catalog_schema_contents_tables(handle, path, null, null),
                         "views", vgi.catalog_schema_contents_views(handle, path, null),
@@ -137,6 +140,55 @@ final class ExampleCatalogContentsTest {
                 assertTrue(totals[k] > 0, "kind " + k + " has no items anywhere in the example catalog");
             }
         }
+    }
+
+    @Test
+    @Timeout(120)
+    void theFixtureWorkerRevalidatesWithAVersionEtagByDefault() throws Exception {
+        Worker w = Main.configureCatalogContents(Main.buildWorker("example", null, null), null, null);
+        try (Pipe p = Pipe.start(w)) {
+            VgiService vgi = p.vgi();
+            byte[] handle = attach(vgi).attach_opaque_data();
+            long version = vgi.catalog_version(handle, null, null).version();
+
+            CatalogContentsResponse full = vgi.catalog_contents(handle, null, null);
+            assertEquals("gen-" + version, full.etag());
+            assertFalse(full.not_modified());
+            assertFalse(full.schemas().isEmpty());
+
+            CatalogContentsResponse same = vgi.catalog_contents(handle, full.etag(), null);
+            assertTrue(same.not_modified());
+            assertTrue(same.schemas().isEmpty());
+            assertEquals(full.etag(), same.etag());
+
+            CatalogContentsResponse other = vgi.catalog_contents(handle, "not-the-etag", null);
+            assertFalse(other.not_modified());
+            assertEquals(full.schemas().size(), other.schemas().size());
+        }
+    }
+
+    @Test
+    @Timeout(120)
+    void theFixtureWorkerEtagModes() throws Exception {
+        try (Pipe p = Pipe.start(Main.configureCatalogContents(
+                Main.buildWorker("example", null, null), null, "content-hash"))) {
+            VgiService vgi = p.vgi();
+            byte[] handle = attach(vgi).attach_opaque_data();
+            CatalogContentsResponse full = vgi.catalog_contents(handle, null, null);
+            assertEquals(64, full.etag().length());
+            assertEquals(full.etag(), vgi.catalog_contents(handle, null, null).etag(),
+                    "the example catalog encodes deterministically");
+            assertTrue(vgi.catalog_contents(handle, full.etag(), null).not_modified());
+        }
+        try (Pipe p = Pipe.start(Main.configureCatalogContents(
+                Main.buildWorker("example", null, null), null, "none"))) {
+            VgiService vgi = p.vgi();
+            byte[] handle = attach(vgi).attach_opaque_data();
+            assertNull(vgi.catalog_contents(handle, null, null).etag());
+            assertFalse(vgi.catalog_contents(handle, "x", null).not_modified());
+        }
+        assertThrows(IllegalArgumentException.class, () -> Main.configureCatalogContents(
+                Main.buildWorker("example", null, null), null, "bogus"));
     }
 
     @Test

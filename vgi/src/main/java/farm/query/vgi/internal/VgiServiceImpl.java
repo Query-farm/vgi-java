@@ -1579,6 +1579,32 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     /**
+     * Return the whole catalog in one result, through the worker's
+     * {@link Worker#catalogContents(farm.query.vgi.CatalogContentsProvider) provider}
+     * and {@link Worker#catalogContentsEtag(farm.query.vgi.CatalogContentsEtag) etag policy}.
+     *
+     * <p>No worker-side cache: every {@code SchemaInfo} item carries its
+     * attach's {@code attach_opaque_data} (a random per-ATTACH id), so the
+     * snapshot is never the same for two attaches. A provider with a cheap etag
+     * is how a catalog avoids rebuilding it.</p>
+     *
+     * @param attach_opaque_data the attach token
+     * @param if_none_match the etag of the snapshot the client holds, or {@code null}
+     * @param ctx the per-call RPC context
+     * @return the wire response
+     */
+    @Override
+    public farm.query.vgi.protocol.CatalogContentsResponse catalog_contents(
+            byte[] attach_opaque_data, String if_none_match, CallContext ctx) {
+        // Open the envelope first, like every per-schema RPC: it is the auth check.
+        byte[] plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        String recorded = catalogRegistry.catalogName(plain);
+        return farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx,
+                recorded != null ? recorded : worker.catalogName(),
+                worker.catalogContentsProvider(), worker.catalogContentsEtag());
+    }
+
+    /**
      * List the schemas this worker exposes (default plus any non-empty auxiliary schemas).
      *
      * @param attach_opaque_data the attach token
