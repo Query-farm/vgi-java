@@ -42,8 +42,13 @@ env:
   #
   # (It had earlier been an untagged SHA, 920dc42, because no release yet
   # carried the `writeListElement` LargeBinary case; v0.25.0 contains it.)
+  #
+  # v0.28.0 adds RpcServer.addProtocol, the error model and the Identity
+  # translation that Worker.hostedProtocols / resolveToken build on; a stale
+  # pin fails as `cannot find symbol: method addProtocol`, and the
+  # hosted-protocols job below cannot pass without it.
   # Keep in step with the identical pin in integration.yml.
-  VGI_RPC_JAVA_REF: v0.27.0
+  VGI_RPC_JAVA_REF: v0.28.0
 
 jobs:
   test:
