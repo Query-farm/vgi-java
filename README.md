@@ -42,7 +42,7 @@ Artifacts are published to Maven Central under the `farm.query` group.
 
 ```kotlin
 dependencies {
-    implementation("farm.query:vgi:0.34.2")
+    implementation("farm.query:vgi:0.35.0")
 }
 ```
 
@@ -52,7 +52,7 @@ dependencies {
 <dependency>
   <groupId>farm.query</groupId>
   <artifactId>vgi</artifactId>
-  <version>0.34.2</version>
+  <version>0.35.0</version>
 </dependency>
 ```
 
