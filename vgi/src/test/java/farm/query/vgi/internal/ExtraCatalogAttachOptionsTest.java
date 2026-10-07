@@ -64,7 +64,7 @@ class ExtraCatalogAttachOptionsTest {
 
     @Test
     void auxiliaryCatalogAdvertisesItsOwnOptionsAtDiscovery() {
-        ItemsResponse catalogs = service(worker()).catalog_catalogs();
+        ItemsResponse catalogs = service(worker()).catalog_catalogs(null);
         assertEquals(2, catalogs.items().size());
         assertEquals(0, declaredOptionCount(catalogs.items().get(0)), "main catalog declares none");
         assertEquals(2, declaredOptionCount(catalogs.items().get(1)));
@@ -74,7 +74,7 @@ class ExtraCatalogAttachOptionsTest {
      *  defaulted neighbour is neither. */
     @Test
     void discoveryAdvertisesTheSecretFlag() {
-        byte[] gated = service(worker()).catalog_catalogs().items().get(1);
+        byte[] gated = service(worker()).catalog_catalogs(null).items().get(1);
         java.util.List<AttachOptionSpecSerializer.Decoded> specs = BatchUtil.withReadBatch(gated,
                 Allocators.root(), root -> {
                     ListVector lv = (ListVector) root.getVector("attach_option_specs");

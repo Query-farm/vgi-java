@@ -12,8 +12,8 @@ import java.util.List;
 
 /**
  * Build the request blobs for the two optimiser-facing table-function RPCs,
- * {@link VgiService#table_function_cardinality(byte[])} and
- * {@link VgiService#table_function_statistics(byte[])}.
+ * {@link VgiService#table_function_cardinality(byte[], farm.query.vgirpc.CallContext)} and
+ * {@link VgiService#table_function_statistics(byte[], farm.query.vgirpc.CallContext)}.
  *
  * <p>Both take a <em>packed</em> outer {@code byte[]} rather than a normal
  * record: a one-row IPC batch of named binary fields, which the worker unpacks
@@ -29,9 +29,9 @@ import java.util.List;
  * BindResponse bound = vgi.bind(bindRequest, null);
  * byte[] req = TableFunctionRequests.forBind(bindRequest, bound.opaque_data());
  *
- * CardinalityResponse card = vgi.table_function_cardinality(req);
+ * CardinalityResponse card = vgi.table_function_cardinality(req, null);
  * List<ColumnStatistics> stats =
- *         ColumnStatisticsDecoder.decode(vgi.table_function_statistics(req));
+ *         ColumnStatisticsDecoder.decode(vgi.table_function_statistics(req, null));
  * }</pre>
  *
  * <p>Cardinality comes back typed as {@code CardinalityResponse}; statistics

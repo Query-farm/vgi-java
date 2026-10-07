@@ -7,6 +7,7 @@ import farm.query.vgi.protocol.CatalogVersionResponse;
 import farm.query.vgi.protocol.ItemsResponse;
 import farm.query.vgi.protocol.SchemaContents;
 import farm.query.vgi.protocol.SchemaInfo;
+import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.marshal.RecordCodec;
 import org.junit.jupiter.api.Test;
 
@@ -26,7 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The default {@link VgiService#catalog_contents} composition, against a stub
+ * The default {@code catalog_contents} composition ({@link CatalogContents#serve}
+ * with no provider and no etag policy), against a stub
  * service whose per-schema RPCs are scripted: parent-first ordering, items
  * passed through untouched, zero-count kinds skipped, and no transaction.
  */
@@ -44,7 +46,8 @@ final class CatalogContentsTest {
                 String name = method.getName();
                 switch (name) {
                     case "catalog_contents":
-                        return InvocationHandler.invokeDefault(proxy, method, args);
+                        return CatalogContents.serve((VgiService) proxy, (byte[]) args[0], (String) args[1],
+                                (CallContext) args[2], "", null, CatalogContentsEtag.NONE);
                     case "catalog_version":
                         assertEquals(null, args[1], "catalog_contents takes no transaction");
                         return new CatalogVersionResponse(42L);

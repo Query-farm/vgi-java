@@ -497,12 +497,12 @@ abstract class AbstractVgiHttpConformanceTest {
         BindResponse bound = vgi.bind(bind, null);
         byte[] request = TableFunctionRequests.forBind(bind, bound.opaque_data());
 
-        CardinalityResponse cardinality = vgi.table_function_cardinality(request);
+        CardinalityResponse cardinality = vgi.table_function_cardinality(request, null);
         assertEquals(500L, cardinality.estimate(), where("sequence(500) cardinality estimate"));
         assertEquals(500L, cardinality.max(), where("sequence(500) cardinality max"));
 
         List<ColumnStatistics> stats =
-                ColumnStatisticsDecoder.decode(vgi.table_function_statistics(request));
+                ColumnStatisticsDecoder.decode(vgi.table_function_statistics(request, null));
         assertEquals(1, stats.size(), where("sequence reports one column's statistics"));
         ColumnStatistics n = stats.get(0);
         assertEquals("n", n.columnName(), where("statistics column name"));
@@ -519,7 +519,7 @@ abstract class AbstractVgiHttpConformanceTest {
         BindResponse noArgsBound = vgi.bind(noArgs, null);
         assertEquals(10000L,
                 vgi.table_function_cardinality(
-                        TableFunctionRequests.forBind(noArgs, noArgsBound.opaque_data())).estimate(),
+                        TableFunctionRequests.forBind(noArgs, noArgsBound.opaque_data()), null).estimate(),
                 where("ten_thousand cardinality"));
     }
 
@@ -653,7 +653,7 @@ abstract class AbstractVgiHttpConformanceTest {
      */
     private List<String> catalogNames() {
         List<String> names = new ArrayList<>();
-        for (byte[] item : vgi.catalog_catalogs().items()) {
+        for (byte[] item : vgi.catalog_catalogs(null).items()) {
             try (IpcStreamReader r = new IpcStreamReader(
                     new java.io.ByteArrayInputStream(item), Allocators.root())) {
                 r.readNextBatch();

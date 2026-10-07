@@ -232,9 +232,19 @@ pin, then release `:vgi`.
   build on JDK 25; vgi-rpc-java's Gradle wrapper moved 8.10 → 9.0 because
   8.10 can't run on JDK 25. Worker + test JVMs pass
   `--enable-native-access=ALL-UNNAMED`.) Wire field names equal Java
-  parameter names. Every `VgiService` method param must be `snake_case`
-  matching the corresponding Go wire struct's field tag exactly. No
-  `@JsonProperty`-style override exists.
+  parameter names. No `@JsonProperty`-style override exists.
+- **`VgiService` is generated — never edit it by hand.**
+  `vgi/src/main/java/farm/query/vgi/VgiService.java` is emitted from
+  vgi-python's `VgiProtocol` by `vgi.codegen.java_registry`
+  (`uv run --project ../vgi-python python scripts/regen_generated.py`). It
+  declares every `vgi.v2` method with the reference's exact signature —
+  vgi-rpc-java derives the wire schemas from it, so it *is* the
+  registration — each with a `default` body throwing
+  `MethodNotImplementedError` (UNIMPLEMENTED). Every method takes a trailing
+  `CallContext ctx`. `VgiServiceImpl` overrides what this SDK serves; a
+  method added to vgi-python shows up here as an UNIMPLEMENTED stub on
+  regeneration. Which records are bound as typed Java records instead of
+  `byte[]` is the generator's `JAVA_TYPES` table.
 - **Allocators:** every fixture allocates via `Allocators.root()` or a
   child. `arrow.memory.debug.allocator=true` is set in test JVM args —
   leaks fail tests early.

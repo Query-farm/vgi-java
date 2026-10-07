@@ -902,10 +902,11 @@ public final class VgiServiceImpl implements VgiService {
      * Estimate a table function's row cardinality.
      *
      * @param request a 1-row IPC struct carrying {@code bind_call} and {@code bind_opaque_data}
+     * @param ctx the caller's context (unused here)
      * @return the estimate / max (both {@code null} when the function gives no estimate)
      */
     @Override
-    public farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(byte[] request) {
+    public farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(byte[] request, CallContext ctx) {
         Map<String, byte[]> fields = IpcUnpacker.unpack(request, "bind_call", "bind_opaque_data");
         CardinalityRequest inner = fields == null
                 ? new CardinalityRequest(null, null)
@@ -920,10 +921,11 @@ public final class VgiServiceImpl implements VgiService {
      * Per-column statistics for a function-only table binding (e.g. {@code example.sequence(N)}).
      *
      * @param request a 1-row IPC struct carrying {@code bind_call} and {@code bind_opaque_data}
+     * @param ctx the caller's context (unused here)
      * @return serialised {@code ColumnStatistics}, or empty bytes when the function provides none
      */
     @Override
-    public byte[] table_function_statistics(byte[] request) {
+    public byte[] table_function_statistics(byte[] request, CallContext ctx) {
         Map<String, byte[]> fields = IpcUnpacker.unpack(request, "bind_call", "bind_opaque_data");
         if (fields == null) return new byte[0];
         byte[] bindCall = fields.get("bind_call");
@@ -962,10 +964,12 @@ public final class VgiServiceImpl implements VgiService {
      * Diagnostic key/value pairs DuckDB renders in {@code EXPLAIN} for a bound table function.
      *
      * @param request a 1-row IPC struct carrying {@code bind_call}, {@code bind_opaque_data} and {@code global_execution_id}
+     * @param ctx the caller's context (unused here)
      * @return parallel key / value lists, both empty when the function has nothing to report
      */
     @Override
-    public farm.query.vgi.protocol.DynamicToStringResponse table_function_dynamic_to_string(byte[] request) {
+    public farm.query.vgi.protocol.DynamicToStringResponse table_function_dynamic_to_string(byte[] request,
+            CallContext ctx) {
         Map<String, byte[]> fields = IpcUnpacker.unpack(request,
                 "bind_call", "bind_opaque_data", "global_execution_id");
         byte[] bindCall = fields == null ? null : fields.get("bind_call");
@@ -1290,10 +1294,11 @@ public final class VgiServiceImpl implements VgiService {
     /**
      * List the single catalog this worker serves, with its version manifest and attach options.
      *
+     * @param ctx the caller's context (unused here)
      * @return a one-item response holding the serialised {@code CatalogInfo}
      */
     @Override
-    public ItemsResponse catalog_catalogs() {
+    public ItemsResponse catalog_catalogs(CallContext ctx) {
         List<byte[]> attachOptionBytes = new ArrayList<>();
         for (farm.query.vgi.AttachOptionSpec spec : worker.attachOptionSpecs()) {
             attachOptionBytes.add(AttachOptionSpecSerializer.serialize(spec));
@@ -1735,6 +1740,46 @@ public final class VgiServiceImpl implements VgiService {
                                   CallContext ctx) {
         Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_view_drop");
         h.catalog().viewDrop(h.attachId(), schema_path, name, ignore_not_found, cascade);
+    }
+
+    /**
+     * ADD COLUMN is not supported: no catalog this worker hosts can alter a table.
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param column_definition serialised column definition
+     * @param ignore_not_found skip silently when the table is missing
+     * @param if_column_not_exists skip when the column already exists
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller's context
+     */
+    @Override
+    public void catalog_table_column_add(byte[] attach_opaque_data, List<String> schema_path, String name,
+                                         byte[] column_definition, boolean ignore_not_found,
+                                         boolean if_column_not_exists, byte[] transaction_opaque_data,
+                                         CallContext ctx) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_add not supported");
+    }
+
+    /**
+     * DROP COLUMN is not supported: no catalog this worker hosts can alter a table.
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param column_name column to drop
+     * @param ignore_not_found skip silently when the table is missing
+     * @param if_column_exists skip when the column does not exist
+     * @param cascade also drop objects that depend on the column
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller's context
+     */
+    @Override
+    public void catalog_table_column_drop(byte[] attach_opaque_data, List<String> schema_path, String name,
+                                          String column_name, boolean ignore_not_found, boolean if_column_exists,
+                                          boolean cascade, byte[] transaction_opaque_data, CallContext ctx) {
+        throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_drop not supported");
     }
 
     /** The attach's code-implemented catalog; DDL on any other catalog of this worker is refused. */
@@ -2660,6 +2705,21 @@ public final class VgiServiceImpl implements VgiService {
                                 v.name(), List.of(v.schema()), v.definition(), v.columnComments()))));
             }
         }
+        return ItemsResponse.empty();
+    }
+
+    /**
+     * List the indexes in a schema. This worker's catalogs declare none.
+     *
+     * @param attach_opaque_data      the attach handle
+     * @param path                    schema path
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx                     the caller's context
+     * @return always empty
+     */
+    @Override
+    public ItemsResponse catalog_schema_contents_indexes(byte[] attach_opaque_data, List<String> path,
+                                                         byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
     }
 

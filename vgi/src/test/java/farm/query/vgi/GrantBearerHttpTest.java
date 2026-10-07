@@ -110,14 +110,14 @@ final class GrantBearerHttpTest {
             }
             assertTrue(grant.token().startsWith("vgig1."), grant.token());
             try (HttpRpcConnection bot = HttpRpcConnection.builder(url).bearerToken(grant.token()).build()) {
-                bot.proxy(VgiService.class).catalog_catalogs();
+                bot.proxy(VgiService.class).catalog_catalogs(null);
                 assertEquals(List.of("alice|grant"), who.seen, "the vgi.v2 call is authenticated as the owner");
                 RpcError e = assertThrows(RpcError.class, () -> issueGrant(bot, "child"));
                 assertEquals("stale_auth", e.errorKind(), "a grant cannot mint a grant");
             }
             try (HttpRpcConnection forged = HttpRpcConnection.builder(url).bearerToken(grant.token() + "x").build()) {
                 assertEquals("AuthenticationError",
-                        assertThrows(RpcError.class, () -> forged.proxy(VgiService.class).catalog_catalogs()).errorType());
+                        assertThrows(RpcError.class, () -> forged.proxy(VgiService.class).catalog_catalogs(null)).errorType());
             }
         } finally {
             http.stop();

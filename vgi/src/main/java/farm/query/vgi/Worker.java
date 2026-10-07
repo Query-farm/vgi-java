@@ -54,8 +54,12 @@ public final class Worker {
      *  <p>2.1.0 added the {@code catalog_contents} RPC and the trailing
      *  {@code supports_catalog_contents} column on the {@code catalog_attach}
      *  result. A {@code Worker} catalog is declarative and read-only, so it
-     *  advertises the RPC by default (see {@link #supportsCatalogContents(boolean)}). */
-    public static final String VGI_PROTOCOL_VERSION = "2.1.0";
+     *  advertises the RPC by default (see {@link #supportsCatalogContents(boolean)}).
+     *
+     *  <p>The value is {@link VgiService#PROTOCOL_VERSION}, generated from the
+     *  reference with the rest of the {@code vgi.v2} registry, so a worker and
+     *  the interface its clients use cannot disagree.</p> */
+    public static final String VGI_PROTOCOL_VERSION = VgiService.PROTOCOL_VERSION;
 
     /** Environment variable holding the worker's signing key; see {@link #signingKey(byte[])}. */
     public static final String SIGNING_KEY_ENV = "VGI_SIGNING_KEY";

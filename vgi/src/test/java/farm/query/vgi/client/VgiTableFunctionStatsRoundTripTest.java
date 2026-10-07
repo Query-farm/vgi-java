@@ -131,12 +131,12 @@ final class VgiTableFunctionStatsRoundTripTest {
             // One packed blob serves both calls — they read identical fields.
             byte[] request = TableFunctionRequests.forBind(bindRequest, bound.opaque_data());
 
-            CardinalityResponse cardinality = vgi.table_function_cardinality(request);
+            CardinalityResponse cardinality = vgi.table_function_cardinality(request, null);
             assertEquals(500L, cardinality.estimate());
             assertEquals(500L, cardinality.max());
 
             List<ColumnStatistics> stats =
-                    ColumnStatisticsDecoder.decode(vgi.table_function_statistics(request));
+                    ColumnStatisticsDecoder.decode(vgi.table_function_statistics(request, null));
             assertEquals(2, stats.size());
 
             ColumnStatistics n = stats.get(0);
@@ -186,9 +186,9 @@ final class VgiTableFunctionStatsRoundTripTest {
                     null, null, null, null, "main");
             byte[] request = TableFunctionRequests.forBind(bindRequest, null);
 
-            assertEquals(4L, vgi.table_function_cardinality(request).estimate());
+            assertEquals(4L, vgi.table_function_cardinality(request, null).estimate());
             List<ColumnStatistics> stats =
-                    ColumnStatisticsDecoder.decode(vgi.table_function_statistics(request));
+                    ColumnStatisticsDecoder.decode(vgi.table_function_statistics(request, null));
             assertEquals(List.of("n", "label"), stats.stream().map(ColumnStatistics::columnName).toList());
             assertEquals(3L, stats.get(0).max());
         }

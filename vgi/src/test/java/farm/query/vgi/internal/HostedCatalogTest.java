@@ -116,7 +116,7 @@ final class HostedCatalogTest {
     @Test
     void catalogsListsEveryHostedCatalog() {
         VgiServiceImpl svc = service(hostingWorker());
-        assertEquals(5, svc.catalog_catalogs().items().size());
+        assertEquals(5, svc.catalog_catalogs(null).items().size());
     }
 
     @Test
