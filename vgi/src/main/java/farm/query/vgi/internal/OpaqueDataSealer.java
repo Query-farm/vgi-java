@@ -118,11 +118,16 @@ public final class OpaqueDataSealer {
      *
      * @param envelope the sealed envelope received from the client
      * @param auth the calling principal; must match the one that sealed it
-     * @return the recovered plain attach token, or {@code envelope} unchanged when disabled / empty
+     * @return the recovered plain attach token, or {@code envelope} unchanged when disabled / {@code null}
+     * @throws farm.query.vgirpc.errors.StatusError {@code "attach_opaque_data not recognized"} when it does not open
      */
     public byte[] unsealAttach(byte[] envelope, AuthContext auth) {
-        if (key == null || envelope == null || envelope.length == 0) return envelope;
-        return Crypto.chacha20Poly1305Open(key, body(VERSION_ATTACH, envelope), attachAad(auth));
+        if (key == null || envelope == null) return envelope;
+        try {
+            return Crypto.chacha20Poly1305Open(key, body(VERSION_ATTACH, envelope), attachAad(auth));
+        } catch (RuntimeException e) {
+            throw notRecognized(ATTACH_FIELD);
+        }
     }
 
     // --- transaction_opaque_data (AAD additionally binds the parent attach) -
@@ -147,12 +152,43 @@ public final class OpaqueDataSealer {
      * @param envelope the sealed transaction envelope received from the client
      * @param attachEnvelope the sealed attach envelope it must belong to; mismatch fails decryption
      * @param auth the calling principal; must match the one that sealed it
-     * @return the recovered plain transaction token, or {@code envelope} unchanged when disabled / empty
+     * @return the recovered plain transaction token, or {@code envelope} unchanged when disabled / {@code null}
+     * @throws farm.query.vgirpc.errors.StatusError {@code "transaction_opaque_data not recognized"} when it does not open
      */
     public byte[] unsealTransaction(byte[] envelope, byte[] attachEnvelope, AuthContext auth) {
-        if (key == null || envelope == null || envelope.length == 0) return envelope;
-        return Crypto.chacha20Poly1305Open(key, body(VERSION_TRANSACTION, envelope),
-                transactionAad(auth, attachEnvelope));
+        if (key == null || envelope == null) return envelope;
+        try {
+            return Crypto.chacha20Poly1305Open(key, body(VERSION_TRANSACTION, envelope),
+                    transactionAad(auth, attachEnvelope));
+        } catch (RuntimeException e) {
+            throw notRecognized(TRANSACTION_FIELD);
+        }
+    }
+
+    /** Wire field name of the attach value, as the uniform rejection names it. */
+    public static final String ATTACH_FIELD = "attach_opaque_data";
+    /** Wire field name of the transaction value, as the uniform rejection names it. */
+    public static final String TRANSACTION_FIELD = "transaction_opaque_data";
+
+    /** The {@code error_kind} of the uniform rejection. */
+    public static final String NOT_RECOGNIZED_KIND = "opaque_data_not_recognized";
+
+    /**
+     * The one error every failure to open an opaque value raises
+     * ({@code docs/protocol/vgi-opaque-data-sealing.md} rule 4): {@code INVALID_ARGUMENT}, kind
+     * {@value #NOT_RECOGNIZED_KIND}, message exactly {@code "<field> not recognized"}, no details.
+     *
+     * <p>Wrong caller, wrong parent attach, tampering, a malformed or truncated value, an old
+     * plaintext shape, another key: all of them land here, built fresh with no cause, so code,
+     * kind, message and (empty) details are identical and a probing caller learns nothing about
+     * which check failed. The two fields' errors differ only in the field name.
+     *
+     * @param field {@link #ATTACH_FIELD} or {@link #TRANSACTION_FIELD}
+     * @return the error to throw
+     */
+    public static farm.query.vgirpc.errors.StatusError notRecognized(String field) {
+        return new farm.query.vgirpc.errors.StatusError(field + " not recognized",
+                farm.query.vgirpc.errors.Code.INVALID_ARGUMENT, NOT_RECOGNIZED_KIND, java.util.List.of());
     }
 
     // --- internals ---------------------------------------------------------

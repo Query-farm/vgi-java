@@ -249,7 +249,7 @@ final class VgiScalarExchangeRoundTripTest {
 
             // Unary call between the two streams: the classic canary for a
             // stream that did not consume its own trailing EOS.
-            assertFalse(vgi.catalog_schemas(handle, null).items().isEmpty());
+            assertFalse(vgi.catalog_schemas(handle, null, null).items().isEmpty());
 
             BindRequest shoutBind = scalarBind("shout", TEXT_INPUT, handle);
             BindResponse shoutBound = vgi.bind(shoutBind, null);
@@ -262,7 +262,7 @@ final class VgiScalarExchangeRoundTripTest {
                 shouter.close();
             }
 
-            assertFalse(vgi.catalog_schemas(handle, null).items().isEmpty());
+            assertFalse(vgi.catalog_schemas(handle, null, null).items().isEmpty());
 
             // And a third stream, to prove the second one closed as cleanly as
             // the first (two-in-a-row can pass on a one-shot leak).
@@ -304,7 +304,7 @@ final class VgiScalarExchangeRoundTripTest {
             session.close();
 
             // The connection is still usable afterwards.
-            assertFalse(vgi.catalog_schemas(handle, null).items().isEmpty());
+            assertFalse(vgi.catalog_schemas(handle, null, null).items().isEmpty());
         }
     }
 

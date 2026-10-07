@@ -127,7 +127,7 @@ final class VgiClientRoundTripTest {
             byte[] handle = attach.attach_opaque_data();
 
             // 2. DISCOVERY — what a TableCatalog implementation would list.
-            ItemsResponse schemas = vgi.catalog_schemas(handle, null);
+            ItemsResponse schemas = vgi.catalog_schemas(handle, null, null);
             assertFalse(schemas.items().isEmpty(), "worker must advertise at least one schema");
 
             ItemsResponse functions =

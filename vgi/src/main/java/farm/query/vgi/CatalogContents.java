@@ -239,7 +239,7 @@ public final class CatalogContents {
                                                       @Nullable CallContext ctx) {
         record Entry(byte[] item, SchemaInfo info) {}
         List<Entry> entries = new ArrayList<>();
-        for (byte[] item : service.catalog_schemas(attach_opaque_data, null).items()) {
+        for (byte[] item : service.catalog_schemas(attach_opaque_data, null, ctx).items()) {
             entries.add(new Entry(item, RecordCodec.deserializeFromBytes(item, SchemaInfo.class)));
         }
         // Stable: schemas at the same depth keep the order catalog_schemas gave them.
@@ -255,7 +255,7 @@ public final class CatalogContents {
                     kind(counts, "table",
                             () -> service.catalog_schema_contents_tables(attach_opaque_data, path, null, ctx)),
                     kind(counts, "view",
-                            () -> service.catalog_schema_contents_views(attach_opaque_data, path, null)),
+                            () -> service.catalog_schema_contents_views(attach_opaque_data, path, null, ctx)),
                     kind(counts, "scalar_function", () -> service.catalog_schema_contents_functions(
                             attach_opaque_data, path, "SCALAR_FUNCTION", null, ctx)),
                     kind(counts, "aggregate_function", () -> service.catalog_schema_contents_functions(
@@ -263,11 +263,11 @@ public final class CatalogContents {
                     kind(counts, "table_function", () -> service.catalog_schema_contents_functions(
                             attach_opaque_data, path, "TABLE_FUNCTION", null, ctx)),
                     kind(counts, "macro", () -> service.catalog_schema_contents_macros(
-                            attach_opaque_data, path, "SCALAR_MACRO", null)),
+                            attach_opaque_data, path, "SCALAR_MACRO", null, ctx)),
                     kind(counts, "macro", () -> service.catalog_schema_contents_macros(
-                            attach_opaque_data, path, "TABLE_MACRO", null)),
+                            attach_opaque_data, path, "TABLE_MACRO", null, ctx)),
                     kind(counts, "index",
-                            () -> service.catalog_schema_contents_indexes(attach_opaque_data, path, null))));
+                            () -> service.catalog_schema_contents_indexes(attach_opaque_data, path, null, ctx))));
         }
         return out;
     }

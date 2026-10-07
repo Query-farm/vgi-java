@@ -180,7 +180,7 @@ final class CatalogContentsTest {
         stub.counts.put(List.of("s"), zeroExcept());
         VgiService service = stub.service();
 
-        byte[] expected = service.catalog_schemas(ATTACH, null).items().get(0);
+        byte[] expected = service.catalog_schemas(ATTACH, null, null).items().get(0);
         SchemaContents c = decode(service.catalog_contents(ATTACH, null, null)).get(0);
 
         assertArrayEquals(expected, c.schema());

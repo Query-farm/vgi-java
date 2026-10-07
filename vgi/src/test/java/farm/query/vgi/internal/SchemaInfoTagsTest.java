@@ -42,7 +42,7 @@ class SchemaInfoTagsTest {
                         "vgi.description_llm", "Main schema for testing.",
                         "vgi.description_md", "# Main\nMain schema."));
 
-        SchemaInfo info = onlySchema(service(w).catalog_schemas("attach".getBytes(), null));
+        SchemaInfo info = onlySchema(service(w).catalog_schemas("attach".getBytes(), null, null));
 
         assertEquals("main", info.name());
         assertEquals("Main schema for testing.", info.tags().get("vgi.description_llm"));
@@ -56,7 +56,7 @@ class SchemaInfoTagsTest {
                 .schemaTags("main", Map.of("a", "1"))
                 .schemaTags("main", Map.of("b", "2"));
 
-        SchemaInfo info = onlySchema(service(w).catalog_schemas("attach".getBytes(), null));
+        SchemaInfo info = onlySchema(service(w).catalog_schemas("attach".getBytes(), null, null));
 
         assertEquals("1", info.tags().get("a"));
         assertEquals("2", info.tags().get("b"));
@@ -65,7 +65,7 @@ class SchemaInfoTagsTest {
     @Test
     void noTagsConfiguredYieldsEmptyMap() {
         SchemaInfo info = onlySchema(
-                service(Worker.builder()).catalog_schemas("attach".getBytes(), null));
+                service(Worker.builder()).catalog_schemas("attach".getBytes(), null, null));
 
         assertEquals("main", info.name());
         assertTrue(info.tags().isEmpty(), "tags should default to empty");

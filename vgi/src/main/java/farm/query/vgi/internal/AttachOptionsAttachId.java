@@ -27,6 +27,13 @@ import java.util.Map;
  * spec (declaration order). User-supplied values override the spec's default;
  * missing values fall back to the default vector materialised at spec
  * registration.
+ *
+ * <p><b>Secret options are never encoded.</b> A spec declared {@code secret} is
+ * left out of the merged batch on every transport: on stdio / AF_UNIX the
+ * attach id travels unsealed, and a credential must not sit in plaintext in a
+ * value the client stores and returns
+ * ({@code docs/protocol/vgi-opaque-data-sealing.md} rule 5). A function that
+ * needs a secret's effect must derive it at attach time instead.
  */
 public final class AttachOptionsAttachId {
 
@@ -38,14 +45,19 @@ public final class AttachOptionsAttachId {
     /**
      * Encode the resolved option values into a fresh {@code attach_id}.
      *
-     * @param specs          declared option specs (define column order and defaults)
+     * @param declared       declared option specs (define column order and defaults);
+     *                       secret ones are dropped
      * @param userOptionsIpc IPC batch of user-supplied option values, or {@code null}/empty
      * @param rng            source of the 16-byte uniqueness prefix
      * @return the encoded {@code attach_id} bytes
      */
-    public static byte[] encode(List<AttachOptionSpec> specs, byte[] userOptionsIpc,
+    public static byte[] encode(List<AttachOptionSpec> declared, byte[] userOptionsIpc,
                                   SecureRandom rng) {
         BufferAllocator alloc = Allocators.root();
+        List<AttachOptionSpec> specs = new ArrayList<>(declared.size());
+        for (AttachOptionSpec spec : declared) {
+            if (!spec.secret()) specs.add(spec);
+        }
 
         // Merged-batch schema: one column per spec, in declaration order.
         // The Field's name comes from the spec (not the spec's "value" field).

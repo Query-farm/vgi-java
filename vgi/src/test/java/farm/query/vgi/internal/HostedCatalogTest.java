@@ -66,12 +66,12 @@ final class HostedCatalogTest {
     }
 
     private static List<String> viewNames(VgiServiceImpl svc, byte[] attach, List<String> path) {
-        return svc.catalog_schema_contents_views(attach, path, null).items().stream()
+        return svc.catalog_schema_contents_views(attach, path, null, null).items().stream()
                 .map(b -> RecordCodec.deserializeFromBytes(b, ViewInfo.class).name()).toList();
     }
 
     private static List<List<String>> schemaPaths(VgiServiceImpl svc, byte[] attach) {
-        return svc.catalog_schemas(attach, null).items().stream()
+        return svc.catalog_schemas(attach, null, null).items().stream()
                 .map(b -> RecordCodec.deserializeFromBytes(b, SchemaInfo.class).path()).toList();
     }
 
@@ -165,10 +165,10 @@ final class HostedCatalogTest {
                 () -> svc.catalog_view_create(a, MAIN, "v", "SELECT 2", "ERROR", null, null));
         svc.catalog_view_create(a, MAIN, "v", "SELECT 3", "IGNORE", null, null);
         assertEquals("SELECT 1", RecordCodec.deserializeFromBytes(
-                svc.catalog_view_get(a, MAIN, "v", null).items().get(0), ViewInfo.class).definition());
+                svc.catalog_view_get(a, MAIN, "v", null, null).items().get(0), ViewInfo.class).definition());
         svc.catalog_view_create(a, MAIN, "v", "SELECT 4", "REPLACE", null, null);
         assertEquals("SELECT 4", RecordCodec.deserializeFromBytes(
-                svc.catalog_view_get(a, MAIN, "v", null).items().get(0), ViewInfo.class).definition());
+                svc.catalog_view_get(a, MAIN, "v", null, null).items().get(0), ViewInfo.class).definition());
 
         assertThrows(IllegalArgumentException.class,
                 () -> svc.catalog_table_drop(a, MAIN, "missing", false, false, null, null));
@@ -196,7 +196,7 @@ final class HostedCatalogTest {
         assertEquals(1L, version(svc, b));
         assertEquals(2, mem.attachedCount());
 
-        svc.catalog_detach(a);
+        svc.catalog_detach(a, null);
         assertEquals(1, mem.attachedCount());
     }
 
@@ -216,11 +216,11 @@ final class HostedCatalogTest {
         byte[] a = attach(svc, "mem");
         svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null);
         SchemaInfo info = RecordCodec.deserializeFromBytes(
-                svc.catalog_schema_get(a, MAIN, null).items().get(0), SchemaInfo.class);
+                svc.catalog_schema_get(a, MAIN, null, null).items().get(0), SchemaInfo.class);
         assertEquals(1L, info.estimated_object_count().get("view"));
         assertEquals(0L, info.estimated_object_count().get("table"));
         assertEquals(0L, info.estimated_object_count().get("scalar_function"));
-        assertEquals(0, svc.catalog_schema_get(a, List.of("nope"), null).items().size());
+        assertEquals(0, svc.catalog_schema_get(a, List.of("nope"), null, null).items().size());
     }
 
     @Test
@@ -293,7 +293,7 @@ final class HostedCatalogTest {
         VgiServiceImpl svc = service(hostingWorker());
         byte[] a = attach(svc, "mem");
         assertEquals(0, svc.catalog_schema_contents_functions(a, MAIN, null, null, null).items().size());
-        assertEquals(0, svc.catalog_copy_from_formats(a, null).items().size());
+        assertEquals(0, svc.catalog_copy_from_formats(a, null, null).items().size());
         // `probe` is the main catalog's; the hosted attach must not reach it.
         Worker w = hostingWorker().registerScalar(new Probe());
         VgiServiceImpl withScalar = service(w);
@@ -348,12 +348,12 @@ final class HostedCatalogTest {
         byte[] a = r.attach_opaque_data();
         assertEquals(List.of(MAIN, List.of("extra")), schemaPaths(svc, a));
         assertEquals("second schema", RecordCodec.deserializeFromBytes(
-                svc.catalog_schema_get(a, List.of("extra"), null).items().get(0), SchemaInfo.class).comment());
+                svc.catalog_schema_get(a, List.of("extra"), null, null).items().get(0), SchemaInfo.class).comment());
         assertEquals(List.of("answer"), viewNames(svc, a, MAIN));
-        assertEquals(1, svc.catalog_view_get(a, MAIN, "answer", null).items().size());
-        assertEquals(1, svc.catalog_schema_contents_macros(a, MAIN, "SCALAR_MACRO", null).items().size());
-        assertEquals(1, svc.catalog_schema_contents_macros(a, MAIN, "TABLE_MACRO", null).items().size());
-        assertEquals(1, svc.catalog_macro_get(a, MAIN, "rng", null).items().size());
+        assertEquals(1, svc.catalog_view_get(a, MAIN, "answer", null, null).items().size());
+        assertEquals(1, svc.catalog_schema_contents_macros(a, MAIN, "SCALAR_MACRO", null, null).items().size());
+        assertEquals(1, svc.catalog_schema_contents_macros(a, MAIN, "TABLE_MACRO", null, null).items().size());
+        assertEquals(1, svc.catalog_macro_get(a, MAIN, "rng", null, null).items().size());
 
         SchemaContents mainContents = svc.catalog_contents(a, null, null).schemas().get(0);
         assertEquals(1, mainContents.views().size());

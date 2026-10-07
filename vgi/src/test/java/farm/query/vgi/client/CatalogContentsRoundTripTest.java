@@ -94,7 +94,7 @@ final class CatalogContentsRoundTripTest {
             assertFalse(vgi.catalog_contents(handle, "whatever", null).not_modified(),
                     "with no etag, if_none_match is ignored");
 
-            List<byte[]> schemaItems = vgi.catalog_schemas(handle, null).items();
+            List<byte[]> schemaItems = vgi.catalog_schemas(handle, null, null).items();
             assertEquals(schemaItems.size(), response.schemas().size(), "one entry per schema");
             List<String> names = new ArrayList<>();
             for (int i = 0; i < schemaItems.size(); i++) {
@@ -106,7 +106,7 @@ final class CatalogContentsRoundTripTest {
                 assertSameItems(path + " tables", c.tables(),
                         vgi.catalog_schema_contents_tables(handle, path, null, null));
                 assertSameItems(path + " views", c.views(),
-                        vgi.catalog_schema_contents_views(handle, path, null));
+                        vgi.catalog_schema_contents_views(handle, path, null, null));
                 assertSameItems(path + " scalar functions", c.scalar_functions(),
                         vgi.catalog_schema_contents_functions(handle, path, "SCALAR_FUNCTION", null, null));
                 assertSameItems(path + " aggregate functions", c.aggregate_functions(),
@@ -114,11 +114,11 @@ final class CatalogContentsRoundTripTest {
                 assertSameItems(path + " table functions", c.table_functions(),
                         vgi.catalog_schema_contents_functions(handle, path, "TABLE_FUNCTION", null, null));
                 assertSameItems(path + " scalar macros", c.scalar_macros(),
-                        vgi.catalog_schema_contents_macros(handle, path, "SCALAR_MACRO", null));
+                        vgi.catalog_schema_contents_macros(handle, path, "SCALAR_MACRO", null, null));
                 assertSameItems(path + " table macros", c.table_macros(),
-                        vgi.catalog_schema_contents_macros(handle, path, "TABLE_MACRO", null));
+                        vgi.catalog_schema_contents_macros(handle, path, "TABLE_MACRO", null, null));
                 assertSameItems(path + " indexes", c.indexes(),
-                        vgi.catalog_schema_contents_indexes(handle, path, null));
+                        vgi.catalog_schema_contents_indexes(handle, path, null, null));
             }
             assertEquals(List.of("main", "extra"), names);
 
@@ -219,9 +219,9 @@ final class CatalogContentsRoundTripTest {
             assertFalse(java.util.Arrays.equals(first, second), "each attach still gets its own envelope");
 
             SchemaInfo info = RecordCodec.deserializeFromBytes(
-                    vgi.catalog_schemas(first, null).items().get(0), SchemaInfo.class);
+                    vgi.catalog_schemas(first, null, null).items().get(0), SchemaInfo.class);
             assertArrayEquals(farm.query.vgi.internal.VgiServiceImpl.FIXED_ITEM_ATTACH_ID, info.attach_opaque_data());
-            assertSameItems("schemas", vgi.catalog_schemas(first, null).items(), vgi.catalog_schemas(second, null));
+            assertSameItems("schemas", vgi.catalog_schemas(first, null, null).items(), vgi.catalog_schemas(second, null, null));
 
             List<SchemaContents> a = vgi.catalog_contents(first, null, null).schemas();
             List<SchemaContents> b = vgi.catalog_contents(second, null, null).schemas();
@@ -236,7 +236,7 @@ final class CatalogContentsRoundTripTest {
             VgiService vgi = h.client();
             byte[] handle = attach(vgi).attach_opaque_data();
             SchemaInfo info = RecordCodec.deserializeFromBytes(
-                    vgi.catalog_schemas(handle, null).items().get(0), SchemaInfo.class);
+                    vgi.catalog_schemas(handle, null, null).items().get(0), SchemaInfo.class);
             assertArrayEquals(handle, info.attach_opaque_data());
             assertArrayEquals(handle, RecordCodec.deserializeFromBytes(
                     vgi.catalog_contents(handle, null, null).schemas().get(0).schema(), SchemaInfo.class)

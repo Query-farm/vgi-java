@@ -256,15 +256,15 @@ class SchemaScopedDispatchTest {
         // Every aggregate RPC is unary and re-resolves by name, so the schema on
         // the request is the only thing routing it (protocol 1.2.0).
         VgiServiceImpl svc = aggService();
-        assertEquals("from_main", aggTag(svc.aggregate_bind(aggBind("main"))));
-        assertEquals("from_data", aggTag(svc.aggregate_bind(aggBind("data"))));
+        assertEquals("from_main", aggTag(svc.aggregate_bind(aggBind("main"), null)));
+        assertEquals("from_data", aggTag(svc.aggregate_bind(aggBind("data"), null)));
     }
 
     @Test
     void aggregateBindRaisesOnACrossSchemaCollisionWithNoSchema() {
         VgiServiceImpl svc = aggService();
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> svc.aggregate_bind(aggBind(null)));
+                () -> svc.aggregate_bind(aggBind(null), null));
         assertTrue(e.getMessage().contains("more than one schema"), e.getMessage());
     }
 
@@ -272,7 +272,7 @@ class SchemaScopedDispatchTest {
     void aggregateBindRaisesOnASchemaThatDoesNotDeclareIt() {
         VgiServiceImpl svc = aggService();
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> svc.aggregate_bind(aggBind("nowhere")));
+                () -> svc.aggregate_bind(aggBind("nowhere"), null));
         assertTrue(e.getMessage().contains("not registered in schema 'nowhere'"), e.getMessage());
     }
 

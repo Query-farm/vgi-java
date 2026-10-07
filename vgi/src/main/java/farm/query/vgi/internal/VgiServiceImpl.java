@@ -305,23 +305,21 @@ public final class VgiServiceImpl implements VgiService {
 
     /**
      * The auxiliary catalog this attach belongs to, or {@code null} for the
-     * main catalog (and for any attach we can't resolve — an unsealable token,
-     * or a bind that carries none at all, such as a COPY handler).
+     * main catalog (or for a bind that carries none at all, such as a COPY
+     * handler). A value that does not open is rejected uniformly.
      */
     private String attachExtraCatalogName(byte[] attachOpaqueData, CallContext ctx) {
-        if ((worker.extraCatalogs().isEmpty() && worker.catalogInterfaces().isEmpty())
-                || attachOpaqueData == null) return null;
-        try {
-            byte[] plain = sealer.unsealAttach(attachOpaqueData, authOf(ctx));
-            // A code-implemented catalog owns no functions, so naming it here
-            // makes every bind on its attach fail with "not registered in catalog".
-            String recorded = catalogRegistry.catalogName(plain);
-            if (recorded != null && worker.catalogInterfaces().containsKey(recorded)) return recorded;
-            Worker.ExtraCatalog extra = extraCatalogOf(plain);
-            return extra == null ? null : extra.name();
-        } catch (RuntimeException notOurs) {
-            return null;
-        }
+        if (attachOpaqueData == null) return null;
+        // Opened unconditionally: a value that does not open is rejected, never
+        // read as "the main catalog".
+        byte[] plain = openAttach(attachOpaqueData, ctx);
+        if (worker.extraCatalogs().isEmpty() && worker.catalogInterfaces().isEmpty()) return null;
+        // A code-implemented catalog owns no functions, so naming it here
+        // makes every bind on its attach fail with "not registered in catalog".
+        String recorded = catalogRegistry.catalogName(plain);
+        if (recorded != null && worker.catalogInterfaces().containsKey(recorded)) return recorded;
+        Worker.ExtraCatalog extra = extraCatalogOf(plain);
+        return extra == null ? null : extra.name();
     }
 
     /**
@@ -549,7 +547,7 @@ public final class VgiServiceImpl implements VgiService {
         }
         TableInOutFunction fn = OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
-        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
+        byte[] attachPlain = openAttach(request.attach_opaque_data(), ctx);
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(),
                 attachPlain, attachScopedStorage(attachPlain), null, request.argument_names()));
@@ -1189,10 +1187,10 @@ public final class VgiServiceImpl implements VgiService {
      * @return the bind response carrying the output schema
      */
     @Override
-    public AggregateBindResponse aggregate_bind(AggregateBindRequest request) {
+    public AggregateBindResponse aggregate_bind(AggregateBindRequest request, CallContext ctx) {
         return aggregateRunner.bind(
                 resolveAggregate(request.function_name(), request.schema_path(),
-                        request.attach_opaque_data()),
+                        request.attach_opaque_data(), ctx),
                 request.function_name(), request.input_schema(), request.arguments(),
                 request.secrets(), request.argument_names());
     }
@@ -1208,17 +1206,16 @@ public final class VgiServiceImpl implements VgiService {
      * @param name the registered aggregate name
      * @param schemaName the declaring schema named by the request, or {@code null}
      * @param attachOpaqueData the attach token, naming the catalog
+     * @param ctx the caller, under whose identity the attach is opened
      */
-    private AggregateFunction<?> resolveAggregate(String name, List<String> schemaPath, byte[] attachOpaqueData) {
+    private AggregateFunction<?> resolveAggregate(String name, List<String> schemaPath, byte[] attachOpaqueData,
+                                                CallContext ctx) {
         List<AggregateFunction<?>> all = aggregates.get(name);
         if (all == null || all.isEmpty()) {
             throw new IllegalArgumentException("Unknown aggregate: " + name);
         }
-        // Aggregate RPCs carry no CallContext, so a sealed attach that needs a
-        // principal simply doesn't resolve to an auxiliary catalog — which is
-        // the main catalog, the correct answer for every aggregate today.
         List<AggregateFunction<?>> scoped = scopeCandidates(
-                all, name, schemaPath, attachExtraCatalogName(attachOpaqueData, null),
+                all, name, schemaPath, attachExtraCatalogName(attachOpaqueData, ctx),
                 /*copyHandler=*/false);
         return scoped.get(0);
     }
@@ -1230,10 +1227,10 @@ public final class VgiServiceImpl implements VgiService {
      * @return an empty acknowledgement
      */
     @Override
-    public farm.query.vgi.protocol.AggregateUpdateResponse aggregate_update(AggregateUpdateRequest request) {
+    public farm.query.vgi.protocol.AggregateUpdateResponse aggregate_update(AggregateUpdateRequest request, CallContext ctx) {
         aggregateRunner.update(
                 resolveAggregate(request.function_name(), request.schema_path(),
-                        request.attach_opaque_data()),
+                        request.attach_opaque_data(), ctx),
                 request.function_name(), request.execution_id(), request.input_batch());
         return new farm.query.vgi.protocol.AggregateUpdateResponse();
     }
@@ -1245,10 +1242,10 @@ public final class VgiServiceImpl implements VgiService {
      * @return an empty acknowledgement
      */
     @Override
-    public farm.query.vgi.protocol.AggregateCombineResponse aggregate_combine(AggregateCombineRequest request) {
+    public farm.query.vgi.protocol.AggregateCombineResponse aggregate_combine(AggregateCombineRequest request, CallContext ctx) {
         aggregateRunner.combine(
                 resolveAggregate(request.function_name(), request.schema_path(),
-                        request.attach_opaque_data()),
+                        request.attach_opaque_data(), ctx),
                 request.function_name(), request.execution_id(), request.merge_batch());
         return new farm.query.vgi.protocol.AggregateCombineResponse();
     }
@@ -1260,10 +1257,10 @@ public final class VgiServiceImpl implements VgiService {
      * @return the finalize response batch
      */
     @Override
-    public AggregateFinalizeResponse aggregate_finalize(AggregateFinalizeRequest request) {
+    public AggregateFinalizeResponse aggregate_finalize(AggregateFinalizeRequest request, CallContext ctx) {
         return aggregateRunner.finalizeRequest(
                 resolveAggregate(request.function_name(), request.schema_path(),
-                        request.attach_opaque_data()),
+                        request.attach_opaque_data(), ctx),
                 request.function_name(), request.execution_id(),
                 request.group_ids_batch(), request.output_schema());
     }
@@ -1275,13 +1272,13 @@ public final class VgiServiceImpl implements VgiService {
      * @return an empty acknowledgement
      */
     @Override
-    public farm.query.vgi.protocol.AggregateDestructorResponse aggregate_destructor(AggregateDestructorRequest request) {
+    public farm.query.vgi.protocol.AggregateDestructorResponse aggregate_destructor(AggregateDestructorRequest request, CallContext ctx) {
         // Resolved for the same reason the other RPCs are: the state it frees is
         // keyed by (execution, function), and a mis-resolved destructor would
         // free another schema's implementation's state.
         aggregateRunner.destructor(
                 resolveAggregate(request.function_name(), request.schema_path(),
-                        request.attach_opaque_data()),
+                        request.attach_opaque_data(), ctx),
                 request.function_name(), request.execution_id(), request.group_ids_batch());
         return new farm.query.vgi.protocol.AggregateDestructorResponse();
     }
@@ -1333,7 +1330,10 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.CatalogVersionResponse catalog_version(byte[] attach_opaque_data,
             byte[] transaction_opaque_data, CallContext ctx) {
+        // Opens both values (attach first): a value that does not open is rejected here, not
+        // answered with a version.
         Hosted hosted = hostedOf(attach_opaque_data, ctx);
+        sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, authOf(ctx));
         if (hosted != null) {
             return new farm.query.vgi.protocol.CatalogVersionResponse(hosted.catalog().version(hosted.attachId()));
         }
@@ -1378,9 +1378,10 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_transaction_commit(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                              CallContext ctx) {
         AuthContext auth = authOf(ctx);
+        byte[] attachPlain = sealer.unsealAttach(attach_opaque_data, auth);
         transactionStore.end(
                 sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
-                sealer.unsealAttach(attach_opaque_data, auth));
+                attachPlain);
     }
 
     /**
@@ -1394,9 +1395,10 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_transaction_rollback(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                                CallContext ctx) {
         AuthContext auth = authOf(ctx);
+        byte[] attachPlain = sealer.unsealAttach(attach_opaque_data, auth);
         transactionStore.end(
                 sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
-                sealer.unsealAttach(attach_opaque_data, auth));
+                attachPlain);
     }
 
     private final CatalogRegistry catalogRegistry;
@@ -1593,8 +1595,8 @@ public final class VgiServiceImpl implements VgiService {
      * @param attach_opaque_data the attach token being released
      */
     @Override
-    public void catalog_detach(byte[] attach_opaque_data) {
-        Hosted hosted = hostedOf(attach_opaque_data, null);
+    public void catalog_detach(byte[] attach_opaque_data, CallContext ctx) {
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
         if (hosted != null) {
             hosted.catalog().detach(hosted.attachId());
             catalogRegistry.forget(hosted.attachId());
@@ -1610,31 +1612,30 @@ public final class VgiServiceImpl implements VgiService {
 
     /**
      * The code-implemented catalog an attach belongs to, or {@code null} when it
-     * is the worker's own catalog or an auxiliary one. Unsealing is the auth
-     * check; a call that carries no {@link CallContext} resolves the attach the
-     * way {@link #extraCatalogOf} does.
+     * is the worker's own catalog or an auxiliary one.
+     *
+     * <p>Opens the attach under the caller's identity first, always -- even when
+     * this worker hosts no code-implemented catalog -- so every catalog method
+     * that routes through here rejects a value that does not open. There is no
+     * unsealed fallback: a call without a {@link CallContext} is anonymous, and
+     * a value sealed for someone else does not open for it.
      */
     private Hosted hostedOf(byte[] attachOpaqueData, CallContext ctx) {
-        if (worker.catalogInterfaces().isEmpty() || attachOpaqueData == null) return null;
-        byte[] plain;
-        String name = null;
-        if (ctx != null) {
-            plain = sealer.unsealAttach(attachOpaqueData, authOf(ctx));
-            name = catalogRegistry.catalogName(plain);
-        } else {
-            plain = attachOpaqueData;
-            name = catalogRegistry.catalogName(plain);
-            if (name == null) {
-                try {
-                    plain = sealer.unsealAttach(attachOpaqueData, null);
-                    name = catalogRegistry.catalogName(plain);
-                } catch (RuntimeException sealedWithoutAuth) {
-                    return null;
-                }
-            }
-        }
+        if (attachOpaqueData == null) return null;
+        byte[] plain = openAttach(attachOpaqueData, ctx);
+        if (worker.catalogInterfaces().isEmpty()) return null;
+        String name = catalogRegistry.catalogName(plain);
         farm.query.vgi.CatalogInterface catalog = name == null ? null : worker.catalogInterfaces().get(name);
         return catalog == null ? null : new Hosted(catalog, plain);
+    }
+
+    /**
+     * Open {@code attach_opaque_data} under the caller's identity: the plain attach id, or the
+     * value unchanged on an OS-owned transport. Every failure is the uniform
+     * {@code "attach_opaque_data not recognized"} ({@link OpaqueDataSealer#notRecognized}).
+     */
+    private byte[] openAttach(byte[] attachOpaqueData, CallContext ctx) {
+        return sealer.unsealAttach(attachOpaqueData, authOf(ctx));
     }
 
     private CatalogAttachResult attachHosted(farm.query.vgi.CatalogInterface catalog, CatalogAttachRequest request,
@@ -1773,7 +1774,7 @@ public final class VgiServiceImpl implements VgiService {
     public farm.query.vgi.protocol.CatalogContentsResponse catalog_contents(
             byte[] attach_opaque_data, String if_none_match, CallContext ctx) {
         // Open the envelope first, even on a cache hit, like every per-schema RPC: it is the auth check.
-        byte[] plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        byte[] plain = openAttach(attach_opaque_data, ctx);
         String recorded = catalogRegistry.catalogName(plain);
         String catalogName = recorded != null ? recorded : worker.catalogName();
         farm.query.vgi.CatalogInterface hosted = recorded == null ? null : worker.catalogInterfaces().get(recorded);
@@ -1812,10 +1813,10 @@ public final class VgiServiceImpl implements VgiService {
      * @return one serialised {@code SchemaInfo} per schema
      */
     @Override
-    public ItemsResponse catalog_schemas(byte[] attach_opaque_data, byte[] transaction_opaque_data) {
-        Hosted hosted = hostedOf(attach_opaque_data, null);
+    public ItemsResponse catalog_schemas(byte[] attach_opaque_data, byte[] transaction_opaque_data, CallContext ctx) {
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
         if (hosted != null) return new ItemsResponse(hostedSchemaItems(hosted.catalog().schemas(hosted.attachId())));
-        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        Worker.ExtraCatalog extra = extraCatalogOf(openAttach(attach_opaque_data, ctx));
         if (extra != null) {
             List<byte[]> items = new ArrayList<>();
             for (String schema : extraSchemas(extra)) {
@@ -1842,15 +1843,15 @@ public final class VgiServiceImpl implements VgiService {
      * @return a one-item response, or empty when the schema is unknown
      */
     @Override
-    public ItemsResponse catalog_schema_get(byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data) {
+    public ItemsResponse catalog_schema_get(byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data, CallContext ctx) {
         String name = schemaLeaf(path);
-        Hosted hosted = hostedOf(attach_opaque_data, null);
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
         if (hosted != null) {
             return hosted.catalog().schema(hosted.attachId(), path)
                     .map(s -> new ItemsResponse(hostedSchemaItems(List.of(s))))
                     .orElseGet(ItemsResponse::empty);
         }
-        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        Worker.ExtraCatalog extra = extraCatalogOf(openAttach(attach_opaque_data, ctx));
         if (extra != null) {
             if (path == null || path.size() != 1 || !extraSchemas(extra).contains(name)) return ItemsResponse.empty();
             return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
@@ -1870,20 +1871,13 @@ public final class VgiServiceImpl implements VgiService {
     private record SchemaDesc(String name, String comment, Map<String, String> tags) {}
 
     /**
-     * The auxiliary catalog an attach belongs to, or {@code null} for the main
-     * catalog. Routed by the catalog name recorded at {@code catalog_attach};
-     * under stdio / AF_UNIX the wire token IS the recorded plaintext id.
+     * The auxiliary catalog an <em>opened</em> attach id belongs to, or {@code null} for the main
+     * catalog. Routed by the catalog name recorded at {@code catalog_attach}. Takes the plain id
+     * only: a sealed value must go through {@link #openAttach} first, under the caller's identity.
      */
-    private Worker.ExtraCatalog extraCatalogOf(byte[] attachOpaqueData) {
-        if (worker.extraCatalogs().isEmpty() || attachOpaqueData == null) return null;
-        String name = catalogRegistry.catalogName(attachOpaqueData);
-        if (name == null) {
-            try {
-                name = catalogRegistry.catalogName(sealer.unsealAttach(attachOpaqueData, null));
-            } catch (RuntimeException sealedWithoutAuth) {
-                return null;
-            }
-        }
+    private Worker.ExtraCatalog extraCatalogOf(byte[] attachPlain) {
+        if (worker.extraCatalogs().isEmpty() || attachPlain == null) return null;
+        String name = catalogRegistry.catalogName(attachPlain);
         return name == null ? null : worker.extraCatalogs().get(name);
     }
 
@@ -2109,7 +2103,7 @@ public final class VgiServiceImpl implements VgiService {
             }
             return new ItemsResponse(hostedItems);
         }
-        byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
         List<CatalogTable> extraTables = extraCatalogTablesFor(attach_opaque_data_plain, name);
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
@@ -2163,7 +2157,7 @@ public final class VgiServiceImpl implements VgiService {
             throw new IllegalArgumentException("scan_function_get: table " + schema_name + "." + name
                     + " holds metadata only and cannot be scanned");
         }
-        byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
             for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
@@ -2237,7 +2231,7 @@ public final class VgiServiceImpl implements VgiService {
             throw new IllegalArgumentException("scan_branches_get: table " + schema_name + "." + name
                     + " holds metadata only and cannot be scanned");
         }
-        byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
             for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
@@ -2374,7 +2368,7 @@ public final class VgiServiceImpl implements VgiService {
             farm.query.vgi.protocol.TableBufferingProcessRequest request, CallContext ctx) {
         var fn = bufferingFn(request.function_name(), request.schema_path(),
                 request.attach_opaque_data(), ctx);
-        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
+        byte[] attachPlain = openAttach(request.attach_opaque_data(), ctx);
         farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
                 this.storage, request.execution_id(), attachPlain);
         BufferingInitState init = bufferingInitState(storage);
@@ -2405,7 +2399,7 @@ public final class VgiServiceImpl implements VgiService {
             farm.query.vgi.protocol.TableBufferingCombineRequest request, CallContext ctx) {
         var fn = bufferingFn(request.function_name(), request.schema_path(),
                 request.attach_opaque_data(), ctx);
-        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx));
+        byte[] attachPlain = openAttach(request.attach_opaque_data(), ctx);
         farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
                 this.storage, request.execution_id(), attachPlain);
         BufferingInitState init = bufferingInitState(storage);
@@ -2432,7 +2426,7 @@ public final class VgiServiceImpl implements VgiService {
     public farm.query.vgi.protocol.TableBufferingDestructorResponse table_buffering_destructor(
             farm.query.vgi.protocol.TableBufferingDestructorRequest request, CallContext ctx) {
         new farm.query.vgi.storage.BoundStorage(this.storage, request.execution_id(),
-                sealer.unsealAttach(request.attach_opaque_data(), authOf(ctx)))
+                openAttach(request.attach_opaque_data(), ctx))
                 .executionClear();
         return new farm.query.vgi.protocol.TableBufferingDestructorResponse();
     }
@@ -2460,7 +2454,7 @@ public final class VgiServiceImpl implements VgiService {
                     .map(t -> new ItemsResponse(List.of(TableInfoSerializer.serialize(t))))
                     .orElseGet(ItemsResponse::empty);
         }
-        byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
         if (extraCatalog != null) {
             for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
@@ -2504,7 +2498,7 @@ public final class VgiServiceImpl implements VgiService {
             CallContext ctx) {
         String schema_name = schemaLeaf(schema_path);
         if (hostedOf(attach_opaque_data, ctx) != null) return new byte[0];
-        byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
         if (extraCatalogOf(attach_opaque_data_plain) != null) return new byte[0];
         if (catalogRegistry.isHiddenInVersionedTables(name, attach_opaque_data_plain)) return new byte[0];
         for (CatalogTable t : worker.catalogTables()) {
@@ -2583,17 +2577,17 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_schema_contents_views(
-            byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data) {
+            byte[] attach_opaque_data, List<String> path, byte[] transaction_opaque_data, CallContext ctx) {
         String name = schemaLeaf(path);
         List<byte[]> items = new ArrayList<>();
-        Hosted hosted = hostedOf(attach_opaque_data, null);
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
         if (hosted != null) {
             for (farm.query.vgi.protocol.ViewInfo v : hosted.catalog().views(hosted.attachId(), path)) {
                 items.add(RecordCodec.serializeToBytes(v));
             }
             return new ItemsResponse(items);
         }
-        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        Worker.ExtraCatalog extra = extraCatalogOf(openAttach(attach_opaque_data, ctx));
         if (extra != null) {
             for (View v : worker.extraCatalogViews().getOrDefault(extra.name(), List.of())) {
                 if (v.schema().equals(name)) items.add(RecordCodec.serializeToBytes(toViewInfo(v)));
@@ -2623,15 +2617,15 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_view_get(byte[] attach_opaque_data, List<String> schema_path, String name,
-            byte[] transaction_opaque_data) {
+            byte[] transaction_opaque_data, CallContext ctx) {
         String schema_name = schemaLeaf(schema_path);
-        Hosted hosted = hostedOf(attach_opaque_data, null);
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
         if (hosted != null) {
             return hosted.catalog().view(hosted.attachId(), schema_path, name)
                     .map(v -> new ItemsResponse(List.of(RecordCodec.serializeToBytes(v))))
                     .orElseGet(ItemsResponse::empty);
         }
-        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        Worker.ExtraCatalog extra = extraCatalogOf(openAttach(attach_opaque_data, ctx));
         if (extra != null) {
             for (View v : worker.extraCatalogViews().getOrDefault(extra.name(), List.of())) {
                 if (v.schema().equals(schema_name) && v.name().equals(name)) {
@@ -2661,14 +2655,14 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_schema_contents_macros(
-            byte[] attach_opaque_data, List<String> path, String type, byte[] transaction_opaque_data) {
+            byte[] attach_opaque_data, List<String> path, String type, byte[] transaction_opaque_data, CallContext ctx) {
         String name = schemaLeaf(path);
         boolean wantScalar = type == null || type.equalsIgnoreCase("scalar")
                 || type.equalsIgnoreCase("scalar_macro");
         boolean wantTable = type == null || type.equalsIgnoreCase("table")
                 || type.equalsIgnoreCase("table_macro");
         List<byte[]> items = new ArrayList<>();
-        Hosted hosted = hostedOf(attach_opaque_data, null);
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
         if (hosted != null) {
             if (wantScalar) {
                 for (farm.query.vgi.protocol.MacroInfo m : hosted.catalog().macros(hosted.attachId(), path, MacroType.SCALAR)) {
@@ -2682,7 +2676,7 @@ public final class VgiServiceImpl implements VgiService {
             }
             return new ItemsResponse(items);
         }
-        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        Worker.ExtraCatalog extra = extraCatalogOf(openAttach(attach_opaque_data, ctx));
         for (Macro m : extra != null ? worker.extraCatalogMacros().getOrDefault(extra.name(), List.of())
                                       : worker.macros()) {
             if (!m.schema().equals(name)) continue;
@@ -2705,15 +2699,15 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_macro_get(byte[] attach_opaque_data, List<String> schema_path, String name,
-            byte[] transaction_opaque_data) {
+            byte[] transaction_opaque_data, CallContext ctx) {
         String schema_name = schemaLeaf(schema_path);
-        Hosted hosted = hostedOf(attach_opaque_data, null);
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
         if (hosted != null) {
             return hosted.catalog().macro(hosted.attachId(), schema_path, name)
                     .map(m -> new ItemsResponse(List.of(MacroInfoSerializer.serialize(m))))
                     .orElseGet(ItemsResponse::empty);
         }
-        Worker.ExtraCatalog extra = extraCatalogOf(attach_opaque_data);
+        Worker.ExtraCatalog extra = extraCatalogOf(openAttach(attach_opaque_data, ctx));
         for (Macro m : extra != null ? worker.extraCatalogMacros().getOrDefault(extra.name(), List.of())
                                       : worker.macros()) {
             if (m.schema().equals(schema_name) && m.name().equals(name)) {
@@ -2765,7 +2759,7 @@ public final class VgiServiceImpl implements VgiService {
         String name = schemaLeaf(path);
         // A code-implemented catalog declares no functions.
         if (hostedOf(attach_opaque_data, ctx) != null) return ItemsResponse.empty();
-        byte[] attach_opaque_data_plain = sealer.unsealAttach(attach_opaque_data, authOf(ctx));
+        byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
         boolean wantScalar = type == null
                 || type.equalsIgnoreCase("scalar")
                 || type.equalsIgnoreCase("SCALAR_FUNCTION");
@@ -2933,11 +2927,11 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public ItemsResponse catalog_copy_from_formats(byte[] attach_opaque_data,
-                                                    byte[] transaction_opaque_data) {
+                                                    byte[] transaction_opaque_data, CallContext ctx) {
         // COPY formats are owned by the main catalog; an auxiliary catalog's
         // attach advertises none (parallels catalog_schemas' extra-catalog gate).
-        if (extraCatalogOf(attach_opaque_data) != null) return ItemsResponse.empty();
-        if (hostedOf(attach_opaque_data, null) != null) return ItemsResponse.empty();
+        if (extraCatalogOf(openAttach(attach_opaque_data, ctx)) != null) return ItemsResponse.empty();
+        if (hostedOf(attach_opaque_data, ctx) != null) return ItemsResponse.empty();
         boolean projReproAttach =
                 "projection_repro".equals(catalogRegistry.catalogName(attach_opaque_data));
         List<byte[]> items = new ArrayList<>();

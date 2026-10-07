@@ -189,25 +189,28 @@ public interface VgiService {
      * Bind an aggregate: validate arguments and resolve the result type.
      *
      * @param request aggregate bind request
+     * @param ctx the caller; the attach is opened under its identity
      * @return the bound aggregate's state and result schema
      */
-    AggregateBindResponse aggregate_bind(AggregateBindRequest request);
+    AggregateBindResponse aggregate_bind(AggregateBindRequest request, CallContext ctx);
 
     /**
      * Fold a batch of input rows into one or more aggregate states.
      *
      * @param request input rows plus the target state handles
+     * @param ctx the caller; the attach is opened under its identity
      * @return acknowledgement of the update
      */
-    farm.query.vgi.protocol.AggregateUpdateResponse aggregate_update(AggregateUpdateRequest request);
+    farm.query.vgi.protocol.AggregateUpdateResponse aggregate_update(AggregateUpdateRequest request, CallContext ctx);
 
     /**
      * Merge partial aggregate states (parallel/distributed combine step).
      *
      * @param request source and target state handles to merge
+     * @param ctx the caller; the attach is opened under its identity
      * @return acknowledgement; default is a no-op for single-state aggregates
      */
-    default farm.query.vgi.protocol.AggregateCombineResponse aggregate_combine(AggregateCombineRequest request) {
+    default farm.query.vgi.protocol.AggregateCombineResponse aggregate_combine(AggregateCombineRequest request, CallContext ctx) {
         return new farm.query.vgi.protocol.AggregateCombineResponse();
     }
 
@@ -215,17 +218,19 @@ public interface VgiService {
      * Produce final aggregate values from accumulated states.
      *
      * @param request the state handles to finalize
+     * @param ctx the caller; the attach is opened under its identity
      * @return the finalized result batch
      */
-    AggregateFinalizeResponse aggregate_finalize(AggregateFinalizeRequest request);
+    AggregateFinalizeResponse aggregate_finalize(AggregateFinalizeRequest request, CallContext ctx);
 
     /**
      * Release resources held by aggregate states.
      *
      * @param request the state handles to destroy
+     * @param ctx the caller; the attach is opened under its identity
      * @return acknowledgement; default is a no-op
      */
-    default farm.query.vgi.protocol.AggregateDestructorResponse aggregate_destructor(AggregateDestructorRequest request) {
+    default farm.query.vgi.protocol.AggregateDestructorResponse aggregate_destructor(AggregateDestructorRequest request, CallContext ctx) {
         return new farm.query.vgi.protocol.AggregateDestructorResponse();
     }
 
@@ -295,8 +300,9 @@ public interface VgiService {
      * Detach a previously attached catalog.
      *
      * @param attach_opaque_data the opaque handle from {@link #catalog_attach}
+     * @param ctx the caller; the attach is opened under its identity
      */
-    void catalog_detach(byte[] attach_opaque_data);
+    void catalog_detach(byte[] attach_opaque_data, CallContext ctx);
 
     /**
      * Report the catalog's current logical version for cache invalidation.
@@ -497,9 +503,10 @@ public interface VgiService {
      *
      * @param attach_opaque_data      the attach handle
      * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller; the attach is opened under its identity
      * @return one item per schema
      */
-    ItemsResponse catalog_schemas(byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data);
+    ItemsResponse catalog_schemas(byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data, CallContext ctx);
 
     /**
      * Fetch a single schema by name.
@@ -507,10 +514,11 @@ public interface VgiService {
      * @param attach_opaque_data      the attach handle
      * @param path                    schema path
      * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller; the attach is opened under its identity
      * @return the matching schema item, or empty when not found
      */
     ItemsResponse catalog_schema_get(byte[] attach_opaque_data, java.util.List<String> path,
-            @Nullable byte[] transaction_opaque_data);
+            @Nullable byte[] transaction_opaque_data, CallContext ctx);
 
     /**
      * List the custom {@code COPY ... FROM} formats this catalog advertises
@@ -521,10 +529,11 @@ public interface VgiService {
      *
      * @param attach_opaque_data      the attach handle
      * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller; the attach is opened under its identity
      * @return one item per advertised {@code COPY ... FROM} format; default is empty
      */
     default ItemsResponse catalog_copy_from_formats(
-            byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data) {
+            byte[] attach_opaque_data, @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
     }
 
@@ -589,10 +598,11 @@ public interface VgiService {
      * @param attach_opaque_data      the attach handle
      * @param path                    schema path
      * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller; the attach is opened under its identity
      * @return one item per view; default is empty
      */
     default ItemsResponse catalog_schema_contents_views(
-            byte[] attach_opaque_data, java.util.List<String> path, @Nullable byte[] transaction_opaque_data) {
+            byte[] attach_opaque_data, java.util.List<String> path, @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
     }
 
@@ -634,13 +644,14 @@ public interface VgiService {
      * @param path                    schema path
      * @param type                    macro kind to list (dictionary-encoded on the wire)
      * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller; the attach is opened under its identity
      * @return one item per matching macro; default is empty
      */
     default ItemsResponse catalog_schema_contents_macros(
             byte[] attach_opaque_data,
             java.util.List<String> path,
             @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String type,
-            @Nullable byte[] transaction_opaque_data) {
+            @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
     }
 
@@ -650,10 +661,11 @@ public interface VgiService {
      * @param attach_opaque_data      the attach handle
      * @param path                    schema path
      * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller; the attach is opened under its identity
      * @return one item per index; default is empty
      */
     default ItemsResponse catalog_schema_contents_indexes(
-            byte[] attach_opaque_data, java.util.List<String> path, @Nullable byte[] transaction_opaque_data) {
+            byte[] attach_opaque_data, java.util.List<String> path, @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
     }
 
@@ -749,11 +761,12 @@ public interface VgiService {
      * @param schema_path             owning schema path
      * @param name                    view name
      * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller; the attach is opened under its identity
      * @return the view item, or empty when not found
      */
     default ItemsResponse catalog_view_get(
             byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
-            @Nullable byte[] transaction_opaque_data) {
+            @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
     }
 
@@ -764,11 +777,12 @@ public interface VgiService {
      * @param schema_path             owning schema path
      * @param name                    macro name
      * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx the caller; the attach is opened under its identity
      * @return the macro item, or empty when not found
      */
     default ItemsResponse catalog_macro_get(
             byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
-            @Nullable byte[] transaction_opaque_data) {
+            @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
     }
 }

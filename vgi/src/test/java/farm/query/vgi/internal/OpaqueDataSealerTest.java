@@ -53,7 +53,7 @@ class OpaqueDataSealerTest {
     void crossPrincipalUnsealIsRejected() {
         OpaqueDataSealer s = new OpaqueDataSealer(true);
         byte[] sealed = s.sealAttach(PLAIN, ALICE);
-        assertThrows(IllegalArgumentException.class, () -> s.unsealAttach(sealed, BOB));
+        assertThrows(farm.query.vgirpc.errors.StatusError.class, () -> s.unsealAttach(sealed, BOB));
     }
 
     @Test
@@ -62,7 +62,7 @@ class OpaqueDataSealerTest {
         byte[] attachA = s.sealAttach(PLAIN, ALICE);
         byte[] attachB = s.sealAttach("other".getBytes(StandardCharsets.UTF_8), ALICE);
         byte[] sealedTxn = s.sealTransaction(TXN, attachA, ALICE);
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(farm.query.vgirpc.errors.StatusError.class,
                 () -> s.unsealTransaction(sealedTxn, attachB, ALICE));
     }
 
@@ -71,6 +71,6 @@ class OpaqueDataSealerTest {
         OpaqueDataSealer s = new OpaqueDataSealer(true);
         byte[] sealed = s.sealAttach(PLAIN, ALICE);
         sealed[sealed.length - 1] ^= 0x01;
-        assertThrows(IllegalArgumentException.class, () -> s.unsealAttach(sealed, ALICE));
+        assertThrows(farm.query.vgirpc.errors.StatusError.class, () -> s.unsealAttach(sealed, ALICE));
     }
 }

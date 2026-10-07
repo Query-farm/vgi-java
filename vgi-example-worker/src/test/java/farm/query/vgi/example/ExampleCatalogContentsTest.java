@@ -98,7 +98,7 @@ final class ExampleCatalogContentsTest {
             CatalogContentsResponse response = vgi.catalog_contents(handle, null, null);
             assertEquals(vgi.catalog_version(handle, null, null).version(), response.catalog_version());
 
-            List<byte[]> schemaItems = vgi.catalog_schemas(handle, null).items();
+            List<byte[]> schemaItems = vgi.catalog_schemas(handle, null, null).items();
             assertEquals(schemaItems.size(), response.schemas().size());
             int[] totals = new int[8];
             for (int i = 0; i < schemaItems.size(); i++) {
@@ -108,16 +108,16 @@ final class ExampleCatalogContentsTest {
                 assertEquals(path, c.path(), "path equals SchemaInfo.path");
                 Map<String, ItemsResponse> perSchema = Map.of(
                         "tables", vgi.catalog_schema_contents_tables(handle, path, null, null),
-                        "views", vgi.catalog_schema_contents_views(handle, path, null),
+                        "views", vgi.catalog_schema_contents_views(handle, path, null, null),
                         "scalar_functions",
                         vgi.catalog_schema_contents_functions(handle, path, "SCALAR_FUNCTION", null, null),
                         "aggregate_functions",
                         vgi.catalog_schema_contents_functions(handle, path, "AGGREGATE_FUNCTION", null, null),
                         "table_functions",
                         vgi.catalog_schema_contents_functions(handle, path, "TABLE_FUNCTION", null, null),
-                        "scalar_macros", vgi.catalog_schema_contents_macros(handle, path, "SCALAR_MACRO", null),
-                        "table_macros", vgi.catalog_schema_contents_macros(handle, path, "TABLE_MACRO", null),
-                        "indexes", vgi.catalog_schema_contents_indexes(handle, path, null));
+                        "scalar_macros", vgi.catalog_schema_contents_macros(handle, path, "SCALAR_MACRO", null, null),
+                        "table_macros", vgi.catalog_schema_contents_macros(handle, path, "TABLE_MACRO", null, null),
+                        "indexes", vgi.catalog_schema_contents_indexes(handle, path, null, null));
                 List<List<byte[]>> bulk = List.of(c.tables(), c.views(), c.scalar_functions(),
                         c.aggregate_functions(), c.table_functions(), c.scalar_macros(), c.table_macros(),
                         c.indexes());

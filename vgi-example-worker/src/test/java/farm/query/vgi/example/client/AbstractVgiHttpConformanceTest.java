@@ -209,7 +209,7 @@ abstract class AbstractVgiHttpConformanceTest {
     @Test
     @Timeout(120)
     void listsTheCatalogSchemas() {
-        List<SchemaInfo> schemas = decodeItems(vgi.catalog_schemas(handle, null), SchemaInfo.class);
+        List<SchemaInfo> schemas = decodeItems(vgi.catalog_schemas(handle, null, null), SchemaInfo.class);
         List<String> names = schemas.stream().map(SchemaInfo::name).toList();
         assertTrue(names.contains("main"), where("schemas must include 'main', got " + names));
         assertTrue(names.contains("data"), where("schemas must include 'data', got " + names));
