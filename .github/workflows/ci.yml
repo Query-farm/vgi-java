@@ -50,8 +50,11 @@ env:
   #
   # v0.29.0 adds sealed grants and resolveToken-backed bearer authentication
   # (GrantKeys, IdentityBearer) that Worker.grantKeys builds on.
+  #
+  # v0.30.0 adds the public reflection client (Introspect.listProtocols /
+  # describeProtocol); attach tickets need nothing newer than v0.29.0.
   # Keep in step with the identical pin in integration.yml.
-  VGI_RPC_JAVA_REF: v0.29.0
+  VGI_RPC_JAVA_REF: v0.30.0
 
 jobs:
   test:
