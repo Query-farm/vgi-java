@@ -20,8 +20,32 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 STAGE="${STAGE:-$(mktemp -d)}"
+STAGE="$(mkdir -p "$STAGE" && cd "$STAGE" && pwd)"   # absolute: --test-dir and the workers need it
 INTEGRATION="$VGI_SRC/test/sql/integration"
 [ -d "$INTEGRATION" ] || { echo "::error::no test/sql/integration under VGI_SRC=$VGI_SRC"; exit 1; }
+
+# Every unittest invocation gets --test-config with the extension's
+# test/configs/no_error_skip.json. Given no config, DuckDB's sqllogictest runner
+# turns any error whose text contains "HTTP" or "Unable to connect" into a SKIP
+# and exits 0. Over the http transport EVERY worker error contains "HTTP"
+# ("VGI HTTP request failed (HTTP 500) ..."), so that lane reported real failures
+# -- and a worker that died mid-run -- as skips. The file comes from the same
+# vgi checkout the .test files do, so the two cannot drift; a checkout without it
+# is too old for this lane, and that is an error rather than a silent fallback to
+# the masking default. (An empty "skip_error_messages": [] crashes the runner,
+# which is why the file holds one string no error contains.)
+TEST_CONFIG="${VGI_TEST_CONFIG:-$VGI_SRC/test/configs/no_error_skip.json}"
+[ -f "$TEST_CONFIG" ] || { echo "::error::no sqllogictest config at $TEST_CONFIG (needs Query-farm/vgi >= a597067)"; exit 1; }
+TEST_CONFIG="$(cd "$(dirname "$TEST_CONFIG")" && pwd)/$(basename "$TEST_CONFIG")"
+
+# The runner chdirs to its compiled-in DUCKDB_ROOT_DIRECTORY before resolving any
+# test path unless given --test-dir. For CI's prebuilt haybarn-unittest that
+# directory does not exist, so the `cd "$STAGE"` below happened to be enough; a
+# unittest built from a vgi checkout (`make test-http`) instead ran THAT
+# checkout's unstaged .test files -- no httpfs/spatial injection, simple_writable
+# included -- with __TEST_DIR__ under the checkout, while the http workers (cwd
+# $STAGE) wrote COPY output somewhere the runner never looked. Name the stage.
+RUNNER_ARGS=(--test-config "$TEST_CONFIG" --test-dir "$STAGE")
 
 # Transport selection (TRANSPORT=launch|http; default launch) — resolved before
 # staging because the http lane needs httpfs injected into every test and drops
@@ -37,6 +61,13 @@ TRANSPORT="${TRANSPORT:-launch}"
 #       make test_http drops it for the same reason).
 AWK_HTTP=0
 HTTP_SKIP=()
+# RUNNER_LINKS_EXTENSIONS=1: the runner is a unittest built from a vgi checkout
+# (`make test-http`), which links vgi/httpfs/json/parquet statically. Stage the
+# .test files verbatim and skip the warm step: the INSTALL ... FROM core/community
+# statements preprocess-require.awk writes for the prebuilt haybarn-unittest
+# cannot resolve for a dev build's version hash (HTTP 404), and with error
+# masking off that fails every file instead of quietly skipping it.
+RUNNER_LINKS_EXTENSIONS="${RUNNER_LINKS_EXTENSIONS:-0}"
 if [ "$TRANSPORT" = "http" ]; then
   AWK_HTTP=1
   HTTP_SKIP=(
@@ -69,7 +100,11 @@ mkdir -p "$STAGE/test/sql/integration"
        -not -name 'nested_type_combinations.test' \
        ${HTTP_SKIP[@]+"${HTTP_SKIP[@]}"} | while read -r f; do
     mkdir -p "$STAGE/test/sql/integration/$(dirname "$f")"
-    awk -v http="$AWK_HTTP" -f "$HERE/preprocess-require.awk" "$f" > "$STAGE/test/sql/integration/$f"
+    if [ "$RUNNER_LINKS_EXTENSIONS" = "1" ]; then
+      cp "$f" "$STAGE/test/sql/integration/$f"
+    else
+      awk -v http="$AWK_HTTP" -f "$HERE/preprocess-require.awk" "$f" > "$STAGE/test/sql/integration/$f"
+    fi
   done )
 
 # The database-worker tests package this executable through a path relative to
@@ -282,6 +317,10 @@ fi
 
 cd "$STAGE"
 
+if [ "$RUNNER_LINKS_EXTENSIONS" = "1" ]; then
+  # spatial is not among the extensions a vgi build links.
+  EXPECTED_SKIP_REASONS+=('require spatial')
+else
 echo "Warming the extension cache (vgi from community, deps from core) ..."
 mkdir -p "$STAGE/test"
 cat > "$STAGE/test/_warm.test" <<'EOF'
@@ -302,8 +341,9 @@ INSTALL parquet FROM core;
 statement ok
 INSTALL spatial FROM core;
 EOF
-"$HAYBARN_UNITTEST" "test/_warm.test" >/dev/null 2>&1 || echo "::warning::extension warm step did not fully succeed"
+"$HAYBARN_UNITTEST" "${RUNNER_ARGS[@]}" "test/_warm.test" >/dev/null 2>&1 || echo "::warning::extension warm step did not fully succeed"
 rm -f "$STAGE/test/_warm.test"
+fi
 
 # summarize_run <log> — parse the runner's console report and enforce the skip
 # contract + record the executed-case count. Returns non-zero on an unexpected
@@ -361,7 +401,7 @@ run_unittest() {
   # tripping errexit and without a trailing `|| true` (which, as a new simple
   # command, would overwrite PIPESTATUS with 0 — the accounting must still run
   # when the suite itself failed).
-  "$HAYBARN_UNITTEST" "$@" 2>&1 | tee "$log" && rc=0 || rc="${PIPESTATUS[0]}"
+  "$HAYBARN_UNITTEST" "${RUNNER_ARGS[@]}" "$@" 2>&1 | tee "$log" && rc=0 || rc="${PIPESTATUS[0]}"
   if grep -q 'due to a fatal error condition' "$log"; then
     echo "::error::a forked child ran the test harness's signal handler (see the" \
          "'fatal error condition' block above). The parent exited $rc and would" \

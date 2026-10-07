@@ -20,6 +20,14 @@ DUCKDB        ?= $(VGI_BUILD_DIR)/duckdb
 VGI_EXT       ?= $(VGI_BUILD_DIR)/extension/vgi/vgi.duckdb_extension
 UNITTEST      ?= $(VGI_BUILD_DIR)/test/unittest
 
+# Every lane hands the runner the extension's no_error_skip.json. Without a
+# --test-config, DuckDB's sqllogictest runner turns any error containing "HTTP"
+# or "Unable to connect" into a SKIP (exit 0) -- and over the http transport
+# every worker error contains "HTTP", so real failures were reported as skips.
+# Passed explicitly (run_tests.py also defaults to it) so a VGI_DIR too old to
+# have the file fails loudly instead of quietly masking again.
+TEST_CONFIG   ?= $(abspath $(VGI_DIR))/test/configs/no_error_skip.json
+
 EXAMPLE_WORKER := $(CURDIR)/vgi-example-worker/build/install/vgi-example-worker/bin/vgi-example-worker
 
 # launch:<argv> location → C++ extension uses the AF_UNIX launcher protocol
@@ -84,7 +92,7 @@ FIXTURE_ENV := \
 	VGI_BAD_PROTOCOL_WORKER=$(BAD_PROTOCOL_LOCATION) \
 	VGI_REQUIRE_LAUNCHER_TRANSPORT=1
 
-.PHONY: build smoke test test-crash test-single clean
+.PHONY: build smoke test test-crash test-http test-single clean
 
 ## Build all worker dist images.
 build:
@@ -184,7 +192,7 @@ COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 
 test: build
 	@cd $(VGI_DIR) && $(FIXTURE_ENV) \
-	    python3 scripts/run_tests.py -j $(JAVA_JOBS) $(COVERAGE_GATE) \
+	    python3 scripts/run_tests.py -j $(JAVA_JOBS) --test-config $(TEST_CONFIG) $(COVERAGE_GATE) \
 	        "test/sql/integration/*" "~test/sql/integration/simple_writable/*"
 	@$(MAKE) --no-print-directory test-crash
 
@@ -198,14 +206,27 @@ test: build
 ## VGI_TEST_DEDICATED_WORKER itself from the bare path, so it is not set here.
 test-crash: build
 	@cd $(VGI_DIR) && VGI_TEST_WORKER=$(EXAMPLE_WORKER) \
-	    python3 scripts/run_tests.py -j 2 --min-executed 2 \
+	    python3 scripts/run_tests.py -j 2 --test-config $(TEST_CONFIG) --min-executed 2 \
 	        "test/sql/integration/table_in_out/table_buffering_worker_crash.test" \
 	        "test/sql/integration/table_in_out/table_buffering_pool_recovery.test"
+
+## The whole suite over the HTTP transport, exactly as CI's `integration (http)`
+## lane runs it: ci/run-integration.sh boots the example worker (and the
+## versioned / versioned_tables / attach_options catalogs) as HTTP servers, with
+## the skip allowlist and executed-case floor, and --test-config
+## $(TEST_CONFIG) so no worker error is reported as a skip. Driven by this
+## checkout's unittest instead of CI's prebuilt haybarn-unittest, which links
+## its extensions (RUNNER_LINKS_EXTENSIONS=1: no INSTALL preprocessing).
+test-http: build
+	@VGI_SRC=$(abspath $(VGI_DIR)) HAYBARN_UNITTEST=$(abspath $(UNITTEST)) \
+	    VGI_WORKER_BIN=$(EXAMPLE_WORKER) VGI_TEST_CONFIG=$(TEST_CONFIG) TRANSPORT=http \
+	    RUNNER_LINKS_EXTENSIONS=1 \
+	    ci/run-integration.sh
 
 ## Run a single sqllogictest by file name.
 test-single: build
 	@if [ -z "$(TEST)" ]; then echo "usage: make test-single TEST=test/sql/integration/scalar/add_values.test"; exit 1; fi
-	@cd $(VGI_DIR) && $(FIXTURE_ENV) $(abspath $(UNITTEST)) "$(TEST)"
+	@cd $(VGI_DIR) && $(FIXTURE_ENV) $(abspath $(UNITTEST)) --test-config $(TEST_CONFIG) --test-dir $(abspath $(VGI_DIR)) "$(TEST)"
 
 clean:
 	./gradlew clean

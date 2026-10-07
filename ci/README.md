@@ -76,9 +76,7 @@ workers), exactly as in the reference harness.
 ## The skip contract + executed-case floor
 
 `haybarn-unittest` exits 0 whether one test skipped or every test did — a failed
-`require` / `require-env` is a **skip**, not an error (compounded here by the
-runner's `skip_error_messages HTTP` policy, which also turns http errors into
-skips). So "All tests passed" on its own is not evidence anything ran: a dead
+`require` / `require-env` is a **skip**, not an error. So "All tests passed" on its own is not evidence anything ran: a dead
 shared worker, an empty stage, or a mis-wired env var all read as green while the
 suite quietly tested nothing. `run-integration.sh` closes that gap with two
 guards in `summarize_run`:
@@ -95,6 +93,14 @@ guards in `summarize_run`:
   number is the tell of a suite-wide silent skip. It is a floor, not an equality:
   **do not lower it to make a run pass** — find what stopped running. Ported from
   vgi-typescript, whose harness had this from the start.
+
+**No error is a skip.** Given no `--test-config`, the runner's default
+`skip_error_messages` turns any error containing `HTTP` or `Unable to connect`
+into a skip — and over the http transport *every* worker error contains `HTTP`,
+so that lane used to report real failures as skips. Every unittest invocation
+therefore passes `--test-config` with the vgi checkout's
+`test/configs/no_error_skip.json` (override with `VGI_TEST_CONFIG`); a checkout
+without that file fails the run instead of silently masking again.
 
 `run_unittest` also scans for the `fatal error condition` block a fork()ed child
 prints against the parent's counters — a failure invisible to the exit code by
