@@ -143,9 +143,13 @@ cleanup() { for p in "${BG_PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null 
 trap cleanup EXIT
 
 # boot_http_worker <executable> — start it as an HTTP server on an ephemeral
-# port and echo the port it reports (`PORT:<n>`, the same readiness contract as
-# vgi-python's vgi-fixture-http). The executable inherits $VGI_WORKER_BIN (the
-# catalog wrappers exec it).
+# port and set BOOTED_PORT to the port it reports (`PORT:<n>`, the same
+# readiness contract as vgi-python's vgi-fixture-http). The executable inherits
+# $VGI_WORKER_BIN (the catalog wrappers exec it).
+#
+# Call it directly, never as `$(boot_http_worker ...)`: a command substitution
+# runs in a subshell, so the BG_PIDS entry it appends would be lost and cleanup
+# would leave the server running after the script exits.
 boot_http_worker() {
   local exe="$1" log pid port=""
   log="$(mktemp)"
@@ -164,7 +168,7 @@ boot_http_worker() {
     sleep 0.5
   done
   [ -n "$port" ] || { echo "::error::http worker '$exe' never reported a port" >&2; cat "$log" >&2; return 1; }
-  echo "$port"
+  BOOTED_PORT="$port"
 }
 
 case "$TRANSPORT" in
@@ -203,10 +207,10 @@ case "$TRANSPORT" in
     # the sticky-cookie round-trip (vgi_sticky). (bearer_token / gzip_fallback
     # run as a separate step below since they need VGI_TEST_WORKER itself to be a
     # specially-configured http worker.)
-    vth_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-versioned-tables")"
+    boot_http_worker "${HERE}/wrappers/vgi-worker-versioned-tables"; vth_port="$BOOTED_PORT"
     export VGI_VERSIONED_TABLES_HTTP_WORKER="http://localhost:${vth_port}"
     echo "versioned_tables http worker on ${VGI_VERSIONED_TABLES_HTTP_WORKER}"
-    vh_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-versioned")"
+    boot_http_worker "${HERE}/wrappers/vgi-worker-versioned"; vh_port="$BOOTED_PORT"
     export VGI_VERSIONED_HTTP_WORKER="http://localhost:${vh_port}"
     echo "versioned http worker on ${VGI_VERSIONED_HTTP_WORKER}"
     ;;
@@ -219,21 +223,21 @@ case "$TRANSPORT" in
     #
     # NB: VGI_REQUIRE_LAUNCHER_TRANSPORT is deliberately NOT set — the
     # launcher-only tests (launcher/options_smoke.test) must skip on this lane.
-    port="$(boot_http_worker "$VGI_WORKER_BIN")"
+    boot_http_worker "$VGI_WORKER_BIN"; port="$BOOTED_PORT"
     echo "example http worker on port $port"
     export VGI_TEST_WORKER="http://localhost:${port}"
-    vth_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-versioned-tables")"
+    boot_http_worker "${HERE}/wrappers/vgi-worker-versioned-tables"; vth_port="$BOOTED_PORT"
     export VGI_VERSIONED_TABLES_HTTP_WORKER="http://localhost:${vth_port}"
     export VGI_VERSIONED_TABLES_WORKER="http://localhost:${vth_port}"
     echo "versioned_tables http worker on ${VGI_VERSIONED_TABLES_HTTP_WORKER}"
-    vh_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-versioned")"
+    boot_http_worker "${HERE}/wrappers/vgi-worker-versioned"; vh_port="$BOOTED_PORT"
     export VGI_VERSIONED_HTTP_WORKER="http://localhost:${vh_port}"
     export VGI_VERSIONED_WORKER="http://localhost:${vh_port}"
     echo "versioned http worker on ${VGI_VERSIONED_HTTP_WORKER}"
     # attach_options catalog over http so attach/attach_options_echo.test runs on
     # this lane too — it's a plain per-attach catalog round-trip (the test even
     # has an explicit "Pool / HTTP safety" section), so http serves it fine.
-    ao_port="$(boot_http_worker "${HERE}/wrappers/vgi-worker-attach-options")"
+    boot_http_worker "${HERE}/wrappers/vgi-worker-attach-options"; ao_port="$BOOTED_PORT"
     export VGI_ATTACH_OPTIONS_WORKER="http://localhost:${ao_port}"
     export VGI_ATTACH_OPTIONS_REQUIRED_WORKER="$VGI_ATTACH_OPTIONS_WORKER"
     echo "attach_options http worker on ${VGI_ATTACH_OPTIONS_WORKER}"
@@ -432,7 +436,7 @@ run_unittest "test/sql/integration/*"
 # below is checked against the MAIN suite, not this single-test run.
 if [ "$TRANSPORT" = "launch" ]; then
   echo "Running http/gzip_fallback.test (zstd-disabled http worker) ..."
-  gz_port="$(VGI_HTTP_DISABLE_ZSTD=1 boot_http_worker "$VGI_WORKER_BIN")"
+  VGI_HTTP_DISABLE_ZSTD=1 boot_http_worker "$VGI_WORKER_BIN"; gz_port="$BOOTED_PORT"
   ( export VGI_TEST_WORKER="http://localhost:${gz_port}" VGI_HTTP_DISABLE_ZSTD=1
     run_unittest "test/sql/integration/http/gzip_fallback.test" )
 fi
