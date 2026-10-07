@@ -3,9 +3,9 @@
 package farm.query.vgi;
 
 import farm.query.vgi.internal.BatchUtil;
-import farm.query.vgi.internal.XChaCha20Poly1305;
 import farm.query.vgi.protocol.CatalogAttachRequest;
 import farm.query.vgirpc.AuthContext;
+import farm.query.vgirpc.identity.XChaCha20Poly1305;
 import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VarCharVector;

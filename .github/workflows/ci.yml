@@ -52,9 +52,12 @@ env:
   # (GrantKeys, IdentityBearer) that Worker.grantKeys builds on.
   #
   # v0.30.0 adds the public reflection client (Introspect.listProtocols /
-  # describeProtocol); attach tickets need nothing newer than v0.29.0.
+  # describeProtocol).
+  #
+  # v0.31.0 makes identity.XChaCha20Poly1305 public; AttachTickets uses it
+  # instead of a copy.
   # Keep in step with the identical pin in integration.yml.
-  VGI_RPC_JAVA_REF: v0.30.0
+  VGI_RPC_JAVA_REF: v0.31.0
 
 jobs:
   test:
