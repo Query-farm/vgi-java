@@ -603,7 +603,7 @@ public final class VgiServiceImpl implements VgiService {
         byte[] execId = request.execution_id() != null ? request.execution_id() : newExecutionId();
         // A table function sizes its own call (TableFunction.maxWorkers(params));
         // every other kind is single-worker here.
-        GlobalInitResponse header = new GlobalInitResponse(execId, 1L, null);
+        GlobalInitResponse header = new GlobalInitResponse(execId, null, 1L);
 
         // Opened here, before any branch reaches user code.
         List<byte[]> splitPayloads = openSplitTokens(request, ctx);
@@ -752,7 +752,7 @@ public final class VgiServiceImpl implements VgiService {
                             bt.argumentNames()));
         }
         TableProducerState state = bt.fn().createProducer(params);
-        GlobalInitResponse header = new GlobalInitResponse(execId, bt.fn().maxWorkers(params), null);
+        GlobalInitResponse header = new GlobalInitResponse(execId, null, bt.fn().maxWorkers(params));
         return RpcStream.producer(fnOutputSchema, state, header);
     }
 

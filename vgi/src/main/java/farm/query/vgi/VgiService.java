@@ -22,6 +22,7 @@ import farm.query.vgi.protocol.ItemsResponse;
 import farm.query.vgi.protocol.TableScanFunctionGetResponse;
 import farm.query.vgi.protocol.TransactionBeginResponse;
 import farm.query.vgirpc.CallContext;
+import farm.query.vgirpc.MethodNotImplementedError;
 import farm.query.vgirpc.RpcStream;
 import farm.query.vgirpc.StreamState;
 import farm.query.vgirpc.schema.ArrowField;
@@ -160,8 +161,10 @@ public interface VgiService {
      *  "no statistics available" and falls through to non-optimized scan.
      *
      * @param request outer binary blob wrapping the inner statistics request batch
-     * @return serialised per-column statistics, or empty bytes for "none"
+     * @return serialised per-column statistics, or empty bytes for "none".
+     *         The result column is nullable on the wire, as in the reference.
      */
+    @Nullable
     default byte[] table_function_statistics(byte[] request) {
         return new byte[0];
     }
@@ -746,8 +749,10 @@ public interface VgiService {
      * @param name                    table name
      * @param transaction_opaque_data optional in-flight transaction handle
      * @param ctx                     per-call context
-     * @return serialised column statistics, or empty bytes for "none"
+     * @return serialised column statistics, or empty bytes for "none".
+     *         The result column is nullable on the wire, as in the reference.
      */
+    @Nullable
     default byte[] catalog_table_column_statistics_get(
             byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
             @Nullable byte[] transaction_opaque_data, CallContext ctx) {
@@ -784,5 +789,599 @@ public interface VgiService {
             byte[] attach_opaque_data, java.util.List<String> schema_path, String name,
             @Nullable byte[] transaction_opaque_data, CallContext ctx) {
         return ItemsResponse.empty();
+    }
+
+    // -----------------------------------------------------------------------
+    // Reference-surface methods the Java SDK does not implement.
+    //
+    // vgi.v2 is the unit of optionality: every worker registers every method,
+    // with the reference's exact schemas, so vgi_rpc.Reflection.v1 reports one
+    // protocol hash everywhere (see VgiProtocolHashTest). The ones below answer
+    // every call with UNIMPLEMENTED / method_not_implemented -- never a silent
+    // success.
+    // -----------------------------------------------------------------------
+
+    /**
+     * Open a streaming aggregate.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     * @return never returns normally
+     */
+    default byte[] aggregate_streaming_open(byte[] request, CallContext ctx) {
+        throw notImplemented("aggregate_streaming_open");
+    }
+
+    /**
+     * Feed a chunk to a streaming aggregate.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     * @return never returns normally
+     */
+    default byte[] aggregate_streaming_chunk(byte[] request, CallContext ctx) {
+        throw notImplemented("aggregate_streaming_chunk");
+    }
+
+    /**
+     * Close a streaming aggregate.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     * @return never returns normally
+     */
+    default byte[] aggregate_streaming_close(byte[] request, CallContext ctx) {
+        throw notImplemented("aggregate_streaming_close");
+    }
+
+    /**
+     * Initialise a window aggregate.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     * @return never returns normally
+     */
+    default byte[] aggregate_window_init(byte[] request, CallContext ctx) {
+        throw notImplemented("aggregate_window_init");
+    }
+
+    /**
+     * Evaluate a window aggregate frame.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     * @return never returns normally
+     */
+    default byte[] aggregate_window(byte[] request, CallContext ctx) {
+        throw notImplemented("aggregate_window");
+    }
+
+    /**
+     * Evaluate a batch of window aggregate frames.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     * @return never returns normally
+     */
+    default byte[] aggregate_window_batch(byte[] request, CallContext ctx) {
+        throw notImplemented("aggregate_window_batch");
+    }
+
+    /**
+     * Release window aggregate state.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     * @return never returns normally
+     */
+    default byte[] aggregate_window_destructor(byte[] request, CallContext ctx) {
+        throw notImplemented("aggregate_window_destructor");
+    }
+
+    /**
+     * Create a catalog.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     */
+    default void catalog_create(byte[] request, CallContext ctx) {
+        throw notImplemented("catalog_create");
+    }
+
+    /**
+     * Drop a catalog.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param name catalog name
+     * @param ctx per-call context
+     */
+    default void catalog_drop(
+            String name,
+            CallContext ctx) {
+        throw notImplemented("catalog_drop");
+    }
+
+    /**
+     * Create an index (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     */
+    default void catalog_index_create(byte[] request, CallContext ctx) {
+        throw notImplemented("catalog_index_create");
+    }
+
+    /**
+     * Drop an index (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name index name
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param cascade also drop dependents
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_index_drop(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            boolean ignore_not_found,
+            boolean cascade,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_index_drop");
+    }
+
+    /**
+     * Fetch a single index's metadata.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name index name
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     * @return never returns normally
+     */
+    default byte[] catalog_index_get(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_index_get");
+    }
+
+    /**
+     * Create a macro (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param request the packed (IPC-serialized) request
+     * @param ctx     per-call context
+     */
+    default void catalog_macro_create(byte[] request, CallContext ctx) {
+        throw notImplemented("catalog_macro_create");
+    }
+
+    /**
+     * Drop a macro (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name macro name
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_macro_drop(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_macro_drop");
+    }
+
+    /**
+     * Rename a table (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param new_name new table name
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_table_rename(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            String new_name,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_rename");
+    }
+
+    /**
+     * Set a table comment (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param comment the comment, or null to clear it
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_table_comment_set(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            @Nullable String comment,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_comment_set");
+    }
+
+    /**
+     * Set a column comment (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param column_name column name
+     * @param comment the comment, or null to clear it
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_table_column_comment_set(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            String column_name,
+            @Nullable String comment,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_column_comment_set");
+    }
+
+    /**
+     * Rename a column (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param column_name column name
+     * @param new_column_name new column name
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_table_column_rename(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            String column_name,
+            String new_column_name,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_column_rename");
+    }
+
+    /**
+     * Set a column default (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param column_name column name
+     * @param expression default expression
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_table_column_default_set(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            String column_name,
+            String expression,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_column_default_set");
+    }
+
+    /**
+     * Drop a column default (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param column_name column name
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_table_column_default_drop(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            String column_name,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_column_default_drop");
+    }
+
+    /**
+     * Change a column's type (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param column_definition serialised new column definition
+     * @param expression optional USING expression
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_table_column_type_change(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            byte[] column_definition,
+            @Nullable String expression,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_column_type_change");
+    }
+
+    /**
+     * Add a NOT NULL constraint (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param column_name column name
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_table_not_null_set(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            String column_name,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_not_null_set");
+    }
+
+    /**
+     * Drop a NOT NULL constraint (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param column_name column name
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_table_not_null_drop(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            String column_name,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_not_null_drop");
+    }
+
+    /**
+     * Rename a view (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name view name
+     * @param new_name new view name
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_view_rename(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            String new_name,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_view_rename");
+    }
+
+    /**
+     * Set a view comment (DDL).
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name view name
+     * @param comment the comment, or null to clear it
+     * @param ignore_not_found {@code IF EXISTS}
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     */
+    default void catalog_view_comment_set(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            @Nullable String comment,
+            boolean ignore_not_found,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_view_comment_set");
+    }
+
+    /**
+     * Resolve a table's INSERT function.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param writable_branch_function_name optional writable-branch function
+     * @param ctx per-call context
+     * @return never returns normally
+     */
+    default byte[] catalog_table_insert_function_get(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            @Nullable byte[] transaction_opaque_data,
+            @Nullable String writable_branch_function_name,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_insert_function_get");
+    }
+
+    /**
+     * Resolve a table's UPDATE function.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     * @return never returns normally
+     */
+    default byte[] catalog_table_update_function_get(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_update_function_get");
+    }
+
+    /**
+     * Resolve a table's DELETE function.
+     *
+     * <p>Not implemented by the Java SDK: registered so {@code vgi.v2} matches the
+     * reference surface, and answered with {@code UNIMPLEMENTED}.</p>
+     *
+     * @param attach_opaque_data the attach handle
+     * @param schema_path owning schema path
+     * @param name table name
+     * @param transaction_opaque_data optional in-flight transaction handle
+     * @param ctx per-call context
+     * @return never returns normally
+     */
+    default byte[] catalog_table_delete_function_get(
+            byte[] attach_opaque_data,
+            java.util.List<String> schema_path,
+            String name,
+            @Nullable byte[] transaction_opaque_data,
+            CallContext ctx) {
+        throw notImplemented("catalog_table_delete_function_get");
+    }
+
+    /**
+     * The error every unimplemented reference method answers with:
+     * {@code UNIMPLEMENTED}, {@code method_not_implemented}.
+     *
+     * @param method the wire method name
+     * @return the error to throw
+     */
+    private static MethodNotImplementedError notImplemented(String method) {
+        return new MethodNotImplementedError(method + " is not implemented by this worker");
     }
 }
