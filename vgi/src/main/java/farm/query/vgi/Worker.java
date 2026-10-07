@@ -57,6 +57,9 @@ public final class Worker {
      *  advertises the RPC by default (see {@link #supportsCatalogContents(boolean)}). */
     public static final String VGI_PROTOCOL_VERSION = "2.1.0";
 
+    /** Environment variable holding the worker's signing key; see {@link #signingKey(byte[])}. */
+    public static final String SIGNING_KEY_ENV = "VGI_SIGNING_KEY";
+
     private String catalogName = "vgi";
     private String catalogComment = "";
     private final Map<String, String> catalogTags = new LinkedHashMap<>();
@@ -434,6 +437,25 @@ public final class Worker {
     }
 
     /**
+     * Configure the worker's signing key: the key that seals attach / transaction
+     * {@code opaque_data} on HTTP and, together with grants, enables attach tickets
+     * ({@code vgi.attach_tickets.v1}, see {@link AttachTickets}). Overrides {@code VGI_SIGNING_KEY},
+     * which is read when this is not called.
+     *
+     * <p>Any length: a 32-byte key is used as-is, any other is replaced by its SHA-256, exactly as
+     * {@code VGI_SIGNING_KEY} is normalized in every VGI SDK. A configured key also lets replicas
+     * open each other's opaque data and tickets. Without one each HTTP process seals with a random
+     * key of its own, and attach tickets are not hosted: every ticket would die on restart.
+     *
+     * @param key the key bytes, or {@code null} to defer to {@code VGI_SIGNING_KEY}
+     * @return this worker
+     */
+    public Worker signingKey(byte[] key) {
+        this.opaqueDataKey = key != null ? AttachTickets.normalizeKey(key) : null;
+        return this;
+    }
+
+    /**
      * Provide a stable 32-byte key for sealing attach / transaction
      * {@code opaque_data}. Required when running the same worker across
      * multiple HTTP replicas: without it each replica generates its own
@@ -444,6 +466,9 @@ public final class Worker {
      * <p>{@code null} (the default) restores the per-process random-key
      * behaviour, which is correct for single-replica HTTP and irrelevant
      * for stdio / AF_UNIX (where the sealer is disabled entirely).
+     *
+     * <p>Equivalent to {@link #signingKey(byte[])} with a 32-byte key; a configured key also
+     * enables attach tickets when the worker can issue grants.
      *
      * @param key 32-byte ChaCha20-Poly1305 key, or {@code null} for per-process random
      * @return this builder
@@ -694,6 +719,42 @@ public final class Worker {
      * @return the catalogs keyed by name, in registration order
      */
     public Map<String, ExtraCatalog> extraCatalogs() { return extraCatalogs; }
+
+    private final Map<String, java.util.function.Function<farm.query.vgi.protocol.CatalogAttachRequest, byte[]>>
+            extraCatalogAttachData = new LinkedHashMap<>();
+
+    /**
+     * Let an auxiliary catalog derive its own attach bytes from the attach request -- the Java
+     * counterpart of a vgi-python catalog returning its own {@code attach_opaque_data}.
+     *
+     * <p>At {@code catalog_attach} the hook receives the request (options included, secret ones
+     * too) and returns bytes the framework appends to a fresh random id: the catalog's functions
+     * then see {@code uuid(16) || bytes} as their attach id. The value is sealed on HTTP but
+     * travels in plaintext on stdio / AF_UNIX, so the hook MUST NOT return a secret option: derive
+     * what the catalog needs from it instead (a digest, a region, a handle) --
+     * {@code docs/protocol/vgi-opaque-data-sealing.md} rule 5. Throw to refuse the attach.
+     *
+     * @param catalogName the auxiliary catalog
+     * @param derive maps the attach request to the catalog's own bytes
+     * @return this worker
+     */
+    public Worker extraCatalogAttachData(String catalogName,
+            java.util.function.Function<farm.query.vgi.protocol.CatalogAttachRequest, byte[]> derive) {
+        extraCatalogAttachData.put(catalogName, derive);
+        return this;
+    }
+
+    /**
+     * The attach-bytes hook of an auxiliary catalog, or {@code null}; see
+     * {@link #extraCatalogAttachData(String, java.util.function.Function)}.
+     *
+     * @param catalogName the auxiliary catalog
+     * @return the hook, or {@code null}
+     */
+    public java.util.function.Function<farm.query.vgi.protocol.CatalogAttachRequest, byte[]> extraCatalogAttachData(
+            String catalogName) {
+        return extraCatalogAttachData.get(catalogName);
+    }
 
     private final Map<String, List<CatalogTable>> extraCatalogTables = new LinkedHashMap<>();
 
@@ -1602,9 +1663,12 @@ public final class Worker {
      *   <li>{@code vgi.v2};</li>
      *   <li>the {@link #hostedProtocols} hook's result, in the order returned -- on
      *       <strong>every</strong> transport;</li>
+     *   <li>{@code vgi.attach_tickets.v1} -- HTTP only, and only when a signing key is configured
+     *       ({@link #signingKey(byte[])}, {@link #opaqueDataKey(byte[])} or {@code VGI_SIGNING_KEY})
+     *       and the worker can issue grants (grant keys, or {@link #mintGrant});</li>
      *   <li>{@code vgi_rpc.Reflection.v1} -- always, on every transport;</li>
-     *   <li>{@code vgi_rpc.Identity.v1} -- HTTP only, and only when {@link #resolveToken} and/or
-     *       {@link #mintGrant} is set.</li>
+     *   <li>{@code vgi_rpc.Identity.v1} -- HTTP only, and only when {@link #resolveToken},
+     *       {@link #mintGrant} or grant keys are set.</li>
      * </ol>
      *
      * <p>Opaque-data sealing (AEAD of attach / transaction opaque data) is HTTP-only: on stdio /
@@ -1619,9 +1683,10 @@ public final class Worker {
      */
     RpcServer buildServer(Transport transport) {
         boolean http = transport == Transport.HTTP;
+        byte[] signingKey = http ? configuredSigningKey() : null;
         RpcServer server = new RpcServer(VgiService.class,
                 new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates,
-                        http, http ? opaqueDataKey : null));
+                        http, signingKey));
         server.setProtocolVersion(advertisedProtocolVersion());
         hostExtraProtocols(server);
         // Identity -- sealed grants included -- is HTTP-only: its allowlist and freshness rules
@@ -1629,6 +1694,13 @@ public final class Worker {
         // VGI_RPC_GRANT_KEYS on its own, so the other transports turn it off explicitly.
         farm.query.vgirpc.identity.GrantKeys keys = http ? effectiveGrantKeys() : null;
         server.setGrantKeys(keys);
+        // Attach tickets need both halves of an unattended session: a key that survives restarts
+        // (configured, never the per-process one) and the ability to issue the grant that
+        // presents the ticket. Absent otherwise, not hosted-and-refusing.
+        if (http && signingKey != null && (keys != null || mintGrantHook != null)) {
+            server.addProtocol(AttachTicketsService.class,
+                    new farm.query.vgi.internal.AttachTicketsImpl(this, signingKey, ticketMaxTtl(keys)));
+        }
         if (http) {
             farm.query.vgirpc.identity.IdentityImpl identity = buildIdentity(keys);
             if (identity != null) server.setIdentity(identity);
@@ -1709,6 +1781,41 @@ public final class Worker {
             b.introspectPrincipals(principals);
         }
         return b.build();
+    }
+
+    /**
+     * The signing key configured for this worker, normalized to 32 bytes, or {@code null} when none
+     * is: {@link #signingKey(byte[])} / {@link #opaqueDataKey(byte[])} when set, else
+     * {@code VGI_SIGNING_KEY} (the UTF-8 of its value).
+     */
+    private byte[] configuredSigningKey() {
+        if (opaqueDataKey != null) return opaqueDataKey.clone();
+        String env = System.getenv(SIGNING_KEY_ENV);
+        if (env == null || env.isEmpty()) return null;
+        return AttachTickets.normalizeKey(env.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /**
+     * The attach-ticket lifetime ceiling: the grant keys' maximum, else
+     * {@code VGI_RPC_GRANT_MAX_TTL_SECONDS} when set, else none.
+     *
+     * @throws IllegalArgumentException when the environment value is not a positive integer
+     */
+    private static Long ticketMaxTtl(farm.query.vgirpc.identity.GrantKeys keys) {
+        if (keys != null) return keys.maxTtlSeconds();
+        String raw = System.getenv(farm.query.vgirpc.identity.GrantKeys.MAX_TTL_ENV);
+        if (raw == null || raw.isBlank()) return null;
+        long value;
+        try {
+            value = Long.parseLong(raw.strip());
+        } catch (NumberFormatException e) {
+            value = 0;
+        }
+        if (value <= 0) {
+            throw new IllegalArgumentException(farm.query.vgirpc.identity.GrantKeys.MAX_TTL_ENV + "='" + raw
+                    + "' must be a positive integer");
+        }
+        return value;
     }
 
     /** {@link #grantKeys} when set in code or by {@code --grant-key}, else the environment. */

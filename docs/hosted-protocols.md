@@ -150,3 +150,5 @@ than add these as alternatives beside it. In that case compose them yourself:
 put the gate around `IdentityBearer.compose(...)` and pass the result wrapped
 in `IdentityBearer.explicit(...)`.
 
+With a configured signing key as well, the worker also hosts
+`vgi.attach_tickets.v1`: see [Attach tickets](attach-tickets.md).

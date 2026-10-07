@@ -293,6 +293,25 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## Attach tickets (2026-10-07)
+
+`vgi.attach_tickets.v1` (`seal_attach`) and `vgi_attach_ticket` redemption, ported
+from vgi-python `f5e99c7` (`docs/protocol/vgi-attach-tickets.md`). Format and
+redemption: `AttachTickets`. XChaCha20 is a local copy
+(`internal/XChaCha20Poly1305`) because vgirpc's is package-private. The ticket
+envelope is NOT the Java attach envelope, which is 12-byte-nonce ChaCha20 and
+port-local. Hosting: `Worker.buildServer` on HTTP, with a configured key
+(`signingKey`/`opaqueDataKey`/`VGI_SIGNING_KEY`, normalized like every SDK) plus
+grant keys or `mintGrant`. Redemption is the first thing `catalog_attach` does,
+before routing. An extra catalog can derive its own attach bytes with
+`Worker.extraCatalogAttachData`, giving an attach id of `uuid || bytes`.
+`ticket_probe` stores `region\0digest` there and never the key, because the
+value is unsealed on stdio.
+The fixture HTTP server's default authenticator accepts `vgi-test-alice` and
+`vgi-test-bob` as fresh logins, plus `vgig1.` grants when `VGI_RPC_GRANT_KEYS`
+is set. Tests: `AttachTicketVectorsTest` (the vectors file in test resources)
+and `AttachTicketHttpTest` (end to end).
+
 ## State of play (as of 2026-09-21, secret-keyed result cache)
 
 **The extension caches secret-dependent results now** (vgi `d91b7c4`): instead

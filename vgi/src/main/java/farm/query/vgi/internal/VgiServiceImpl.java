@@ -1406,7 +1406,8 @@ public final class VgiServiceImpl implements VgiService {
     /**
      * Attach the catalog: mint the attach token, resolve the requested
      * implementation / data versions, and advertise capabilities, settings and
-     * secret types.
+     * secret types. A request carrying {@code vgi_attach_ticket} is first replaced by
+     * the attach the ticket seals ({@link farm.query.vgi.AttachTickets#redeem}).
      *
      * @param request the attach request (name, attach options, requested version specs)
      * @param ctx the per-call RPC context
@@ -1415,6 +1416,11 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public CatalogAttachResult catalog_attach(CatalogAttachRequest request, CallContext ctx) {
+        // An attach ticket is redeemed before anything else -- before routing on the name, and
+        // before any catalog code -- so the catalog it seals, not the request's name, is attached.
+        CatalogAttachRequest restored = farm.query.vgi.AttachTickets.redeem(request, sealer.signingKey(),
+                authOf(ctx), System.currentTimeMillis() / 1000.0);
+        if (restored != null) request = restored;
         farm.query.vgi.CatalogInterface hostedCatalog = worker.catalogInterfaces().get(request.name());
         if (hostedCatalog != null) return attachHosted(hostedCatalog, request, ctx);
         Worker.ExtraCatalog extra = worker.extraCatalogs().get(request.name());
@@ -1426,8 +1432,21 @@ public final class VgiServiceImpl implements VgiService {
             // MetaWorker-style auxiliary catalog: a random per-ATTACH opaque id
             // is the storage scope isolating this session's state; the client
             // persists and resends it, so it also survives worker restarts.
+            // A catalog that derives its own attach bytes (Worker.extraCatalogAttachData) gets
+            // them after the random id: uuid(16) || bytes, vgi-python's layout. The hook sees the
+            // options -- secret ones included -- and must return only what is safe to hold in a
+            // value that travels unsealed on stdio / AF_UNIX (never a secret itself).
             byte[] extraAttachId = new byte[16];
             rng.nextBytes(extraAttachId);
+            java.util.function.Function<CatalogAttachRequest, byte[]> derive =
+                    worker.extraCatalogAttachData(extra.name());
+            if (derive != null) {
+                byte[] own = derive.apply(request);
+                byte[] joined = new byte[16 + (own == null ? 0 : own.length)];
+                System.arraycopy(extraAttachId, 0, joined, 0, 16);
+                if (own != null) System.arraycopy(own, 0, joined, 16, own.length);
+                extraAttachId = joined;
+            }
             catalogRegistry.recordAttach(extraAttachId, extra.dataVersion(), request.name());
             return new CatalogAttachResult(
                     sealer.sealAttach(extraAttachId, authOf(ctx)),

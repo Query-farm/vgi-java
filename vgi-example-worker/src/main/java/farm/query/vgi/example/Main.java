@@ -388,6 +388,9 @@ public final class Main {
             registerAccumulate(w);
             registerNarrowBind(w);
             registerTwinCatalogs(w);
+            // ticket_probe: attach tickets (vgi.attach_tickets.v1) -- one plain and one secret
+            // attach option whose effect a table reveals.
+            farm.query.vgi.example.table.TicketProbeFixture.register(w);
             registerCopyFrom(w);
             registerCopyTo(w);
             // The six catalog_contents fixture catalogs (catalog/catalog_contents*.test).
@@ -1633,7 +1636,43 @@ public final class Main {
         if (bearer != null && !bearer.isEmpty()) {
             cb.authenticator(BearerAuthenticator.fromMap(
                     Map.of(bearer, new AuthContext("bearer", true, "vgi-test", Map.of()))));
+            return cb;
         }
+        cb.authenticator(optionalTestBearer(farm.query.vgirpc.identity.GrantKeys.fromEnv()));
         return cb;
+    }
+
+    /** Test bearers the fixture HTTP server accepts, mirroring vgi-python's fixture server. */
+    public static final Map<String, String> TEST_BEARERS = Map.of(
+            "vgi-test-alice", "alice",
+            "vgi-test-bob", "bob");
+
+    /**
+     * Test-only OPTIONAL bearer auth, vgi-python's fixture parity: no, blank or unknown bearer is
+     * anonymous (so every anonymous test is unaffected); {@code vgi-test-alice} / {@code vgi-test-bob}
+     * authenticate as {@code alice} / {@code bob} and count as <em>fresh</em> logins
+     * ({@code auth_time = now}), so a client can {@code issue_grant} with nothing but a bearer
+     * DuckDB can send. With grant keys ({@code VGI_RPC_GRANT_KEYS}), a {@code vgig1.} bearer is
+     * verified as a sealed grant instead.
+     *
+     * <p>Composed explicitly ({@code IdentityBearer.explicit}) so an unknown bearer stays anonymous
+     * rather than reaching the grant chain's 401.
+     *
+     * @param grantKeys the deployment's grant keys, or {@code null}
+     * @return the authenticator
+     */
+    public static farm.query.vgirpc.http.Authenticator optionalTestBearer(farm.query.vgirpc.identity.GrantKeys grantKeys) {
+        farm.query.vgirpc.http.Authenticator grants = grantKeys == null
+                ? null : farm.query.vgirpc.http.IdentityBearer.grants(grantKeys);
+        return farm.query.vgirpc.http.IdentityBearer.explicit(request -> {
+            String header = request.getHeader("Authorization");
+            if (header == null || !header.startsWith("Bearer ")) return AuthContext.ANONYMOUS;
+            String token = header.substring("Bearer ".length()).trim();
+            if (grants != null && token.startsWith("vgig1.")) return grants.authenticate(request);
+            String principal = TEST_BEARERS.get(token);
+            if (principal == null) return AuthContext.ANONYMOUS;
+            return new AuthContext("bearer", true, principal,
+                    Map.of("auth_time", System.currentTimeMillis() / 1000.0));
+        });
     }
 }

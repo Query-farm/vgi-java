@@ -322,6 +322,10 @@ class WireRecordSchemaConformanceTest {
         m.put(ForeignKeyInfo.class, new Codec("ForeignKeyInfo", ORDERED));
         m.put(GlobalInitResponse.class, new Codec("GlobalInitResponse", BY_NAME));
         m.put(InitRequest.class, new Codec("InitRequest", BY_NAME));
+        // vgi.attach_tickets.v1 records: not part of vgi.v2, so VgiProtocolSchemas has no entry;
+        // compared against ATTACH_TICKET_SCHEMAS, transcribed from vgi-python's ARROW_SCHEMA.
+        m.put(farm.query.vgi.protocol.SealAttachRequest.class, new Codec("SealAttachRequest", ORDERED));
+        m.put(farm.query.vgi.protocol.AttachTicket.class, new Codec("AttachTicket", ORDERED));
         // One Java record serves every `{items: list<binary>}` response; they
         // are the same schema under a dozen method names, so any one of them
         // is the comparison.
@@ -474,6 +478,7 @@ class WireRecordSchemaConformanceTest {
         List<String> unknown = Stream.concat(checked.stream(), NOT_IMPLEMENTED_IN_JAVA.keySet().stream())
                 .filter(name -> !name.contains("."))
                 .filter(name -> !VgiProtocolSchemas.byName().containsKey(name))
+                .filter(name -> !ATTACH_TICKET_SCHEMAS.containsKey(name))
                 .sorted().toList();
         assertTrue(unknown.isEmpty(), () -> "named protocol schema(s) that do not exist: " + unknown
                 + " — regenerate VgiProtocolSchemas.java, or fix the name.");
@@ -573,7 +578,27 @@ class WireRecordSchemaConformanceTest {
                 + String.join("\n  ", problems));
     }
 
+    /**
+     * The {@code vgi.attach_tickets.v1} record schemas, transcribed from vgi-python's
+     * {@code vgi.attach_ticket.SealAttachRequest.ARROW_SCHEMA} / {@code AttachTicket.ARROW_SCHEMA}
+     * ({@code docs/protocol/vgi-attach-tickets.md} §5.2). The generated
+     * {@link VgiProtocolSchemas} covers {@code vgi.v2} only.
+     */
+    private static final Map<String, Schema> ATTACH_TICKET_SCHEMAS = Map.of(
+            "SealAttachRequest", new Schema(List.of(
+                    new Field("catalog_name", FieldType.notNullable(new ArrowType.Utf8()), null),
+                    new Field("options", FieldType.nullable(new ArrowType.Binary()), null),
+                    new Field("data_version_spec", FieldType.notNullable(new ArrowType.Utf8()), null),
+                    new Field("implementation_version", FieldType.notNullable(new ArrowType.Utf8()), null),
+                    new Field("ttl_seconds", FieldType.notNullable(new ArrowType.Int(64, true)), null))),
+            "AttachTicket", new Schema(List.of(
+                    new Field("ticket", FieldType.notNullable(new ArrowType.Utf8()), null),
+                    new Field("expires_at", FieldType.notNullable(
+                            new ArrowType.FloatingPoint(org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE)),
+                            null))));
+
     private static Schema resolveProtocolSchema(String name) {
+        if (ATTACH_TICKET_SCHEMAS.containsKey(name)) return ATTACH_TICKET_SCHEMAS.get(name);
         int dot = name.indexOf('.');
         if (dot < 0) {
             return VgiProtocolSchemas.get(name);

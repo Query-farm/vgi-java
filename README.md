@@ -28,6 +28,7 @@ Wire-compatible with the [Python reference implementation](https://github.com/Qu
 - **Table buffering functions** — sink/source functions that buffer all input before emitting (distributed-aggregation style lifecycles: process → combine → finalize).
 - **Aggregate functions** — partial aggregation with cross-process state combine.
 - **Catalog versioning** — semver data/implementation version negotiation, release manifests, multi-branch tables, transactions, and attach options.
+- **Attach tickets** — seal a user's ATTACH (secret options included) so a runner holding their grant can replay it later without seeing an option ([docs](docs/attach-tickets.md)).
 
 ## Requirements
 
@@ -146,6 +147,8 @@ For authenticated `iroh://` and HTTP-semantics `httpi://` deployments, see
 [Iroh workers and clients](docs/iroh.md). To serve other vgi-rpc protocols
 beside `vgi.v2`, or to answer token introspection for a reverse proxy, see
 [Hosting extra protocols, and token introspection](docs/hosted-protocols.md).
+To let a runner reattach a user's catalog later with only that user's grant and
+a sealed ticket (`vgi.attach_tickets.v1`), see [Attach tickets](docs/attach-tickets.md).
 
 The [`vgi-example-worker`](vgi-example-worker/) module (not published) is a complete worker with 90+ functions — scalar, table, aggregate, table-in/out, buffering, partitioned, multi-branch, transactional — that serves the canonical VGI integration suite. It is the best place to look for working patterns of any feature.
 

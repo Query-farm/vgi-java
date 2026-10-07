@@ -80,8 +80,15 @@ public record AttachOptionSpec(
         boolean required,
         boolean secret) {
 
-    /** Rejects the contradictory required-plus-default combination. */
+    /** Rejects the reserved {@code vgi_attach_ticket} name (any case) and the contradictory
+     *  required-plus-default combination. */
     public AttachOptionSpec {
+        if (AttachTickets.isReserved(name)) {
+            throw new IllegalArgumentException(
+                    "Attach option '" + name + "' uses the reserved name '" + AttachTickets.OPTION
+                            + "': the framework reads it as an attach ticket before any catalog code "
+                            + "runs. Rename the option.");
+        }
         if (required && defaultVector != null) {
             throw new IllegalArgumentException(
                     "Attach option '" + name + "' is required but also declares a default; an option "
