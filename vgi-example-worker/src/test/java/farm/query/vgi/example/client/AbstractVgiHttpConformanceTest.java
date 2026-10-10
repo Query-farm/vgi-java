@@ -598,7 +598,7 @@ abstract class AbstractVgiHttpConformanceTest {
         return CatalogAttachRequest.of(CATALOG, new byte[0], "", "");
     }
 
-    private BindRequest tableBind(String function, byte[] arguments) {
+    protected BindRequest tableBind(String function, byte[] arguments) {
         return new BindRequest(
                 function, arguments, "TABLE",
                 null,                       // input_schema — producer mode

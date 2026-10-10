@@ -2,6 +2,8 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.NotFoundException;
+
 import farm.query.vgi.scalar.ScalarFunction;
 
 import java.util.List;
@@ -62,7 +64,7 @@ public final class ServiceLocator {
     public ScalarFunction scalarAt(String name, int idx) {
         List<ScalarFunction> variants = scalars.get(name);
         if (variants == null || variants.isEmpty()) {
-            throw new IllegalArgumentException("Unknown scalar function: " + name);
+            throw new NotFoundException("Unknown scalar function: " + name);
         }
         if (idx < 0 || idx >= variants.size()) return variants.get(0);
         return variants.get(idx);

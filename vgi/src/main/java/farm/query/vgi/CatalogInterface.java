@@ -310,7 +310,7 @@ public interface CatalogInterface {
      * @return the exception
      */
     private UnsupportedOperationException readOnly(String method) {
-        return new UnsupportedOperationException(
+        return new ReadOnlyCatalogException(
                 "catalog " + name() + " is read-only: " + method + " not supported");
     }
 

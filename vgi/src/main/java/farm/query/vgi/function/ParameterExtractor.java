@@ -2,6 +2,8 @@
 
 package farm.query.vgi.function;
 
+import farm.query.vgi.InvalidArgumentException;
+
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 
@@ -208,7 +210,7 @@ public final class ParameterExtractor {
          *  @return the validated value.
          *  @throws IllegalArgumentException when missing/null or out of range. */
         public long required() {
-            if (!present(raw)) throw new IllegalArgumentException(name + " cannot be NULL");
+            if (!present(raw)) throw new InvalidArgumentException(name + " cannot be NULL");
             return validate(((Number) raw).longValue());
         }
         /** Resolve, substituting {@code defaultValue} when missing or null.
@@ -228,12 +230,12 @@ public final class ParameterExtractor {
          * @throws IllegalArgumentException when the value is explicitly NULL or out of range.
          */
         public void notNull() {
-            if (raw == null) throw new IllegalArgumentException(name + " cannot be NULL");
+            if (raw == null) throw new InvalidArgumentException(name + " cannot be NULL");
             if (raw != MISSING) validate(((Number) raw).longValue());
         }
         private long validate(long v) {
-            if (min != null && v < min) throw new IllegalArgumentException(name + " must be >= " + min + ", got " + v);
-            if (max != null && v > max) throw new IllegalArgumentException(name + " must be <= " + max + ", got " + v);
+            if (min != null && v < min) throw new InvalidArgumentException(name + " must be >= " + min + ", got " + v);
+            if (max != null && v > max) throw new InvalidArgumentException(name + " must be <= " + max + ", got " + v);
             return v;
         }
     }
@@ -267,7 +269,7 @@ public final class ParameterExtractor {
          *  @return the validated value.
          *  @throws IllegalArgumentException when missing/null, non-finite, or out of range. */
         public double required() {
-            if (!present(raw)) throw new IllegalArgumentException(name + " cannot be NULL");
+            if (!present(raw)) throw new InvalidArgumentException(name + " cannot be NULL");
             return validate(coerce(raw));
         }
         /** Resolve, substituting {@code defaultValue} when missing or null.
@@ -280,7 +282,7 @@ public final class ParameterExtractor {
         }
         /** See {@link LongConstraint#notNull()}. */
         public void notNull() {
-            if (raw == null) throw new IllegalArgumentException(name + " cannot be NULL");
+            if (raw == null) throw new InvalidArgumentException(name + " cannot be NULL");
             if (raw != MISSING) validate(coerce(raw));
         }
         private double coerce(Object v) {
@@ -289,10 +291,10 @@ public final class ParameterExtractor {
         }
         private double validate(double v) {
             if (!allowNonFinite && (Double.isNaN(v) || Double.isInfinite(v))) {
-                throw new IllegalArgumentException(name + " must be a finite number");
+                throw new InvalidArgumentException(name + " must be a finite number");
             }
-            if (min != null && v < min) throw new IllegalArgumentException(name + " must be >= " + min + ", got " + v);
-            if (max != null && v > max) throw new IllegalArgumentException(name + " must be <= " + max + ", got " + v);
+            if (min != null && v < min) throw new InvalidArgumentException(name + " must be >= " + min + ", got " + v);
+            if (max != null && v > max) throw new InvalidArgumentException(name + " must be <= " + max + ", got " + v);
             return v;
         }
     }
@@ -317,7 +319,7 @@ public final class ParameterExtractor {
          *  @return the validated value.
          *  @throws IllegalArgumentException when missing/null or failing a constraint. */
         public String required() {
-            if (!present(raw)) throw new IllegalArgumentException(name + " cannot be NULL");
+            if (!present(raw)) throw new InvalidArgumentException(name + " cannot be NULL");
             return validate(raw.toString());
         }
         /** Resolve, substituting {@code defaultValue} when missing or null.
@@ -330,14 +332,14 @@ public final class ParameterExtractor {
         }
         /** See {@link LongConstraint#notNull()}. */
         public void notNull() {
-            if (raw == null) throw new IllegalArgumentException(name + " cannot be NULL");
+            if (raw == null) throw new InvalidArgumentException(name + " cannot be NULL");
             if (raw != MISSING) validate(raw.toString());
         }
         private String validate(String v) {
-            if (nonEmpty && v.isEmpty()) throw new IllegalArgumentException(name + " must not be empty");
+            if (nonEmpty && v.isEmpty()) throw new InvalidArgumentException(name + " must not be empty");
             if (allowed != null) {
                 for (String a : allowed) if (a.equals(v)) return v;
-                throw new IllegalArgumentException(
+                throw new InvalidArgumentException(
                     name + " must be one of the allowed choices " + Arrays.toString(allowed) + ", got '" + v + "'");
             }
             return v;
@@ -354,7 +356,7 @@ public final class ParameterExtractor {
          *  @return the value.
          *  @throws IllegalArgumentException when missing or null. */
         public boolean required() {
-            if (!present(raw)) throw new IllegalArgumentException(name + " cannot be NULL");
+            if (!present(raw)) throw new InvalidArgumentException(name + " cannot be NULL");
             return (Boolean) raw;
         }
         /** Resolve, substituting {@code defaultValue} when missing or null.
@@ -366,7 +368,7 @@ public final class ParameterExtractor {
         }
         /** See {@link LongConstraint#notNull()}. */
         public void notNull() {
-            if (raw == null) throw new IllegalArgumentException(name + " cannot be NULL");
+            if (raw == null) throw new InvalidArgumentException(name + " cannot be NULL");
         }
     }
 }

@@ -2,6 +2,8 @@
 
 package farm.query.vgi.scalar;
 
+import farm.query.vgi.InvalidArgumentException;
+
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.Arguments;
 import farm.query.vgi.function.ConstraintEnforcer;
@@ -214,7 +216,7 @@ public abstract class ScalarFn implements ScalarFunction {
     private void checkBound(String argLabel, List<TypeBoundPredicate> bounds, ArrowType actual) {
         for (TypeBoundPredicate bound : bounds) {
             if (!matches(bound, actual)) {
-                throw new IllegalArgumentException(
+                throw new InvalidArgumentException(
                         name() + ": " + argLabel + " must be " + bound.description()
                                 + " (got " + TypeRules.sqlTypeName(actual) + ")");
             }

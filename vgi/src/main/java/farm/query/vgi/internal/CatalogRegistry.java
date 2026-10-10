@@ -2,6 +2,8 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.InvalidArgumentException;
+import farm.query.vgi.NotFoundException;
 import farm.query.vgi.Worker;
 import farm.query.vgi.catalog.CatalogTable;
 
@@ -183,17 +185,17 @@ public final class CatalogRegistry {
         int version = -1;
         if ("version".equalsIgnoreCase(at_unit)) {
             try { version = Integer.parseInt(at_value); }
-            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + at_value); }
+            catch (NumberFormatException e) { throw new InvalidArgumentException("Unknown version: " + at_value); }
         } else if ("timestamp".equalsIgnoreCase(at_unit)) {
             String s = at_value;
             int yearEnd = Math.min(4, s.length());
             int year;
             try { year = Integer.parseInt(s.substring(0, yearEnd)); }
             catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Unknown timestamp: " + at_value);
+                throw new InvalidArgumentException("Unknown timestamp: " + at_value);
             }
             if (year < 2020) {
-                throw new IllegalArgumentException("table did not exist before 2020");
+                throw new NotFoundException("table did not exist before 2020");
             }
             if (year < 2021) version = 1;
             else if (year < 2022) version = 2;
@@ -202,7 +204,7 @@ public final class CatalogRegistry {
             return t;
         }
         if (version < 1 || version > 3) {
-            throw new IllegalArgumentException("Unknown version: " + version);
+            throw new NotFoundException("Unknown version: " + version);
         }
         String versionedName = t.name() + "_v" + version;
         for (CatalogTable vt : worker.catalogTables()) {

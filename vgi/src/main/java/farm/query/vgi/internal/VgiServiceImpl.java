@@ -2,7 +2,11 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.InvalidArgumentException;
+import farm.query.vgi.NotFoundException;
+import farm.query.vgi.ReadOnlyCatalogException;
 import farm.query.vgi.SettingSpec;
+import farm.query.vgi.UnimplementedException;
 import farm.query.vgi.VgiService;
 import farm.query.vgi.Worker;
 import farm.query.vgi.aggregate.AggregateFunction;
@@ -300,7 +304,7 @@ public final class VgiServiceImpl implements VgiService {
                     scopeCandidates(bufferingFns.get(name), name, schemaPath, catalogName, copyHandler),
                     args, inputSchema, settings, argCount, token, ctx);
         }
-        throw new IllegalArgumentException("Unknown function: " + name);
+        throw new NotFoundException("Unknown function: " + name);
     }
 
     /**
@@ -346,7 +350,7 @@ public final class VgiServiceImpl implements VgiService {
             if (java.util.Objects.equals(worker.catalogOf(fn), catalogName)) byCatalog.add(fn);
         }
         if (byCatalog.isEmpty()) {
-            throw new IllegalArgumentException(
+            throw new NotFoundException(
                     "Function '" + name + "' is not registered in catalog '"
                     + (catalogName == null ? worker.catalogName() : catalogName)
                     + "'. It is available in: " + sorted(catalogsDeclaring(all)));
@@ -359,7 +363,7 @@ public final class VgiServiceImpl implements VgiService {
             if (schemaPathEquals(schemaPath, worker.schemaPathOf(fn))) bySchema.add(fn);
         }
         if (bySchema.isEmpty()) {
-            throw new IllegalArgumentException(
+            throw new NotFoundException(
                     "Function '" + name + "' is not registered in schema '" + String.join(".", schemaPath)
                     + "'. It is available in: " + schemaPathsDisplay(schemasDeclaring(byCatalog)));
         }
@@ -846,15 +850,15 @@ public final class VgiServiceImpl implements VgiService {
         if (atUnit == null || atUnit.isEmpty()) return 2;
         if ("version".equalsIgnoreCase(atUnit)) {
             try { return Integer.parseInt(atValue); }
-            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + atValue); }
+            catch (NumberFormatException e) { throw new InvalidArgumentException("Unknown version: " + atValue); }
         }
         if ("timestamp".equalsIgnoreCase(atUnit)) {
             int year;
             try { year = Integer.parseInt(atValue.substring(0, Math.min(4, atValue.length()))); }
-            catch (RuntimeException e) { throw new IllegalArgumentException("Unknown timestamp: " + atValue); }
+            catch (RuntimeException e) { throw new InvalidArgumentException("Unknown timestamp: " + atValue); }
             return year <= 2020 ? 1 : 2;
         }
-        throw new IllegalArgumentException("Unsupported at_unit: " + atUnit);
+        throw new InvalidArgumentException("Unsupported at_unit: " + atUnit);
     }
 
     /**
@@ -868,17 +872,17 @@ public final class VgiServiceImpl implements VgiService {
         int version;
         if ("version".equalsIgnoreCase(atUnit)) {
             try { version = Integer.parseInt(atValue); }
-            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + atValue); }
+            catch (NumberFormatException e) { throw new InvalidArgumentException("Unknown version: " + atValue); }
         } else if ("timestamp".equalsIgnoreCase(atUnit)) {
             int year;
             try { year = Integer.parseInt(atValue.substring(0, Math.min(4, atValue.length()))); }
-            catch (RuntimeException e) { throw new IllegalArgumentException("Unknown timestamp: " + atValue); }
-            if (year < 2020) throw new IllegalArgumentException("table did not exist before 2020");
+            catch (RuntimeException e) { throw new InvalidArgumentException("Unknown timestamp: " + atValue); }
+            if (year < 2020) throw new NotFoundException("table did not exist before 2020");
             version = year <= 2020 ? 1 : (year <= 2021 ? 2 : 3);
         } else {
-            throw new IllegalArgumentException("Unsupported at_unit: " + atUnit);
+            throw new InvalidArgumentException("Unsupported at_unit: " + atUnit);
         }
-        if (version < 1 || version > 3) throw new IllegalArgumentException("Unknown version: " + version);
+        if (version < 1 || version > 3) throw new NotFoundException("Unknown version: " + version);
         return version;
     }
 
@@ -1216,7 +1220,7 @@ public final class VgiServiceImpl implements VgiService {
                                                 CallContext ctx) {
         List<AggregateFunction<?>> all = aggregates.get(name);
         if (all == null || all.isEmpty()) {
-            throw new IllegalArgumentException("Unknown aggregate: " + name);
+            throw new NotFoundException("Unknown aggregate: " + name);
         }
         List<AggregateFunction<?>> scoped = scopeCandidates(
                 all, name, schemaPath, attachExtraCatalogName(attachOpaqueData, ctx),
@@ -1578,7 +1582,7 @@ public final class VgiServiceImpl implements VgiService {
                 : java.util.List.of(supported);
         String resolved = SemverHelpers.resolveNpmSpec(requested, implVersions);
         if (resolved == null) {
-            throw new IllegalArgumentException("Unsupported implementation_version: " + requested);
+            throw new InvalidArgumentException("Unsupported implementation_version: " + requested);
         }
         return resolved;
     }
@@ -1598,7 +1602,7 @@ public final class VgiServiceImpl implements VgiService {
         List<String> supportedVersions = supportedVersions();
         String resolved = SemverHelpers.resolveNpmSpec(spec, supportedVersions);
         if (resolved == null || !SemverHelpers.matchesRange(resolved, range)) {
-            throw new IllegalArgumentException("Unsupported data_version_spec: " + spec);
+            throw new InvalidArgumentException("Unsupported data_version_spec: " + spec);
         }
         return resolved;
     }
@@ -1759,7 +1763,7 @@ public final class VgiServiceImpl implements VgiService {
                                          byte[] column_definition, boolean ignore_not_found,
                                          boolean if_column_not_exists, byte[] transaction_opaque_data,
                                          CallContext ctx) {
-        throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_add not supported");
+        throw new UnimplementedException("catalog is read-only: catalog_table_column_add not supported");
     }
 
     /**
@@ -1779,14 +1783,14 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_table_column_drop(byte[] attach_opaque_data, List<String> schema_path, String name,
                                           String column_name, boolean ignore_not_found, boolean if_column_exists,
                                           boolean cascade, byte[] transaction_opaque_data, CallContext ctx) {
-        throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_drop not supported");
+        throw new UnimplementedException("catalog is read-only: catalog_table_column_drop not supported");
     }
 
     /** The attach's code-implemented catalog; DDL on any other catalog of this worker is refused. */
     private Hosted requireHosted(byte[] attachOpaqueData, CallContext ctx, String method) {
         Hosted h = hostedOf(attachOpaqueData, ctx);
         if (h == null) {
-            throw new UnsupportedOperationException("catalog is read-only: " + method + " not supported");
+            throw new ReadOnlyCatalogException("catalog is read-only: " + method + " not supported");
         }
         return h;
     }
@@ -2235,7 +2239,7 @@ public final class VgiServiceImpl implements VgiService {
                                     t.scanFunctionName(), List.of(schema_name), extraCatalog.name()));
                 }
             }
-            throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
+            throw new NotFoundException("scan_function_get: unknown table " + schema_name + "." + name);
         }
         var at = catalogRegistry.effectiveAt(attach_opaque_data_plain, at_unit, at_value);
         // Columns-based time-travel + pushdown: resolve AT -> version and pass it
@@ -2269,7 +2273,7 @@ public final class VgiServiceImpl implements VgiService {
                                 resolved.scanFunctionName(), List.of(schema_name), null));
             }
         }
-        throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
+        throw new NotFoundException("scan_function_get: unknown table " + schema_name + "." + name);
     }
 
     /**
@@ -2310,7 +2314,7 @@ public final class VgiServiceImpl implements VgiService {
                     return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
                 }
             }
-            throw new IllegalArgumentException(
+            throw new NotFoundException(
                     "scan_branches_get: unknown table " + schema_name + "." + name);
         }
         // Explicitly declared multi-branch table — return its branches as-is
@@ -2360,7 +2364,7 @@ public final class VgiServiceImpl implements VgiService {
                 return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
             }
         }
-        throw new IllegalArgumentException(
+        throw new NotFoundException(
                 "scan_branches_get: unknown table " + schema_name + "." + name);
     }
 
@@ -2392,7 +2396,7 @@ public final class VgiServiceImpl implements VgiService {
             String name, List<String> schemaPath, byte[] attachOpaqueData, CallContext ctx) {
         var list = bufferingFns.get(name);
         if (list == null || list.isEmpty()) {
-            throw new IllegalArgumentException("Unknown buffering function: " + name);
+            throw new NotFoundException("Unknown buffering function: " + name);
         }
         return scopeCandidates(list, name, schemaPath,
                 attachExtraCatalogName(attachOpaqueData, ctx), /*copyHandler=*/false).get(0);

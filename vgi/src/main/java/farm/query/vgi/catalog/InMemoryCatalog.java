@@ -3,6 +3,7 @@
 package farm.query.vgi.catalog;
 
 import farm.query.vgi.CatalogInterface;
+import farm.query.vgi.NotFoundException;
 import farm.query.vgi.protocol.CatalogAttachRequest;
 import farm.query.vgi.protocol.SchemaInfo;
 import farm.query.vgi.protocol.TableCreateRequest;
@@ -204,7 +205,7 @@ public class InMemoryCatalog implements CatalogInterface {
                 }
             }
             if (path.size() > 1 && !s.schemas.containsKey(key(path.subList(0, path.size() - 1)))) {
-                throw new IllegalArgumentException(
+                throw new NotFoundException(
                         "Schema " + String.join(".", path.subList(0, path.size() - 1)) + " not found");
             }
             s.schemas.put(key(path), new SchemaState(path, comment, tags));
@@ -219,7 +220,7 @@ public class InMemoryCatalog implements CatalogInterface {
             SchemaState schema = s.schemas.get(key(path));
             if (schema == null) {
                 if (ignoreNotFound) return;
-                throw new IllegalArgumentException("Schema " + String.join(".", path) + " not found");
+                throw new NotFoundException("Schema " + String.join(".", path) + " not found");
             }
             List<List<String>> doomed = new ArrayList<>();
             for (Map.Entry<List<String>, SchemaState> e : s.schemas.entrySet()) {
@@ -265,7 +266,7 @@ public class InMemoryCatalog implements CatalogInterface {
             SchemaState schema = s.schemas.get(key(path));
             if (schema == null || schema.tables.remove(name) == null) {
                 if (ignoreNotFound) return;
-                throw new IllegalArgumentException("Table " + name + " not found in schema " + String.join(".", path));
+                throw new NotFoundException("Table " + name + " not found in schema " + String.join(".", path));
             }
             s.version++;
         }
@@ -291,7 +292,7 @@ public class InMemoryCatalog implements CatalogInterface {
             SchemaState schema = s.schemas.get(key(path));
             if (schema == null || schema.views.remove(name) == null) {
                 if (ignoreNotFound) return;
-                throw new IllegalArgumentException("View " + name + " not found in schema " + String.join(".", path));
+                throw new NotFoundException("View " + name + " not found in schema " + String.join(".", path));
             }
             s.version++;
         }
@@ -311,7 +312,7 @@ public class InMemoryCatalog implements CatalogInterface {
 
     private static SchemaState requireSchema(State s, List<String> path) {
         SchemaState schema = s.schemas.get(key(path));
-        if (schema == null) throw new IllegalArgumentException("Schema " + String.join(".", path) + " not found");
+        if (schema == null) throw new NotFoundException("Schema " + String.join(".", path) + " not found");
         return schema;
     }
 
