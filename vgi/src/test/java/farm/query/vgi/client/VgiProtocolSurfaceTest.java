@@ -41,7 +41,7 @@ final class VgiProtocolSurfaceTest {
      * update the constant.
      */
     static final String REFERENCE_VGI_V2_HASH =
-            "98309fc84d6bdb9c01c70986a3ddc53596a9dfaba4325297be22f601e3a4e6a2";
+            "880e67e755301062698475d23ae8922a6b868d8d0b70ddb195edd96f6be385a4";
 
     /** The reference methods this SDK registers but does not implement. */
     private static final Set<String> UNIMPLEMENTED = new TreeSet<>(List.of(

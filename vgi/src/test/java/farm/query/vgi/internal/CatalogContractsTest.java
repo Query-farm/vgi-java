@@ -5,6 +5,11 @@ package farm.query.vgi.internal;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import farm.query.vgi.protocol.OptionChanges;
+import farm.query.vgi.protocol.SqlExpression;
+import farm.query.vgi.protocol.SortKey;
+import farm.query.vgi.protocol.TableLayout;
+import farm.query.vgi.protocol.TableLayoutChange;
+import farm.query.vgi.protocol.TableCreateRequest;
 import farm.query.vgi.protocol.CatalogCapabilities;
 import farm.query.vgi.protocol.OptionDefinitions;
 import farm.query.vgi.protocol.OptionState;
@@ -60,5 +65,36 @@ class CatalogContractsTest {
         assertArrayEquals(fixture("values"), definitions.defaults());
         assertEquals(List.of("optional", "record"), definitions.create_names());
         assertEquals(List.of("optional"), definitions.alter_names());
+    }
+
+    @Test void layoutsPreserveOrdersAndClearVersusUnchanged() throws Exception {
+        SqlExpression expression = roundTrip("expression", SqlExpression.class);
+        assertEquals(List.of("one.two", "nested"), expression.schema_path());
+        SortKey key = roundTrip("sort_key", SortKey.class);
+        assertArrayEquals(fixture("expression"), key.expression());
+        assertEquals("DESC", key.direction());
+        assertEquals("FIRST", key.null_order());
+        TableLayout layout = roundTrip("layout", TableLayout.class);
+        assertArrayEquals(fixture("expression"), layout.partition_by().getFirst());
+        assertArrayEquals(fixture("sort_key"), layout.sorted_by().getFirst());
+        assertEquals("ALL_ROWS", layout.coverage());
+        assertEquals(List.of(), roundTrip("empty_layout", TableLayout.class).sorted_by());
+        TableLayoutChange change = roundTrip("layout_change", TableLayoutChange.class);
+        assertEquals("REWRITE", change.mode());
+        assertEquals(List.of(), change.partition_by());
+        assertArrayEquals(fixture("sort_key"), change.sorted_by().getFirst());
+        TableLayoutChange clear = roundTrip("layout_clear", TableLayoutChange.class);
+        assertEquals("FUTURE_WRITES", clear.mode());
+        assertNull(clear.partition_by());
+        assertEquals(List.of(), clear.sorted_by());
+        TableCreateRequest create = roundTrip("table_create", TableCreateRequest.class);
+        assertEquals("kept", create.comment());
+        assertArrayEquals(fixture("values"), create.options());
+        assertArrayEquals(fixture("layout"), create.layout());
+        TableCreateRequest old = roundTrip("table_create_legacy", TableCreateRequest.class);
+        assertNull(old.comment());
+        assertNull(old.tags());
+        assertNull(old.options());
+        assertNull(old.layout());
     }
 }

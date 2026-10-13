@@ -1697,7 +1697,7 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_schema_create(byte[] attach_opaque_data, List<String> path, String on_conflict,
                                       String comment, Map<String, String> tags, byte[] transaction_opaque_data,
                                       byte[] options, CallContext ctx) {
-        if (options != null) throw new UnsupportedOperationException("catalog_schema_create requires negotiated vgi.schema.options.create.v1");
+        if (options != null) throw new farm.query.vgirpc.MethodNotImplementedError("catalog_schema_create requires negotiated vgi.schema.options.create.v1");
         Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_schema_create");
         h.catalog().schemaCreate(h.attachId(), path,
                 farm.query.vgi.catalog.OnConflict.fromWire(on_conflict), comment, tags == null ? Map.of() : tags);
@@ -1714,6 +1714,8 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_table_create(byte[] request, CallContext ctx) {
         farm.query.vgi.protocol.TableCreateRequest req =
                 RecordCodec.deserializeFromBytes(request, farm.query.vgi.protocol.TableCreateRequest.class);
+        if (req.comment() != null || req.tags() != null || req.options() != null || req.layout() != null)
+            throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create requires negotiated table profiles");
         Hosted h = requireHosted(req.attach_opaque_data(), ctx, "catalog_table_create");
         h.catalog().tableCreate(h.attachId(), req);
     }

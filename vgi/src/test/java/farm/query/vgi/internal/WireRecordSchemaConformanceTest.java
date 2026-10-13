@@ -318,6 +318,11 @@ class WireRecordSchemaConformanceTest {
         m.put(CatalogContentsResponse.class, new Codec("CatalogContentsResult", ORDERED));
         m.put(ClientCapabilities.class, new Codec("ClientCapabilities", ORDERED));
         m.put(CatalogVersionResponse.class, new Codec("CatalogVersionResult", ORDERED));
+        m.put(farm.query.vgi.protocol.SqlExpression.class, new Codec("SqlExpression", ORDERED));
+        m.put(farm.query.vgi.protocol.SortKey.class, new Codec("SortKey", ORDERED));
+        m.put(farm.query.vgi.protocol.TableLayout.class, new Codec("TableLayout", ORDERED));
+        m.put(farm.query.vgi.protocol.TableLayoutChange.class, new Codec("TableLayoutChange", ORDERED));
+
         m.put(CopyFromContext.class, new Codec("CopyFromContext", BY_NAME));
         m.put(CopyToContext.class, new Codec("CopyToContext", BY_NAME));
         m.put(DynamicToStringResponse.class, new Codec("TableFunctionDynamicToStringResult", ORDERED));
@@ -477,6 +482,9 @@ class WireRecordSchemaConformanceTest {
         org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("OptionDefinitions"),
                 VgiProtocolSchemas.byName().get("CatalogSchemaOptionDefinitionsResult"));
         checked.add("CatalogSchemaOptionDefinitionsResult");
+        org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("OptionDefinitions"),
+                VgiProtocolSchemas.byName().get("CatalogTableOptionDefinitionsResult"));
+        checked.add("CatalogTableOptionDefinitionsResult");
 
         List<String> unaccounted = VgiProtocolSchemas.byName().keySet().stream()
                 .filter(name -> !checked.contains(name))

@@ -41,7 +41,9 @@ import java.util.Map;
  *                                    normal form: an AND of OR-groups, each inner
  *                                    group a list of dotted column paths satisfied
  *                                    when any one of its paths has a filter. Empty
- *                                    means no enforcement. Trailing wire field.
+ *                                    means no enforcement.
+ * @param options                     typed option state IPC, or null when unavailable.
+ * @param layout                      partition/sort layout IPC, or null when unavailable.
  */
 // The annotations below are statements about the WIRE COLUMN, not about
 // whether a Java caller may pass null — a nullable column may still be written
@@ -80,7 +82,9 @@ public record TableInfo(
         @Nullable Long cardinality_max,
         @Nullable byte[] column_statistics,
         @Nullable byte[] bind_result,
-        List<List<String>> required_filters) {
+        List<List<String>> required_filters,
+        @Nullable byte[] options,
+        @Nullable byte[] layout) {
     public TableInfo(String comment, Map<String, String> tags, String name, String schema_name,
             byte[] columns, List<Integer> not_null_constraints,
             List<List<Integer>> unique_constraints, List<String> check_constraints,
@@ -94,6 +98,20 @@ public record TableInfo(
                 foreign_key_constraints, write_result_modes, supports_column_statistics, scan_function, insert_function,
                 update_function, delete_function, cardinality_estimate, cardinality_max,
                 column_statistics, bind_result, required_filters);
+    }
+    public TableInfo(String comment, Map<String, String> tags, String name, List<String> schema_path,
+            byte[] columns, List<Integer> not_null_constraints,
+            List<List<Integer>> unique_constraints, List<String> check_constraints,
+            List<List<Integer>> primary_key_constraints, List<byte[]> foreign_key_constraints,
+            Map<String, String> write_result_modes, boolean supports_column_statistics, byte[] scan_function,
+            byte[] insert_function, byte[] update_function, byte[] delete_function,
+            Long cardinality_estimate, Long cardinality_max, byte[] column_statistics,
+            byte[] bind_result, List<List<String>> required_filters) {
+        this(comment, tags, name, schema_path, columns, not_null_constraints,
+                unique_constraints, check_constraints, primary_key_constraints,
+                foreign_key_constraints, write_result_modes, supports_column_statistics, scan_function, insert_function,
+                update_function, delete_function, cardinality_estimate, cardinality_max,
+                column_statistics, bind_result, required_filters, null, null);
     }
 
     public String schema_name() {

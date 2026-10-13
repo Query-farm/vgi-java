@@ -25,6 +25,7 @@ import static farm.query.vgi.internal.IpcStructBuilder.writeListListInt32;
 import static farm.query.vgi.internal.IpcStructBuilder.writeListListString;
 import static farm.query.vgi.internal.IpcStructBuilder.writeMap;
 import static farm.query.vgi.internal.IpcStructBuilder.writeNullableInt64;
+import static farm.query.vgi.internal.IpcStructBuilder.writeNullableVarBinary;
 import static farm.query.vgi.internal.IpcStructBuilder.writeStringList;
 import static farm.query.vgi.internal.IpcStructBuilder.writeVarBinarySafe;
 import static farm.query.vgi.internal.IpcStructBuilder.writeVarChar;
@@ -65,7 +66,9 @@ public final class TableInfoSerializer {
             nullable("cardinality_max", I64),
             nullable("column_statistics", BINARY),
             nullable("bind_result", BINARY),
-            listOfListOfUtf8("required_filters")));
+            listOfListOfUtf8("required_filters"),
+            nullable("options", BINARY),
+            nullable("layout", BINARY)));
 
     /**
      * Serialise {@code info} as the 1-row IPC stream the C++ extension reads for a catalog table.
@@ -96,6 +99,8 @@ public final class TableInfoSerializer {
             writeVarBinarySafe(v.get("column_statistics"), info.column_statistics());
             writeVarBinarySafe(v.get("bind_result"), info.bind_result());
             writeListListString(v.get("required_filters"), info.required_filters());
+            writeNullableVarBinary(v.get("options"), info.options());
+            writeNullableVarBinary(v.get("layout"), info.layout());
         });
     }
 }

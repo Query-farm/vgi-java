@@ -389,7 +389,7 @@ final class HostedCatalogTest {
     void schemaOptionsRejectBeforeHostedCatalogMutation() {
         VgiServiceImpl svc = service(hostingWorker());
         byte[] attach = attach(svc, "mem");
-        assertThrows(UnsupportedOperationException.class, () -> svc.catalog_schema_create(
+        assertThrows(farm.query.vgirpc.MethodNotImplementedError.class, () -> svc.catalog_schema_create(
                 attach, List.of("unsupported"), "ERROR", null, null, null, new byte[]{1}, null));
         assertEquals(List.of(MAIN), schemaPaths(svc, attach));
         assertEquals(1L, version(svc, attach));

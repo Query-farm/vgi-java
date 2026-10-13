@@ -8,6 +8,7 @@ import farm.query.vgirpc.schema.ArrowSerializableRecord;
 import farm.query.vgirpc.schema.Nullable;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * The {@code request} of {@code catalog_table_create}: one IPC-serialized
@@ -39,7 +40,21 @@ public record TableCreateRequest(
         List<String> check_constraints,
         @ArrowField(ArrowFieldType.INT32) List<List<Integer>> primary_key_constraints,
         List<byte[]> foreign_key_constraints,
-        @Nullable byte[] transaction_opaque_data) implements ArrowSerializableRecord {
+        @Nullable byte[] transaction_opaque_data,
+        @Nullable String comment,
+        @Nullable Map<String, String> tags,
+        @Nullable byte[] options,
+        @Nullable byte[] layout) implements ArrowSerializableRecord {
+
+    public TableCreateRequest(byte[] attach_opaque_data, List<String> schema_path, String name,
+            byte[] columns, String on_conflict, List<Integer> not_null_constraints,
+            List<List<Integer>> unique_constraints, List<String> check_constraints,
+            List<List<Integer>> primary_key_constraints, List<byte[]> foreign_key_constraints,
+            byte[] transaction_opaque_data) {
+        this(attach_opaque_data, schema_path, name, columns, on_conflict, not_null_constraints,
+             unique_constraints, check_constraints, primary_key_constraints, foreign_key_constraints,
+             transaction_opaque_data, null, null, null, null);
+    }
 
     /** A missing list reads as empty. */
     public TableCreateRequest {
