@@ -18,8 +18,13 @@ import java.util.List;
  */
 public record View(String schema, String name, String definition,
                     String comment, Map<String, String> tags,
-                    Map<String, String> columnComments, List<String> aliases) {
+                    Map<String, String> columnComments, List<String> aliases, String security) {
     public View { aliases = List.copyOf(aliases); }
+
+    public View(String schema, String name, String definition, String comment,
+                Map<String, String> tags, Map<String, String> columnComments, List<String> aliases) {
+        this(schema, name, definition, comment, tags, columnComments, aliases, "regular");
+    }
 
     public View(String schema, String name, String definition, String comment,
                 Map<String, String> tags, Map<String, String> columnComments) {
@@ -58,6 +63,6 @@ public record View(String schema, String name, String definition,
      * @return a new view with the column comments applied
      */
     public View withColumnComments(Map<String, String> columnComments) {
-        return new View(schema, name, definition, comment, tags, columnComments, aliases);
+        return new View(schema, name, definition, comment, tags, columnComments, aliases, security);
     }
 }

@@ -25,15 +25,22 @@ public record ViewInfo(
         List<String> schema_path,
         String definition,
         Map<String, String> column_comments,
-        List<String> aliases) implements ArrowSerializableRecord {
+        List<String> aliases,
+        String security) implements ArrowSerializableRecord {
 
     public ViewInfo(String comment, Map<String, String> tags, String name, List<String> schema_path,
                     String definition, Map<String, String> column_comments) {
         this(comment, tags, name, schema_path, definition, column_comments, List.of());
     }
 
+    public ViewInfo(String comment, Map<String, String> tags, String name, List<String> schema_path,
+                    String definition, Map<String, String> column_comments, List<String> aliases) {
+        this(comment, tags, name, schema_path, definition, column_comments, aliases, "regular");
+    }
+
     /** Canonicalises the map columns to key order, so equal views encode to equal bytes. */
     public ViewInfo {
+        if (!"regular".equals(security) && !"barrier".equals(security)) throw new IllegalArgumentException("unknown view security mode");
         aliases = List.copyOf(aliases);
         tags = WireMaps.sorted(tags);
         column_comments = WireMaps.sorted(column_comments);

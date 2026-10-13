@@ -31,6 +31,11 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogContractsTest {
+    @Test void viewSecuritySurvivesCodecRoundTrip() throws Exception {
+        assertEquals("regular", roundTrip("view_info", farm.query.vgi.protocol.ViewInfo.class).security());
+        assertEquals("barrier", roundTrip("view_info_barrier", farm.query.vgi.protocol.ViewInfo.class).security());
+    }
+
     @Test void viewAliasesPreserveRawIdentifiers() throws Exception {
         var info = roundTrip("view_info", farm.query.vgi.protocol.ViewInfo.class);
         assertEquals(List.of("a.b", "with\"quote"), info.aliases());
