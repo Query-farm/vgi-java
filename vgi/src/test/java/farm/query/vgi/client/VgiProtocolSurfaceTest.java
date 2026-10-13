@@ -41,7 +41,7 @@ final class VgiProtocolSurfaceTest {
      * update the constant.
      */
     static final String REFERENCE_VGI_V2_HASH =
-            "b1db9b01e3c78a746e627fe18a4e0e0c191389dce42f15368427067f071cdecc";
+            "18fc1d304bafc3ea667bc77e20dbbd0028444ec7587cca7f03a428067942a4f7";
 
     /** The reference methods this SDK registers but does not implement. */
     private static final Set<String> UNIMPLEMENTED = new TreeSet<>(List.of(
@@ -54,7 +54,7 @@ final class VgiProtocolSurfaceTest {
             "catalog_table_column_type_change", "catalog_table_comment_set",
             "catalog_table_delete_function_get", "catalog_table_insert_function_get",
             "catalog_table_not_null_drop", "catalog_table_not_null_set", "catalog_table_rename",
-            "catalog_table_update_function_get", "catalog_view_comment_set", "catalog_view_rename"));
+            "catalog_table_update_function_get", "catalog_view_rename"));
 
     private static Worker worker() {
         return Worker.builder().catalogName("surface_probe");

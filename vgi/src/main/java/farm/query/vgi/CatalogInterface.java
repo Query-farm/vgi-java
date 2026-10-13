@@ -260,8 +260,13 @@ public interface CatalogInterface {
      * @param definition the view's SQL
      * @param onConflict what to do when it exists
      */
+    default void viewCreate(byte[] attach, List<String> path, String name, String definition, OnConflict conflict, List<String> aliases) {
+        viewCreate(attach, path, name, definition, conflict, aliases, null, null, null);
+    }
+
     default void viewCreate(byte[] attachId, List<String> path, String name, String definition,
-                            OnConflict onConflict, List<String> aliases) {
+                            OnConflict onConflict, List<String> aliases, String comment,
+                            Map<String, String> tags, Map<String, String> columnComments) {
         throw readOnly("catalog_view_create");
     }
 
@@ -277,6 +282,14 @@ public interface CatalogInterface {
     default void viewDrop(byte[] attachId, List<String> path, String name, boolean ignoreNotFound,
                           boolean cascade) {
         throw readOnly("catalog_view_drop");
+    }
+
+    default void viewCommentSet(byte[] attachId, List<String> path, String name, String comment, boolean ignoreNotFound) {
+        throw readOnly("catalog_view_comment_set");
+    }
+
+    default void viewColumnCommentSet(byte[] attachId, List<String> path, String name, List<String> columnPath, String comment, boolean ignoreNotFound) {
+        throw readOnly("catalog_view_column_comment_set");
     }
 
     // ------------------------------------------------------- catalog_contents

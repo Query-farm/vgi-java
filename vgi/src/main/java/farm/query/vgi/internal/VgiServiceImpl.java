@@ -1728,14 +1728,38 @@ public final class VgiServiceImpl implements VgiService {
         h.catalog().tableDrop(h.attachId(), schema_path, name, ignore_not_found, cascade);
     }
 
+    public void catalog_view_create(byte[] attach, List<String> path, String name, String definition, String conflict,
+            byte[] tx, List<String> aliases, String security, CallContext ctx) {
+        catalog_view_create(attach, path, name, definition, conflict, tx, aliases, security, null, null, null, ctx);
+    }
+
     @Override
     public void catalog_view_create(byte[] attach_opaque_data, List<String> schema_path, String name,
                                     String definition, String on_conflict, byte[] transaction_opaque_data,
-                                    List<String> aliases, String security, CallContext ctx) {
+                                    List<String> aliases, String security, String comment, Map<String, String> tags,
+                                    Map<String, String> column_comments, CallContext ctx) {
         if (!"regular".equals(security)) throw new UnsupportedOperationException("view security mode is unsupported");
+        if (column_comments != null && column_comments.keySet().stream().anyMatch(key -> key.isEmpty() || key.indexOf('\0') >= 0))
+            throw new IllegalArgumentException("view column comments require raw output identifiers");
         Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_view_create");
         h.catalog().viewCreate(h.attachId(), schema_path, name, definition,
-                farm.query.vgi.catalog.OnConflict.fromWire(on_conflict), aliases == null ? List.of() : aliases);
+                farm.query.vgi.catalog.OnConflict.fromWire(on_conflict), aliases == null ? List.of() : aliases, comment, tags, column_comments);
+    }
+
+    @Override
+    public void catalog_view_column_comment_set(byte[] attach_opaque_data, List<String> schema_path, String name,
+            List<String> column_path, String comment, boolean ignore_not_found, byte[] transaction_opaque_data, CallContext ctx) {
+        if (column_path.size() != 1 || column_path.getFirst().isEmpty() || column_path.getFirst().indexOf('\0') >= 0)
+            throw new IllegalArgumentException("view column comments require one raw output identifier");
+        Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_view_column_comment_set");
+        h.catalog().viewColumnCommentSet(h.attachId(), schema_path, name, column_path, comment, ignore_not_found);
+    }
+
+    @Override
+    public void catalog_view_comment_set(byte[] attach_opaque_data, List<String> schema_path, String name,
+            String comment, boolean ignore_not_found, byte[] transaction_opaque_data, CallContext ctx) {
+        Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_view_comment_set");
+        h.catalog().viewCommentSet(h.attachId(), schema_path, name, comment, ignore_not_found);
     }
 
     @Override

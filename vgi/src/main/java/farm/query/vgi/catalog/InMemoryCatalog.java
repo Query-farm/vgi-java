@@ -273,12 +273,43 @@ public class InMemoryCatalog implements CatalogInterface {
 
     @Override
     public void viewCreate(byte[] attachId, List<String> path, String name, String definition,
-                           OnConflict onConflict, List<String> aliases) {
+                           OnConflict onConflict, List<String> aliases, String comment,
+                            Map<String, String> tags, Map<String, String> columnComments) {
         State s = state(attachId);
         synchronized (s) {
             SchemaState schema = requireSchema(s, path);
             if (schema.views.containsKey(name) && !replace("View", name, onConflict)) return;
-            schema.views.put(name, new ViewInfo(null, Map.of(), name, schema.path, definition, Map.of(), aliases));
+            schema.views.put(name, new ViewInfo(comment, tags == null ? Map.of() : Map.copyOf(tags), name, schema.path, definition,
+                    columnComments == null ? Map.of() : Map.copyOf(columnComments), List.copyOf(aliases)));
+            s.version++;
+        }
+    }
+
+    @Override
+    public void viewCommentSet(byte[] attachId, List<String> path, String name, String comment, boolean ignoreNotFound) {
+        changeViewComment(attachId, path, name, null, comment, ignoreNotFound);
+    }
+
+    @Override
+    public void viewColumnCommentSet(byte[] attachId, List<String> path, String name, List<String> columnPath, String comment, boolean ignoreNotFound) {
+        if (columnPath.size() != 1 || columnPath.getFirst().isEmpty() || columnPath.getFirst().indexOf('\0') >= 0)
+            throw new IllegalArgumentException("view column comments require one raw output identifier");
+        changeViewComment(attachId, path, name, columnPath.getFirst(), comment, ignoreNotFound);
+    }
+
+    private void changeViewComment(byte[] attachId, List<String> path, String name, String column, String comment, boolean ignoreNotFound) {
+        State s = state(attachId);
+        synchronized (s) {
+            SchemaState schema = s.schemas.get(key(path));
+            ViewInfo view = schema == null ? null : schema.views.get(name);
+            if (view == null) {
+                if (ignoreNotFound) return;
+                throw new IllegalArgumentException("View " + name + " not found");
+            }
+            Map<String, String> comments = new java.util.HashMap<>(view.column_comments());
+            if (column != null) { if (comment == null) comments.remove(column); else comments.put(column, comment); }
+            schema.views.put(name, new ViewInfo(column == null ? comment : view.comment(), view.tags(), view.name(),
+                    view.schema_path(), view.definition(), Map.copyOf(comments), view.aliases(), view.security()));
             s.version++;
         }
     }
