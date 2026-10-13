@@ -145,7 +145,7 @@ final class HostedCatalogTest {
         assertEquals(0, svc.catalog_table_get(a, MAIN, "nope", null, null, null, null).items().size());
         assertEquals(3L, version(svc, a));
 
-        svc.catalog_schema_create(a, List.of("s2"), "ERROR", "second", Map.of(), null, null);
+        svc.catalog_schema_create(a, List.of("s2"), "ERROR", "second", Map.of(), null, null, null);
         assertEquals(List.of(MAIN, List.of("s2")), schemaPaths(svc, a));
 
         svc.catalog_view_drop(a, MAIN, "v1", false, false, null, null);
@@ -176,7 +176,7 @@ final class HostedCatalogTest {
         assertThrows(IllegalArgumentException.class,
                 () -> svc.catalog_view_create(a, List.of("nowhere"), "v", "SELECT 1", "ERROR", null, null));
         // A non-empty schema needs CASCADE.
-        svc.catalog_schema_create(a, List.of("s"), "ERROR", null, null, null, null);
+        svc.catalog_schema_create(a, List.of("s"), "ERROR", null, null, null, null, null);
         svc.catalog_view_create(a, List.of("s"), "w", "SELECT 1", "ERROR", null, null);
         assertThrows(IllegalArgumentException.class,
                 () -> svc.catalog_schema_drop(a, List.of("s"), false, false, null, null));
@@ -384,5 +384,14 @@ final class HostedCatalogTest {
         assertEquals("deliberately fails", e.getMessage());
         // The per-schema RPCs still serve the whole catalog.
         assertEquals(2, schemaPaths(svc, a).size());
+    }
+    @Test
+    void schemaOptionsRejectBeforeHostedCatalogMutation() {
+        VgiServiceImpl svc = service(hostingWorker());
+        byte[] attach = attach(svc, "mem");
+        assertThrows(UnsupportedOperationException.class, () -> svc.catalog_schema_create(
+                attach, List.of("unsupported"), "ERROR", null, null, null, new byte[]{1}, null));
+        assertEquals(List.of(MAIN), schemaPaths(svc, attach));
+        assertEquals(1L, version(svc, attach));
     }
 }

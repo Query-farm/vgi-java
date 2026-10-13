@@ -5,6 +5,8 @@ package farm.query.vgi.internal;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import farm.query.vgi.protocol.OptionChanges;
+import farm.query.vgi.protocol.CatalogCapabilities;
+import farm.query.vgi.protocol.OptionDefinitions;
 import farm.query.vgi.protocol.OptionState;
 import farm.query.vgi.protocol.RequiredFilterPaths;
 import farm.query.vgirpc.marshal.RecordCodec;
@@ -48,5 +50,15 @@ class CatalogContractsTest {
         assertEquals(List.of(List.of(List.of("a.b"), List.of("a", "b")),
                 List.of(List.of("record", "literal.\"name"))), paths.groups());
         assertEquals(List.of(), roundTrip("empty_paths", RequiredFilterPaths.class).groups());
+    }
+    @Test void capabilityProfilesAndDefinitionsRoundTrip() throws Exception {
+        CatalogCapabilities caps = roundTrip("capabilities", CatalogCapabilities.class);
+        assertEquals(List.of("vgi.schema.options.read.v1"), caps.read());
+        assertEquals(List.of("vgi.schema.options.create.v1"), caps.ddl());
+        assertEquals(List.of(), roundTrip("empty_capabilities", CatalogCapabilities.class).read());
+        OptionDefinitions definitions = roundTrip("definitions", OptionDefinitions.class);
+        assertArrayEquals(fixture("values"), definitions.defaults());
+        assertEquals(List.of("optional", "record"), definitions.create_names());
+        assertEquals(List.of("optional"), definitions.alter_names());
     }
 }

@@ -29,7 +29,8 @@ public record SchemaInfo(
         Map<String, String> tags,
         byte[] attach_opaque_data,
         List<String> path,
-        @Nullable Map<String, Long> estimated_object_count) implements ArrowSerializableRecord {
+        @Nullable Map<String, Long> estimated_object_count,
+        @Nullable byte[] options) implements ArrowSerializableRecord {
 
     /** Canonicalises the map columns to key order, so equal schemas encode to equal bytes. */
     public SchemaInfo {
@@ -48,6 +49,10 @@ public record SchemaInfo(
      */
     public SchemaInfo(String comment, Map<String, String> tags, byte[] attach_opaque_data, List<String> path) {
         this(comment, tags, attach_opaque_data, path, null);
+    }
+
+    public SchemaInfo(String comment, Map<String, String> tags, byte[] attach_opaque_data, List<String> path, Map<String, Long> estimated_object_count) {
+        this(comment, tags, attach_opaque_data, path, estimated_object_count, null);
     }
 
     /** Last path component for source compatibility with protocol 1.x callers. */

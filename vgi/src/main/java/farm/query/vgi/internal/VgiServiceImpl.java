@@ -1470,7 +1470,7 @@ public final class VgiServiceImpl implements VgiService {
                     extra.dataVersion(),
                     extra.implementationVersion(),
                     extra.ownsCatalogContents()
-                            ? extra.supportsCatalogContents() : worker.supportsCatalogContents());
+                            ? extra.supportsCatalogContents() : worker.supportsCatalogContents(), null, null);
         }
         // Options declared required must actually be supplied: fail the attach
         // loudly rather than yielding a catalog that reads as empty.
@@ -1541,7 +1541,7 @@ public final class VgiServiceImpl implements VgiService {
                 resolvedImpl,
                 // supports_catalog_contents: the catalog is declarative, so the
                 // client may load it whole (VgiService#catalog_contents).
-                worker.supportsCatalogContents());
+                worker.supportsCatalogContents(), null, null);
     }
 
     /**
@@ -1681,7 +1681,7 @@ public final class VgiServiceImpl implements VgiService {
                 false,
                 List.of(), "",
                 null, null,
-                info.supportsCatalogContents());
+                info.supportsCatalogContents(), null, null);
     }
 
     private static List<byte[]> hostedSchemaItems(List<SchemaInfo> schemas) {
@@ -1696,7 +1696,8 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public void catalog_schema_create(byte[] attach_opaque_data, List<String> path, String on_conflict,
                                       String comment, Map<String, String> tags, byte[] transaction_opaque_data,
-                                      CallContext ctx) {
+                                      byte[] options, CallContext ctx) {
+        if (options != null) throw new UnsupportedOperationException("catalog_schema_create requires negotiated vgi.schema.options.create.v1");
         Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_schema_create");
         h.catalog().schemaCreate(h.attachId(), path,
                 farm.query.vgi.catalog.OnConflict.fromWire(on_conflict), comment, tags == null ? Map.of() : tags);

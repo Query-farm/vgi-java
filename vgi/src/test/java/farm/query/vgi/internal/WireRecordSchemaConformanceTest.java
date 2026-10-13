@@ -38,6 +38,8 @@ import farm.query.vgi.protocol.InitRequest;
 import farm.query.vgi.protocol.ItemsResponse;
 import farm.query.vgi.protocol.MacroInfo;
 import farm.query.vgi.protocol.OptionChanges;
+import farm.query.vgi.protocol.CatalogCapabilities;
+import farm.query.vgi.protocol.OptionDefinitions;
 import farm.query.vgi.protocol.OptionState;
 import farm.query.vgi.protocol.RequiredFilterPaths;
 import farm.query.vgi.protocol.PlanResponse;
@@ -291,6 +293,8 @@ class WireRecordSchemaConformanceTest {
      */
     private static Map<Class<? extends Record>, Codec> codecSerialised() {
         Map<Class<? extends Record>, Codec> m = new LinkedHashMap<>();
+        m.put(CatalogCapabilities.class, new Codec("CatalogCapabilities", ORDERED));
+        m.put(OptionDefinitions.class, new Codec("OptionDefinitions", ORDERED));
         m.put(OptionChanges.class, new Codec("OptionChanges", ORDERED));
         m.put(OptionState.class, new Codec("OptionState", ORDERED));
         m.put(RequiredFilterPaths.class, new Codec("RequiredFilterPaths", ORDERED));
@@ -470,6 +474,9 @@ class WireRecordSchemaConformanceTest {
         Set<String> checked = codecSerialised().values().stream()
                 .map(Codec::schemaName).collect(Collectors.toCollection(java.util.HashSet::new));
         handBuilt().forEach(h -> checked.add(h.schemaName()));
+        org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("OptionDefinitions"),
+                VgiProtocolSchemas.byName().get("CatalogSchemaOptionDefinitionsResult"));
+        checked.add("CatalogSchemaOptionDefinitionsResult");
 
         List<String> unaccounted = VgiProtocolSchemas.byName().keySet().stream()
                 .filter(name -> !checked.contains(name))
