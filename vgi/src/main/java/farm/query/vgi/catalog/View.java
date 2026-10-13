@@ -3,6 +3,7 @@
 package farm.query.vgi.catalog;
 
 import java.util.Map;
+import java.util.List;
 
 /**
  * A SQL view exposed in the catalog. {@code schema} is the schema name;
@@ -17,7 +18,13 @@ import java.util.Map;
  */
 public record View(String schema, String name, String definition,
                     String comment, Map<String, String> tags,
-                    Map<String, String> columnComments) {
+                    Map<String, String> columnComments, List<String> aliases) {
+    public View { aliases = List.copyOf(aliases); }
+
+    public View(String schema, String name, String definition, String comment,
+                Map<String, String> tags, Map<String, String> columnComments) {
+        this(schema, name, definition, comment, tags, columnComments, List.of());
+    }
     /**
      * Builds a view with no tags and no column comments.
      *
@@ -51,6 +58,6 @@ public record View(String schema, String name, String definition,
      * @return a new view with the column comments applied
      */
     public View withColumnComments(Map<String, String> columnComments) {
-        return new View(schema, name, definition, comment, tags, columnComments);
+        return new View(schema, name, definition, comment, tags, columnComments, aliases);
     }
 }

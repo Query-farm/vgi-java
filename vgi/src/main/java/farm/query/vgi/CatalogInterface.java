@@ -261,7 +261,7 @@ public interface CatalogInterface {
      * @param onConflict what to do when it exists
      */
     default void viewCreate(byte[] attachId, List<String> path, String name, String definition,
-                            OnConflict onConflict) {
+                            OnConflict onConflict, List<String> aliases) {
         throw readOnly("catalog_view_create");
     }
 

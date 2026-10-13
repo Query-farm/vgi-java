@@ -135,7 +135,7 @@ final class HostedCatalogTest {
     void ddlChangesTheCatalogAndBumpsItsVersion() {
         VgiServiceImpl svc = service(hostingWorker());
         byte[] a = attach(svc, "mem");
-        svc.catalog_view_create(a, MAIN, "v1", "SELECT 1 AS x", "ERROR", null, null);
+        svc.catalog_view_create(a, MAIN, "v1", "SELECT 1 AS x", "ERROR", null, null, null);
         assertEquals(List.of("v1"), viewNames(svc, a, MAIN));
         assertEquals(2L, version(svc, a));
 
@@ -160,13 +160,13 @@ final class HostedCatalogTest {
     void onConflictAndNotFoundFollowTheRequest() {
         VgiServiceImpl svc = service(hostingWorker());
         byte[] a = attach(svc, "mem");
-        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null);
+        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null, null);
         assertThrows(IllegalArgumentException.class,
-                () -> svc.catalog_view_create(a, MAIN, "v", "SELECT 2", "ERROR", null, null));
-        svc.catalog_view_create(a, MAIN, "v", "SELECT 3", "IGNORE", null, null);
+                () -> svc.catalog_view_create(a, MAIN, "v", "SELECT 2", "ERROR", null, null, null));
+        svc.catalog_view_create(a, MAIN, "v", "SELECT 3", "IGNORE", null, null, null);
         assertEquals("SELECT 1", RecordCodec.deserializeFromBytes(
                 svc.catalog_view_get(a, MAIN, "v", null, null).items().get(0), ViewInfo.class).definition());
-        svc.catalog_view_create(a, MAIN, "v", "SELECT 4", "REPLACE", null, null);
+        svc.catalog_view_create(a, MAIN, "v", "SELECT 4", "REPLACE", null, null, null);
         assertEquals("SELECT 4", RecordCodec.deserializeFromBytes(
                 svc.catalog_view_get(a, MAIN, "v", null, null).items().get(0), ViewInfo.class).definition());
 
@@ -174,10 +174,10 @@ final class HostedCatalogTest {
                 () -> svc.catalog_table_drop(a, MAIN, "missing", false, false, null, null));
         svc.catalog_table_drop(a, MAIN, "missing", true, false, null, null);
         assertThrows(IllegalArgumentException.class,
-                () -> svc.catalog_view_create(a, List.of("nowhere"), "v", "SELECT 1", "ERROR", null, null));
+                () -> svc.catalog_view_create(a, List.of("nowhere"), "v", "SELECT 1", "ERROR", null, null, null));
         // A non-empty schema needs CASCADE.
         svc.catalog_schema_create(a, List.of("s"), "ERROR", null, null, null, null, null);
-        svc.catalog_view_create(a, List.of("s"), "w", "SELECT 1", "ERROR", null, null);
+        svc.catalog_view_create(a, List.of("s"), "w", "SELECT 1", "ERROR", null, null, null);
         assertThrows(IllegalArgumentException.class,
                 () -> svc.catalog_schema_drop(a, List.of("s"), false, false, null, null));
         svc.catalog_schema_drop(a, List.of("s"), false, true, null, null);
@@ -190,7 +190,7 @@ final class HostedCatalogTest {
         VgiServiceImpl svc = service(Worker.builder().catalogName("x").registerCatalog(mem));
         byte[] a = attach(svc, "mem");
         byte[] b = attach(svc, "mem");
-        svc.catalog_view_create(a, MAIN, "only_a", "SELECT 1", "ERROR", null, null);
+        svc.catalog_view_create(a, MAIN, "only_a", "SELECT 1", "ERROR", null, null, null);
         assertEquals(List.of("only_a"), viewNames(svc, a, MAIN));
         assertEquals(List.of(), viewNames(svc, b, MAIN));
         assertEquals(1L, version(svc, b));
@@ -206,7 +206,7 @@ final class HostedCatalogTest {
                 .registerCatalog(new InMemoryCatalog("shared", InMemoryCatalog.Scope.SHARED, "c")));
         byte[] a = attach(svc, "shared");
         byte[] b = attach(svc, "shared");
-        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null);
+        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null, null);
         assertEquals(List.of("v"), viewNames(svc, b, MAIN));
     }
 
@@ -214,7 +214,7 @@ final class HostedCatalogTest {
     void schemaInfoCountsLetTheClientSkipEmptyKinds() {
         VgiServiceImpl svc = service(hostingWorker());
         byte[] a = attach(svc, "mem");
-        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null);
+        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null, null);
         SchemaInfo info = RecordCodec.deserializeFromBytes(
                 svc.catalog_schema_get(a, MAIN, null, null).items().get(0), SchemaInfo.class);
         assertEquals(1L, info.estimated_object_count().get("view"));
@@ -227,7 +227,7 @@ final class HostedCatalogTest {
     void catalogContentsComposesTheHostedListings() {
         VgiServiceImpl svc = service(hostingWorker());
         byte[] a = attach(svc, "mem");
-        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null);
+        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null, null);
         CatalogContentsResponse r = svc.catalog_contents(a, null, null);
         assertNull(r.etag());
         assertEquals(2L, r.catalog_version());
@@ -247,7 +247,7 @@ final class HostedCatalogTest {
         assertTrue(same.not_modified());
         assertEquals(0, same.schemas().size());
 
-        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null);
+        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null, null);
         CatalogContentsResponse changed = svc.catalog_contents(a, "gen-1", null);
         assertFalse(changed.not_modified());
         assertEquals("gen-2", changed.etag());
@@ -262,7 +262,7 @@ final class HostedCatalogTest {
         assertTrue(etag.matches("[0-9a-f]{64}"), etag);
         assertTrue(svc.catalog_contents(a, etag, null).not_modified());
 
-        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null);
+        svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null, null);
         CatalogContentsResponse changed = svc.catalog_contents(a, etag, null);
         assertFalse(changed.not_modified());
         assertFalse(etag.equals(changed.etag()));
@@ -273,7 +273,7 @@ final class HostedCatalogTest {
         VgiServiceImpl svc = service(hostingWorker());
         CatalogAttachResult r = svc.catalog_attach(CatalogAttachRequest.of("zero", null, null, null), null);
         assertEquals(0L, r.catalog_version());
-        svc.catalog_view_create(r.attach_opaque_data(), MAIN, "v", "SELECT 1", "ERROR", null, null);
+        svc.catalog_view_create(r.attach_opaque_data(), MAIN, "v", "SELECT 1", "ERROR", null, null, null);
         assertEquals(0L, version(svc, r.attach_opaque_data()));
         assertNull(svc.catalog_contents(r.attach_opaque_data(), null, null).etag());
     }
@@ -283,7 +283,7 @@ final class HostedCatalogTest {
         VgiServiceImpl svc = service(hostingWorker());
         byte[] main = attach(svc, "main_catalog");
         assertThrows(UnsupportedOperationException.class,
-                () -> svc.catalog_view_create(main, MAIN, "v", "SELECT 1", "ERROR", null, null));
+                () -> svc.catalog_view_create(main, MAIN, "v", "SELECT 1", "ERROR", null, null, null));
         assertThrows(UnsupportedOperationException.class,
                 () -> svc.catalog_table_create(tableCreate(main, "t", "ERROR"), null));
     }

@@ -1731,10 +1731,10 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public void catalog_view_create(byte[] attach_opaque_data, List<String> schema_path, String name,
                                     String definition, String on_conflict, byte[] transaction_opaque_data,
-                                    CallContext ctx) {
+                                    List<String> aliases, CallContext ctx) {
         Hosted h = requireHosted(attach_opaque_data, ctx, "catalog_view_create");
         h.catalog().viewCreate(h.attachId(), schema_path, name, definition,
-                farm.query.vgi.catalog.OnConflict.fromWire(on_conflict));
+                farm.query.vgi.catalog.OnConflict.fromWire(on_conflict), aliases == null ? List.of() : aliases);
     }
 
     @Override
@@ -2669,7 +2669,7 @@ public final class VgiServiceImpl implements VgiService {
         for (View v : worker.views()) {
             if (!v.schema().equals(name)) continue;
             items.add(RecordCodec.serializeToBytes(new farm.query.vgi.protocol.ViewInfo(
-                    v.comment(), v.tags(), v.name(), List.of(v.schema()), v.definition(), v.columnComments())));
+                    v.comment(), v.tags(), v.name(), List.of(v.schema()), v.definition(), v.columnComments(), v.aliases())));
         }
         return new ItemsResponse(items);
     }
@@ -2706,7 +2706,7 @@ public final class VgiServiceImpl implements VgiService {
             if (v.schema().equals(schema_name) && v.name().equals(name)) {
                 return new ItemsResponse(List.of(RecordCodec.serializeToBytes(
                         new farm.query.vgi.protocol.ViewInfo(v.comment(), v.tags(),
-                                v.name(), List.of(v.schema()), v.definition(), v.columnComments()))));
+                                v.name(), List.of(v.schema()), v.definition(), v.columnComments(), v.aliases()))));
             }
         }
         return ItemsResponse.empty();
@@ -2802,7 +2802,7 @@ public final class VgiServiceImpl implements VgiService {
 
     private static farm.query.vgi.protocol.ViewInfo toViewInfo(View v) {
         return new farm.query.vgi.protocol.ViewInfo(
-                v.comment(), v.tags(), v.name(), List.of(v.schema()), v.definition(), v.columnComments());
+                v.comment(), v.tags(), v.name(), List.of(v.schema()), v.definition(), v.columnComments(), v.aliases());
     }
 
     private static farm.query.vgi.protocol.MacroInfo toMacroInfo(Macro m) {

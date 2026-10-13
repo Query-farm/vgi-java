@@ -273,12 +273,12 @@ public class InMemoryCatalog implements CatalogInterface {
 
     @Override
     public void viewCreate(byte[] attachId, List<String> path, String name, String definition,
-                           OnConflict onConflict) {
+                           OnConflict onConflict, List<String> aliases) {
         State s = state(attachId);
         synchronized (s) {
             SchemaState schema = requireSchema(s, path);
             if (schema.views.containsKey(name) && !replace("View", name, onConflict)) return;
-            schema.views.put(name, new ViewInfo(null, Map.of(), name, schema.path, definition, Map.of()));
+            schema.views.put(name, new ViewInfo(null, Map.of(), name, schema.path, definition, Map.of(), aliases));
             s.version++;
         }
     }

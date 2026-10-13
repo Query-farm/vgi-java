@@ -31,6 +31,12 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogContractsTest {
+    @Test void viewAliasesPreserveRawIdentifiers() throws Exception {
+        var info = roundTrip("view_info", farm.query.vgi.protocol.ViewInfo.class);
+        assertEquals(List.of("a.b", "with\"quote"), info.aliases());
+        assertEquals(List.of(), roundTrip("view_info_implicit", farm.query.vgi.protocol.ViewInfo.class).aliases());
+    }
+
     @Test void columnParametersBindRawComponentsThroughTheServiceSignature() throws Exception {
         var methods = ServiceIntrospector.describe(VgiService.class);
         for (var operation : List.of("column_add", "column_drop", "column_rename", "column_type_change",

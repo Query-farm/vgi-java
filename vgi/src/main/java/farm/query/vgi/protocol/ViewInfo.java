@@ -24,10 +24,17 @@ public record ViewInfo(
         String name,
         List<String> schema_path,
         String definition,
-        Map<String, String> column_comments) implements ArrowSerializableRecord {
+        Map<String, String> column_comments,
+        List<String> aliases) implements ArrowSerializableRecord {
+
+    public ViewInfo(String comment, Map<String, String> tags, String name, List<String> schema_path,
+                    String definition, Map<String, String> column_comments) {
+        this(comment, tags, name, schema_path, definition, column_comments, List.of());
+    }
 
     /** Canonicalises the map columns to key order, so equal views encode to equal bytes. */
     public ViewInfo {
+        aliases = List.copyOf(aliases);
         tags = WireMaps.sorted(tags);
         column_comments = WireMaps.sorted(column_comments);
     }
