@@ -150,9 +150,7 @@ public final class IpcStructBuilder {
 
     /**
      * Non-null {@code list<list<utf8>>} (inner items nullable). Mirrors
-     * {@link #listOfListOfInt32(String)} for the string variant — used by
-     * {@code TableInfo.required_filters} (conjunctive normal form: an AND of
-     * OR-groups of dotted column paths).
+     * {@link #listOfListOfInt32(String)} for the string variant.
      *
      * @param name field name
      * @return the nested-list field
@@ -162,6 +160,31 @@ public final class IpcStructBuilder {
         Field outerItem = new Field("item",
                 new FieldType(true, new ArrowType.List(), null), List.of(inner));
         return listOf(name, outerItem);
+    }
+
+    /** Non-null AND-of-OR groups of raw component paths. */
+    public static Field listOfListOfListOfUtf8(String name) {
+        Field leaf = new Field("item", new FieldType(true, UTF8, null), null);
+        Field path = new Field("item", new FieldType(true, new ArrowType.List(), null), List.of(leaf));
+        Field group = new Field("item", new FieldType(true, new ArrowType.List(), null), List.of(path));
+        return listOf(name, group);
+    }
+
+    /** Write raw path groups into one row. */
+    public static void writeListListListString(FieldVector v, List<List<List<String>>> values) {
+        UnionListWriter w = ((ListVector) v).getWriter();
+        w.startList();
+        if (values != null) for (List<List<String>> group : values) {
+            w.list().startList();
+            for (List<String> path : group) {
+                w.list().list().startList();
+                for (String part : path) w.list().list().varChar().writeVarChar(part);
+                w.list().list().endList();
+            }
+            w.list().endList();
+        }
+        w.endList();
+        w.setValueCount(1);
     }
 
     /* ============ value writers — operate on row 0 ============ */
@@ -348,7 +371,7 @@ public final class IpcStructBuilder {
     /**
      * Write a list of string lists into row 0 of a nested {@code ListVector}.
      * Nulls are skipped. Mirrors {@link #writeListListInt32} for the string
-     * variant (e.g. {@code TableInfo.required_filters}).
+     * variant.
      *
      * @param v      the target nested list vector
      * @param values the inner lists, or {@code null} for an empty list

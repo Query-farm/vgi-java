@@ -13,7 +13,7 @@ import static farm.query.vgi.internal.IpcStructBuilder.I64;
 import static farm.query.vgi.internal.IpcStructBuilder.UTF8;
 import static farm.query.vgi.internal.IpcStructBuilder.I32;
 import static farm.query.vgi.internal.IpcStructBuilder.listOfListOfInt32;
-import static farm.query.vgi.internal.IpcStructBuilder.listOfListOfUtf8;
+import static farm.query.vgi.internal.IpcStructBuilder.listOfListOfListOfUtf8;
 import static farm.query.vgi.internal.IpcStructBuilder.listOfPrim;
 import static farm.query.vgi.internal.IpcStructBuilder.mapUtf8Utf8;
 import static farm.query.vgi.internal.IpcStructBuilder.nonNull;
@@ -22,7 +22,7 @@ import static farm.query.vgi.internal.IpcStructBuilder.writeBool;
 import static farm.query.vgi.internal.IpcStructBuilder.writeListBinary;
 import static farm.query.vgi.internal.IpcStructBuilder.writeListInt32;
 import static farm.query.vgi.internal.IpcStructBuilder.writeListListInt32;
-import static farm.query.vgi.internal.IpcStructBuilder.writeListListString;
+import static farm.query.vgi.internal.IpcStructBuilder.writeListListListString;
 import static farm.query.vgi.internal.IpcStructBuilder.writeMap;
 import static farm.query.vgi.internal.IpcStructBuilder.writeNullableInt64;
 import static farm.query.vgi.internal.IpcStructBuilder.writeNullableVarBinary;
@@ -66,7 +66,7 @@ public final class TableInfoSerializer {
             nullable("cardinality_max", I64),
             nullable("column_statistics", BINARY),
             nullable("bind_result", BINARY),
-            listOfListOfUtf8("required_filters"),
+            listOfListOfListOfUtf8("required_filters"),
             nullable("options", BINARY),
             nullable("layout", BINARY)));
 
@@ -98,7 +98,7 @@ public final class TableInfoSerializer {
             writeNullableInt64(v.get("cardinality_max"), info.cardinality_max());
             writeVarBinarySafe(v.get("column_statistics"), info.column_statistics());
             writeVarBinarySafe(v.get("bind_result"), info.bind_result());
-            writeListListString(v.get("required_filters"), info.required_filters());
+            writeListListListString(v.get("required_filters"), info.required_filters());
             writeNullableVarBinary(v.get("options"), info.options());
             writeNullableVarBinary(v.get("layout"), info.layout());
         });

@@ -39,7 +39,7 @@ import java.util.Map;
  * @param bind_result                 IPC-encoded cached bind result, or {@code null}.
  * @param required_filters            required WHERE-filter groups in conjunctive
  *                                    normal form: an AND of OR-groups, each inner
- *                                    group a list of dotted column paths satisfied
+ *                                    group a list of raw component paths satisfied
  *                                    when any one of its paths has a filter. Empty
  *                                    means no enforcement.
  * @param options                     typed option state IPC, or null when unavailable.
@@ -82,7 +82,7 @@ public record TableInfo(
         @Nullable Long cardinality_max,
         @Nullable byte[] column_statistics,
         @Nullable byte[] bind_result,
-        List<List<String>> required_filters,
+        List<List<List<String>>> required_filters,
         @Nullable byte[] options,
         @Nullable byte[] layout) {
     public TableInfo(String comment, Map<String, String> tags, String name, String schema_name,
@@ -92,7 +92,7 @@ public record TableInfo(
             Map<String, String> write_result_modes, boolean supports_column_statistics, byte[] scan_function,
             byte[] insert_function, byte[] update_function, byte[] delete_function,
             Long cardinality_estimate, Long cardinality_max, byte[] column_statistics,
-            byte[] bind_result, List<List<String>> required_filters) {
+            byte[] bind_result, List<List<List<String>>> required_filters) {
         this(comment, tags, name, List.of(schema_name), columns, not_null_constraints,
                 unique_constraints, check_constraints, primary_key_constraints,
                 foreign_key_constraints, write_result_modes, supports_column_statistics, scan_function, insert_function,
@@ -106,7 +106,7 @@ public record TableInfo(
             Map<String, String> write_result_modes, boolean supports_column_statistics, byte[] scan_function,
             byte[] insert_function, byte[] update_function, byte[] delete_function,
             Long cardinality_estimate, Long cardinality_max, byte[] column_statistics,
-            byte[] bind_result, List<List<String>> required_filters) {
+            byte[] bind_result, List<List<List<String>>> required_filters) {
         this(comment, tags, name, schema_path, columns, not_null_constraints,
                 unique_constraints, check_constraints, primary_key_constraints,
                 foreign_key_constraints, write_result_modes, supports_column_statistics, scan_function, insert_function,

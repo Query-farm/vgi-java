@@ -36,7 +36,7 @@ import java.util.Map;
  * @param foreignKeys               foreign-key constraints
  * @param statistics                per-column statistics for the optimizer
  * @param requiredFilters           required WHERE-filter groups in conjunctive
- *                                  normal form (an AND of OR-groups of dotted
+ *                                  normal form (an AND of OR-groups of raw component
  *                                  column paths); a group is satisfied when any
  *                                  one of its paths is filtered. Empty = no
  *                                  enforcement
@@ -59,32 +59,32 @@ public record CatalogTable(
         List<String> checkConstraints,
         List<ForeignKey> foreignKeys,
         List<ColumnStatistics> statistics,
-        List<List<String>> requiredFilters) {
+        List<List<List<String>>> requiredFilters) {
 
     /**
      * Validates and defensively copies a required-filters CNF list: rejects
-     * empty OR-groups and empty path strings, mirroring the vgi-python
+     * empty OR-groups, paths and components, mirroring the vgi-python
      * descriptor validation. {@code null} normalises to an empty list.
      *
      * @param groups the CNF groups to validate, or {@code null}
      * @return an immutable, validated copy
-     * @throws IllegalArgumentException if a group is empty or a path is empty
+     * @throws IllegalArgumentException if any group, path or component is malformed
      */
-    static List<List<String>> normalizeRequiredFilters(List<List<String>> groups) {
+    static List<List<List<String>>> normalizeRequiredFilters(List<List<List<String>>> groups) {
         if (groups == null) return List.of();
-        List<List<String>> out = new ArrayList<>(groups.size());
-        for (List<String> group : groups) {
-            if (group == null || group.isEmpty()) {
-                throw new IllegalArgumentException(
-                        "requiredFilters must not contain empty groups");
-            }
-            for (String path : group) {
-                if (path == null || path.isEmpty()) {
-                    throw new IllegalArgumentException(
-                            "requiredFilters must not contain empty strings");
+        List<List<List<String>>> out = new ArrayList<>(groups.size());
+        for (List<List<String>> group : groups) {
+            if (group == null || group.isEmpty()) throw new IllegalArgumentException("requiredFilters must not contain empty groups");
+            List<List<String>> copy = new ArrayList<>();
+            for (List<String> path : group) {
+                if (path == null || path.isEmpty()) throw new IllegalArgumentException("requiredFilters must not contain empty paths");
+                for (String part : path) {
+                    if (part == null || part.isEmpty() || part.indexOf('\0') >= 0) throw new IllegalArgumentException("invalid requiredFilters component");
                 }
+                if (copy.contains(path)) throw new IllegalArgumentException("duplicate requiredFilters path");
+                copy.add(List.copyOf(path));
             }
-            out.add(List.copyOf(group));
+            out.add(List.copyOf(copy));
         }
         return List.copyOf(out);
     }
@@ -231,7 +231,7 @@ public record CatalogTable(
         private List<String> checkConstraints = List.of();
         private List<ForeignKey> foreignKeys = List.of();
         private List<ColumnStatistics> statistics = List.of();
-        private List<List<String>> requiredFilters = List.of();
+        private List<List<List<String>>> requiredFilters = List.of();
 
         Builder(String schema, String name, byte[] columns) {
             this.schema = schema;
@@ -382,16 +382,16 @@ public record CatalogTable(
 
         /**
          * Sets the required WHERE-filter groups (conjunctive normal form): the
-         * outer list is an AND of OR-groups, each inner group a list of dotted
-         * column paths satisfied when any one of its paths is filtered. So
-         * {@code [["accession_number"], ["ticker", "cik"]]} means "accession_number
+         * outer list is an AND of OR-groups, each inner group a list of raw component
+         * paths satisfied when any one of its paths is filtered. So
+         * {@code [[["accession_number"]], [["ticker"], ["cik"]]]} means "accession_number
          * AND one of (ticker, cik)".
          *
          * @param groups required filter groups; {@code null} becomes empty
          * @return this builder
-         * @throws IllegalArgumentException if a group is empty or a path is empty
+         * @throws IllegalArgumentException if any group, path or component is malformed
          */
-        public Builder requiredFilters(List<List<String>> groups) {
+        public Builder requiredFilters(List<List<List<String>>> groups) {
             this.requiredFilters = normalizeRequiredFilters(groups);
             return this;
         }
@@ -483,15 +483,15 @@ public record CatalogTable(
     /**
      * Returns a copy with the required WHERE-filter groups (conjunctive normal
      * form): the outer list is an AND of OR-groups, each inner group a list of
-     * dotted column paths satisfied when any one of its paths is filtered. So
-     * {@code [["accession_number"], ["ticker", "cik"]]} means "accession_number
+     * raw component paths satisfied when any one of its paths is filtered. So
+     * {@code [[["accession_number"]], [["ticker"], ["cik"]]]} means "accession_number
      * AND one of (ticker, cik)".
      *
      * @param groups required filter groups; {@code null} becomes empty
      * @return a new table with the required filter groups applied
-     * @throws IllegalArgumentException if a group is empty or a path is empty
+     * @throws IllegalArgumentException if any group, path or component is malformed
      */
-    public CatalogTable withRequiredFilters(List<List<String>> groups) {
+    public CatalogTable withRequiredFilters(List<List<List<String>>> groups) {
         return new CatalogTable(schema, name, columns, comment, tags,
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,

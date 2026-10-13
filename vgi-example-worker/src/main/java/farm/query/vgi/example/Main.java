@@ -1098,7 +1098,7 @@ public final class Main {
                         "rff_simple — single top-level required path on 'a'",
                         col("a", Schemas.INT64, true),
                         col("b", Schemas.INT64, true))
-                        .withRequiredFilters(List.of(List.of("a"))))
+                        .withRequiredFilters(List.of(List.of(List.of("a")))))
                 .registerCatalogTable(stubTable("data", "rff_none",
                         "rff_none — control table with no required paths",
                         col("a", Schemas.INT64, true),
@@ -1109,17 +1109,17 @@ public final class Main {
                         "rff_or — one of (a, b) required (single OR-group)",
                         col("a", Schemas.INT64, true),
                         col("b", Schemas.INT64, true))
-                        .withRequiredFilters(List.of(List.of("a", "b"))))
+                        .withRequiredFilters(List.of(List.of(List.of("a"), List.of("b")))))
                 .registerCatalogTable(stubTable("data", "rff_struct",
                         "rff_struct — required 's.a' AND 's.b'",
                         rffStructCol("s"),
                         col("other", Schemas.INT64, true))
-                        .withRequiredFilters(List.of(List.of("s.a"), List.of("s.b"))))
+                        .withRequiredFilters(List.of(List.of(List.of("s", "a")), List.of(List.of("s", "b")))))
                 .registerCatalogTable(stubTable("data", "rff_multi",
                         "rff_multi — required 'top' AND 's.a'",
                         rffStructCol("s"),
                         col("top", Schemas.INT64, true))
-                        .withRequiredFilters(List.of(List.of("top"), List.of("s.a"))))
+                        .withRequiredFilters(List.of(List.of(List.of("top")), List.of(List.of("s", "a")))))
                 .registerCatalogTable(stubTable("data", "rff_nested",
                         "rff_nested — required ('wrapper.mid.leaf')",
                         new Field("wrapper",
@@ -1127,7 +1127,7 @@ public final class Main {
                                 List.of(new Field("mid",
                                         new FieldType(true, new ArrowType.Struct(), null),
                                         List.of(Schemas.nullable("leaf", Schemas.INT64))))))
-                        .withRequiredFilters(List.of(List.of("wrapper.mid.leaf"))))
+                        .withRequiredFilters(List.of(List.of(List.of("wrapper", "mid", "leaf")))))
                 // rff_rowid — virtual row_id column + required bbox.* filters.
                 // Backed by the real rff_rowid_scan (auto-applies the rowid /
                 // bbox.* filters so WHERE rowid = N returns exactly one row).
@@ -1138,8 +1138,8 @@ public final class Main {
                         .scanFunction("rff_rowid_scan")
                         .comment("rff_rowid — row_id virtual column + required bbox.* filters.")
                         .requiredFilters(List.of(
-                                List.of("bbox.xmin"), List.of("bbox.xmax"),
-                                List.of("bbox.ymin"), List.of("bbox.ymax")))
+                                List.of(List.of("bbox", "xmin")), List.of(List.of("bbox", "xmax")),
+                                List.of(List.of("bbox", "ymin")), List.of(List.of("bbox", "ymax"))))
                         .build())
                 // rff_parquet — native read_parquet delegation, single file,
                 // bbox at column 0 (identity projection).
@@ -1150,8 +1150,8 @@ public final class Main {
                         .rpcScanFunction()
                         .comment("rff_parquet — native read_parquet delegation with bbox.* required filters.")
                         .requiredFilters(List.of(
-                                List.of("bbox.xmin"), List.of("bbox.xmax"),
-                                List.of("bbox.ymin"), List.of("bbox.ymax")))
+                                List.of(List.of("bbox", "xmin")), List.of(List.of("bbox", "xmax")),
+                                List.of(List.of("bbox", "ymin")), List.of(List.of("bbox", "ymax"))))
                         .build())
                 // rff_hive — native read_parquet over a Hive-partitioned glob
                 // (theme/type), bbox at a non-zero (permuted) column_ids slot.
@@ -1168,8 +1168,8 @@ public final class Main {
                         .rpcScanFunction()
                         .comment("rff_hive — native read_parquet over Hive glob with bbox.* required filters.")
                         .requiredFilters(List.of(
-                                List.of("bbox.xmin"), List.of("bbox.xmax"),
-                                List.of("bbox.ymin"), List.of("bbox.ymax")))
+                                List.of(List.of("bbox", "xmin")), List.of(List.of("bbox", "xmax")),
+                                List.of(List.of("bbox", "ymin")), List.of(List.of("bbox", "ymax"))))
                         .build())
                 // rff_hive_mixed — same Hive layout, MIXED requirement: a
                 // top-level field ('id') plus the struct corners.
@@ -1186,8 +1186,8 @@ public final class Main {
                         .rpcScanFunction()
                         .comment("rff_hive_mixed — native read_parquet, top-level 'id' + bbox.* required filters.")
                         .requiredFilters(List.of(
-                                List.of("id"), List.of("bbox.xmin"), List.of("bbox.xmax"),
-                                List.of("bbox.ymin"), List.of("bbox.ymax")))
+                                List.of(List.of("id")), List.of(List.of("bbox", "xmin")), List.of(List.of("bbox", "xmax")),
+                                List.of(List.of("bbox", "ymin")), List.of(List.of("bbox", "ymax"))))
                         .build())
                 // filter_echo_table — catalog table echoing the pushed-down
                 // filters it received. Backs filter_pushdown_through_view.test.

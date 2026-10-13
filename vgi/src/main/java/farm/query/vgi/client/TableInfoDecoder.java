@@ -44,9 +44,9 @@ import java.util.Map;
  * decoder is aimed at <em>other</em> implementations' bytes (vgi-python is the
  * reference), and a positional read would silently transpose two same-typed
  * columns if a sender ever ordered them differently. A field the sender omits
- * decodes to its empty/absent value — additive wire growth is the normal case
- * here ({@code required_filters} is a trailing addition) — while the four
- * fields a table cannot be identified without are required outright.
+ * decodes to its empty/absent value only where that field is optional.
+ * Required identity fields and raw {@code required_filters} metadata must be
+ * present; malformed paths cannot silently disable a scan requirement.
  */
 public final class TableInfoDecoder {
 
@@ -207,16 +207,24 @@ public final class TableInfoDecoder {
         return Collections.unmodifiableList(out);
     }
 
-    private static List<List<String>> stringListList(Map<String, Object> row, String field) {
-        List<Object> raw = rawList(row, field);
-        List<List<String>> out = new ArrayList<>(raw.size());
-        for (Object group : raw) {
-            List<String> inner = new ArrayList<>();
-            if (group instanceof List<?> l) {
-                for (Object o : l) inner.add(o == null ? null : o.toString());
+    private static List<List<List<String>>> stringListList(Map<String, Object> row, String field) {
+        if (!(row.get(field) instanceof List<?> groups)) throw new IllegalStateException("missing or invalid required_filters");
+        List<List<List<String>>> out = new ArrayList<>();
+        for (Object groupValue : groups) {
+            if (!(groupValue instanceof List<?> group) || group.isEmpty()) throw new IllegalStateException("invalid required_filters group");
+            List<List<String>> alternatives = new ArrayList<>();
+            for (Object pathValue : group) {
+                if (!(pathValue instanceof List<?> path) || path.isEmpty()) throw new IllegalStateException("invalid required_filters path");
+                List<String> components = new ArrayList<>();
+                for (Object part : path) {
+                    if (!(part instanceof String name) || name.isEmpty() || name.indexOf('\0') >= 0) throw new IllegalStateException("invalid required_filters component");
+                    components.add(name);
+                }
+                if (alternatives.contains(components)) throw new IllegalStateException("duplicate required_filters path");
+                alternatives.add(List.copyOf(components));
             }
-            out.add(Collections.unmodifiableList(inner));
+            out.add(List.copyOf(alternatives));
         }
-        return Collections.unmodifiableList(out);
+        return List.copyOf(out);
     }
 }
