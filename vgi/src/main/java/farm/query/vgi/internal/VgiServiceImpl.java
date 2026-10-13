@@ -1751,6 +1751,7 @@ public final class VgiServiceImpl implements VgiService {
      * @param attach_opaque_data the attach handle
      * @param schema_path owning schema path
      * @param name table name
+     * @param column_path raw column components to add
      * @param column_definition serialised column definition
      * @param ignore_not_found skip silently when the table is missing
      * @param if_column_not_exists skip when the column already exists
@@ -1759,7 +1760,7 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public void catalog_table_column_add(byte[] attach_opaque_data, List<String> schema_path, String name,
-                                         byte[] column_definition, boolean ignore_not_found,
+                                         List<String> column_path, byte[] column_definition, boolean ignore_not_found,
                                          boolean if_column_not_exists, byte[] transaction_opaque_data,
                                          CallContext ctx) {
         throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_add not supported");
@@ -1771,7 +1772,7 @@ public final class VgiServiceImpl implements VgiService {
      * @param attach_opaque_data the attach handle
      * @param schema_path owning schema path
      * @param name table name
-     * @param column_name column to drop
+     * @param column_path raw column components to drop
      * @param ignore_not_found skip silently when the table is missing
      * @param if_column_exists skip when the column does not exist
      * @param cascade also drop objects that depend on the column
@@ -1780,7 +1781,7 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public void catalog_table_column_drop(byte[] attach_opaque_data, List<String> schema_path, String name,
-                                          String column_name, boolean ignore_not_found, boolean if_column_exists,
+                                          List<String> column_path, boolean ignore_not_found, boolean if_column_exists,
                                           boolean cascade, byte[] transaction_opaque_data, CallContext ctx) {
         throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_drop not supported");
     }

@@ -15,6 +15,13 @@ import farm.query.vgi.protocol.OptionDefinitions;
 import farm.query.vgi.protocol.OptionState;
 import farm.query.vgi.protocol.RequiredFilterPaths;
 import farm.query.vgirpc.marshal.RecordCodec;
+import farm.query.vgirpc.marshal.Marshalling;
+import farm.query.vgirpc.marshal.ParameterBinder;
+import farm.query.vgirpc.ServiceIntrospector;
+import farm.query.vgi.VgiService;
+import java.io.ByteArrayInputStream;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,6 +31,36 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogContractsTest {
+    @Test void columnParametersBindRawComponentsThroughTheServiceSignature() throws Exception {
+        var methods = ServiceIntrospector.describe(VgiService.class);
+        for (var operation : List.of("column_add", "column_drop", "column_rename", "column_type_change",
+                "column_default_set", "column_default_drop", "column_comment_set", "not_null_set", "not_null_drop")) {
+            var method = methods.get("catalog_table_" + operation);
+            for (var variant : List.of("literal", "nested")) {
+                try (var allocator = new RootAllocator();
+                     var reader = new ArrowStreamReader(new ByteArrayInputStream(fixture(operation + "_" + variant)), allocator)) {
+                    assertTrue(reader.loadNextBatch());
+                    var root = reader.getVectorSchemaRoot();
+                    var row = Marshalling.decodeRow(root);
+                    var args = ParameterBinder.bind(method.reflectMethod(), row, null);
+                    var parameters = method.reflectMethod().getParameters();
+                    for (int i = 0; i < method.paramsSchema().getFields().size(); i++) {
+                        var name = parameters[i].getName();
+                        if (row.get(name) instanceof byte[] bytes) assertArrayEquals(bytes, (byte[]) args[i]);
+                        else assertEquals(row.get(name), args[i], name);
+                    }
+                    assertEquals(variant.equals("literal") ? List.of("a.b") : List.of("a", "b.\"quoted"), row.get("column_path"));
+                    try (var encoded = Marshalling.encodeRow(method.paramsSchema(), row, allocator)) {
+                        var restored = Marshalling.decodeRow(encoded);
+                        assertEquals(row.get("column_path"), restored.get("column_path"));
+                        assertEquals(row.get("ignore_not_found"), restored.get("ignore_not_found"));
+                    }
+                    assertFalse(reader.loadNextBatch());
+                }
+            }
+        }
+    }
+
     private static byte[] fixture(String name) throws Exception {
         JsonObject corpus = JsonParser.parseString(Files.readString(
                 Path.of("../conformance/catalog-contracts.json"))).getAsJsonObject();
