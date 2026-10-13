@@ -37,6 +37,9 @@ import farm.query.vgi.protocol.GlobalInitResponse;
 import farm.query.vgi.protocol.InitRequest;
 import farm.query.vgi.protocol.ItemsResponse;
 import farm.query.vgi.protocol.MacroInfo;
+import farm.query.vgi.protocol.OptionChanges;
+import farm.query.vgi.protocol.OptionState;
+import farm.query.vgi.protocol.RequiredFilterPaths;
 import farm.query.vgi.protocol.PlanResponse;
 import farm.query.vgi.protocol.TableFunctionPlanRequest;
 import farm.query.vgi.protocol.ScanSplit;
@@ -288,6 +291,9 @@ class WireRecordSchemaConformanceTest {
      */
     private static Map<Class<? extends Record>, Codec> codecSerialised() {
         Map<Class<? extends Record>, Codec> m = new LinkedHashMap<>();
+        m.put(OptionChanges.class, new Codec("OptionChanges", ORDERED));
+        m.put(OptionState.class, new Codec("OptionState", ORDERED));
+        m.put(RequiredFilterPaths.class, new Codec("RequiredFilterPaths", ORDERED));
         m.put(AggregateBindRequest.class, new Codec("AggregateBindRequest", BY_NAME));
         m.put(AggregateBindResponse.class, new Codec("AggregateBindResult", ORDERED));
         m.put(AggregateCombineRequest.class, new Codec("AggregateCombineRequest", BY_NAME));
