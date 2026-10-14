@@ -24,8 +24,10 @@ import farm.query.vgirpc.marshal.ParameterBinder;
 import farm.query.vgirpc.ServiceIntrospector;
 import farm.query.vgi.VgiService;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,6 +37,53 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogContractsTest {
+    @Test void queryParameterBatchesPreserveMappingMetadataAndEmptyRows() throws Exception {
+        for (var name : List.of("query_parameters", "query_empty_parameters")) {
+            try (var allocator = new RootAllocator();
+                 var reader = new ArrowStreamReader(new ByteArrayInputStream(fixture(name)), allocator)) {
+                assertTrue(reader.loadNextBatch());
+                var original = reader.getVectorSchemaRoot();
+                var bytes = new ByteArrayOutputStream();
+                try (var writer = new ArrowStreamWriter(original, null, bytes)) {
+                    writer.start();
+                    writer.writeBatch();
+                    writer.end();
+                }
+                try (var restoredReader = new ArrowStreamReader(new ByteArrayInputStream(bytes.toByteArray()), allocator)) {
+                    assertTrue(restoredReader.loadNextBatch());
+                    var restored = restoredReader.getVectorSchemaRoot();
+                    assertEquals(original.getSchema(), restored.getSchema());
+                    assertEquals(1, restored.getRowCount());
+                    assertEquals(name.equals("query_empty_parameters") ? "positional" : "named",
+                            restored.getSchema().getCustomMetadata().get("vgi.query.parameters.v1"));
+                    if (name.equals("query_empty_parameters")) assertTrue(restored.getFieldVectors().isEmpty());
+                    else {
+                        assertTrue(restored.getVector(0).isNull(0));
+                        assertEquals("retained", restored.getSchema().getFields().get(1).getChildren().getFirst().getMetadata().get("nested"));
+                        assertEquals(original.getVector(1).getObject(0), restored.getVector(1).getObject(0));
+                    }
+                    assertFalse(restoredReader.loadNextBatch());
+                }
+                assertFalse(reader.loadNextBatch());
+            }
+        }
+    }
+
+    @Test void queryRecordsPreserveNestedContracts() throws Exception {
+        roundTrip("query_offer", farm.query.vgi.protocol.ClientQueryCapabilities.class);
+        roundTrip("query_capabilities", farm.query.vgi.protocol.QueryCapabilities.class);
+        roundTrip("query_context", farm.query.vgi.protocol.QueryEvaluationContext.class);
+        roundTrip("query_object_reference", farm.query.vgi.protocol.QueryObjectReference.class);
+        roundTrip("query_prepare", farm.query.vgi.protocol.CatalogQueryPrepareRequest.class);
+        roundTrip("query_accepted", farm.query.vgi.protocol.CatalogQueryPrepareResult.class);
+        roundTrip("query_declined", farm.query.vgi.protocol.CatalogQueryPrepareResult.class);
+        var request = roundTrip("query_prepare", farm.query.vgi.protocol.CatalogQueryPrepareRequest.class);
+        assertEquals("UTC", request.evaluation_context().timezone());
+        assertEquals(List.of("one.two", "nested"), request.referenced_objects().get(0).object().schema_path());
+        assertEquals(0L, request.catalog_version());
+        assertNull(roundTrip("query_declined", farm.query.vgi.protocol.CatalogQueryPrepareResult.class).prepared_query_token());
+    }
+
     @Test void viewSecuritySurvivesCodecRoundTrip() throws Exception {
         assertEquals("regular", roundTrip("view_info", farm.query.vgi.protocol.ViewInfo.class).security());
         assertEquals("barrier", roundTrip("view_info_barrier", farm.query.vgi.protocol.ViewInfo.class).security());

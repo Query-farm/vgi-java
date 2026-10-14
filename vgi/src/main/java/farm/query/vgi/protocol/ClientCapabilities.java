@@ -14,8 +14,13 @@ public record ClientCapabilities(
         List<String> catalogs,
         boolean can_stream,
         List<String> filter_encodings,
-        @Nullable byte[] catalog) implements ArrowSerializableRecord {
+        @Nullable byte[] catalog,
+        @Nullable ClientQueryCapabilities query_pushdown) implements ArrowSerializableRecord {
     public ClientCapabilities(String engine, List<String> native_formats, List<String> catalogs, boolean can_stream, List<String> filter_encodings) {
-        this(engine, native_formats, catalogs, can_stream, filter_encodings, null);
+        this(engine, native_formats, catalogs, can_stream, filter_encodings, null, null);
+    }
+
+    public ClientCapabilities(String engine, List<String> native_formats, List<String> catalogs, boolean can_stream, List<String> filter_encodings, byte[] catalog) {
+        this(engine, native_formats, catalogs, can_stream, filter_encodings, catalog, null);
     }
 }

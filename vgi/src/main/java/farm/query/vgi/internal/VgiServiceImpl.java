@@ -1470,7 +1470,7 @@ public final class VgiServiceImpl implements VgiService {
                     extra.dataVersion(),
                     extra.implementationVersion(),
                     extra.ownsCatalogContents()
-                            ? extra.supportsCatalogContents() : worker.supportsCatalogContents(), null, null);
+                            ? extra.supportsCatalogContents() : worker.supportsCatalogContents(), null, null, null);
         }
         // Options declared required must actually be supplied: fail the attach
         // loudly rather than yielding a catalog that reads as empty.
@@ -1541,7 +1541,7 @@ public final class VgiServiceImpl implements VgiService {
                 resolvedImpl,
                 // supports_catalog_contents: the catalog is declarative, so the
                 // client may load it whole (VgiService#catalog_contents).
-                worker.supportsCatalogContents(), null, null);
+                worker.supportsCatalogContents(), null, null, null);
     }
 
     /**
@@ -1681,7 +1681,7 @@ public final class VgiServiceImpl implements VgiService {
                 false,
                 List.of(), "",
                 null, null,
-                info.supportsCatalogContents(), null, null);
+                info.supportsCatalogContents(), null, null, null);
     }
 
     private static List<byte[]> hostedSchemaItems(List<SchemaInfo> schemas) {

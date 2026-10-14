@@ -296,6 +296,13 @@ class WireRecordSchemaConformanceTest {
         m.put(CatalogCapabilities.class, new Codec("CatalogCapabilities", ORDERED));
         m.put(OptionDefinitions.class, new Codec("OptionDefinitions", ORDERED));
         m.put(farm.query.vgi.protocol.CatalogObjectRef.class, new Codec("CatalogObjectRef", ORDERED));
+        m.put(farm.query.vgi.protocol.ClientQueryCapabilities.class, new Codec("ClientQueryCapabilities", ORDERED));
+        m.put(farm.query.vgi.protocol.QueryCapabilities.class, new Codec("QueryCapabilities", ORDERED));
+        m.put(farm.query.vgi.protocol.QueryEvaluationContext.class, new Codec("QueryEvaluationContext", ORDERED));
+        m.put(farm.query.vgi.protocol.QueryObjectReference.class, new Codec("QueryObjectReference", ORDERED));
+        m.put(farm.query.vgi.protocol.CatalogQueryPrepareRequest.class, new Codec("CatalogQueryPrepareRequest", ORDERED));
+        m.put(farm.query.vgi.protocol.CatalogQueryPrepareResult.class, new Codec("CatalogQueryPrepareResult", ORDERED));
+
         m.put(farm.query.vgi.protocol.ObjectDependency.class, new Codec("ObjectDependency", ORDERED));
         m.put(farm.query.vgi.protocol.DependencySnapshot.class, new Codec("DependencySnapshot", ORDERED));
         m.put(farm.query.vgi.protocol.CatalogMetadataChanges.class, new Codec("CatalogMetadataChanges", ORDERED));
