@@ -295,6 +295,7 @@ class WireRecordSchemaConformanceTest {
         Map<Class<? extends Record>, Codec> m = new LinkedHashMap<>();
         m.put(CatalogCapabilities.class, new Codec("CatalogCapabilities", ORDERED));
         m.put(OptionDefinitions.class, new Codec("OptionDefinitions", ORDERED));
+        m.put(farm.query.vgi.protocol.CatalogMetadataChanges.class, new Codec("CatalogMetadataChanges", ORDERED));
         m.put(OptionChanges.class, new Codec("OptionChanges", ORDERED));
         m.put(OptionState.class, new Codec("OptionState", ORDERED));
         m.put(RequiredFilterPaths.class, new Codec("RequiredFilterPaths", ORDERED));

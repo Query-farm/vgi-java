@@ -5,6 +5,7 @@ package farm.query.vgi.internal;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import farm.query.vgi.protocol.OptionChanges;
+import farm.query.vgi.protocol.CatalogMetadataChanges;
 import farm.query.vgi.protocol.SqlExpression;
 import farm.query.vgi.protocol.SortKey;
 import farm.query.vgi.protocol.TableLayout;
@@ -70,6 +71,24 @@ class CatalogContractsTest {
                 }
             }
         }
+    }
+
+    @Test
+    void metadataPatchesPreserveCommentPresenceAndLiteralTags() throws Exception {
+        var patch = roundTrip("metadata_patch", CatalogMetadataChanges.class);
+        assertTrue(patch.set_comment());
+        assertEquals("", patch.comment());
+        assertEquals(java.util.Map.of("a.b", "", "__proto__", "literal", "", "empty-key"), patch.set_tags());
+        assertEquals(List.of("old", "OLD"), patch.remove_tags());
+        var clear = roundTrip("metadata_clear_comment", CatalogMetadataChanges.class);
+        assertTrue(clear.set_comment());
+        assertNull(clear.comment());
+        assertTrue(clear.set_tags().isEmpty());
+        var noop = roundTrip("metadata_noop", CatalogMetadataChanges.class);
+        assertFalse(noop.set_comment());
+        assertNull(noop.comment());
+        assertTrue(noop.set_tags().isEmpty());
+        assertTrue(noop.remove_tags().isEmpty());
     }
 
     private static byte[] fixture(String name) throws Exception {
