@@ -28,8 +28,8 @@ class TableInfoSerializerTest {
 
     private static TableInfo tableInfoWithRequiredFilters(List<List<List<String>>> cnf) {
         return new TableInfo(
-                null, Map.of(), "filings", "company", new byte[0],
-                List.of(), List.of(), List.of(), List.of(), List.of(),
+                null, Map.of(), "filings", List.of("company"), new byte[0],
+                List.of(), null,
                 Map.of("insert", "changes", "delete", "rows"), false,
                 null, null, null, null,
                 null, null, null, null,

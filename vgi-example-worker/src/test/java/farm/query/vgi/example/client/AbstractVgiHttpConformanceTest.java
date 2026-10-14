@@ -20,6 +20,8 @@ import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.protocol.CardinalityResponse;
 import farm.query.vgi.protocol.CatalogAttachRequest;
 import farm.query.vgi.protocol.CatalogAttachResult;
+import farm.query.vgi.protocol.CatalogCapabilities;
+import farm.query.vgi.protocol.ClientCapabilities;
 import farm.query.vgi.protocol.FunctionInfo;
 import farm.query.vgi.protocol.GlobalInitResponse;
 import farm.query.vgi.protocol.InitRequest;
@@ -588,14 +590,15 @@ abstract class AbstractVgiHttpConformanceTest {
         return "[" + worker().label() + "] " + message;
     }
 
-    /**
-     * The attach request the C++ extension sends for a plain
-     * {@code ATTACH 'example' … (TYPE vgi)}: no options, no version pins. Empty
-     * strings rather than nulls — that is what {@code InvokeCatalogAttach}
-     * puts on the wire, and the fields are non-nullable.
-     */
+    /** Read-only discovery includes canonical constraints and profiled CHECK expressions. */
     private static CatalogAttachRequest attachRequest() {
-        return CatalogAttachRequest.of(CATALOG, new byte[0], "", "");
+        var catalog = new CatalogCapabilities(
+                List.of("vgi.constraint.records.read.v1", "vgi.expression.duckdb.scalar.v1"),
+                List.of(), List.of(), List.of());
+        var capabilities = new ClientCapabilities("vgi-java-http-conformance",
+                List.of(), List.of(), true, List.of(), RecordCodec.serializeToBytes(catalog));
+        return new CatalogAttachRequest(CATALOG, new byte[0], "", "",
+                RecordCodec.serializeToBytes(capabilities));
     }
 
     private BindRequest tableBind(String function, byte[] arguments) {

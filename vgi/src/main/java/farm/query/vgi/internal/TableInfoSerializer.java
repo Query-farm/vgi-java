@@ -11,8 +11,6 @@ import static farm.query.vgi.internal.IpcStructBuilder.BINARY;
 import static farm.query.vgi.internal.IpcStructBuilder.BOOL;
 import static farm.query.vgi.internal.IpcStructBuilder.I64;
 import static farm.query.vgi.internal.IpcStructBuilder.UTF8;
-import static farm.query.vgi.internal.IpcStructBuilder.I32;
-import static farm.query.vgi.internal.IpcStructBuilder.listOfListOfInt32;
 import static farm.query.vgi.internal.IpcStructBuilder.listOfListOfListOfUtf8;
 import static farm.query.vgi.internal.IpcStructBuilder.listOfPrim;
 import static farm.query.vgi.internal.IpcStructBuilder.mapUtf8Utf8;
@@ -20,8 +18,6 @@ import static farm.query.vgi.internal.IpcStructBuilder.nonNull;
 import static farm.query.vgi.internal.IpcStructBuilder.nullable;
 import static farm.query.vgi.internal.IpcStructBuilder.writeBool;
 import static farm.query.vgi.internal.IpcStructBuilder.writeListBinary;
-import static farm.query.vgi.internal.IpcStructBuilder.writeListInt32;
-import static farm.query.vgi.internal.IpcStructBuilder.writeListListInt32;
 import static farm.query.vgi.internal.IpcStructBuilder.writeListListListString;
 import static farm.query.vgi.internal.IpcStructBuilder.writeMap;
 import static farm.query.vgi.internal.IpcStructBuilder.writeNullableInt64;
@@ -51,11 +47,8 @@ public final class TableInfoSerializer {
             nonNull("name", UTF8),
             listOfPrim("schema_path", UTF8),
             nonNull("columns", BINARY),
-            listOfPrim("not_null_constraints", I32),
-            listOfListOfInt32("unique_constraints"),
-            listOfPrim("check_constraints", UTF8),
-            listOfListOfInt32("primary_key_constraints"),
-            listOfPrim("foreign_key_constraints", BINARY),
+            listOfPrim("constraints", BINARY),
+            nullable("definition_revision", BINARY),
             mapUtf8Utf8("write_result_modes"),
             nonNull("supports_column_statistics", BOOL),
             nullable("scan_function", BINARY),
@@ -83,11 +76,8 @@ public final class TableInfoSerializer {
             writeVarChar(v.get("name"), info.name());
             writeStringList(v.get("schema_path"), info.schema_path());
             writeVarBinarySafe(v.get("columns"), info.columns());
-            writeListInt32(v.get("not_null_constraints"), info.not_null_constraints());
-            writeListListInt32(v.get("unique_constraints"), info.unique_constraints());
-            writeStringList(v.get("check_constraints"), info.check_constraints());
-            writeListListInt32(v.get("primary_key_constraints"), info.primary_key_constraints());
-            writeListBinary(v.get("foreign_key_constraints"), info.foreign_key_constraints());
+            writeListBinary(v.get("constraints"), info.constraints());
+            writeNullableVarBinary(v.get("definition_revision"), info.definition_revision());
             writeMap(v.get("write_result_modes"), info.write_result_modes());
             writeBool(v.get("supports_column_statistics"), info.supports_column_statistics());
             writeVarBinarySafe(v.get("scan_function"), info.scan_function());

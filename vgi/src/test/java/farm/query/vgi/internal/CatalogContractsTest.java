@@ -374,5 +374,16 @@ class CatalogContractsTest {
         assertNull(old.tags());
         assertNull(old.options());
         assertNull(old.layout());
+        assertEquals(1, create.constraint_definitions().size());
+        assertTrue(old.constraint_definitions().isEmpty());
+        var info = farm.query.vgi.client.TableInfoDecoder.decode(TableInfoSerializer.serialize(
+                farm.query.vgi.client.TableInfoDecoder.decode(fixture("table_info"))));
+        assertArrayEquals(new byte[] {114, 101, 118, 105, 115, 105, 111, 110, 0, (byte) 255}, info.definition_revision());
+        assertEquals(1, info.constraints().size());
+        var constraint = RecordCodec.deserializeFromBytes(info.constraints().getFirst(), farm.query.vgi.protocol.ConstraintInfo.class);
+        assertArrayEquals(create.constraint_definitions().getFirst(), constraint.definition());
+        assertEquals("fixture-stable-key", RecordCodec.deserializeFromBytes(constraint.ref(), CatalogObjectRef.class).name());
+        assertEquals(List.of(List.of("record", "a.b")), RecordCodec.deserializeFromBytes(
+                constraint.definition(), farm.query.vgi.protocol.ConstraintDefinition.class).column_paths());
     }
 }

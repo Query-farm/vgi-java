@@ -58,6 +58,7 @@ import farm.query.vgi.protocol.TableScanFunctionGetResponse;
 import farm.query.vgi.protocol.TransactionBeginResponse;
 import farm.query.vgi.protocol.ViewInfo;
 import farm.query.vgi.generated.VgiProtocolSchemas;
+import farm.query.vgirpc.marshal.RecordCodec;
 import farm.query.vgirpc.schema.ArrowField;
 import farm.query.vgirpc.schema.ArrowFieldType;
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
@@ -333,6 +334,13 @@ class WireRecordSchemaConformanceTest {
         m.put(ClientCapabilities.class, new Codec("ClientCapabilities", ORDERED));
         m.put(CatalogVersionResponse.class, new Codec("CatalogVersionResult", ORDERED));
         m.put(farm.query.vgi.protocol.SqlExpression.class, new Codec("SqlExpression", ORDERED));
+        m.put(farm.query.vgi.protocol.SqlStatement.class, new Codec("SqlStatement", ORDERED));
+        m.put(farm.query.vgi.protocol.ForeignKeyDefinition.class, new Codec("ForeignKeyDefinition", ORDERED));
+        m.put(farm.query.vgi.protocol.ConstraintDefinition.class, new Codec("ConstraintDefinition", ORDERED));
+        m.put(farm.query.vgi.protocol.ConstraintInfo.class, new Codec("ConstraintInfo", ORDERED));
+        m.put(farm.query.vgi.protocol.ConstraintChange.class, new Codec("ConstraintChange", ORDERED));
+        m.put(farm.query.vgi.protocol.ConstraintSnapshot.class, new Codec("ConstraintSnapshot", ORDERED));
+        m.put(farm.query.vgi.protocol.ConstraintsApplyRequest.class, new Codec("ConstraintsApplyRequest", ORDERED));
         m.put(farm.query.vgi.protocol.SortKey.class, new Codec("SortKey", ORDERED));
         m.put(farm.query.vgi.protocol.TableLayout.class, new Codec("TableLayout", ORDERED));
         m.put(farm.query.vgi.protocol.TableLayoutChange.class, new Codec("TableLayoutChange", ORDERED));
@@ -452,6 +460,22 @@ class WireRecordSchemaConformanceTest {
     }
 
     @Test
+    void canonicalConstraintRecordsWriteExactDictionarySchemas() throws Exception {
+        for (var record : List.of(farm.query.vgi.protocol.ConstraintInfo.class,
+                farm.query.vgi.protocol.ConstraintDefinition.class,
+                farm.query.vgi.protocol.ForeignKeyDefinition.class,
+                farm.query.vgi.protocol.ConstraintChange.class)) {
+            var codec = codecSerialised().get(record);
+            var value = (ArrowSerializableRecord) sample(record, Map.of());
+            byte[] wire = RecordCodec.serializeToBytes(value);
+            List<String> problems = compare(record.getSimpleName(), resolveProtocolSchema(codec.schemaName()),
+                    producedSchema(wire), false, codec.ordering());
+            assertTrue(problems.isEmpty(), () -> record.getSimpleName()
+                    + " must preserve dictionary encodings for strict canonical readers: " + problems);
+        }
+    }
+
+    @Test
     void everyWireRecordIsClassified() {
         Set<Class<?>> byHand = handBuilt().stream()
                 .map(HandBuilt::record).collect(Collectors.toSet());
@@ -502,6 +526,9 @@ class WireRecordSchemaConformanceTest {
         org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("DependencySnapshot"),
                 VgiProtocolSchemas.byName().get("CatalogDependenciesResult"));
         checked.add("CatalogDependenciesResult");
+        org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("ConstraintSnapshot"),
+                VgiProtocolSchemas.byName().get("CatalogTableConstraintsApplyResult"));
+        checked.add("CatalogTableConstraintsApplyResult");
 
         List<String> unaccounted = VgiProtocolSchemas.byName().keySet().stream()
                 .filter(name -> !checked.contains(name))
@@ -603,6 +630,7 @@ class WireRecordSchemaConformanceTest {
             "catalog_schema_create, CatalogSchemaCreateParams",
             "catalog_schema_drop, CatalogSchemaDropParams",
             "catalog_table_create, CatalogTableCreateParams",
+            "catalog_table_constraints_apply, CatalogTableConstraintsApplyParams",
             "catalog_table_drop, CatalogTableDropParams",
             "catalog_view_create, CatalogViewCreateParams",
             "catalog_view_drop, CatalogViewDropParams"})

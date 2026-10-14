@@ -98,17 +98,15 @@ public final class TableInfoDecoder {
     // ------------------------------------------------------------------
 
     private static TableInfo fromRow(Map<String, Object> row) {
+        required(row.get("constraints"), "constraints");
         return new TableInfo(
                 str(row, "comment"),
                 stringMap(row, "tags"),
                 required(str(row, "name"), "name"),
                 required(stringList(row, "schema_path"), "schema_path"),
                 required(bytes(row, "columns"), "columns"),
-                intList(row, "not_null_constraints"),
-                intListList(row, "unique_constraints"),
-                stringList(row, "check_constraints"),
-                intListList(row, "primary_key_constraints"),
-                bytesList(row, "foreign_key_constraints"),
+                bytesList(row, "constraints"),
+                bytes(row, "definition_revision"),
                 stringMap(row, "write_result_modes"),
                 bool(row, "supports_column_statistics"),
                 bytes(row, "scan_function"),
@@ -119,7 +117,9 @@ public final class TableInfoDecoder {
                 nullableLong(row, "cardinality_max"),
                 bytes(row, "column_statistics"),
                 bytes(row, "bind_result"),
-                stringListList(row, "required_filters"));
+                stringListList(row, "required_filters"),
+                bytes(row, "options"),
+                bytes(row, "layout"));
     }
 
     private static <T> T required(T value, String field) {

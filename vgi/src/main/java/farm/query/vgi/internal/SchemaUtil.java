@@ -6,6 +6,7 @@ import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.IpcOption;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -98,5 +99,24 @@ public final class SchemaUtil {
         } catch (Exception e) {
             throw new RuntimeException("deserializeSchema failed", e);
         }
+    }
+
+    /** Reject column semantics that an unconstrained mutable catalog cannot enforce. */
+    public static void requireUnconstrainedColumns(byte[] bytes) {
+        Schema schema = deserializeSchema(bytes);
+        if (schema == null) throw new IllegalArgumentException("catalog_table_create: missing columns schema");
+        for (Field field : schema.getFields()) requireUnconstrainedField(field, true);
+    }
+
+    private static void requireUnconstrainedField(Field field, boolean topLevel) {
+        Map<String, String> metadata = field.getMetadata();
+        if (topLevel && metadata != null && metadata.containsKey("is_row_id")) return;
+        if (field.getType() instanceof ArrowType.ExtensionType || (metadata != null && metadata.keySet().stream()
+                .anyMatch(key -> key.startsWith("ARROW:extension:") || key.startsWith("vgi.logical_type."))))
+            throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create: logical column semantics are not supported");
+        if (!field.isNullable())
+            throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create: nonnullable columns require canonical constraints");
+        if (field.getType() instanceof ArrowType.Struct)
+            for (Field child : field.getChildren()) requireUnconstrainedField(child, false);
     }
 }

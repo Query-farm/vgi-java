@@ -144,6 +144,39 @@ final class ExampleCatalogContentsTest {
 
     @Test
     @Timeout(120)
+    void constrainedFixturesPublishExplicitUntrustedRecords() throws Exception {
+        try (Pipe p = Pipe.start(Main.buildWorker("example", null, null))) {
+            byte[] handle = attach(p.vgi()).attach_opaque_data();
+            var wanted = java.util.Set.of("products", "departments", "employees", "projects", "versioned_constraints");
+            int found = 0;
+            for (byte[] bytes : p.vgi().catalog_schema_contents_tables(handle, List.of("data"), null, null).items()) {
+                var table = farm.query.vgi.client.TableInfoDecoder.decode(bytes);
+                if (!wanted.contains(table.name())) continue;
+                found++;
+                assertArrayEquals(FixtureConstraints.REVISION, table.definition_revision());
+                assertFalse(table.constraints().isEmpty());
+                for (byte[] encoded : table.constraints()) {
+                    var constraint = RecordCodec.deserializeFromBytes(encoded, farm.query.vgi.protocol.ConstraintInfo.class);
+                    assertEquals("METADATA_ONLY", constraint.enforcement());
+                    assertEquals("UNVALIDATED", constraint.validation());
+                    var identity = RecordCodec.deserializeFromBytes(constraint.ref(), farm.query.vgi.protocol.CatalogObjectRef.class);
+                    assertEquals(table.name(), identity.owner_table());
+                    assertEquals(List.of("data"), identity.schema_path());
+                    assertFalse(identity.name().isEmpty());
+                    var definition = RecordCodec.deserializeFromBytes(constraint.definition(), farm.query.vgi.protocol.ConstraintDefinition.class);
+                    if (definition.kind().equals("FOREIGN_KEY")) {
+                        var target = RecordCodec.deserializeFromBytes(constraint.referenced_constraint(), farm.query.vgi.protocol.CatalogObjectRef.class);
+                        assertEquals("departments", target.owner_table());
+                        assertEquals("primary", target.name());
+                    }
+                }
+            }
+            assertEquals(wanted.size(), found);
+        }
+    }
+
+    @Test
+    @Timeout(120)
     void theFixtureWorkerRevalidatesWithAVersionEtagByDefault() throws Exception {
         Worker w = Main.configureCatalogContents(Main.buildWorker("example", null, null), null, null);
         try (Pipe p = Pipe.start(w)) {

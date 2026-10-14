@@ -856,15 +856,14 @@ public final class Main {
                         .withCardinality(10000L, 10000L))
                 .registerCatalogTable(stubTable("data", "products",
                         "Product table with column defaults",
-                        col("id", Schemas.INT64, false, "Unique product identifier", null),
+                        col("id", Schemas.INT64, true, "Unique product identifier", null),
                         col("name", Schemas.UTF8, true, "Product display name", "'unknown'"),
                         col("price", Schemas.FLOAT64, true, "Unit price in USD", "9.99"),
                         col("quantity", Schemas.INT64, true, null, "0"))
-                        .withConstraints(
-                List.of(List.of(0)),               // PK: id
-                List.of(),
-                List.of(),
-                List.of())
+                        .withCanonicalConstraints(List.of(
+                                FixtureConstraints.of("products", "id_nn", "NOT_NULL", "id"),
+                                FixtureConstraints.of("products", "primary", "PRIMARY_KEY", "id")),
+                                FixtureConstraints.REVISION)
                         .withStatistics(tableStats("products",
                 farm.query.vgi.catalog.ColumnStatistics.ofInt64(
                 "id", 1L, 100L, false, 100L),
@@ -876,14 +875,16 @@ public final class Main {
                 "price", 0.99d, 999.99d, false, null))))
                 .registerCatalogTable(stubTable("data", "departments",
                         "Department reference table",
-                        col("id", Schemas.INT64, false),
-                        col("name", Schemas.UTF8, false),
+                        col("id", Schemas.INT64, true),
+                        col("name", Schemas.UTF8, true),
                         col("budget", Schemas.FLOAT64, true, null, "0"))
-                        .withConstraints(
-                List.of(List.of(0)),               // PK: id
-                List.of(List.of(1)),               // UNIQUE: name
-                List.of("budget >= 0"),                      // CHECK
-                List.of())
+                        .withCanonicalConstraints(List.of(
+                                FixtureConstraints.of("departments", "id_nn", "NOT_NULL", "id"),
+                                FixtureConstraints.of("departments", "name_nn", "NOT_NULL", "name"),
+                                FixtureConstraints.of("departments", "primary", "PRIMARY_KEY", "id"),
+                                FixtureConstraints.of("departments", "name_unique", "UNIQUE", "name"),
+                                FixtureConstraints.check("departments", "budget_check", "budget >= 0")),
+                                FixtureConstraints.REVISION)
                         .withStatistics(tableStats("departments",
                 farm.query.vgi.catalog.ColumnStatistics.ofInt64(
                 "id", 1L, 10L, false, 10L),
@@ -893,18 +894,18 @@ public final class Main {
                 "budget", 50000.0d, 500000.0d, false, 10L))))
                 .registerCatalogTable(stubTable("data", "employees",
                         "Employee table with FK to departments",
-                        col("id", Schemas.INT64, false),
-                        col("name", Schemas.UTF8, false),
-                        col("email", Schemas.UTF8, false),
+                        col("id", Schemas.INT64, true),
+                        col("name", Schemas.UTF8, true),
+                        col("email", Schemas.UTF8, true),
                         col("department_id", Schemas.INT64, true))
-                        .withConstraints(
-                List.of(List.of(0)),               // PK: id
-                List.of(List.of(2)),               // UNIQUE: email
-                List.of(),
-                List.of(new CatalogTable.ForeignKey(
-                List.of("department_id"),
-                List.of("id"),
-                "data", "departments"))))
+                        .withCanonicalConstraints(List.of(
+                                FixtureConstraints.of("employees", "id_nn", "NOT_NULL", "id"),
+                                FixtureConstraints.of("employees", "name_nn", "NOT_NULL", "name"),
+                                FixtureConstraints.of("employees", "email_nn", "NOT_NULL", "email"),
+                                FixtureConstraints.of("employees", "primary", "PRIMARY_KEY", "id"),
+                                FixtureConstraints.of("employees", "email_unique", "UNIQUE", "email"),
+                                FixtureConstraints.departmentForeignKey("employees")),
+                                FixtureConstraints.REVISION))
                 .registerCatalogTable(stubTable("data", "colors",
                         "Colors table with ENUM-derived statistics",
                         col("id", Schemas.INT64, false),
@@ -1040,17 +1041,16 @@ public final class Main {
                         genCol("label", Schemas.UTF8, true, "'item_' || n::VARCHAR")))
                 .registerCatalogTable(stubTable("data", "projects",
                         "Projects with composite PK and FK to departments",
-                        col("department_id", Schemas.INT64, false),
-                        col("project_code", Schemas.UTF8, false),
-                        col("title", Schemas.UTF8, false))
-                        .withConstraints(
-                List.of(List.of(0, 1)),            // PK: (department_id, project_code)
-                List.of(),
-                List.of(),
-                List.of(new CatalogTable.ForeignKey(
-                List.of("department_id"),
-                List.of("id"),
-                "data", "departments"))))
+                        col("department_id", Schemas.INT64, true),
+                        col("project_code", Schemas.UTF8, true),
+                        col("title", Schemas.UTF8, true))
+                        .withCanonicalConstraints(List.of(
+                                FixtureConstraints.of("projects", "department_nn", "NOT_NULL", "department_id"),
+                                FixtureConstraints.of("projects", "code_nn", "NOT_NULL", "project_code"),
+                                FixtureConstraints.of("projects", "title_nn", "NOT_NULL", "title"),
+                                FixtureConstraints.of("projects", "primary", "PRIMARY_KEY", "department_id", "project_code"),
+                                FixtureConstraints.departmentForeignKey("projects")),
+                                FixtureConstraints.REVISION))
                 .registerCatalogTable(stubTable("data", "rowid_first",
                         "Table with row_id at column index 0",
                         rowIdCol("row_id", Schemas.INT64),
@@ -1235,18 +1235,17 @@ public final class Main {
                         col("score", Schemas.FLOAT64, true)))
                 .registerCatalogTable(stubTable("data", "versioned_constraints",
                         "Table with constraints that evolve across versions",
-                        col("id", Schemas.INT64, false),
-                        col("name", Schemas.UTF8, false),
+                        col("id", Schemas.INT64, true),
+                        col("name", Schemas.UTF8, true),
                         col("email", Schemas.UTF8, true),
                         col("department_id", Schemas.INT64, true))
-                        .withConstraints(
-                List.of(List.of(0)),               // PK: id
-                List.of(List.of(2)),               // UNIQUE: email
-                List.of(),
-                List.of(new CatalogTable.ForeignKey(
-                List.of("department_id"),
-                List.of("id"),
-                "data", "departments"))))
+                        .withCanonicalConstraints(List.of(
+                                FixtureConstraints.of("versioned_constraints", "id_nn", "NOT_NULL", "id"),
+                                FixtureConstraints.of("versioned_constraints", "name_nn", "NOT_NULL", "name"),
+                                FixtureConstraints.of("versioned_constraints", "primary", "PRIMARY_KEY", "id"),
+                                FixtureConstraints.of("versioned_constraints", "email_unique", "UNIQUE", "email"),
+                                FixtureConstraints.departmentForeignKey("versioned_constraints")),
+                                FixtureConstraints.REVISION))
                 .registerCatalogTable(stubTable("data", "versioned_constraints_v1",
                         "v1 (id, name)",
                         col("id", Schemas.INT64, false),

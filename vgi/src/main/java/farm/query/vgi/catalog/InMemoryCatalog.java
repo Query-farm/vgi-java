@@ -239,6 +239,9 @@ public class InMemoryCatalog implements CatalogInterface {
 
     @Override
     public void tableCreate(byte[] attachId, TableCreateRequest request) {
+        if (!request.constraint_definitions().isEmpty())
+            throw new farm.query.vgirpc.MethodNotImplementedError("canonical constraint enforcement is not supported");
+        farm.query.vgi.internal.SchemaUtil.requireUnconstrainedColumns(request.columns());
         State s = state(attachId);
         synchronized (s) {
             SchemaState schema = requireSchema(s, request.schema_path());
@@ -249,9 +252,7 @@ public class InMemoryCatalog implements CatalogInterface {
             schema.tables.put(request.name(), new TableInfo(
                     null, Map.of(), request.name(), schema.path,
                     request.columns() == null ? new byte[0] : request.columns(),
-                    request.not_null_constraints(), request.unique_constraints(),
-                    request.check_constraints(), request.primary_key_constraints(),
-                    request.foreign_key_constraints(), Map.of(), false,
+                    List.of(), null, Map.of(), false,
                     null, null, null, null, null, null, null, null, List.of()));
             s.version++;
         }

@@ -1,83 +1,26 @@
 // Copyright 2026 Query Farm LLC - https://query.farm
-
 package farm.query.vgi.protocol;
 
-import farm.query.vgirpc.schema.ArrowField;
-import farm.query.vgirpc.schema.ArrowFieldType;
 import farm.query.vgirpc.schema.Nullable;
-
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
-/**
- * Mirrors the C++ {@code TableInfoSchema}. Hand-rolled by
- * {@link farm.query.vgi.internal.TableInfoSerializer}, which writes the nested
- * {@code list<list<int32>>} constraint shapes a schema-derived writer will not
- * build for you. The component annotations below describe the wire shape
- * exactly, and that is enforced — the serialiser is compared against this
- * declaration field-by-field by {@code WireRecordSchemaConformanceTest}.
- *
- * @param comment                     optional table comment, or {@code null}.
- * @param tags                        arbitrary key/value metadata tags.
- * @param name                        table name.
- * @param schema_path                 owning schema identifier components.
- * @param columns                     IPC-encoded column schema.
- * @param not_null_constraints        column indices with NOT NULL constraints.
- * @param unique_constraints          column-index groups forming UNIQUE constraints.
- * @param check_constraints           CHECK constraint expressions.
- * @param primary_key_constraints     column-index groups forming the primary key.
- * @param foreign_key_constraints     IPC-encoded foreign-key constraint definitions.
- * @param write_result_modes          maximum result mode per supported operation.
- * @param supports_column_statistics  whether per-column statistics are available.
- * @param scan_function               IPC-encoded scan function descriptor, or {@code null}.
- * @param insert_function             IPC-encoded insert function descriptor, or {@code null}.
- * @param update_function             IPC-encoded update function descriptor, or {@code null}.
- * @param delete_function             IPC-encoded delete function descriptor, or {@code null}.
- * @param cardinality_estimate        estimated row count, or {@code null}.
- * @param cardinality_max             upper-bound row count, or {@code null}.
- * @param column_statistics           IPC-encoded inline column statistics, or {@code null}.
- * @param bind_result                 IPC-encoded cached bind result, or {@code null}.
- * @param required_filters            required WHERE-filter groups in conjunctive
- *                                    normal form: an AND of OR-groups, each inner
- *                                    group a list of raw component paths satisfied
- *                                    when any one of its paths has a filter. Empty
- *                                    means no enforcement.
- * @param options                     typed option state IPC, or null when unavailable.
- * @param layout                      partition/sort layout IPC, or null when unavailable.
- */
-// The annotations below are statements about the WIRE COLUMN, not about
-// whether a Java caller may pass null — a nullable column may still be written
-// as empty bytes by this SDK. Getting that distinction backwards is not
-// cosmetic: a consumer that derives its reader from this declaration looks for
-// a column shape no worker sends and rejects the whole batch ("out-of-date
-// Apache Arrow schema"). The authority is TableInfoSchema in the C++
-// extension's generated schemas, and TableInfoSerializer is checked against
-// this declaration field-by-field by WireRecordSchemaConformanceTest.
+/** Canonical table readback. Constraint entries are provider-owned ConstraintInfo IPC records. */
 public record TableInfo(
         @Nullable String comment,
         Map<String, String> tags,
         String name,
         List<String> schema_path,
         byte[] columns,
-        // int32 on the wire, not the int64 a bare Integer would derive to:
-        // these are DuckDB column indices and the C++ side reads them as
-        // int32. The override recurses through the nested lists.
-        @ArrowField(ArrowFieldType.INT32) List<Integer> not_null_constraints,
-        @ArrowField(ArrowFieldType.INT32) List<List<Integer>> unique_constraints,
-        List<String> check_constraints,
-        @ArrowField(ArrowFieldType.INT32) List<List<Integer>> primary_key_constraints,
-        List<byte[]> foreign_key_constraints,
+        List<byte[]> constraints,
+        @Nullable byte[] definition_revision,
         Map<String, String> write_result_modes,
         boolean supports_column_statistics,
-        // Nullable binary columns; this SDK sends "no such function" as empty
-        // bytes rather than null.
         @Nullable byte[] scan_function,
         @Nullable byte[] insert_function,
         @Nullable byte[] update_function,
         @Nullable byte[] delete_function,
-        // Nullable int64 columns: "unknown" must be a real null — see the note
-        // on TableInfoSerializer, where the C++ parser reads them as
-        // optional<int64_t> and a sentinel -1 would be misread.
         @Nullable Long cardinality_estimate,
         @Nullable Long cardinality_max,
         @Nullable byte[] column_statistics,
@@ -85,31 +28,18 @@ public record TableInfo(
         List<List<List<String>>> required_filters,
         @Nullable byte[] options,
         @Nullable byte[] layout) {
-    public TableInfo(String comment, Map<String, String> tags, String name, String schema_name,
-            byte[] columns, List<Integer> not_null_constraints,
-            List<List<Integer>> unique_constraints, List<String> check_constraints,
-            List<List<Integer>> primary_key_constraints, List<byte[]> foreign_key_constraints,
-            Map<String, String> write_result_modes, boolean supports_column_statistics, byte[] scan_function,
-            byte[] insert_function, byte[] update_function, byte[] delete_function,
-            Long cardinality_estimate, Long cardinality_max, byte[] column_statistics,
-            byte[] bind_result, List<List<List<String>>> required_filters) {
-        this(comment, tags, name, List.of(schema_name), columns, not_null_constraints,
-                unique_constraints, check_constraints, primary_key_constraints,
-                foreign_key_constraints, write_result_modes, supports_column_statistics, scan_function, insert_function,
-                update_function, delete_function, cardinality_estimate, cardinality_max,
-                column_statistics, bind_result, required_filters);
+    public TableInfo {
+        constraints = List.copyOf(Objects.requireNonNull(constraints, "constraints"));
     }
+
     public TableInfo(String comment, Map<String, String> tags, String name, List<String> schema_path,
-            byte[] columns, List<Integer> not_null_constraints,
-            List<List<Integer>> unique_constraints, List<String> check_constraints,
-            List<List<Integer>> primary_key_constraints, List<byte[]> foreign_key_constraints,
-            Map<String, String> write_result_modes, boolean supports_column_statistics, byte[] scan_function,
-            byte[] insert_function, byte[] update_function, byte[] delete_function,
+            byte[] columns, List<byte[]> constraints, byte[] definition_revision,
+            Map<String, String> write_result_modes, boolean supports_column_statistics,
+            byte[] scan_function, byte[] insert_function, byte[] update_function, byte[] delete_function,
             Long cardinality_estimate, Long cardinality_max, byte[] column_statistics,
             byte[] bind_result, List<List<List<String>>> required_filters) {
-        this(comment, tags, name, schema_path, columns, not_null_constraints,
-                unique_constraints, check_constraints, primary_key_constraints,
-                foreign_key_constraints, write_result_modes, supports_column_statistics, scan_function, insert_function,
+        this(comment, tags, name, schema_path, columns, constraints, definition_revision,
+                write_result_modes, supports_column_statistics, scan_function, insert_function,
                 update_function, delete_function, cardinality_estimate, cardinality_max,
                 column_statistics, bind_result, required_filters, null, null);
     }

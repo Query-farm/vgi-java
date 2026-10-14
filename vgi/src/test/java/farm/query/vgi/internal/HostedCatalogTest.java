@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -83,7 +84,7 @@ final class HostedCatalogTest {
         byte[] columns = SchemaUtil.serializeSchema(Schemas.of(
                 Schemas.nullable("a", Schemas.INT32), Schemas.nullable("b", Schemas.UTF8)));
         return RecordCodec.serializeToBytes(new TableCreateRequest(attach, MAIN, name, columns, onConflict,
-                List.of(0), List.of(), List.of(), List.of(), List.of(), null));
+                List.of(), null));
     }
 
     /** A generation-counter etag, like vgi-python's contents_reval. */
@@ -129,6 +130,35 @@ final class HostedCatalogTest {
         assertEquals(1L, r.catalog_version());
         assertEquals("main", r.default_schema());
         assertEquals(List.of(MAIN), schemaPaths(svc, r.attach_opaque_data()));
+    }
+
+    @Test
+    void unsupportedConstraintsRejectBeforeReplacement() {
+        VgiServiceImpl svc = service(hostingWorker());
+        byte[] a = attach(svc, "mem");
+        svc.catalog_table_create(tableCreate(a, "t", "ERROR"), null);
+        long before = version(svc, a);
+        byte[] original = svc.catalog_table_get(a, MAIN, "t", null, null, null, null).items().get(0);
+        byte[] columns = SchemaUtil.serializeSchema(Schemas.of(Schemas.nullable("a", Schemas.INT32)));
+        for (String conflict : List.of("ERROR", "IGNORE", "REPLACE")) {
+            byte[] request = RecordCodec.serializeToBytes(new TableCreateRequest(
+                    a, MAIN, "t", columns, conflict, List.of(new byte[] {1}), null));
+            assertThrows(farm.query.vgirpc.MethodNotImplementedError.class,
+                    () -> svc.catalog_table_create(request, null));
+        }
+        var nested = new org.apache.arrow.vector.types.pojo.Field("nested",
+                org.apache.arrow.vector.types.pojo.FieldType.nullable(
+                        org.apache.arrow.vector.types.pojo.ArrowType.Struct.INSTANCE),
+                List.of(Schemas.nonNull("required", Schemas.INT32)));
+        for (var schema : List.of(Schemas.of(Schemas.nonNull("required", Schemas.INT32)), Schemas.of(nested))) {
+            byte[] request = RecordCodec.serializeToBytes(new TableCreateRequest(
+                    a, MAIN, "t", SchemaUtil.serializeSchema(schema), "REPLACE", List.of(), null));
+            assertThrows(farm.query.vgirpc.MethodNotImplementedError.class,
+                    () -> svc.catalog_table_create(request, null));
+        }
+        assertEquals(before, version(svc, a));
+        assertEquals(1, svc.catalog_schema_contents_tables(a, MAIN, null, null).items().size());
+        assertArrayEquals(original, svc.catalog_table_get(a, MAIN, "t", null, null, null, null).items().get(0));
     }
 
     @Test

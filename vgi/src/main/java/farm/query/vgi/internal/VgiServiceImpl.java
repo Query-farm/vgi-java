@@ -1714,8 +1714,9 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_table_create(byte[] request, CallContext ctx) {
         farm.query.vgi.protocol.TableCreateRequest req =
                 RecordCodec.deserializeFromBytes(request, farm.query.vgi.protocol.TableCreateRequest.class);
-        if (req.comment() != null || req.tags() != null || req.options() != null || req.layout() != null)
+        if (!req.constraint_definitions().isEmpty() || req.comment() != null || req.tags() != null || req.options() != null || req.layout() != null)
             throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create requires negotiated table profiles");
+        SchemaUtil.requireUnconstrainedColumns(req.columns());
         Hosted h = requireHosted(req.attach_opaque_data(), ctx, "catalog_table_create");
         h.catalog().tableCreate(h.attachId(), req);
     }
@@ -2603,18 +2604,6 @@ public final class VgiServiceImpl implements VgiService {
         return new byte[0];
     }
 
-    private static List<Integer> extractNotNullColumnIndices(byte[] columnsIpc) {
-        if (columnsIpc == null || columnsIpc.length == 0) return List.of();
-        org.apache.arrow.vector.types.pojo.Schema s = SchemaUtil.deserializeSchema(columnsIpc);
-        if (s == null) return List.of();
-        java.util.List<org.apache.arrow.vector.types.pojo.Field> fields = s.getFields();
-        java.util.ArrayList<Integer> out = new java.util.ArrayList<>();
-        for (int i = 0; i < fields.size(); i++) {
-            if (!fields.get(i).isNullable()) out.add(i);
-        }
-        return out;
-    }
-
     private farm.query.vgi.protocol.TableInfo toTableInfo(CatalogTable t, String catalogName) {
         byte[] scanFn = null;
         if (t.scanFunctionName() != null && t.inlineScanFunction()) {
@@ -2626,12 +2615,11 @@ public final class VgiServiceImpl implements VgiService {
                     worker.resolveTableFunctionSchemaPath(
                             t.scanFunctionName(), List.of(t.schema()), catalogName));
         }
-        List<Integer> notNullCols = extractNotNullColumnIndices(t.columns());
-        List<byte[]> foreignKeys = new ArrayList<>();
-        if (t.foreignKeys() != null) {
-            for (CatalogTable.ForeignKey fk : t.foreignKeys()) {
-                foreignKeys.add(ForeignKeySerializer.serialize(fk));
-            }
+        if ((t.primaryKey() != null && !t.primaryKey().isEmpty())
+                || (t.uniqueConstraints() != null && !t.uniqueConstraints().isEmpty())
+                || (t.checkConstraints() != null && !t.checkConstraints().isEmpty())
+                || (t.foreignKeys() != null && !t.foreignKeys().isEmpty())) {
+            throw new UnsupportedOperationException("legacy constraint metadata requires canonical provider records");
         }
         boolean hasStats = t.statistics() != null && !t.statistics().isEmpty();
         byte[] inlineStats = hasStats
@@ -2642,11 +2630,8 @@ public final class VgiServiceImpl implements VgiService {
                 t.name(),
                 List.of(t.schema()),
                 t.columns() == null ? new byte[0] : t.columns(),
-                notNullCols,
-                t.uniqueConstraints() == null ? List.of() : t.uniqueConstraints(),
-                t.checkConstraints() == null ? List.of() : t.checkConstraints(),
-                t.primaryKey() == null ? List.of() : t.primaryKey(),
-                foreignKeys,
+                t.constraints() == null ? List.of() : t.constraints(),
+                t.definitionRevision(),
                 Map.of(),
                 hasStats,
                 scanFn,

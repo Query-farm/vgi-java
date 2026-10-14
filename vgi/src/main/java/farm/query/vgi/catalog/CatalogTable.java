@@ -34,6 +34,8 @@ import java.util.Map;
  * @param uniqueConstraints         UNIQUE constraint column-index groups
  * @param checkConstraints          CHECK constraint SQL expressions
  * @param foreignKeys               foreign-key constraints
+ * @param constraints               provider-owned canonical constraint IPC records
+ * @param definitionRevision        provider-owned definition revision, or null
  * @param statistics                per-column statistics for the optimizer
  * @param requiredFilters           required WHERE-filter groups in conjunctive
  *                                  normal form (an AND of OR-groups of raw component
@@ -59,7 +61,22 @@ public record CatalogTable(
         List<String> checkConstraints,
         List<ForeignKey> foreignKeys,
         List<ColumnStatistics> statistics,
-        List<List<List<String>>> requiredFilters) {
+        List<List<List<String>>> requiredFilters,
+        List<byte[]> constraints,
+        byte[] definitionRevision) {
+
+    /** Compatibility constructor; legacy constraints are rejected at the wire boundary. */
+    public CatalogTable(String schema, String name, byte[] columns, String comment,
+            Map<String, String> tags, String scanFunctionName, List<Object> scanFunctionPositional,
+            Map<String, Object> scanFunctionNamed, Long cardinalityEstimate, Long cardinalityMax,
+            boolean inlineCardinality, boolean inlineScanFunction, List<List<Integer>> primaryKey,
+            List<List<Integer>> uniqueConstraints, List<String> checkConstraints, List<ForeignKey> foreignKeys,
+            List<ColumnStatistics> statistics, List<List<List<String>>> requiredFilters) {
+        this(schema, name, columns, comment, tags, scanFunctionName, scanFunctionPositional,
+                scanFunctionNamed, cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics, requiredFilters,
+                List.of(), null);
+    }
 
     /**
      * Validates and defensively copies a required-filters CNF list: rejects
@@ -232,6 +249,8 @@ public record CatalogTable(
         private List<ForeignKey> foreignKeys = List.of();
         private List<ColumnStatistics> statistics = List.of();
         private List<List<List<String>>> requiredFilters = List.of();
+        private List<byte[]> constraints = List.of();
+        private byte[] definitionRevision;
 
         Builder(String schema, String name, byte[] columns) {
             this.schema = schema;
@@ -396,6 +415,13 @@ public record CatalogTable(
             return this;
         }
 
+        /** Sets explicit canonical records and their provider-owned revision. */
+        public Builder canonicalConstraints(List<byte[]> records, byte[] revision) {
+            this.constraints = List.copyOf(records);
+            this.definitionRevision = revision;
+            return this;
+        }
+
         /**
          * Builds the immutable {@link CatalogTable}.
          *
@@ -406,7 +432,7 @@ public record CatalogTable(
                     scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                     cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                     primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                    requiredFilters);
+                    requiredFilters, constraints, definitionRevision);
         }
     }
 
@@ -422,7 +448,7 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 estimate, max, true, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                requiredFilters);
+                requiredFilters, constraints, definitionRevision);
     }
 
     /**
@@ -437,7 +463,7 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, false,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                requiredFilters);
+                requiredFilters, constraints, definitionRevision);
     }
 
     /**
@@ -461,7 +487,16 @@ public record CatalogTable(
                 check == null ? List.of() : check,
                 fks == null ? List.of() : fks,
                 statistics,
-                requiredFilters);
+                requiredFilters, constraints, definitionRevision);
+    }
+
+    /** Returns a copy with explicit provider-owned canonical records and revision. */
+    public CatalogTable withCanonicalConstraints(List<byte[]> records, byte[] revision) {
+        return new CatalogTable(schema, name, columns, comment, tags,
+                scanFunctionName, scanFunctionPositional, scanFunctionNamed,
+                cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
+                requiredFilters, List.copyOf(records), revision);
     }
 
     /**
@@ -477,7 +512,7 @@ public record CatalogTable(
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys,
                 stats == null ? List.of() : stats,
-                requiredFilters);
+                requiredFilters, constraints, definitionRevision);
     }
 
     /**
@@ -496,6 +531,6 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                normalizeRequiredFilters(groups));
+                normalizeRequiredFilters(groups), constraints, definitionRevision);
     }
 }
