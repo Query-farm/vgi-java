@@ -37,6 +37,64 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogContractsTest {
+    @Test void columnExpressionMetadataRetainsExactIpcBytes() throws Exception {
+        try (var allocator = new RootAllocator();
+             var reader = new ArrowStreamReader(new ByteArrayInputStream(fixture("column_expression_metadata")), allocator)) {
+            assertTrue(reader.loadNextBatch());
+            var source = reader.getVectorSchemaRoot();
+            var bytes = new ByteArrayOutputStream();
+            try (var writer = new ArrowStreamWriter(source, null, bytes)) {
+                writer.start(); writer.writeBatch(); writer.end();
+            }
+            try (var restored = new ArrowStreamReader(new ByteArrayInputStream(bytes.toByteArray()), allocator)) {
+                assertTrue(restored.loadNextBatch());
+                var fields = restored.getVectorSchemaRoot().getSchema().getFields();
+                assertArrayEquals(fixture("column_default_expression"), Base64.getDecoder().decode(fields.get(0).getMetadata().get("vgi.column.default.v1")));
+                assertArrayEquals(fixture("column_generated_expression"), Base64.getDecoder().decode(fields.get(1).getMetadata().get("vgi.column.generated.v1")));
+                assertEquals("virtual", fields.get(1).getMetadata().get("vgi.column.generation.v1"));
+            }
+        }
+    }
+
+    @Test void canonicalConstraintRecordsPreserveNestedPayloadsAndRevisions() throws Exception {
+        roundTrip("sql_statement", farm.query.vgi.protocol.SqlStatement.class);
+        roundTrip("constraint_ref", farm.query.vgi.protocol.CatalogObjectRef.class);
+        roundTrip("foreign_key_definition", farm.query.vgi.protocol.ForeignKeyDefinition.class);
+        roundTrip("constraint_definition_not_null", farm.query.vgi.protocol.ConstraintDefinition.class);
+        roundTrip("constraint_definition_unique", farm.query.vgi.protocol.ConstraintDefinition.class);
+        roundTrip("constraint_definition_primary", farm.query.vgi.protocol.ConstraintDefinition.class);
+        roundTrip("constraint_definition_check", farm.query.vgi.protocol.ConstraintDefinition.class);
+        roundTrip("constraint_definition_foreign", farm.query.vgi.protocol.ConstraintDefinition.class);
+        roundTrip("constraint_info", farm.query.vgi.protocol.ConstraintInfo.class);
+        roundTrip("constraint_info_untrusted", farm.query.vgi.protocol.ConstraintInfo.class);
+        roundTrip("constraint_change_add", farm.query.vgi.protocol.ConstraintChange.class);
+        roundTrip("constraint_change_drop", farm.query.vgi.protocol.ConstraintChange.class);
+        roundTrip("constraint_change_rename", farm.query.vgi.protocol.ConstraintChange.class);
+        roundTrip("constraint_change_unname", farm.query.vgi.protocol.ConstraintChange.class);
+        roundTrip("constraint_change_replace", farm.query.vgi.protocol.ConstraintChange.class);
+        roundTrip("constraint_snapshot", farm.query.vgi.protocol.ConstraintSnapshot.class);
+        roundTrip("constraint_snapshot_empty", farm.query.vgi.protocol.ConstraintSnapshot.class);
+        roundTrip("constraints_apply", farm.query.vgi.protocol.ConstraintsApplyRequest.class);
+        roundTrip("constraints_apply_autocommit", farm.query.vgi.protocol.ConstraintsApplyRequest.class);
+        var statement = roundTrip("sql_statement", farm.query.vgi.protocol.SqlStatement.class);
+        assertEquals("desc", statement.evaluation_context().default_order());
+        assertEquals("nulls_first", statement.evaluation_context().default_null_order());
+        assertFalse(statement.evaluation_context().preserve_insertion_order());
+        var snapshot = roundTrip("constraint_snapshot", farm.query.vgi.protocol.ConstraintSnapshot.class);
+        assertArrayEquals(new byte[] { 0, 114, 101, 118, 105, 115, 105, 111, 110, (byte)255, (byte)128 }, snapshot.definition_revision());
+        assertEquals(1, snapshot.constraints().size());
+        assertArrayEquals(fixture("constraint_info"), snapshot.constraints().getFirst());
+        var info = roundTrip("constraint_info", farm.query.vgi.protocol.ConstraintInfo.class);
+        assertArrayEquals(fixture("constraint_ref"), info.ref());
+        assertArrayEquals(fixture("constraint_definition_foreign"), info.definition());
+        var request = roundTrip("constraints_apply", farm.query.vgi.protocol.ConstraintsApplyRequest.class);
+        assertArrayEquals(snapshot.definition_revision(), request.expected_revision());
+        assertArrayEquals(fixture("constraint_change_add"), request.changes().get(0));
+        assertArrayEquals(fixture("constraint_change_rename"), request.changes().get(1));
+        assertNull(roundTrip("constraints_apply_autocommit", farm.query.vgi.protocol.ConstraintsApplyRequest.class).transaction_opaque_data());
+        assertNull(roundTrip("constraint_change_unname", farm.query.vgi.protocol.ConstraintChange.class).declared_name());
+    }
+
     @Test void macroFamiliesPreserveDeclarationsDefaultsAndLegacyAbsence() throws Exception {
         var parameter = roundTrip("macro_parameter", farm.query.vgi.protocol.MacroParameter.class);
         var source = RecordCodec.deserializeFromBytes(fixture("macro_parameter"), farm.query.vgi.protocol.MacroParameter.class);
