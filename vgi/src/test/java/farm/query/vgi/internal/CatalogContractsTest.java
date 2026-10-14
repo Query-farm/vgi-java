@@ -37,6 +37,72 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogContractsTest {
+    @Test void macroFamiliesPreserveDeclarationsDefaultsAndLegacyAbsence() throws Exception {
+        var parameter = roundTrip("macro_parameter", farm.query.vgi.protocol.MacroParameter.class);
+        var source = RecordCodec.deserializeFromBytes(fixture("macro_parameter"), farm.query.vgi.protocol.MacroParameter.class);
+        assertEquals("fallback", parameter.name());
+        assertArrayEquals(source.declared_type(), parameter.declared_type());
+        assertArrayEquals(source.default_value(), parameter.default_value());
+        assertNull(parameter.default_expression());
+        assertEquals("A typed NULL default", parameter.documentation());
+        var expression = roundTrip("macro_parameter_expression", farm.query.vgi.protocol.MacroParameter.class);
+        assertNull(expression.default_value());
+        assertEquals("2 + 3", RecordCodec.deserializeFromBytes(expression.default_expression(), SqlExpression.class).sql());
+        var untyped = roundTrip("macro_parameter_untyped", farm.query.vgi.protocol.MacroParameter.class);
+        assertNull(untyped.declared_type());
+        assertNull(untyped.default_value());
+        var overload = roundTrip("macro_overload", farm.query.vgi.protocol.MacroOverload.class);
+        assertEquals(List.of("one.two", "nested"), overload.schema_path());
+        assertEquals(List.of("x", "fallback", "scale"), overload.parameters().stream().map(p -> p.name()).toList());
+        var create = roundTrip("macro_create", farm.query.vgi.protocol.MacroCreateRequest.class);
+        assertEquals(2, create.overloads().size());
+        assertEquals("upper(x)", create.overloads().get(1).definition());
+        assertTrue(create.parameters().isEmpty());
+        assertEquals("", create.definition());
+        assertNull(roundTrip("macro_create_legacy", farm.query.vgi.protocol.MacroCreateRequest.class).overloads());
+        assertEquals(2, roundTrip("macro_info", farm.query.vgi.protocol.MacroInfo.class).overloads().size());
+        assertNull(roundTrip("macro_info_legacy", farm.query.vgi.protocol.MacroInfo.class).overloads());
+        try (var allocator = new RootAllocator();
+             var reader = new ArrowStreamReader(new ByteArrayInputStream(parameter.default_value()), allocator)) {
+            assertTrue(reader.loadNextBatch());
+            assertTrue(reader.getVectorSchemaRoot().getVector(0).isNull(0));
+            assertEquals("retained", reader.getVectorSchemaRoot().getSchema().getFields().getFirst().getMetadata().get("domain"));
+        }
+    }
+
+    @Test void logicalCarriersPreserveRawTypeMetadataAndDynamicPayloadBytes() throws Exception {
+        for (var name : List.of("logical_tuple", "logical_struct", "logical_variant_sql_null",
+                "logical_variant_null", "logical_variant_absent", "logical_variant_null_member")) {
+            try (var allocator = new RootAllocator();
+                 var reader = new ArrowStreamReader(new ByteArrayInputStream(fixture(name)), allocator)) {
+                assertTrue(reader.loadNextBatch());
+                var original = reader.getVectorSchemaRoot();
+                var bytes = new ByteArrayOutputStream();
+                try (var writer = new ArrowStreamWriter(original, null, bytes)) {
+                    writer.start(); writer.writeBatch(); writer.end();
+                }
+                try (var restoredReader = new ArrowStreamReader(new ByteArrayInputStream(bytes.toByteArray()), allocator)) {
+                    assertTrue(restoredReader.loadNextBatch());
+                    var restored = restoredReader.getVectorSchemaRoot();
+                    assertEquals(original.getSchema(), restored.getSchema());
+                    assertEquals(1, restored.getRowCount());
+                    var metadata = restored.getSchema().getFields().getFirst().getMetadata();
+                    var marker = metadata == null ? null : metadata.get("vgi.logical_type.v1");
+                    if (name.equals("logical_struct")) assertNull(marker);
+                    else assertEquals(name.equals("logical_tuple") ? "tuple" : "variant", marker);
+                    assertEquals(name.equals("logical_variant_sql_null"), restored.getVector(0).isNull(0));
+                    if (original.getVector(0) instanceof org.apache.arrow.vector.VarBinaryVector binary) {
+                        assertArrayEquals(binary.get(0), ((org.apache.arrow.vector.VarBinaryVector) restored.getVector(0)).get(0));
+                    } else assertEquals(original.getVector(0).getObject(0), restored.getVector(0).getObject(0));
+                    assertFalse(restoredReader.loadNextBatch());
+                }
+                assertFalse(reader.loadNextBatch());
+            }
+        }
+        assertFalse(java.util.Arrays.equals(fixture("logical_variant_null"), fixture("logical_variant_sql_null")));
+        assertFalse(java.util.Arrays.equals(fixture("logical_variant_absent"), fixture("logical_variant_null_member")));
+    }
+
     @Test void queryParameterBatchesPreserveMappingMetadataAndEmptyRows() throws Exception {
         for (var name : List.of("query_parameters", "query_empty_parameters")) {
             try (var allocator = new RootAllocator();

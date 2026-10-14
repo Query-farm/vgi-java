@@ -3,6 +3,8 @@
 package farm.query.vgi.internal;
 
 import farm.query.vgi.protocol.MacroInfo;
+import farm.query.vgirpc.schema.SchemaDerivation;
+import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.dictionary.DictionaryProvider;
 import org.apache.arrow.vector.types.pojo.Schema;
 
@@ -41,7 +43,8 @@ public final class MacroInfoSerializer {
             listOfPrim("parameters", UTF8),
             nullable("parameter_default_values", BINARY),
             nonNull("definition", UTF8),
-            nullable("arguments_schema", BINARY)));
+            nullable("arguments_schema", BINARY),
+            SchemaDerivation.schemaForRecord(MacroInfo.class).getFields().get(9)));
 
     /**
      * Serialise {@code info} as the 1-row IPC stream the C++ extension reads for a catalog macro.
@@ -50,6 +53,9 @@ public final class MacroInfoSerializer {
      * @return IPC stream bytes matching {@code MacroInfoSchema}
      */
     public static byte[] serialize(MacroInfo info) {
+        if (info.overloads() != null) {
+            throw new UnsupportedOperationException("macro overload families require a qualified catalog adapter");
+        }
         DictionaryProvider.MapDictionaryProvider provider = new DictionaryProvider.MapDictionaryProvider();
         MACRO_TYPE.register(provider);
 
@@ -63,6 +69,7 @@ public final class MacroInfoSerializer {
             writeVarBinarySafe(v.get("parameter_default_values"), info.parameter_default_values());
             writeVarChar(v.get("definition"), info.definition());
             writeVarBinarySafe(v.get("arguments_schema"), info.arguments_schema());
+            ((ListVector) v.get("overloads")).setNull(0);
         });
     }
 }

@@ -296,6 +296,9 @@ class WireRecordSchemaConformanceTest {
         m.put(CatalogCapabilities.class, new Codec("CatalogCapabilities", ORDERED));
         m.put(OptionDefinitions.class, new Codec("OptionDefinitions", ORDERED));
         m.put(farm.query.vgi.protocol.CatalogObjectRef.class, new Codec("CatalogObjectRef", ORDERED));
+        m.put(farm.query.vgi.protocol.MacroParameter.class, new Codec("MacroParameter", ORDERED));
+        m.put(farm.query.vgi.protocol.MacroOverload.class, new Codec("MacroOverload", ORDERED));
+        m.put(farm.query.vgi.protocol.MacroCreateRequest.class, new Codec("MacroCreateRequest", ORDERED));
         m.put(farm.query.vgi.protocol.ClientQueryCapabilities.class, new Codec("ClientQueryCapabilities", ORDERED));
         m.put(farm.query.vgi.protocol.QueryCapabilities.class, new Codec("QueryCapabilities", ORDERED));
         m.put(farm.query.vgi.protocol.QueryEvaluationContext.class, new Codec("QueryEvaluationContext", ORDERED));
@@ -551,7 +554,7 @@ class WireRecordSchemaConformanceTest {
                 "AggregateStreamingCloseRequest", "AggregateStreamingOpenRequest",
                 "AggregateWindowBatchRequest", "AggregateWindowDestructorRequest",
                 "AggregateWindowInitRequest", "AggregateWindowRequest", "CatalogCreateRequest",
-                "IndexCreateRequest", "MacroCreateRequest",
+                "IndexCreateRequest",
                 "TableFunctionDynamicToStringRequest", "TableFunctionStatisticsRequest")) {
             m.put(request, "the corresponding protocol 2.0 operation is not implemented as a Java wire record");
         }
@@ -844,6 +847,11 @@ class WireRecordSchemaConformanceTest {
     }
 
     private static Object sampleValue(RecordComponent component) {
+        // The native catalog adapter advertises only the legacy macro form.
+        // New families are exercised through RecordCodec by CatalogContractsTest.
+        if (component.getName().equals("overloads")) {
+            return null;
+        }
         // Scalar-only and shape-dependent; its dedicated serializer test
         // supplies a real argument schema and exercises a present list.
         if (component.getName().equals("argument_monotonicity")) {

@@ -34,7 +34,8 @@ import java.util.Map;
  *                                 metadata key carries the parameter's description (UTF-8,
  *                                 presence-only). Mirrors the per-argument doc channel
  *                                 functions expose. {@code null} when the worker supplied no
- *                                 per-parameter docs (older workers). Last in field order.
+ *                                 per-parameter docs (older workers).
+ * @param overloads                optional complete overload family; null selects the legacy form.
  */
 public record MacroInfo(
         @Nullable String comment,
@@ -48,11 +49,19 @@ public record MacroInfo(
         // MacroInfoSerializer writes for a null.
         @Nullable byte[] parameter_default_values,
         String definition,
-        @Nullable byte[] arguments_schema) implements ArrowSerializableRecord {
+        @Nullable byte[] arguments_schema,
+        @Nullable List<MacroOverload> overloads) implements ArrowSerializableRecord {
+    public MacroInfo(String comment, Map<String, String> tags, String name, List<String> schema_path,
+            String macro_type, List<String> parameters, byte[] parameter_default_values,
+            String definition, byte[] arguments_schema) {
+        this(comment, tags, name, schema_path, macro_type, parameters,
+                parameter_default_values, definition, arguments_schema, null);
+    }
+
     public MacroInfo(String comment, Map<String, String> tags, String name, String schema_name,
             String macro_type, List<String> parameters, byte[] parameter_default_values,
             String definition, byte[] arguments_schema) {
         this(comment, tags, name, List.of(schema_name), macro_type, parameters,
-                parameter_default_values, definition, arguments_schema);
+                parameter_default_values, definition, arguments_schema, null);
     }
 }
