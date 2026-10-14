@@ -295,6 +295,9 @@ class WireRecordSchemaConformanceTest {
         Map<Class<? extends Record>, Codec> m = new LinkedHashMap<>();
         m.put(CatalogCapabilities.class, new Codec("CatalogCapabilities", ORDERED));
         m.put(OptionDefinitions.class, new Codec("OptionDefinitions", ORDERED));
+        m.put(farm.query.vgi.protocol.CatalogObjectRef.class, new Codec("CatalogObjectRef", ORDERED));
+        m.put(farm.query.vgi.protocol.ObjectDependency.class, new Codec("ObjectDependency", ORDERED));
+        m.put(farm.query.vgi.protocol.DependencySnapshot.class, new Codec("DependencySnapshot", ORDERED));
         m.put(farm.query.vgi.protocol.CatalogMetadataChanges.class, new Codec("CatalogMetadataChanges", ORDERED));
         m.put(OptionChanges.class, new Codec("OptionChanges", ORDERED));
         m.put(OptionState.class, new Codec("OptionState", ORDERED));
@@ -486,6 +489,9 @@ class WireRecordSchemaConformanceTest {
         org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("OptionDefinitions"),
                 VgiProtocolSchemas.byName().get("CatalogTableOptionDefinitionsResult"));
         checked.add("CatalogTableOptionDefinitionsResult");
+        org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("DependencySnapshot"),
+                VgiProtocolSchemas.byName().get("CatalogDependenciesResult"));
+        checked.add("CatalogDependenciesResult");
 
         List<String> unaccounted = VgiProtocolSchemas.byName().keySet().stream()
                 .filter(name -> !checked.contains(name))

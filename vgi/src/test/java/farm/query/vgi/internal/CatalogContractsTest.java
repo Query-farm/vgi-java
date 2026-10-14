@@ -5,6 +5,9 @@ package farm.query.vgi.internal;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import farm.query.vgi.protocol.OptionChanges;
+import farm.query.vgi.protocol.CatalogObjectRef;
+import farm.query.vgi.protocol.ObjectDependency;
+import farm.query.vgi.protocol.DependencySnapshot;
 import farm.query.vgi.protocol.CatalogMetadataChanges;
 import farm.query.vgi.protocol.SqlExpression;
 import farm.query.vgi.protocol.SortKey;
@@ -89,6 +92,26 @@ class CatalogContractsTest {
         assertNull(noop.comment());
         assertTrue(noop.set_tags().isEmpty());
         assertTrue(noop.remove_tags().isEmpty());
+    }
+
+    @Test
+    void dependencyRecordsPreserveIdentityAndNestedPayloads() throws Exception {
+        var table = roundTrip("object_ref", CatalogObjectRef.class);
+        assertEquals(List.of("one.two", "nested"), table.schema_path());
+        assertNull(table.owner_table());
+        var trigger = roundTrip("trigger_ref", CatalogObjectRef.class);
+        assertEquals(table.name(), trigger.owner_table());
+        var edge = roundTrip("object_dependency", ObjectDependency.class);
+        assertEquals("owned", edge.kind());
+        assertArrayEquals(fixture("object_ref"), edge.subject());
+        assertArrayEquals(fixture("trigger_ref"), edge.dependent());
+        var graph = roundTrip("dependency_snapshot", DependencySnapshot.class);
+        assertEquals(42L, graph.catalog_version());
+        assertEquals(4, graph.objects().size());
+        assertEquals(3, graph.dependencies().size());
+        var empty = roundTrip("empty_dependency_snapshot", DependencySnapshot.class);
+        assertTrue(empty.objects().isEmpty());
+        assertTrue(empty.dependencies().isEmpty());
     }
 
     private static byte[] fixture(String name) throws Exception {
