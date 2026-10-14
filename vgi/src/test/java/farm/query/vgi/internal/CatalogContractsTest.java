@@ -88,11 +88,26 @@ class CatalogContractsTest {
                     assertEquals(1, restored.getRowCount());
                     var metadata = restored.getSchema().getFields().getFirst().getMetadata();
                     var marker = metadata == null ? null : metadata.get("vgi.logical_type.v1");
-                    if (name.equals("logical_struct")) assertNull(marker);
-                    else assertEquals(name.equals("logical_tuple") ? "tuple" : "variant", marker);
+                    if (name.equals("logical_tuple")) assertEquals("tuple", marker);
+                    else assertNull(marker);
                     assertEquals(name.equals("logical_variant_sql_null"), restored.getVector(0).isNull(0));
-                    if (original.getVector(0) instanceof org.apache.arrow.vector.VarBinaryVector binary) {
-                        assertArrayEquals(binary.get(0), ((org.apache.arrow.vector.VarBinaryVector) restored.getVector(0)).get(0));
+                    if (name.startsWith("logical_variant_")) {
+                        assertEquals("arrow.parquet.variant", metadata.get("ARROW:extension:name"));
+                        assertTrue(metadata.containsKey("ARROW:extension:metadata"));
+                        assertEquals("", metadata.get("ARROW:extension:metadata"));
+                        var children = restored.getSchema().getFields().getFirst().getChildren();
+                        assertEquals(List.of("metadata", "value"), children.stream().map(f -> f.getName()).toList());
+                        assertFalse(children.get(0).isNullable());
+                        assertTrue(children.get(1).isNullable());
+                        if (!name.equals("logical_variant_sql_null")) {
+                            var column = (org.apache.arrow.vector.complex.StructVector) restored.getVector(0);
+                            byte[] expectedMetadata = name.equals("logical_variant_null_member")
+                                    ? new byte[] {1, 1, 0, 7, 'p', 'r', 'e', 's', 'e', 'n', 't'} : new byte[] {1, 0, 0};
+                            byte[] expectedValue = name.equals("logical_variant_null") ? new byte[] {0}
+                                    : name.equals("logical_variant_absent") ? new byte[] {2, 0, 0} : new byte[] {2, 1, 0, 0, 1, 0};
+                            assertArrayEquals(expectedMetadata, ((org.apache.arrow.vector.VarBinaryVector) column.getChild("metadata")).get(0));
+                            assertArrayEquals(expectedValue, ((org.apache.arrow.vector.VarBinaryVector) column.getChild("value")).get(0));
+                        }
                     } else assertEquals(original.getVector(0).getObject(0), restored.getVector(0).getObject(0));
                     assertFalse(restoredReader.loadNextBatch());
                 }
