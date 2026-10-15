@@ -37,6 +37,41 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogContractsTest {
+    @Test void typedIndexesPreserveRawPathsContextAndOptionState() throws Exception {
+        assertEquals(List.of("a.b"), roundTrip("index_key_column", farm.query.vgi.protocol.IndexKey.class).column_path());
+        assertEquals(List.of("record", "a.b"), roundTrip("index_key_nested", farm.query.vgi.protocol.IndexKey.class).column_path());
+        assertNotNull(roundTrip("index_key_expression", farm.query.vgi.protocol.IndexKey.class).expression());
+        var definition = roundTrip("index_definition", farm.query.vgi.protocol.IndexDefinition.class);
+        roundTrip("index_definition_primary", farm.query.vgi.protocol.IndexDefinition.class);
+        assertArrayEquals(fixture("index_key_column"), definition.keys().get(0));
+        assertArrayEquals(fixture("index_key_expression"), definition.keys().get(1));
+        assertArrayEquals(fixture("values"), definition.options());
+        for (var name : List.of("index_info", "index_create", "index_create_cross_schema")) {
+            try (var allocator = new RootAllocator();
+                 var reader = new ArrowStreamReader(new ByteArrayInputStream(fixture(name)), allocator)) {
+                assertTrue(reader.loadNextBatch());
+                var source = reader.getVectorSchemaRoot();
+                assertEquals(farm.query.vgi.generated.VgiProtocolSchemas.byName().get(
+                        name.equals("index_info") ? "IndexInfo" : "IndexCreateRequest"),
+                        WireRecordSchemaConformanceTest.producedSchema(fixture(name)));
+                var bytes = new ByteArrayOutputStream();
+                var dictionaries = new org.apache.arrow.vector.dictionary.DictionaryProvider.MapDictionaryProvider(
+                        reader.getDictionaryVectors().values().toArray(org.apache.arrow.vector.dictionary.Dictionary[]::new));
+                try (var writer = new ArrowStreamWriter(source, dictionaries, bytes)) {
+                    writer.start(); writer.writeBatch(); writer.end();
+                }
+                try (var restored = new ArrowStreamReader(new ByteArrayInputStream(bytes.toByteArray()), allocator)) {
+                    assertTrue(restored.loadNextBatch());
+                    var row = restored.getVectorSchemaRoot();
+                    assertEquals(source.getSchema(), row.getSchema());
+                    assertEquals(1, row.getRowCount());
+                    assertArrayEquals(fixture("index_definition"), ((org.apache.arrow.vector.VarBinaryVector)row.getVector("definition")).get(0));
+                    if (name.equals("index_info")) assertArrayEquals(fixture("state"), ((org.apache.arrow.vector.VarBinaryVector)row.getVector("options")).get(0));
+                }
+            }
+        }
+    }
+
     @Test void columnExpressionMetadataRetainsExactIpcBytes() throws Exception {
         try (var allocator = new RootAllocator();
              var reader = new ArrowStreamReader(new ByteArrayInputStream(fixture("column_expression_metadata")), allocator)) {
@@ -302,7 +337,7 @@ class CatalogContractsTest {
         assertTrue(empty.dependencies().isEmpty());
     }
 
-    private static byte[] fixture(String name) throws Exception {
+    static byte[] fixture(String name) throws Exception {
         JsonObject corpus = JsonParser.parseString(Files.readString(
                 Path.of("../conformance/catalog-contracts.json"))).getAsJsonObject();
         return Base64.getDecoder().decode(corpus.getAsJsonObject("records").get(name).getAsString());

@@ -295,6 +295,8 @@ class WireRecordSchemaConformanceTest {
     private static Map<Class<? extends Record>, Codec> codecSerialised() {
         Map<Class<? extends Record>, Codec> m = new LinkedHashMap<>();
         m.put(CatalogCapabilities.class, new Codec("CatalogCapabilities", ORDERED));
+        m.put(farm.query.vgi.protocol.IndexKey.class, new Codec("IndexKey", ORDERED));
+        m.put(farm.query.vgi.protocol.IndexDefinition.class, new Codec("IndexDefinition", ORDERED));
         m.put(OptionDefinitions.class, new Codec("OptionDefinitions", ORDERED));
         m.put(farm.query.vgi.protocol.CatalogObjectRef.class, new Codec("CatalogObjectRef", ORDERED));
         m.put(farm.query.vgi.protocol.MacroParameter.class, new Codec("MacroParameter", ORDERED));
@@ -523,6 +525,9 @@ class WireRecordSchemaConformanceTest {
         org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("OptionDefinitions"),
                 VgiProtocolSchemas.byName().get("CatalogTableOptionDefinitionsResult"));
         checked.add("CatalogTableOptionDefinitionsResult");
+        org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("OptionDefinitions"),
+                VgiProtocolSchemas.byName().get("CatalogIndexOptionDefinitionsResult"));
+        checked.add("CatalogIndexOptionDefinitionsResult");
         org.junit.jupiter.api.Assertions.assertEquals(VgiProtocolSchemas.byName().get("DependencySnapshot"),
                 VgiProtocolSchemas.byName().get("CatalogDependenciesResult"));
         checked.add("CatalogDependenciesResult");
@@ -721,7 +726,7 @@ class WireRecordSchemaConformanceTest {
      * value type, so the value type is read back out of the dictionary batch
      * that travelled alongside and put where the field says it is.</p>
      */
-    private static Schema producedSchema(byte[] wire) throws IOException {
+    static Schema producedSchema(byte[] wire) throws IOException {
         try (RootAllocator alloc = new RootAllocator();
              ArrowStreamReader reader = new ArrowStreamReader(new ByteArrayInputStream(wire), alloc)) {
             if (!reader.loadNextBatch()) {

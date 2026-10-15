@@ -41,14 +41,14 @@ final class VgiProtocolSurfaceTest {
      * update the constant.
      */
     static final String REFERENCE_VGI_V2_HASH =
-            "a81e4c5fb450665c3e4991333ba8a404b6482a345269bc3df5b1c02680d71bea";
+            "8003abf6447266f5bc59cca76bef09df661f35fbbf0b360f400d92fdd4b12aee";
 
     /** The reference methods this SDK registers but does not implement. */
     private static final Set<String> UNIMPLEMENTED = new TreeSet<>(List.of(
             "aggregate_streaming_chunk", "aggregate_streaming_close", "aggregate_streaming_open",
             "aggregate_window", "aggregate_window_batch", "aggregate_window_destructor",
             "aggregate_window_init", "catalog_create", "catalog_drop", "catalog_index_create",
-            "catalog_index_drop", "catalog_index_get", "catalog_macro_create", "catalog_macro_drop",
+            "catalog_index_drop", "catalog_index_get", "catalog_index_option_definitions", "catalog_macro_create", "catalog_macro_drop",
             "catalog_table_column_comment_set", "catalog_table_column_default_drop",
             "catalog_table_column_default_set", "catalog_table_column_rename",
             "catalog_table_column_type_change", "catalog_table_comment_set",

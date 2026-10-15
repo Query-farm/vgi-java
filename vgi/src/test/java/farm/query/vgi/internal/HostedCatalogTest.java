@@ -133,6 +133,25 @@ final class HostedCatalogTest {
     }
 
     @Test
+    void unsupportedTypedIndexesPreserveHostedCatalog() throws Exception {
+        VgiServiceImpl svc = service(hostingWorker());
+        byte[] a = attach(svc, "mem");
+        svc.catalog_table_create(tableCreate(a, "t", "ERROR"), null);
+        long before = version(svc, a);
+        byte[] original = svc.catalog_table_get(a, MAIN, "t", null, null, null, null).items().get(0);
+        byte[] replace = CatalogContractsTest.fixture("index_create");
+        assertThrows(farm.query.vgirpc.MethodNotImplementedError.class,
+                () -> svc.catalog_index_create(replace, null));
+        assertThrows(farm.query.vgirpc.MethodNotImplementedError.class,
+                () -> svc.catalog_index_drop(a, MAIN, "t", true, true, null, null));
+        byte[] table = CatalogContractsTest.fixture("object_ref");
+        assertThrows(farm.query.vgirpc.MethodNotImplementedError.class,
+                () -> svc.catalog_index_option_definitions(a, table, "ART", null, null));
+        assertEquals(before, version(svc, a));
+        assertArrayEquals(original, svc.catalog_table_get(a, MAIN, "t", null, null, null, null).items().get(0));
+    }
+
+    @Test
     void unsupportedConstraintsRejectBeforeReplacement() {
         VgiServiceImpl svc = service(hostingWorker());
         byte[] a = attach(svc, "mem");
