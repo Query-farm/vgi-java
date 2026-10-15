@@ -47,7 +47,7 @@ final class VgiProtocolSurfaceTest {
     private static final Set<String> UNIMPLEMENTED = new TreeSet<>(List.of(
             "aggregate_streaming_chunk", "aggregate_streaming_close", "aggregate_streaming_open",
             "aggregate_window", "aggregate_window_batch", "aggregate_window_destructor",
-            "aggregate_window_init", "catalog_create", "catalog_drop", "catalog_index_create",
+            "aggregate_window_init", "catalog_create", "catalog_dependencies", "catalog_drop", "catalog_index_create",
             "catalog_index_drop", "catalog_index_get", "catalog_index_option_definitions", "catalog_macro_create", "catalog_macro_drop",
             "catalog_table_column_comment_set", "catalog_table_column_default_drop",
             "catalog_table_column_default_set", "catalog_table_column_rename",
