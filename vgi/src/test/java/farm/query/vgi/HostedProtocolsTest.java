@@ -102,7 +102,7 @@ final class HostedProtocolsTest {
         assertNull(w.buildServer(Worker.Transport.PIPE).identity());
         assertNull(w.buildServer(Worker.Transport.UNIX).identity());
         assertNull(w.buildServer(Worker.Transport.TCP).identity());
-        assertEquals(Identity.PROTOCOL_NAME, "vgi_rpc.Identity.v1");
+        assertEquals(Identity.PROTOCOL_NAME, "vgi_rpc.Identity.v2");
     }
 
     @Test

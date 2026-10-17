@@ -593,9 +593,9 @@ class WireRecordSchemaConformanceTest {
                     new Field("ttl_seconds", FieldType.notNullable(new ArrowType.Int(64, true)), null))),
             "AttachTicket", new Schema(List.of(
                     new Field("ticket", FieldType.notNullable(new ArrowType.Utf8()), null),
-                    new Field("expires_at", FieldType.notNullable(
-                            new ArrowType.FloatingPoint(org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE)),
-                            null))));
+                    // Protocol 2.0.0: a nullable UTC timestamp, null = no expiry (was float64).
+                    new Field("expires_at", FieldType.nullable(new ArrowType.Timestamp(
+                            org.apache.arrow.vector.types.TimeUnit.MICROSECOND, "UTC")), null))));
 
     private static Schema resolveProtocolSchema(String name) {
         if (ATTACH_TICKET_SCHEMAS.containsKey(name)) return ATTACH_TICKET_SCHEMAS.get(name);

@@ -80,7 +80,7 @@ public final class Worker {
     private byte[] opaqueDataKey;
     /** Supplies the protocols hosted beside {@code vgi.v2}; see {@link #hostedProtocols}. */
     private java.util.function.Supplier<? extends java.util.Collection<HostedProtocol>> hostedProtocolsHook;
-    /** {@code vgi_rpc.Identity.v1} hooks; absent unless set. See {@link #resolveToken}. */
+    /** {@code vgi_rpc.Identity.v2} hooks; absent unless set. See {@link #resolveToken}. */
     private farm.query.vgirpc.identity.TokenResolveHook resolveTokenHook;
     private farm.query.vgirpc.identity.GrantMintHook mintGrantHook;
     private List<String> introspectPrincipals;
@@ -327,7 +327,7 @@ public final class Worker {
      *
      * <p>Each protocol needs a distinct wire name ({@code @ProtocolName}). Names may not repeat,
      * may not be {@code vgi.v2}, and may not use the reserved {@code vgi_rpc.} prefix: reflection
-     * is hosted automatically, and {@code vgi_rpc.Identity.v1} is enabled by
+     * is hosted automatically, and {@code vgi_rpc.Identity.v2} is enabled by
      * {@link #resolveToken} / {@link #mintGrant}. A violation is a startup error naming this hook.
      * Requests are routed on their {@code vgi_rpc.protocol} key, so hosting more protocols never
      * changes how a {@code vgi.v2} request is dispatched.
@@ -342,7 +342,7 @@ public final class Worker {
     }
 
     /**
-     * Host {@code vgi_rpc.Identity.v1}'s {@code introspect_token} on HTTP, backed by {@code hook}.
+     * Host {@code vgi_rpc.Identity.v2}'s {@code introspect_token} on HTTP, backed by {@code hook}.
      *
      * <p>Lets a reverse proxy that terminates the only public listener resolve an opaque bearer
      * credential to a principal. Absent unless set -- not hosted-and-refusing -- which keeps a
@@ -378,7 +378,7 @@ public final class Worker {
     }
 
     /**
-     * Host {@code vgi_rpc.Identity.v1}'s {@code issue_grant} on HTTP, backed by {@code hook}.
+     * Host {@code vgi_rpc.Identity.v2}'s {@code issue_grant} on HTTP, backed by {@code hook}.
      *
      * <p>The subject is always the authenticated caller, never a parameter. Throw
      * {@code GrantRefusedError} to decline; for a transient failure throw
@@ -395,7 +395,7 @@ public final class Worker {
     }
 
     /**
-     * Turn on sealed grants (IDENTITY_V1_SPEC.md §9), overriding {@code VGI_RPC_GRANT_KEYS}.
+     * Turn on sealed grants (IDENTITY_V2_SPEC.md §9), overriding {@code VGI_RPC_GRANT_KEYS}.
      *
      * <p>With keys, over HTTP the worker hosts {@code issue_grant} and mints sealed grants itself
      * (unless {@link #mintGrant} supplies a minter of its own), and its HTTP authentication accepts
@@ -1654,7 +1654,7 @@ public final class Worker {
 
     /**
      * The transport a server is being built for. Only {@link #HTTP} changes what is hosted
-     * (opaque-data sealing and {@code vgi_rpc.Identity.v1}); the rest are named so the decision
+     * (opaque-data sealing and {@code vgi_rpc.Identity.v2}); the rest are named so the decision
      * lives in {@link #buildServer} rather than at each call site.
      */
     enum Transport { PIPE, UNIX, TCP, IROH, HTTP }
@@ -1671,7 +1671,7 @@ public final class Worker {
      *       ({@link #signingKey(byte[])}, {@link #opaqueDataKey(byte[])} or {@code VGI_SIGNING_KEY})
      *       and the worker can issue grants (grant keys, or {@link #mintGrant});</li>
      *   <li>{@code vgi_rpc.Reflection.v1} -- always, on every transport;</li>
-     *   <li>{@code vgi_rpc.Identity.v1} -- HTTP only, and only when {@link #resolveToken},
+     *   <li>{@code vgi_rpc.Identity.v2} -- HTTP only, and only when {@link #resolveToken},
      *       {@link #mintGrant} or grant keys are set.</li>
      * </ol>
      *
@@ -1735,7 +1735,7 @@ public final class Worker {
                 throw new IllegalArgumentException(owner + " entry " + index + " ("
                         + pair.protocol().getName() + ") is named '" + name + "', which claims the "
                         + "reserved 'vgi_rpc.' prefix. Framework protocols are not supplied through "
-                        + "this hook: reflection is hosted automatically, and vgi_rpc.Identity.v1 is "
+                        + "this hook: reflection is hosted automatically, and vgi_rpc.Identity.v2 is "
                         + "enabled by Worker.resolveToken() and/or Worker.mintGrant().");
             }
             if (name.equals(server.protocolName())) {
@@ -1754,7 +1754,7 @@ public final class Worker {
     }
 
     /**
-     * Build {@code vgi_rpc.Identity.v1}, or {@code null} when neither hook is set -- so the
+     * Build {@code vgi_rpc.Identity.v2}, or {@code null} when neither hook is set -- so the
      * protocol is <em>absent</em>, not hosted-and-refusing.
      *
      * @throws IllegalArgumentException when {@link #resolveToken} is set but no introspector

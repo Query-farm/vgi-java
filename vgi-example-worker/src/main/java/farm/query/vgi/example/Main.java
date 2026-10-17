@@ -329,7 +329,7 @@ public final class Main {
             return;
         }
         Worker worker = buildWorker(catalogName, implVer, dataSpec);
-        // Test-only: host vgi_rpc.Identity.v1 over HTTP with the vgi-rpc conformance policy and
+        // Test-only: host vgi_rpc.Identity.v2 over HTTP with the vgi-rpc conformance policy and
         // its spoofable header authentication, for `vgi-rpc-test-hosted --url ... --identity`.
         // Off by default so the DuckDB integration runs see the same worker as before.
         List<String> rest = new ArrayList<>(List.of(args));

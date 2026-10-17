@@ -111,7 +111,7 @@ jobs:
   # vgi-rpc's hosted-protocols group against the example worker on stdio, unix
   # and HTTP: conformance.Secondary.v1 hosted beside vgi.v2 through
   # Worker.hostedProtocols, the error model, the traceback policy, and over HTTP
-  # the vgi_rpc.Identity.v1 conformance policy (--identity).
+  # the vgi_rpc.Identity.v2 conformance policy (--identity).
   #
   # The reference is cloned from main, deliberately unpinned -- the same pattern
   # vgi-rpc-java's conformance lanes use: it is the yardstick, and a pinned

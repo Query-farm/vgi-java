@@ -51,6 +51,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -116,7 +117,8 @@ final class AttachTicketHttpTest {
             ticket = sealed.ticket();
             assertTrue(ticket.startsWith(AttachTickets.PREFIX), ticket);
             long now = System.currentTimeMillis() / 1000;
-            assertTrue(Math.abs(sealed.expires_at() - (now + KEYS.maxTtlSeconds())) <= 5,
+            assertNotNull(sealed.expires_at(), "the grant keys set a maximum lifetime");
+            assertTrue(Math.abs(sealed.expires_at().getEpochSecond() - (now + KEYS.maxTtlSeconds())) <= 5,
                     "ttl 0 means the grant maximum: " + sealed.expires_at());
             grant = issueGrant(alice, "nightly");
         }
@@ -177,7 +179,9 @@ final class AttachTicketHttpTest {
             assertTrue(details.contains("options.VGI_ATTACH_TICKET") && details.contains("ttl_seconds"), details);
             AttachTicket capped = tickets.seal_attach(new SealAttachRequest(TicketProbeFixture.CATALOG_NAME,
                     options(Map.of("api_key", API_KEY)), "", "", 60), null);
-            assertTrue(capped.expires_at() - System.currentTimeMillis() / 1000.0 <= 61, "a requested ttl is honoured");
+            assertNotNull(capped.expires_at());
+            assertTrue(capped.expires_at().getEpochSecond() - System.currentTimeMillis() / 1000.0 <= 61,
+                    "a requested ttl is honoured");
         }
     }
 

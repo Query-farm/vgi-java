@@ -305,6 +305,13 @@ lifecycle methods + per-execution state don't translate one-for-one.
 
 ## Attach tickets (2026-10-07)
 
+> **Protocol 2.0.0 (2026-10-17):** `AttachTicket.expires_at` is a nullable
+> `timestamp[us, tz="UTC"]` (`Instant`, null = no expiry; was float64 seconds with
+> `+Infinity`), and `issue_grant` lives on `vgi_rpc.Identity.v2` (`IssuedGrant.expires_at`
+> is an `Instant`). The sealed claims are unchanged. Needs the vgi-rpc-java release with
+> Identity.v2. Fixed on the way: `seal_attach` with no lifetime ceiling and `ttl_seconds = 0`
+> threw NullPointerException (a `Long`/`long` ternary unboxed the null ceiling).
+
 `vgi.attach_tickets.v1` (`seal_attach`) and `vgi_attach_ticket` redemption, ported
 from vgi-python `f5e99c7` (`docs/protocol/vgi-attach-tickets.md`). Format and
 redemption: `AttachTickets`. XChaCha20 is a local copy
