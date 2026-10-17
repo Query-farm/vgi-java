@@ -33,7 +33,9 @@ public record SchemaInfo(
 
     /** Canonicalises the map columns to key order, so equal schemas encode to equal bytes. */
     public SchemaInfo {
-        tags = WireMaps.sorted(tags);
+        // tags / path are non-nullable on the wire: a null reads as empty.
+        tags = WireMaps.sorted(tags == null ? Map.of() : tags);
+        path = path == null ? List.of() : path;
         estimated_object_count = WireMaps.sorted(estimated_object_count);
     }
 

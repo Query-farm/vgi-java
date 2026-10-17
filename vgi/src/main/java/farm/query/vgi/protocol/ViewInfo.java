@@ -28,7 +28,9 @@ public record ViewInfo(
 
     /** Canonicalises the map columns to key order, so equal views encode to equal bytes. */
     public ViewInfo {
-        tags = WireMaps.sorted(tags);
-        column_comments = WireMaps.sorted(column_comments);
+        // Every list/map column is non-nullable on the wire: a null reads as empty.
+        tags = WireMaps.sorted(tags == null ? Map.of() : tags);
+        schema_path = schema_path == null ? List.of() : schema_path;
+        column_comments = WireMaps.sorted(column_comments == null ? Map.of() : column_comments);
     }
 }

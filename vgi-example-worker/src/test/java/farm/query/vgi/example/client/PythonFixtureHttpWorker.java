@@ -195,9 +195,6 @@ final class PythonFixtureHttpWorker implements VgiHttpWorkerUnderTest {
 
     @Override public String label() { return "vgi-python"; }
 
-    /** vgi-python emits the FunctionType enum's <em>name</em> here. */
-    @Override public String tableFunctionTypeLabel() { return "TABLE"; }
-
     /** {@return the lines the worker printed before announcing its port} */
     List<String> startupLog() { return List.copyOf(startupLog); }
 

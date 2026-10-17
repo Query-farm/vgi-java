@@ -247,9 +247,9 @@ abstract class AbstractVgiHttpConformanceTest {
         // shows up here and nowhere else.
         FunctionInfo sequence = tables.get("sequence");
         assertEquals("main", sequence.schema_name(), where("sequence.schema_name"));
-        // Not a literal: the two workers legitimately spell this differently —
-        // see VgiHttpWorkerUnderTest#tableFunctionTypeLabel.
-        assertEquals(worker().tableFunctionTypeLabel(), sequence.function_type(),
+        // The vgi-python enum member NAME, on every worker: strict clients
+        // reject the lower-case value ("table") vgi-java used to send.
+        assertEquals("TABLE", sequence.function_type(),
                 where("sequence.function_type"));
         assertFalse(sequence.description().isBlank(), where("sequence.description"));
         assertEquals(Boolean.TRUE, sequence.filter_pushdown(), where("sequence.filter_pushdown"));

@@ -47,4 +47,22 @@ public record SchemaContents(
         List<byte[]> scalar_macros,
         List<byte[]> table_macros,
         List<byte[]> indexes) implements ArrowSerializableRecord {
+
+    /**
+     * Reads a {@code null} list/map component as empty: those columns are
+     * non-nullable on the wire, and the record codec would otherwise write a
+     * null into them, which a strict client rejects.
+     */
+    public SchemaContents {
+        path = path == null ? List.of() : path;
+        tables = tables == null ? List.of() : tables;
+        views = views == null ? List.of() : views;
+        scalar_functions = scalar_functions == null ? List.of() : scalar_functions;
+        aggregate_functions = aggregate_functions == null ? List.of() : aggregate_functions;
+        table_functions = table_functions == null ? List.of() : table_functions;
+        scalar_macros = scalar_macros == null ? List.of() : scalar_macros;
+        table_macros = table_macros == null ? List.of() : table_macros;
+        indexes = indexes == null ? List.of() : indexes;
+    }
+
 }

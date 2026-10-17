@@ -18,4 +18,15 @@ import java.util.List;
 public record DynamicToStringResponse(
         List<String> keys,
         List<String> values) implements ArrowSerializableRecord {
+
+    /**
+     * Reads a {@code null} list/map component as empty: those columns are
+     * non-nullable on the wire, and the record codec would otherwise write a
+     * null into them, which a strict client rejects.
+     */
+    public DynamicToStringResponse {
+        keys = keys == null ? List.of() : keys;
+        values = values == null ? List.of() : values;
+    }
+
 }

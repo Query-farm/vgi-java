@@ -28,6 +28,18 @@ public record BindResponse(
         List<String> lookup_names) implements ArrowSerializableRecord {
 
     /**
+     * Reads a {@code null} list/map component as empty: those columns are
+     * non-nullable on the wire, and the record codec would otherwise write a
+     * null into them, which a strict client rejects.
+     */
+    public BindResponse {
+        lookup_secret_types = lookup_secret_types == null ? List.of() : lookup_secret_types;
+        lookup_scopes = lookup_scopes == null ? List.of() : lookup_scopes;
+        lookup_names = lookup_names == null ? List.of() : lookup_names;
+    }
+
+
+    /**
      * Builds a response carrying only an output schema, with no opaque data and no secret lookup.
      *
      * @param outputSchema serialised Arrow {@code Schema} bytes (IPC stream)

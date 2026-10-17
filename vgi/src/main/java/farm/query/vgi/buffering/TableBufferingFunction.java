@@ -26,7 +26,7 @@ import java.util.List;
  *       emits one batch per tick until it calls {@code out.finish()}.</li>
  * </ol>
  *
- * <p>The function's wire {@code function_type} is {@code "table_buffering"},
+ * <p>The function's wire {@code function_type} is {@code "TABLE_BUFFERING"},
  * which selects the C++ Sink+Source operator. Ordering knobs (sink/source
  * order, batch-index) ride on {@link FunctionMetadata}.</p>
  */

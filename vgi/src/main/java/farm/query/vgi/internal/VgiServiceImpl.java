@@ -2806,7 +2806,7 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private static farm.query.vgi.protocol.MacroInfo toMacroInfo(Macro m) {
-        String macroType = m.macroType() == MacroType.SCALAR ? "scalar" : "table";
+        String macroType = m.macroType() == MacroType.SCALAR ? "SCALAR" : "TABLE";
         byte[] defaults = MacroDefaultsEncoder.encode(m.parameterDefaults());
         // arguments_schema: one nullable field per parameter (in order), field
         // type from the default-value literal when known else Arrow null, and a
@@ -2954,7 +2954,7 @@ public final class VgiServiceImpl implements VgiService {
                 }
             }
             // Buffering (Sink+Source) functions also surface as table functions;
-            // their FunctionInfo.function_type="table_buffering" selects the
+            // their FunctionInfo.function_type="TABLE_BUFFERING" selects the
             // C++ buffering operator.
             for (var variants : bufferingFns.values()) {
                 for (var fn : variants) {
@@ -3085,7 +3085,7 @@ public final class VgiServiceImpl implements VgiService {
      */
     static FunctionInfo scalarFunctionInfo(ScalarFunction fn, String schemaName) {
         BindResponse r = fn.onBind(new ScalarBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return baseFunctionInfo(fn, schemaName, "scalar", bindOutput(r), false);
+        return baseFunctionInfo(fn, schemaName, "SCALAR", bindOutput(r), false);
     }
 
     private FunctionInfo toTableFunctionInfo(TableFunction fn, String schemaName) {
@@ -3108,11 +3108,11 @@ public final class VgiServiceImpl implements VgiService {
             // context. Calling onBind here would (intentionally) throw, so
             // advertise an empty output schema, mirroring vgi-python's
             // _function_to_info (which emits an empty schema for table funcs).
-            return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "table",
+            return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "TABLE",
                     SchemaUtil.serializeSchema(new Schema(List.of())), false), fn.requiredSecrets());
         }
         BindResponse r = fn.onBind(new TableBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "table", bindOutput(r), false),
+        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "TABLE", bindOutput(r), false),
                 fn.requiredSecrets());
     }
 
@@ -3124,7 +3124,7 @@ public final class VgiServiceImpl implements VgiService {
         // C++ in-out registration branch with real-typed positional args; the
         // C++ rejects input_from_args && has_finalize, and RowTransformFunction
         // pins hasFinalize() to false, so the pair stays consistent.
-        FunctionInfo base = baseFunctionInfo(fn, schemaName, "table", bindOutput(r), fn.hasFinalize());
+        FunctionInfo base = baseFunctionInfo(fn, schemaName, "TABLE", bindOutput(r), fn.hasFinalize());
         // Re-stamp the TIO-specific fields baseFunctionInfo hardcodes:
         // max_workers (0 = the C++ parallel-by-default per-substream fan-out;
         // 1 would be the A3 serial opt-out AND disqualify the exchange-mode
@@ -3151,7 +3151,7 @@ public final class VgiServiceImpl implements VgiService {
     private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
         // The C++ extension pre-resolves the declared secrets and delivers them
         // on AggregateBindRequest.secrets.
-        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "aggregate",
+        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "AGGREGATE",
                 SchemaUtil.serializeSchema(fn.outputSchema()), false), fn.requiredSecrets());
     }
 
@@ -3184,7 +3184,7 @@ public final class VgiServiceImpl implements VgiService {
     private FunctionInfo toBufferingFunctionInfo(
             farm.query.vgi.buffering.TableBufferingFunction fn, String schemaName) {
         BindResponse r = fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        FunctionInfo base = baseFunctionInfo(fn.name(), fn.metadata(), schemaName, "table_buffering",
+        FunctionInfo base = baseFunctionInfo(fn.name(), fn.metadata(), schemaName, "TABLE_BUFFERING",
                 ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), bindOutput(r),
                 encodeParameterDefaults(fn), /*hasFinalize=*/true, 1, null);
         // Re-stamp the buffering-specific ordering flags (baseFunctionInfo
@@ -3242,7 +3242,7 @@ public final class VgiServiceImpl implements VgiService {
         int maxWorkers = fn instanceof TableFunction tf ? (int) tf.maxWorkers() : 1;
         List<String> argumentMonotonicity = null;
         if (fn.argumentMonotonicity() != null) {
-            if (!"scalar".equals(type)) {
+            if (!"SCALAR".equals(type)) {
                 throw new IllegalArgumentException(
                         "argumentMonotonicity is only valid for scalar functions");
             }
@@ -3282,7 +3282,7 @@ public final class VgiServiceImpl implements VgiService {
                 outputSchema,
                 parameterDefaultValues,
                 stabilityWire(md.stability()),
-                (BAD_ENUM_MODE && "scalar".equals(type) && "double".equals(name))
+                (BAD_ENUM_MODE && "SCALAR".equals(type) && "double".equals(name))
                         ? "WEIRD" : nullHandlingWire(md.nullHandling()),
                 argumentMonotonicity,
                 md.description(),

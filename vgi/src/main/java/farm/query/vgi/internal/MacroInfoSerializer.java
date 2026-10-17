@@ -30,7 +30,7 @@ public final class MacroInfoSerializer {
     private MacroInfoSerializer() {}
 
     private static final EnumDict MACRO_TYPE = new EnumDict("macro_type",
-            DictionaryIds.MACRO_TYPE, List.of("scalar", "table"));
+            DictionaryIds.MACRO_TYPE, List.of("SCALAR", "TABLE"));
 
     private static final Schema SCHEMA = new Schema(List.of(
             nullable("comment", UTF8),

@@ -46,7 +46,7 @@ final class FunctionInfoSerializer {
     private FunctionInfoSerializer() {}
 
     private static final EnumDict FUNCTION_TYPE = new EnumDict("function_type",
-            DictionaryIds.FUNCTION_TYPE, List.of("scalar", "table", "aggregate", "table_buffering"));
+            DictionaryIds.FUNCTION_TYPE, List.of("SCALAR", "TABLE", "AGGREGATE", "TABLE_BUFFERING"));
     private static final EnumDict STABILITY = new EnumDict("stability",
             DictionaryIds.STABILITY, List.of("CONSISTENT", "VOLATILE", "CONSISTENT_WITHIN_QUERY"));
     private static EnumDict NULL_HANDLING = new EnumDict("null_handling",
@@ -213,7 +213,7 @@ final class FunctionInfoSerializer {
     private static void validateArgumentMonotonicity(FunctionInfo info) {
         List<String> values = info.argument_monotonicity();
         if (values == null) return;
-        if (!"scalar".equals(info.function_type())) {
+        if (!"SCALAR".equalsIgnoreCase(info.function_type())) {
             throw new IllegalArgumentException("argument_monotonicity is only valid for scalar functions");
         }
         int expected = SchemaUtil.deserializeSchema(info.arguments()).getFields().size();

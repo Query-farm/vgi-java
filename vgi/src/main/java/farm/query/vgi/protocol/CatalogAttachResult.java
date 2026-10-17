@@ -87,4 +87,18 @@ public record CatalogAttachResult(
         @Nullable String resolved_data_version,
         @Nullable String resolved_implementation_version,
         boolean supports_catalog_contents) implements ArrowSerializableRecord {
+
+    /**
+     * Reads a {@code null} list/map component as empty: those columns are
+     * non-nullable on the wire, and the record codec would otherwise write a
+     * null into them, which a strict client rejects.
+     */
+    public CatalogAttachResult {
+        settings = settings == null ? List.of() : settings;
+        secret_types = secret_types == null ? List.of() : secret_types;
+        attach_catalogs = attach_catalogs == null ? List.of() : attach_catalogs;
+        tags = tags == null ? Map.of() : tags;
+        global_functions = global_functions == null ? List.of() : global_functions;
+    }
+
 }

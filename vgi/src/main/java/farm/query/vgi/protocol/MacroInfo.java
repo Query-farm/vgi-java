@@ -14,7 +14,7 @@ import java.util.Map;
  * Mirrors the C++ {@code MacroInfoSchema}.
  *
  * <p>{@code macro_type} is a dictionary-encoded enum on the wire
- * ({@code "scalar"} or {@code "table"}); {@code parameter_default_values}
+ * ({@code "SCALAR"} or {@code "TABLE"}); {@code parameter_default_values}
  * carries an IPC-encoded 1-row record batch holding default values for any
  * named parameters that omit a positional default.
  *
@@ -22,7 +22,7 @@ import java.util.Map;
  * @param tags                     arbitrary key/value metadata tags.
  * @param name                     macro name.
  * @param schema_path              owning schema identifier components.
- * @param macro_type               dictionary-encoded macro kind ({@code "scalar"} or {@code "table"}).
+ * @param macro_type               dictionary-encoded macro kind ({@code "SCALAR"} or {@code "TABLE"}).
  * @param parameters               positional parameter names.
  * @param parameter_default_values IPC-encoded 1-row batch of named-parameter defaults;
  *                                 {@code null} or empty when there are none.

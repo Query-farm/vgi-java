@@ -49,13 +49,23 @@ public record EnumDict(String name, long id, List<String> values) {
      * Write a value's dictionary index into row 0 of the index vector.
      *
      * @param v     the int16 index vector
-     * @param value the enum value, or {@code null} to write null
+     * @param value the enum value (matched case-insensitively; the declared
+     *              spelling is what reaches the wire), or {@code null} to write null
      * @throws IllegalArgumentException if {@code value} is not a known enum value
      */
     public void write(org.apache.arrow.vector.FieldVector v, String value) {
         SmallIntVector iv = (SmallIntVector) v;
         if (value == null) { iv.setNull(0); return; }
         int idx = values.indexOf(value);
+        if (idx < 0) {
+            // A hand-built record (e.g. a CatalogInterface returning
+            // MacroInfo with "scalar") may spell the enum in another case.
+            // The wire always carries the declared spelling -- the vgi-python
+            // enum member NAME -- which strict clients require, so fold to it.
+            for (int i = 0; i < values.size(); i++) {
+                if (values.get(i).equalsIgnoreCase(value)) { idx = i; break; }
+            }
+        }
         if (idx < 0) {
             throw new IllegalArgumentException("unknown dict value '" + value + "' for " + name);
         }

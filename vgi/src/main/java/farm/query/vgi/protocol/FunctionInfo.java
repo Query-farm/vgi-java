@@ -20,8 +20,9 @@ import java.util.Map;
  * @param tags                         arbitrary key/value metadata tags.
  * @param name                         function name.
  * @param schema_path                  owning schema identifier components.
- * @param function_type                dictionary-encoded function kind (e.g. {@code "scalar"},
- *                                     {@code "table"}, {@code "table_in_out"}, {@code "table_buffering"}).
+ * @param function_type                dictionary-encoded function kind: the vgi-python enum
+ *                                     member name, one of {@code "SCALAR"}, {@code "TABLE"},
+ *                                     {@code "AGGREGATE"}, {@code "TABLE_BUFFERING"}.
  * @param arguments                    IPC-encoded argument-spec batch.
  * @param output_schema                IPC-encoded output schema.
  * @param stability                    dictionary-encoded function stability, or {@code null}.

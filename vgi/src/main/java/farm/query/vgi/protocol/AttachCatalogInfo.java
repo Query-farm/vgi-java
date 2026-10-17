@@ -36,4 +36,14 @@ public record AttachCatalogInfo(
         Map<String, String> options,
         boolean hidden,
         boolean required,
-        String secret_ref) implements ArrowSerializableRecord {}
+        String secret_ref) implements ArrowSerializableRecord {
+
+    /**
+     * Reads a {@code null} list/map component as empty: those columns are
+     * non-nullable on the wire, and the record codec would otherwise write a
+     * null into them, which a strict client rejects.
+     */
+    public AttachCatalogInfo {
+        options = options == null ? Map.of() : options;
+    }
+}

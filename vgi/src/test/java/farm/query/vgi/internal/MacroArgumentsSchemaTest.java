@@ -70,7 +70,7 @@ class MacroArgumentsSchemaTest {
         assertNotNull(argsSchemaIpc);
 
         farm.query.vgi.protocol.MacroInfo info = new farm.query.vgi.protocol.MacroInfo(
-                "a comment", Map.of(), "m", "main", "scalar",
+                "a comment", Map.of(), "m", "main", "SCALAR",
                 params, new byte[0], "a + b", argsSchemaIpc);
 
         // Serialize the full MacroInfo (arguments_schema rides as the last field)

@@ -216,7 +216,7 @@ class WireRecordSchemaConformanceTest {
         return List.of(
                 new HandBuilt(FunctionInfo.class, "FunctionInfo",
                         r -> FunctionInfoSerializer.serialize((FunctionInfo) r),
-                        Map.of("function_type", "table",
+                        Map.of("function_type", "TABLE",
                                 "stability", "CONSISTENT",
                                 "null_handling", "DEFAULT",
                                 "order_preservation", "NO_ORDER_GUARANTEE",
@@ -225,7 +225,7 @@ class WireRecordSchemaConformanceTest {
                                 "distinct_dependent", "NOT_DISTINCT_DEPENDENT")),
                 new HandBuilt(MacroInfo.class, "MacroInfo",
                         r -> MacroInfoSerializer.serialize((MacroInfo) r),
-                        Map.of("macro_type", "scalar")),
+                        Map.of("macro_type", "SCALAR")),
                 new HandBuilt(TableInfo.class, "TableInfo",
                         r -> TableInfoSerializer.serialize((TableInfo) r),
                         Map.of()),

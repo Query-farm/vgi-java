@@ -35,4 +35,14 @@ public record CatalogContentsResponse(
         @Nullable String etag,
         boolean not_modified,
         List<SchemaContents> schemas) implements ArrowSerializableRecord {
+
+    /**
+     * Reads a {@code null} list/map component as empty: those columns are
+     * non-nullable on the wire, and the record codec would otherwise write a
+     * null into them, which a strict client rejects.
+     */
+    public CatalogContentsResponse {
+        schemas = schemas == null ? List.of() : schemas;
+    }
+
 }

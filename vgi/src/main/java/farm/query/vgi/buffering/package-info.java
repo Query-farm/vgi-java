@@ -7,7 +7,7 @@
  * output. It runs as a three-phase lifecycle over the VGI wire — Sink
  * ({@code process} per input batch), {@code combine} (once, end-of-input), and
  * Source ({@code createFinalizeProducer} per output stream) — selected by the
- * {@code "table_buffering"} function type. Buffered batches are stashed in a
+ * {@code "TABLE_BUFFERING"} function type. Buffered batches are stashed in a
  * per-{@code execution_id} storage view that survives worker fan-out.</p>
  *
  * <ul>
