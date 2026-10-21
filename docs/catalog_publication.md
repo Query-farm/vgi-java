@@ -16,3 +16,5 @@ Defaults reject publication failures, limit raw and stored payloads to 128 MiB e
 The manager exposes startup warming, trusted manifest import, and conditional invalidation. Keep identity/revision callbacks cheap and independent of collection serialization. Externalized responses use the existing vgi-rpc result-pointer contract; there is no schema-level publication RPC.
 
 Java: call `Worker.catalogSnapshot(policy)`. Use `policy.manager.warm`, `importPublication`, and `invalidate`. This implementation requires `farm.query:vgirpc:0.33.1`, including its collection row codec and idempotent IPC stream termination.
+
+CI pins the matching RPC source commit while the separate 0.33.1 Maven release is pending. Publish that RPC release before publishing this SDK.

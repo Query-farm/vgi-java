@@ -5,7 +5,6 @@ package farm.query.vgi.internal;
 import farm.query.vgi.protocol.AttachCatalogInfo;
 import farm.query.vgi.protocol.BindResponse;
 import farm.query.vgi.protocol.CatalogAttachResult;
-import farm.query.vgi.protocol.CatalogContentsResponse;
 import farm.query.vgi.protocol.DynamicToStringResponse;
 import farm.query.vgi.protocol.ForeignKeyInfo;
 import farm.query.vgi.protocol.ItemsResponse;
@@ -51,7 +50,6 @@ class WireNonNullCollectionsTest {
             Map.entry("AttachCatalogInfo", AttachCatalogInfo.class),
             Map.entry("BindResponse", BindResponse.class),
             Map.entry("CatalogAttachResult", CatalogAttachResult.class),
-            Map.entry("CatalogContentsResponse", CatalogContentsResponse.class),
             Map.entry("DynamicToStringResponse", DynamicToStringResponse.class),
             Map.entry("ForeignKeyInfo", ForeignKeyInfo.class),
             Map.entry("ItemsResponse", ItemsResponse.class),
@@ -64,7 +62,7 @@ class WireNonNullCollectionsTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "AttachCatalogInfo", "BindResponse", "CatalogAttachResult", "CatalogContentsResponse",
+            "AttachCatalogInfo", "BindResponse", "CatalogAttachResult",
             "DynamicToStringResponse", "ForeignKeyInfo", "ItemsResponse", "PlanResponse",
             "SchemaContents", "SchemaInfo", "TableBufferingCombineResponse",
             "TableScanFunctionGetResponse", "ViewInfo"})

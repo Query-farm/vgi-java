@@ -57,7 +57,8 @@ env:
   # v0.31.0 makes identity.XChaCha20Poly1305 public; AttachTickets uses it
   # instead of a copy.
   # Keep in step with the identical pin in integration.yml.
-  VGI_RPC_JAVA_REF: v0.33.0
+  # Source revision for 0.33.1; replace with v0.33.1 after the package release.
+  VGI_RPC_JAVA_REF: 3a8a300a10226be1b56e0458e81ffa3212b73f1d
 
 jobs:
   test:
