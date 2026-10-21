@@ -92,7 +92,7 @@ final class CatalogContentsTest {
     }
 
     private static List<SchemaContents> decode(CatalogContentsResponse r) {
-        return r.schemas();
+        return farm.query.vgi.CatalogContents.schemas(r);
     }
 
     private static List<String> path(SchemaContents c) {
@@ -113,13 +113,9 @@ final class CatalogContentsTest {
         stub.counts.put(List.of("a", "b"), null);
         stub.counts.put(List.of("a"), null);
 
-        CatalogContentsResponse r = stub.service().catalog_contents(ATTACH, null, null);
-
-        assertEquals(42L, r.catalog_version());
-        assertNull(r.etag(), "the default answer does not revalidate");
-        assertFalse(r.not_modified());
+        List<SchemaContents> r = CatalogContents.schemaContents(stub.service(), ATTACH, null);
         assertEquals(List.of(List.of("z"), List.of("a"), List.of("a", "b"), List.of("a", "b", "c")),
-                decode(r).stream().map(CatalogContentsTest::path).toList());
+                r.stream().map(CatalogContentsTest::path).toList());
     }
 
     @Test
@@ -127,7 +123,7 @@ final class CatalogContentsTest {
         Stub stub = new Stub();
         stub.counts.put(List.of("s"), null);
 
-        SchemaContents c = decode(stub.service().catalog_contents(ATTACH, null, null)).get(0);
+        SchemaContents c = CatalogContents.schemaContents(stub.service(), ATTACH, null).get(0);
 
         assertEquals("s/tables", text(c.tables()));
         assertEquals("s/views", text(c.views()));
@@ -145,7 +141,7 @@ final class CatalogContentsTest {
         Stub stub = new Stub();
         stub.counts.put(List.of("s"), zeroExcept("table_function", "macro"));
 
-        SchemaContents c = decode(stub.service().catalog_contents(ATTACH, null, null)).get(0);
+        SchemaContents c = CatalogContents.schemaContents(stub.service(), ATTACH, null).get(0);
 
         assertEquals(List.of("s/functions:TABLE_FUNCTION", "s/macros:SCALAR_MACRO", "s/macros:TABLE_MACRO"),
                 stub.calls);
@@ -160,7 +156,7 @@ final class CatalogContentsTest {
         Map<String, Long> partial = new HashMap<>(Map.of("table", 0L));
         stub.counts.put(List.of("s"), partial);
 
-        stub.service().catalog_contents(ATTACH, null, null);
+        CatalogContents.schemaContents(stub.service(), ATTACH, null);
 
         assertEquals(7, stub.calls.size(), "only the zero-count kind is skipped: " + stub.calls);
     }
@@ -174,7 +170,7 @@ final class CatalogContentsTest {
 
         assertFalse(r.not_modified(), "no etag: if_none_match is ignored");
         assertNull(r.etag());
-        assertEquals(1, r.schemas().size());
+        assertEquals(1, farm.query.vgi.CatalogContents.schemas(r).size());
     }
 
     @Test

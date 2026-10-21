@@ -4,6 +4,11 @@ package farm.query.vgi;
 
 import farm.query.vgi.protocol.CatalogContentsResponse;
 import farm.query.vgi.protocol.ItemsResponse;
+import farm.query.vgi.protocol.TableInfo;
+import farm.query.vgi.protocol.ViewInfo;
+import farm.query.vgi.protocol.FunctionInfo;
+import farm.query.vgi.protocol.MacroInfo;
+import farm.query.vgi.protocol.IndexInfo;
 import farm.query.vgi.protocol.SchemaContents;
 import farm.query.vgi.protocol.SchemaInfo;
 import farm.query.vgirpc.CallContext;
@@ -126,17 +131,77 @@ public final class CatalogContents {
                 throw new IllegalStateException(
                         "catalog_contents returned not_modified with schemas; it must return none");
             }
-            return new CatalogContentsResponse(version, result.etag(), true, List.of());
+            return unchanged(version, result.etag());
         }
         List<SchemaContents> schemas = parentsFirst(result.schemas());
         String etag = result.etag();
+        if (etag != null && etag.equals(if_none_match)) return unchanged(version, etag);
+        CatalogContentsResponse response = new CatalogContentsResponse(version, etag, false,
+                MetadataCollections.merge(schemas.stream().map(SchemaContents::schema).toList(), SchemaInfo.class),
+                MetadataCollections.merge(schemas.stream().flatMap(c -> c.tables().stream()).toList(), TableInfo.class),
+                MetadataCollections.merge(schemas.stream().flatMap(c -> c.views().stream()).toList(), ViewInfo.class),
+                MetadataCollections.merge(schemas.stream().flatMap(c -> java.util.stream.Stream.of(c.scalar_functions(), c.aggregate_functions(), c.table_functions()).flatMap(List::stream)).toList(), FunctionInfo.class),
+                MetadataCollections.merge(schemas.stream().flatMap(c -> java.util.stream.Stream.of(c.scalar_macros(), c.table_macros()).flatMap(List::stream)).toList(), MacroInfo.class),
+                MetadataCollections.merge(schemas.stream().flatMap(c -> c.indexes().stream()).toList(), IndexInfo.class));
         if (etag == null && etagMode == CatalogContentsEtag.CONTENT_HASH) {
-            etag = digest(schemas);
+            etag = digest(response);
+            response = new CatalogContentsResponse(version, etag, false, response.schemas(), response.tables(), response.views(), response.functions(), response.macros(), response.indexes());
         }
-        if (etag != null && etag.equals(if_none_match)) {
-            return new CatalogContentsResponse(version, etag, true, List.of());
+        return etag != null && etag.equals(if_none_match) ? unchanged(version, etag) : response;
+
+    }
+
+    public static String digest(CatalogContentsResponse response) { return farm.query.vgi.catalog.snapshot.CatalogSnapshotManager.digest(response); }
+
+    public static CatalogContentsResponse unchanged(long version, String etag) {
+        return new CatalogContentsResponse(version, etag, true, null, null, null, null, null, null);
+    }
+
+    /** Decode the collection streams into the existing schema-grouped author shape. */
+    public static List<SchemaContents> schemas(CatalogContentsResponse response) {
+        if (response.not_modified()) {
+            if (response.etag() == null || response.schemas() != null || response.tables() != null
+                    || response.views() != null || response.functions() != null || response.macros() != null || response.indexes() != null)
+                throw new IllegalStateException("not_modified requires an ETag and six null streams");
+            return List.of();
         }
-        return new CatalogContentsResponse(version, etag, false, schemas);
+        Map<List<String>, SchemaContents> byPath = new java.util.LinkedHashMap<>();
+        for (SchemaInfo info : MetadataCollections.decode(response.schemas(), SchemaInfo.class)) {
+            List<String> path = List.copyOf(info.path());
+            if (path.isEmpty() || path.stream().anyMatch(String::isEmpty) || byPath.containsKey(path)) throw new IllegalStateException("empty or duplicate schema path");
+            if (path.size() > 1 && !byPath.containsKey(path.subList(0, path.size() - 1)))
+                throw new IllegalStateException("schema parent missing or out of order");
+            byPath.put(path, new SchemaContents(path, RecordCodec.serializeToBytes(info), new ArrayList<>(), new ArrayList<>(),
+                    new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>()));
+        }
+        java.util.function.Function<List<String>, SchemaContents> owner = path -> {
+            SchemaContents schema = byPath.get(path);
+            if (schema == null) throw new IllegalStateException("catalog object refers to missing schema " + path);
+            return schema;
+        };
+        for (TableInfo row : MetadataCollections.decode(response.tables(), TableInfo.class)) owner.apply(row.schema_path()).tables().add(RecordCodec.serializeToBytes(row));
+        for (ViewInfo row : MetadataCollections.decode(response.views(), ViewInfo.class)) owner.apply(row.schema_path()).views().add(RecordCodec.serializeToBytes(row));
+        for (FunctionInfo row : MetadataCollections.decode(response.functions(), FunctionInfo.class)) {
+            SchemaContents schema = owner.apply(row.schema_path());
+            List<byte[]> items = switch (row.function_type()) {
+                case "SCALAR", "scalar" -> schema.scalar_functions();
+                case "AGGREGATE", "aggregate" -> schema.aggregate_functions();
+                case "TABLE", "TABLE_BUFFERING", "table", "table_buffering", "table_in_out" -> schema.table_functions();
+                default -> throw new IllegalStateException("unknown function type " + row.function_type());
+            };
+            items.add(RecordCodec.serializeToBytes(row));
+        }
+        for (MacroInfo row : MetadataCollections.decode(response.macros(), MacroInfo.class)) {
+            SchemaContents schema = owner.apply(row.schema_path());
+            List<byte[]> items = switch (row.macro_type()) {
+                case "SCALAR", "scalar" -> schema.scalar_macros();
+                case "TABLE", "table" -> schema.table_macros();
+                default -> throw new IllegalStateException("unknown macro type " + row.macro_type());
+            };
+            items.add(RecordCodec.serializeToBytes(row));
+        }
+        for (IndexInfo row : MetadataCollections.decode(response.indexes(), IndexInfo.class)) owner.apply(row.schema_path()).indexes().add(RecordCodec.serializeToBytes(row));
+        return new ArrayList<>(byPath.values());
     }
 
     /**

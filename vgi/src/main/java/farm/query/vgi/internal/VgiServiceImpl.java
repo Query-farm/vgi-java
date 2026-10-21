@@ -454,7 +454,7 @@ public final class VgiServiceImpl implements VgiService {
                 OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         AuthContext auth = authOf(ctx);
-        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(request.attach_opaque_data(), auth));
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(),
                 attachPlain, attachScopedStorage(attachPlain), request.copy_to(),
@@ -493,7 +493,7 @@ public final class VgiServiceImpl implements VgiService {
         TableFunction fn = OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         AuthContext auth = authOf(ctx);
-        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(request.attach_opaque_data(), auth));
         byte[] txnPlain = sealer.unsealTransaction(
                 request.transaction_opaque_data(), request.attach_opaque_data(), auth);
         TableBindParams bindParams = new TableBindParams(name, args, inputSchema, settings,
@@ -1371,7 +1371,7 @@ public final class VgiServiceImpl implements VgiService {
         byte[] txnId = new byte[16];
         rng.nextBytes(txnId);
         AuthContext auth = authOf(ctx);
-        transactionStore.begin(txnId, sealer.unsealAttach(attach_opaque_data, auth));
+        transactionStore.begin(txnId, catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth)));
         return new farm.query.vgi.protocol.TransactionBeginResponse(
                 sealer.sealTransaction(txnId, attach_opaque_data, auth));
     }
@@ -1387,7 +1387,7 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_transaction_commit(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                              CallContext ctx) {
         AuthContext auth = authOf(ctx);
-        byte[] attachPlain = sealer.unsealAttach(attach_opaque_data, auth);
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth));
         transactionStore.end(
                 sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
                 attachPlain);
@@ -1404,7 +1404,7 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_transaction_rollback(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                                CallContext ctx) {
         AuthContext auth = authOf(ctx);
-        byte[] attachPlain = sealer.unsealAttach(attach_opaque_data, auth);
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth));
         transactionStore.end(
                 sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
                 attachPlain);
@@ -1458,7 +1458,7 @@ public final class VgiServiceImpl implements VgiService {
             }
             catalogRegistry.recordAttach(extraAttachId, extra.dataVersion(), request.name());
             return new CatalogAttachResult(
-                    sealer.sealAttach(extraAttachId, authOf(ctx)),
+                    sealer.sealAttach(catalogRegistry.recoverableAttach(extraAttachId, extra.dataVersion(), request.name()), authOf(ctx)),
                     false, false, extra.versionFrozen(),
                     CATALOG_VERSION,
                     true,  // attach_opaque_data_required
@@ -1663,7 +1663,7 @@ public final class VgiServiceImpl implements VgiService {
      * {@code "attach_opaque_data not recognized"} ({@link OpaqueDataSealer#notRecognized}).
      */
     private byte[] openAttach(byte[] attachOpaqueData, CallContext ctx) {
-        return sealer.unsealAttach(attachOpaqueData, authOf(ctx));
+        return catalogRegistry.restoreAttach(sealer.unsealAttach(attachOpaqueData, authOf(ctx)));
     }
 
     private CatalogAttachResult attachHosted(farm.query.vgi.CatalogInterface catalog, CatalogAttachRequest request,
@@ -1846,17 +1846,33 @@ public final class VgiServiceImpl implements VgiService {
         String recorded = catalogRegistry.catalogName(plain);
         String catalogName = recorded != null ? recorded : worker.catalogName();
         farm.query.vgi.CatalogInterface hosted = recorded == null ? null : worker.catalogInterfaces().get(recorded);
+        Worker.ExtraCatalog contentsOwner = recorded == null ? null : worker.extraCatalogs().get(recorded);
+        farm.query.vgi.CatalogContentsProvider provider = contentsOwner != null && contentsOwner.ownsCatalogContents()
+                ? contentsOwner.contentsProvider() : worker.catalogContentsProvider();
+        farm.query.vgi.CatalogContentsEtag etagMode = contentsOwner != null && contentsOwner.ownsCatalogContents()
+                ? contentsOwner.contentsEtag() : worker.catalogContentsEtag();
+        if (worker.catalogSnapshot() != null) {
+            var policy=worker.catalogSnapshot();
+            long snapshotVersion=catalog_version(attach_opaque_data,null,ctx).version();
+            var request=new farm.query.vgi.catalog.snapshot.SnapshotRequest(plain,
+                    farm.query.vgi.catalog.snapshot.CatalogSnapshotManager.hash(attach_opaque_data),snapshotVersion,ctx);
+            var delivery=policy.manager.serve(policy,request,if_none_match,()->farm.query.vgi.CatalogContents.serve(
+                    this,attach_opaque_data,null,ctx,catalogName,
+                    hosted != null ? hosted::catalogContents : provider,
+                    hosted != null ? hosted.catalogContentsEtag() : etagMode));
+            if(delivery.reference()!=null) {
+                if(ctx==null) throw new IllegalStateException("published catalog delivery requires an RPC call context; use manager.warm for startup publication");
+                ctx.respondWithExternalRef(delivery.reference());
+                return null;
+            }
+            return delivery.response();
+        }
         if (hosted != null) {
             // A code-implemented catalog may change between calls (DDL), so its
             // answer is never cached here: the catalog revalidates itself.
             return farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx,
                     catalogName, hosted::catalogContents, hosted.catalogContentsEtag());
         }
-        Worker.ExtraCatalog contentsOwner = recorded == null ? null : worker.extraCatalogs().get(recorded);
-        farm.query.vgi.CatalogContentsProvider provider = contentsOwner != null && contentsOwner.ownsCatalogContents()
-                ? contentsOwner.contentsProvider() : worker.catalogContentsProvider();
-        farm.query.vgi.CatalogContentsEtag etagMode = contentsOwner != null && contentsOwner.ownsCatalogContents()
-                ? contentsOwner.contentsEtag() : worker.catalogContentsEtag();
         if (!worker.catalogContentsCache()) {
             return farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx,
                     catalogName, provider, etagMode);
@@ -1867,8 +1883,7 @@ public final class VgiServiceImpl implements VgiService {
                 k -> farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, null, ctx,
                         catalogName, provider, etagMode));
         if (if_none_match != null && if_none_match.equals(cached.etag())) {
-            return new farm.query.vgi.protocol.CatalogContentsResponse(
-                    cached.catalog_version(), cached.etag(), true, List.of());
+            return farm.query.vgi.CatalogContents.unchanged(cached.catalog_version(), cached.etag());
         }
         return cached;
     }

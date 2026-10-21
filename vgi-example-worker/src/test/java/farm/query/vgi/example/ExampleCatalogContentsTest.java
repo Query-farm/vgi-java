@@ -99,10 +99,10 @@ final class ExampleCatalogContentsTest {
             assertEquals(vgi.catalog_version(handle, null, null).version(), response.catalog_version());
 
             List<byte[]> schemaItems = vgi.catalog_schemas(handle, null, null).items();
-            assertEquals(schemaItems.size(), response.schemas().size());
+            assertEquals(schemaItems.size(), farm.query.vgi.CatalogContents.schemas(response).size());
             int[] totals = new int[8];
             for (int i = 0; i < schemaItems.size(); i++) {
-                SchemaContents c = response.schemas().get(i);
+                SchemaContents c = farm.query.vgi.CatalogContents.schemas(response).get(i);
                 assertArrayEquals(schemaItems.get(i), c.schema(), "schema item " + i);
                 List<String> path = RecordCodec.deserializeFromBytes(c.schema(), SchemaInfo.class).path();
                 assertEquals(path, c.path(), "path equals SchemaInfo.path");
@@ -129,7 +129,7 @@ final class ExampleCatalogContentsTest {
                     String what = path + " " + kinds.get(k);
                     assertEquals(expected.size(), actual.size(), what + ": item count");
                     for (int j = 0; j < actual.size(); j++) {
-                        assertArrayEquals(expected.get(j), actual.get(j), what + ": item " + j);
+                        assertEquals(metadata(expected.get(j)), metadata(actual.get(j)), what + ": item " + j);
                     }
                     totals[k] += actual.size();
                 }
@@ -154,16 +154,16 @@ final class ExampleCatalogContentsTest {
             CatalogContentsResponse full = vgi.catalog_contents(handle, null, null);
             assertEquals("gen-" + version, full.etag());
             assertFalse(full.not_modified());
-            assertFalse(full.schemas().isEmpty());
+            assertFalse(farm.query.vgi.CatalogContents.schemas(full).isEmpty());
 
             CatalogContentsResponse same = vgi.catalog_contents(handle, full.etag(), null);
             assertTrue(same.not_modified());
-            assertTrue(same.schemas().isEmpty());
+            assertTrue(farm.query.vgi.CatalogContents.schemas(same).isEmpty());
             assertEquals(full.etag(), same.etag());
 
             CatalogContentsResponse other = vgi.catalog_contents(handle, "not-the-etag", null);
             assertFalse(other.not_modified());
-            assertEquals(full.schemas().size(), other.schemas().size());
+            assertEquals(farm.query.vgi.CatalogContents.schemas(full).size(), farm.query.vgi.CatalogContents.schemas(other).size());
         }
     }
 
@@ -198,4 +198,35 @@ final class ExampleCatalogContentsTest {
             assertFalse(attach(p.vgi()).supports_catalog_contents());
         }
     }
+    private static String metadata(byte[] bytes) {
+        try (var reader = new farm.query.vgirpc.wire.IpcStreamReader(new java.io.ByteArrayInputStream(bytes), farm.query.vgirpc.wire.Allocators.root())) {
+            reader.readNextBatch();
+            return canonical(farm.query.vgirpc.marshal.Marshalling.decodeRow(reader.root(), reader.dictionaryProvider(), reader.wireSchema())).toString();
+        } catch (Exception error) { throw new AssertionError(error); }
+    }
+
+    private static Object canonical(Object value) {
+        if(value instanceof byte[] bytes) return java.util.Base64.getEncoder().encodeToString(bytes);
+        if(value instanceof java.util.Map<?,?> map) { var result=new java.util.TreeMap<String,Object>();map.forEach((k,v)->result.put(k.toString(),canonical(v)));return result; }
+        if(value instanceof java.util.List<?> list) return list.stream().map(ExampleCatalogContentsTest::canonical).toList();
+        return value;
+    }
+
+    @Test
+    void failedCatalogSnapshotCanFallBackAfterWorkerRestart() throws Exception {
+        byte[] handle;
+        try (Pipe first = Pipe.start(Main.buildWorker("example", null, null))) {
+            handle = first.vgi().catalog_attach(CatalogAttachRequest.of("contents_broken", null, null, null), null).attach_opaque_data();
+            byte[] attached = handle;
+            assertThrows(RuntimeException.class, () -> first.vgi().catalog_contents(attached, null, null));
+        }
+        try (Pipe restarted = Pipe.start(Main.buildWorker("example", null, null))) {
+            var schemas = restarted.vgi().catalog_schemas(handle, null, null).items();
+            assertEquals(List.of(List.of("main"), List.of("extra")), schemas.stream().map(bytes -> RecordCodec.deserializeFromBytes(bytes, SchemaInfo.class).path()).toList());
+            var tables = restarted.vgi().catalog_schema_contents_tables(handle, List.of("main"), null, null).items();
+            assertEquals(1, tables.size());
+            assertEquals("ten", RecordCodec.deserializeFromBytes(tables.getFirst(), farm.query.vgi.protocol.TableInfo.class).name());
+        }
+    }
+
 }

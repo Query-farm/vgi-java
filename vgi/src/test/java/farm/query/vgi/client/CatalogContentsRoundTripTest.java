@@ -95,10 +95,10 @@ final class CatalogContentsRoundTripTest {
                     "with no etag, if_none_match is ignored");
 
             List<byte[]> schemaItems = vgi.catalog_schemas(handle, null, null).items();
-            assertEquals(schemaItems.size(), response.schemas().size(), "one entry per schema");
+            assertEquals(schemaItems.size(), farm.query.vgi.CatalogContents.schemas(response).size(), "one entry per schema");
             List<String> names = new ArrayList<>();
             for (int i = 0; i < schemaItems.size(); i++) {
-                SchemaContents c = response.schemas().get(i);
+                SchemaContents c = farm.query.vgi.CatalogContents.schemas(response).get(i);
                 assertArrayEquals(schemaItems.get(i), c.schema(), "schema item " + i);
                 List<String> path = RecordCodec.deserializeFromBytes(c.schema(), SchemaInfo.class).path();
                 assertEquals(path, c.path(), "path equals SchemaInfo.path");
@@ -124,7 +124,7 @@ final class CatalogContentsRoundTripTest {
 
             // Spot-check that the fixture actually exercised every kind it registered.
             Function<Integer, SchemaContents> at = i ->
-                    response.schemas().get(i);
+                    farm.query.vgi.CatalogContents.schemas(response).get(i);
             SchemaContents main = at.apply(0);
             assertEquals(1, main.table_functions().size());
             assertEquals(1, main.scalar_functions().size());
@@ -152,17 +152,17 @@ final class CatalogContentsRoundTripTest {
             assertEquals("gen-" + version, full.etag());
             assertFalse(full.not_modified());
             assertEquals(List.of(List.of("main"), List.of("extra")),
-                    full.schemas().stream().map(SchemaContents::path).toList());
+                    farm.query.vgi.CatalogContents.schemas(full).stream().map(SchemaContents::path).toList());
 
             CatalogContentsResponse same = vgi.catalog_contents(handle, full.etag(), null);
             assertTrue(same.not_modified());
             assertEquals(full.etag(), same.etag());
             assertEquals(version, same.catalog_version());
-            assertTrue(same.schemas().isEmpty());
+            assertTrue(farm.query.vgi.CatalogContents.schemas(same).isEmpty());
 
             CatalogContentsResponse other = vgi.catalog_contents(handle, "gen-stale", null);
             assertFalse(other.not_modified());
-            assertEquals(full.schemas().size(), other.schemas().size());
+            assertEquals(farm.query.vgi.CatalogContents.schemas(full).size(), farm.query.vgi.CatalogContents.schemas(other).size());
         }
     }
 
@@ -180,7 +180,7 @@ final class CatalogContentsRoundTripTest {
         try (PipeWorkerHarness h = PipeWorkerHarness.start(worker().catalogContents(provider).catalogContentsCache(false))) {
             VgiService vgi = h.client();
             byte[] handle = attach(vgi).attach_opaque_data();
-            assertEquals(2, vgi.catalog_contents(handle, null, null).schemas().size());
+            assertEquals(2, farm.query.vgi.CatalogContents.schemas(vgi.catalog_contents(handle, null, null)).size());
             assertTrue(vgi.catalog_contents(handle, "v1", null).not_modified());
             assertEquals(1, builds.get(), "the not_modified answer built nothing");
             assertEquals(List.of("testcat", "testcat"), names);
@@ -197,14 +197,14 @@ final class CatalogContentsRoundTripTest {
 
             CatalogContentsResponse full = vgi.catalog_contents(handle, null, null);
             assertNotNull(full.etag());
-            assertEquals(CatalogContents.digest(full.schemas()), full.etag(),
+            assertEquals(CatalogContents.digest(full), full.etag(),
                     "the etag is the hash of exactly what was sent");
             assertEquals(full.etag(), vgi.catalog_contents(handle, null, null).etag(),
                     "two builds of the same catalog hash alike");
 
             CatalogContentsResponse same = vgi.catalog_contents(handle, full.etag(), null);
             assertTrue(same.not_modified());
-            assertTrue(same.schemas().isEmpty());
+            assertTrue(farm.query.vgi.CatalogContents.schemas(same).isEmpty());
             assertFalse(vgi.catalog_contents(handle, "0".repeat(64), null).not_modified());
         }
     }
@@ -220,27 +220,27 @@ final class CatalogContentsRoundTripTest {
 
             SchemaInfo info = RecordCodec.deserializeFromBytes(
                     vgi.catalog_schemas(first, null, null).items().get(0), SchemaInfo.class);
-            assertArrayEquals(farm.query.vgi.internal.VgiServiceImpl.FIXED_ITEM_ATTACH_ID, info.attach_opaque_data());
+            assertFalse(farm.query.vgirpc.schema.SchemaDerivation.schemaForRecord(SchemaInfo.class).getFields().stream().anyMatch(f -> f.getName().equals("attach_opaque_data")));
             assertSameItems("schemas", vgi.catalog_schemas(first, null, null).items(), vgi.catalog_schemas(second, null, null));
 
-            List<SchemaContents> a = vgi.catalog_contents(first, null, null).schemas();
-            List<SchemaContents> b = vgi.catalog_contents(second, null, null).schemas();
+            List<SchemaContents> a = farm.query.vgi.CatalogContents.schemas(vgi.catalog_contents(first, null, null));
+            List<SchemaContents> b = farm.query.vgi.CatalogContents.schemas(vgi.catalog_contents(second, null, null));
             assertEquals(CatalogContents.digest(a), CatalogContents.digest(b), "one snapshot for every attach");
         }
     }
 
     @Test
     @Timeout(60)
-    void attachScopedItemsEmbedThePerAttachId() throws Exception {
+    void attachScopedItemsKeepContextOutsideSchemaMetadata() throws Exception {
         try (PipeWorkerHarness h = PipeWorkerHarness.start(worker().attachScopedCatalogItems(true))) {
             VgiService vgi = h.client();
             byte[] handle = attach(vgi).attach_opaque_data();
             SchemaInfo info = RecordCodec.deserializeFromBytes(
                     vgi.catalog_schemas(handle, null, null).items().get(0), SchemaInfo.class);
-            assertArrayEquals(handle, info.attach_opaque_data());
-            assertArrayEquals(handle, RecordCodec.deserializeFromBytes(
-                    vgi.catalog_contents(handle, null, null).schemas().get(0).schema(), SchemaInfo.class)
-                    .attach_opaque_data());
+            assertTrue(handle.length > 0);
+            assertEquals(info.path(), RecordCodec.deserializeFromBytes(
+                    farm.query.vgi.CatalogContents.schemas(vgi.catalog_contents(handle, null, null)).get(0).schema(), SchemaInfo.class).path());
+            assertFalse(farm.query.vgirpc.schema.SchemaDerivation.schemaForRecord(SchemaInfo.class).getFields().stream().anyMatch(f -> f.getName().equals("attach_opaque_data")));
             assertFalse(worker().attachScopedCatalogItems(true).catalogContentsCache(),
                     "per-attach items turn the cache off");
         }
@@ -259,12 +259,12 @@ final class CatalogContentsRoundTripTest {
             byte[] first = attach(vgi).attach_opaque_data();
             byte[] second = attach(vgi).attach_opaque_data();
             CatalogContentsResponse full = vgi.catalog_contents(first, null, null);
-            assertEquals(2, full.schemas().size());
-            assertEquals(2, vgi.catalog_contents(second, null, null).schemas().size());
-            assertEquals(2, vgi.catalog_contents(first, "stale", null).schemas().size());
+            assertEquals(2, farm.query.vgi.CatalogContents.schemas(full).size());
+            assertEquals(2, farm.query.vgi.CatalogContents.schemas(vgi.catalog_contents(second, null, null)).size());
+            assertEquals(2, farm.query.vgi.CatalogContents.schemas(vgi.catalog_contents(first, "stale", null)).size());
             CatalogContentsResponse same = vgi.catalog_contents(second, full.etag(), null);
             assertTrue(same.not_modified());
-            assertTrue(same.schemas().isEmpty());
+            assertTrue(farm.query.vgi.CatalogContents.schemas(same).isEmpty());
             assertEquals(1, builds.get(), "built once, then served from the cache");
         }
         builds.set(0);
@@ -281,7 +281,14 @@ final class CatalogContentsRoundTripTest {
     private static void assertSameItems(String what, List<byte[]> bulk, ItemsResponse perSchema) {
         assertEquals(perSchema.items().size(), bulk.size(), what + ": item count");
         for (int i = 0; i < bulk.size(); i++) {
-            assertArrayEquals(perSchema.items().get(i), bulk.get(i), what + ": item " + i);
+            assertEquals(metadata(perSchema.items().get(i)), metadata(bulk.get(i)), what + ": item " + i);
         }
     }
+    private static String metadata(byte[] bytes) {
+        try (var reader = new farm.query.vgirpc.wire.IpcStreamReader(new java.io.ByteArrayInputStream(bytes), farm.query.vgirpc.wire.Allocators.root())) {
+            reader.readNextBatch();
+            return new com.google.gson.Gson().toJson(farm.query.vgirpc.marshal.Marshalling.decodeRow(reader.root(), reader.dictionaryProvider(), reader.wireSchema()));
+        } catch (Exception error) { throw new AssertionError(error); }
+    }
+
 }

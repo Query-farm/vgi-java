@@ -96,6 +96,35 @@ public final class CatalogRegistry {
         return r == null ? null : r.catalogName();
     }
 
+    private static final byte[] ATTACH_HEADER = new byte[]{'V','G','I','A','T','T',2,0};
+
+    /** Put routing metadata inside the authenticated attach envelope, preserving author bytes. */
+    public byte[] recoverableAttach(byte[] authorState, String dataVersion, String catalogName) {
+        try {
+            var bytes = new java.io.ByteArrayOutputStream();
+            var output = new java.io.DataOutputStream(bytes);
+            output.write(ATTACH_HEADER); output.writeUTF(catalogName);
+            output.writeBoolean(dataVersion != null); if (dataVersion != null) output.writeUTF(dataVersion);
+            output.writeInt(authorState.length); output.write(authorState); output.flush();
+            return bytes.toByteArray();
+        } catch (java.io.IOException error) { throw new IllegalArgumentException("invalid attach routing metadata", error); }
+    }
+
+    /** Call only after OpaqueDataSealer has authenticated/opened the enclosing token. */
+    public byte[] restoreAttach(byte[] authenticatedState) {
+        if (authenticatedState == null || authenticatedState.length < ATTACH_HEADER.length
+                || !java.util.Arrays.equals(ATTACH_HEADER, java.util.Arrays.copyOf(authenticatedState, ATTACH_HEADER.length))) return authenticatedState;
+        try {
+            var input = new java.io.DataInputStream(new java.io.ByteArrayInputStream(authenticatedState, ATTACH_HEADER.length, authenticatedState.length - ATTACH_HEADER.length));
+            String name = input.readUTF(); String version = input.readBoolean() ? input.readUTF() : null;
+            int length = input.readInt();
+            if (length < 16 || length != input.available() || !worker.extraCatalogs().containsKey(name)) throw new java.io.IOException("invalid catalog route");
+            byte[] authorState = input.readNBytes(length);
+            recordAttach(authorState, version, name);
+            return authorState;
+        } catch (java.io.IOException error) { throw OpaqueDataSealer.notRecognized("attach_opaque_data"); }
+    }
+
     private AttachRecord lookup(byte[] attachId) {
         return attachId == null ? null : attaches.get(HexId.encode(attachId));
     }

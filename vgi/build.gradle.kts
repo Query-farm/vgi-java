@@ -5,7 +5,7 @@ plugins {
 
 dependencies {
     // farm.query is the published group (see ../build.gradle.kts allprojects).
-    api("farm.query:vgirpc:0.33.0")
+    api("farm.query:vgirpc:0.33.1")
     implementation("org.slf4j:slf4j-api:2.0.17")
     // Cross-process aggregate state store. DuckDB spawns multiple worker
     // subprocesses for parallel aggregation; SQLite's file locking gives us
@@ -13,6 +13,7 @@ dependencies {
     implementation("org.xerial:sqlite-jdbc:3.49.1.0")
     // JSON for the Cloudflare Durable Object storage client's HTTP bodies.
     implementation("com.google.code.gson:gson:2.14.0")
+    implementation("com.github.luben:zstd-jni:1.5.6-8")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     // GrantBearerHttpTest's login authenticator reads the request (vgirpc's

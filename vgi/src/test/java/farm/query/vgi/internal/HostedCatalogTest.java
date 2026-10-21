@@ -231,7 +231,7 @@ final class HostedCatalogTest {
         CatalogContentsResponse r = svc.catalog_contents(a, null, null);
         assertNull(r.etag());
         assertEquals(2L, r.catalog_version());
-        SchemaContents main = r.schemas().get(0);
+        SchemaContents main = farm.query.vgi.CatalogContents.schemas(r).get(0);
         assertEquals(MAIN, main.path());
         assertEquals(1, main.views().size());
         assertEquals(0, main.tables().size());
@@ -245,13 +245,13 @@ final class HostedCatalogTest {
         assertEquals("gen-1", first.etag());
         CatalogContentsResponse same = svc.catalog_contents(a, "gen-1", null);
         assertTrue(same.not_modified());
-        assertEquals(0, same.schemas().size());
+        assertEquals(0, farm.query.vgi.CatalogContents.schemas(same).size());
 
         svc.catalog_view_create(a, MAIN, "v", "SELECT 1", "ERROR", null, null);
         CatalogContentsResponse changed = svc.catalog_contents(a, "gen-1", null);
         assertFalse(changed.not_modified());
         assertEquals("gen-2", changed.etag());
-        assertEquals(1, changed.schemas().get(0).views().size());
+        assertEquals(1, farm.query.vgi.CatalogContents.schemas(changed).get(0).views().size());
     }
 
     @Test
@@ -355,7 +355,7 @@ final class HostedCatalogTest {
         assertEquals(1, svc.catalog_schema_contents_macros(a, MAIN, "TABLE_MACRO", null, null).items().size());
         assertEquals(1, svc.catalog_macro_get(a, MAIN, "rng", null, null).items().size());
 
-        SchemaContents mainContents = svc.catalog_contents(a, null, null).schemas().get(0);
+        SchemaContents mainContents = farm.query.vgi.CatalogContents.schemas(svc.catalog_contents(a, null, null)).get(0);
         assertEquals(1, mainContents.views().size());
         assertEquals(1, mainContents.scalar_macros().size());
         assertEquals(1, mainContents.table_macros().size());

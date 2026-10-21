@@ -100,6 +100,9 @@ public final class Worker {
     private CatalogContentsEtag catalogContentsEtag = CatalogContentsEtag.NONE;
     private boolean attachScopedCatalogItems = false;
     private boolean catalogContentsCache = true;
+    private farm.query.vgi.catalog.snapshot.CatalogSnapshotPolicy snapshotPolicy;
+    public Worker catalogSnapshot(farm.query.vgi.catalog.snapshot.CatalogSnapshotPolicy policy) { snapshotPolicy=policy; return this; }
+    public farm.query.vgi.catalog.snapshot.CatalogSnapshotPolicy catalogSnapshot() { return snapshotPolicy; }
     private final List<SettingSpec> settings = new ArrayList<>();
     private final List<SecretTypeSpec> secretTypes = new ArrayList<>();
     private final List<farm.query.vgi.protocol.AttachCatalogInfo> attachCatalogs = new ArrayList<>();

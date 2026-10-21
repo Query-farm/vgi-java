@@ -80,7 +80,7 @@ public record TableInfo(
         @Nullable Long cardinality_max,
         @Nullable byte[] column_statistics,
         @Nullable byte[] bind_result,
-        List<List<String>> required_filters) {
+        List<List<String>> required_filters) implements farm.query.vgirpc.schema.ArrowSerializableRecord {
     public TableInfo(String comment, Map<String, String> tags, String name, String schema_name,
             byte[] columns, List<Integer> not_null_constraints,
             List<List<Integer>> unique_constraints, List<String> check_constraints,

@@ -35,7 +35,7 @@ final class VgiProtocolSurfaceTest {
     /**
      * The canonical {@code vgi.v2} protocol hash of the reference (vgi-python 0.43.0, 72 methods).
      *
-     * <p>This changes only when {@code vgi.v2}'s protocol version (currently 2.1.0) changes. If
+     * <p>This changes only when {@code vgi.v2}'s protocol version (currently 2.2.0) changes. If
      * this test fails without such a change, a method or a params/result/header schema (field
      * name, order, nullability or type) has drifted from the reference: fix the drift, do not
      * update the constant.

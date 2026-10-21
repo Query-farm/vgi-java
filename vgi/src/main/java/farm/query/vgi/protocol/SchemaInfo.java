@@ -19,7 +19,6 @@ import java.util.Map;
  *
  * @param comment                optional schema comment, or {@code null}.
  * @param tags                   arbitrary key/value metadata tags.
- * @param attach_opaque_data     worker-private attach state for this schema.
  * @param path                   raw schema identifier components.
  * @param estimated_object_count per-kind object-count estimates used to gate eager
  *                               catalog loads, or {@code null} to disable gating.
@@ -27,7 +26,6 @@ import java.util.Map;
 public record SchemaInfo(
         @Nullable String comment,
         Map<String, String> tags,
-        byte[] attach_opaque_data,
         List<String> path,
         @Nullable Map<String, Long> estimated_object_count) implements ArrowSerializableRecord {
 
@@ -49,7 +47,14 @@ public record SchemaInfo(
      * @param path               raw schema identifier components.
      */
     public SchemaInfo(String comment, Map<String, String> tags, byte[] attach_opaque_data, List<String> path) {
-        this(comment, tags, attach_opaque_data, path, null);
+        this(comment, tags, path, null);
+    }
+
+    /** Legacy author adapter: attachment context is deliberately excluded from metadata. */
+    @Deprecated
+    public SchemaInfo(String comment, Map<String, String> tags, byte[] ignoredAttachData,
+                      List<String> path, Map<String, Long> estimatedObjectCount) {
+        this(comment, tags, path, estimatedObjectCount);
     }
 
     /** Last path component for source compatibility with protocol 1.x callers. */
