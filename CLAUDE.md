@@ -188,8 +188,8 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 ## Releasing (Maven Central)
 
 Published: **`farm.query:vgi`** (this repo) and **`farm.query:vgirpc`** /
-`vgirpc-oauth` (the sibling). Latest as of 2026-10-20: **vgi 0.42.0 → vgirpc
-0.33.0**. To cut a release: bump `version` in `build.gradle.kts`, push, then
+`vgirpc-oauth` (the sibling). Latest as of 2026-10-21: **vgi 0.43.0 → vgirpc
+0.33.1**. To cut a release: bump `version` in `build.gradle.kts`, push, then
 create a GitHub Release whose tag is the version (`v0.2.0` for `0.2.0`). The
 `release.yml` workflow (trigger: `release: published`) verifies tag == version,
 runs tests, and publishes. Both repos now set
@@ -201,8 +201,8 @@ Maven Central with no manual Portal click** once it passes validation (changed
 `farm.query:vgirpc` from **Maven Central** (the composite is absent on CI —
 `VGI_RPC_JAVA_DIR` unset), *not* from source. So **`:vgi` cannot release until
 the `vgirpc` version it pins in `vgi/build.gradle.kts` is already published to
-Maven Central.** Integration CI hides this (it builds vgirpc from source via the
-composite), so green integration ≠ releasable. Before tagging a `:vgi` release,
+Maven Central.** CI now resolves the same published Maven dependency; local sibling builds
+can still substitute source. Before tagging a `:vgi` release,
 prove it builds against the *published* vgirpc with the composite disabled:
 
 ```bash

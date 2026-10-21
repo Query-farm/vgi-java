@@ -5,8 +5,7 @@
 # ever compiles the example worker -- vgi/src/test carried 278 JUnit tests that
 # nothing in CI ran. This workflow is that gate.
 #
-# vgi-rpc-java is built from source here for the same reason integration.yml
-# does it (see the pin's comment there); keep VGI_RPC_JAVA_REF in step with it.
+# Resolve the same Maven Central RPC dependencies as published SDK consumers.
 name: CI
 
 on:
@@ -22,43 +21,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # The vgi-rpc-java revision built from source via the composite include. The
-  # composite substitutes the `farm.query:vgirpc` coordinate declared in
-  # vgi/build.gradle.kts, so this ref -- not the declared version -- is what
-  # :vgi:compileJava actually compiles and runs against here. A stale pin fails
-  # as `cannot find symbol` on whatever the newer vgirpc added, or as a runtime
-  # marshalling error. Because CI builds this ref from source while the
-  # published artifact resolves the declared version, the two can silently
-  # disagree: keep this tag and `farm.query:vgirpc` in vgi/build.gradle.kts
-  # pointing at the same release, and move them in the same commit.
-  #
-  # v0.25.1 is what carries `@ProtocolName`, without which this repo cannot
-  # declare the `vgi.v2` wire name at all: the name would fall back to the
-  # VgiService interface's simple name, and no Java identifier contains a dot.
-  # A stale pin here fails as `cannot find symbol: class ProtocolName`.
-  #
-  # v0.27.0 moves to Apache Arrow 19 (Netty 4.2), so arrow-c-data in
-  # vgi-example-worker/build.gradle.kts moves with this pin.
-  #
-  # (It had earlier been an untagged SHA, 920dc42, because no release yet
-  # carried the `writeListElement` LargeBinary case; v0.25.0 contains it.)
-  #
-  # v0.28.0 adds RpcServer.addProtocol, the error model and the Identity
-  # translation that Worker.hostedProtocols / resolveToken build on; a stale
-  # pin fails as `cannot find symbol: method addProtocol`, and the
-  # hosted-protocols job below cannot pass without it.
-  #
-  # v0.29.0 adds sealed grants and resolveToken-backed bearer authentication
-  # (GrantKeys, IdentityBearer) that Worker.grantKeys builds on.
-  #
-  # v0.30.0 adds the public reflection client (Introspect.listProtocols /
-  # describeProtocol).
-  #
-  # v0.31.0 makes identity.XChaCha20Poly1305 public; AttachTickets uses it
-  # instead of a copy.
-  # Keep in step with the identical pin in integration.yml.
-  # Source revision for 0.33.1; replace with v0.33.1 after the package release.
-  VGI_RPC_JAVA_REF: 3a8a300a10226be1b56e0458e81ffa3212b73f1d
+  # Disable local sibling substitution: validate the released Maven dependency.
+  VGI_RPC_JAVA_DIR: /nonexistent
 
 jobs:
   test:
@@ -67,13 +31,6 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
-
-      - name: Checkout pinned vgi-rpc-java
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-java
-          ref: ${{ env.VGI_RPC_JAVA_REF }}
-          path: vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -92,15 +49,11 @@ jobs:
 
       - name: Unit tests
         run: ./gradlew --no-daemon :vgi:test
-        env:
-          VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
       # The published artifact carries javadoc, so a doc comment that does not
       # build is a broken release, not a warning.
       - name: Javadoc
         run: ./gradlew --no-daemon :vgi:javadoc
-        env:
-          VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
       - name: Upload test report on failure
         if: failure()
@@ -123,13 +76,6 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
-
-      - name: Checkout pinned vgi-rpc-java
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-java
-          ref: ${{ env.VGI_RPC_JAVA_REF }}
-          path: vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -161,8 +107,6 @@ jobs:
 
       - name: Build example worker
         run: ./gradlew --no-daemon :vgi-example-worker:installDist
-        env:
-          VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
       - name: Run hosted-protocols group
         run: ci/run-hosted-protocols.sh

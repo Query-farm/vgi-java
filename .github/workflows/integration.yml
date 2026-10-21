@@ -21,13 +21,8 @@ concurrency:
 env:
   # Match the test suite to the native runner built from this exact revision.
   VGI_REF: 3a2249f815ff6e2a8b5289a3e6284326084e3630
-  # The vgi-rpc-java revision built from source (composite include) for the
-  # worker's HTTP features. The composite substitutes the `farm.query:vgirpc`
-  # coordinate declared in vgi/build.gradle.kts, so this ref, not the declared
-  # version, is what the worker actually compiles against: see the pin's full
-  # comment in ci.yml, and keep the two in step.
-  # Source revision for 0.33.1; replace with v0.33.1 after the package release.
-  VGI_RPC_JAVA_REF: 3a8a300a10226be1b56e0458e81ffa3212b73f1d
+  # Disable local sibling substitution: validate the released Maven dependency.
+  VGI_RPC_JAVA_DIR: /nonexistent
 
 jobs:
   build-worker:
@@ -36,13 +31,6 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
-
-      - name: Checkout pinned vgi-rpc-java
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-java
-          ref: ${{ env.VGI_RPC_JAVA_REF }}
-          path: vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -61,8 +49,6 @@ jobs:
 
       - name: Build example worker
         run: ./gradlew --no-daemon :vgi-example-worker:installDist
-        env:
-          VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
       # Archive before upload because upload-artifact does not preserve the
       # executable bit on the generated launcher script.
