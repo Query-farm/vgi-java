@@ -18,9 +18,11 @@ import farm.query.vgi.types.Schemas;
 import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
+import farm.query.vgirpc.PortableStreamState;
 import farm.query.vgirpc.http.StateSerializer;
 import farm.query.vgirpc.marshal.RecordCodec;
 import farm.query.vgirpc.wire.Allocators;
+import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -88,10 +90,102 @@ class ContinuedOutputTest {
         }
     }
 
-    /** Implements resume() but keeps no position of its own. */
+    /**
+     * Implements resume() but keeps no position of its own. Registration-only:
+     * its empty hooks would be refused (no data batch) if it were ever driven.
+     */
     public static final class Stateless extends TableInOutExchangeState {
         @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {}
         @Override public void resume(OutputCollector out, CallContext ctx) {}
+    }
+
+    /** Says more on its input, then answers the tick with nothing: resume() returning early at end of data. */
+    public static final class SilentResume extends TableInOutExchangeState {
+        public boolean started;
+
+        @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+            started = true;
+            out.emit(VectorSchemaRoot.create(SCHEMA, Allocators.root()), withMoreOutput(true, null));
+        }
+
+        @Override public void resume(OutputCollector out, CallContext ctx) {
+            // "Nothing left": returns without emitting the last (empty) reply.
+        }
+    }
+
+    /** A plain exchange that answers an input with nothing. */
+    public static final class SilentInput extends TableInOutExchangeState {
+        @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {}
+    }
+
+    /** A declarable base for the subclass checks. */
+    public static class OpenPager extends TableInOutExchangeState {
+        public int next;
+
+        public OpenPager() {}
+
+        @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+            out.emit(VectorSchemaRoot.create(SCHEMA, Allocators.root()));
+        }
+
+        @Override public void resume(OutputCollector out, CallContext ctx) {
+            out.emit(VectorSchemaRoot.create(SCHEMA, Allocators.root()));
+        }
+    }
+
+    /** A well-formed subclass of the declared state. */
+    public static final class SubPager extends OpenPager {
+        public int extra;
+    }
+
+    /** A subclass of the declared state that encodes its own state. */
+    public static final class PortableSubPager extends OpenPager implements PortableStreamState {
+        @Override public byte[] encode() { return new byte[0]; }
+        @Override public void decode(byte[] data) {}
+    }
+
+    /** A subclass of the declared state with no no-arg constructor. */
+    public static final class NoCtorSubPager extends OpenPager {
+        public NoCtorSubPager(int next) { this.next = next; }
+    }
+
+    /** Encodes its own state, so the pending flag would not ride the token. */
+    public static final class PortablePager extends TableInOutExchangeState implements PortableStreamState {
+        public int next;
+
+        @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {}
+        @Override public void resume(OutputCollector out, CallContext ctx) {}
+        @Override public byte[] encode() { return new byte[0]; }
+        @Override public void decode(byte[] data) {}
+    }
+
+    /** Has no no-arg constructor, so the state token cannot rebuild it. */
+    public static final class NoCtorPager extends TableInOutExchangeState {
+        public int next;
+
+        public NoCtorPager(int next) { this.next = next; }
+
+        @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {}
+        @Override public void resume(OutputCollector out, CallContext ctx) {}
+    }
+
+    /** Emits a batch from its own allocator, then fails the turn. */
+    public static final class EmitThenThrow extends TableInOutExchangeState {
+        public transient BufferAllocator allocator;
+
+        @Override public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
+            out.emit(filled(allocator));
+            throw new IllegalStateException("failed after emitting");
+        }
+    }
+
+    private static VectorSchemaRoot filled(BufferAllocator allocator) {
+        VectorSchemaRoot root = VectorSchemaRoot.create(SCHEMA, allocator);
+        root.allocateNew();
+        BigIntVector v = (BigIntVector) root.getVector("n");
+        for (int i = 0; i < 100; i++) v.setSafe(i, i);
+        root.setRowCount(100);
+        return root;
     }
 
     private static AnnotatedBatch input(long... values) {
@@ -201,6 +295,66 @@ class ContinuedOutputTest {
     }
 
     @Test
+    void refusesATickAnsweredWithNoBatch() {
+        SilentResume s = new SilentResume();
+        OutputCollector first = new OutputCollector(SCHEMA, null, false);
+        try (AnnotatedBatch in = input(1)) {
+            s.exchange(in, first, null);
+        } finally {
+            for (OutputCollector.Entry e : first.entries()) e.root().close();
+        }
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> turn(s, tick()));
+        assertTrue(e.getMessage().contains("no data batch was emitted"), e.getMessage());
+        assertTrue(e.getMessage().contains("resume()"), e.getMessage());
+    }
+
+    @Test
+    void refusesAnInputAnsweredWithNoBatch() {
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> turn(new SilentInput(), input(1, 2)));
+        assertTrue(e.getMessage().contains("no data batch was emitted"), e.getMessage());
+        assertTrue(e.getMessage().contains("onInputBatch()"), e.getMessage());
+    }
+
+    @Test
+    void answersAZeroRowInputWithNothingPending() {
+        Pager p = new Pager();
+        Reply empty = turn(p, input());
+        assertEquals(List.of(), empty.rows());
+        assertFalse(TableInOutExchangeState.saysMore(empty.metadata()));
+        // Nothing is pending afterwards: a tick is refused and real input runs.
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> turn(p, tick()));
+        assertTrue(e.getMessage().contains("no output is pending"), e.getMessage());
+        assertEquals(List.of(4L), turn(p, input(4)).rows());
+    }
+
+    @Test
+    void refuseReleasesEmittedBuffers() {
+        try (BufferAllocator allocator = Allocators.root().newChildAllocator("refuse", 0, Long.MAX_VALUE)) {
+            OutputCollector out = new OutputCollector(SCHEMA, null, false);
+            out.emit(filled(allocator));
+            assertTrue(allocator.getAllocatedMemory() > 0);
+            IllegalStateException e = TableInOutExchangeState.refuse(out, "refused");
+            assertEquals("refused", e.getMessage());
+            assertEquals(0, allocator.getAllocatedMemory());
+        }
+    }
+
+    @Test
+    void aFailedTurnReleasesWhatItEmitted() {
+        try (BufferAllocator allocator = Allocators.root().newChildAllocator("throw", 0, Long.MAX_VALUE)) {
+            EmitThenThrow s = new EmitThenThrow();
+            s.allocator = allocator;
+            OutputCollector out = new OutputCollector(SCHEMA, null, false);
+            try (AnnotatedBatch in = input(1)) {
+                IllegalStateException e = assertThrows(IllegalStateException.class, () -> s.exchange(in, out, null));
+                assertEquals("failed after emitting", e.getMessage());
+            }
+            assertEquals(0, allocator.getAllocatedMemory());
+        }
+    }
+
+    @Test
     void withMoreOutputFalseLeavesMetadataAlone() {
         Map<String, String> md = new HashMap<>(Map.of("k", "v"));
         assertEquals(md, TableInOutExchangeState.withMoreOutput(false, md));
@@ -251,6 +405,31 @@ class ContinuedOutputTest {
     @Test
     void refusesAContinuationStateWithNoPosition() {
         assertTrue(refusal(new Fn("sl", Stateless.class, 0, null, null)).contains("resume position"));
+    }
+
+    @Test
+    void refusesAContinuationStateThatEncodesItsOwnState() {
+        assertTrue(refusal(new Fn("portable", PortablePager.class, 0, null, null)).contains("encodes its own state"));
+    }
+
+    @Test
+    void refusesAContinuationStateWithoutANoArgConstructor() {
+        assertTrue(refusal(new Fn("noctor", NoCtorPager.class, 0, null, null)).contains("no-arg constructor"));
+    }
+
+    @Test
+    void checksTheRuntimeClassOfASubclassExchange() {
+        Fn fn = new Fn("open", OpenPager.class, 0, null, null);
+        TableInOutContracts.check(fn);
+        TableInOutContracts.checkExchange(fn, new OpenPager());
+        TableInOutContracts.checkExchange(fn, new SubPager());
+        IllegalStateException portable = assertThrows(IllegalStateException.class,
+                () -> TableInOutContracts.checkExchange(fn, new PortableSubPager()));
+        assertTrue(portable.getMessage().contains("encodes its own state"), portable.getMessage());
+        assertTrue(portable.getMessage().contains(PortableSubPager.class.getName()), portable.getMessage());
+        IllegalStateException noCtor = assertThrows(IllegalStateException.class,
+                () -> TableInOutContracts.checkExchange(fn, new NoCtorSubPager(1)));
+        assertTrue(noCtor.getMessage().contains("no-arg constructor"), noCtor.getMessage());
     }
 
     @Test

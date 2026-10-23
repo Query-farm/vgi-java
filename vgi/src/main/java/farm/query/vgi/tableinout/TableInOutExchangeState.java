@@ -11,8 +11,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Base for table-in-out exchange states: each input batch produces zero or
- * one output batch via {@link #process}. Subclasses override
+ * Base for table-in-out exchange states: each input batch produces exactly
+ * one (possibly empty) output batch via {@link #process}. Subclasses override
  * {@link #onInputBatch} which receives the {@link AnnotatedBatch} input root
  * and the {@link OutputCollector} to emit on.
  *
@@ -77,8 +77,22 @@ public abstract class TableInOutExchangeState extends ExchangeState {
             throw new IllegalStateException(
                     name + ": input received while output is pending; expected a continuation tick");
         }
-        if (tick) resume(out, ctx);
-        else onInputBatch(input, out, ctx);
+        try {
+            if (tick) resume(out, ctx);
+            else onInputBatch(input, out, ctx);
+        } catch (RuntimeException | Error e) {
+            // The RPC layer answers a failed turn with an error batch and never
+            // sends (or releases) what the turn emitted before it threw.
+            release(out);
+            throw e;
+        }
+        // Every turn answers with exactly one data batch. Over HTTP vgi-rpc
+        // validates that, but the pipe transport writes whatever was emitted, so
+        // a turn with no data batch would leave the client waiting for a reply.
+        if (out.entries().stream().noneMatch(OutputCollector.Entry::isData)) {
+            throw refuse(out, name + ": no data batch was emitted; "
+                    + (tick ? "resume()" : "onInputBatch()") + " must emit exactly one (possibly empty) batch");
+        }
 
         Map<String, String> md = emittedMetadata(out);
         boolean more = saysMore(md);
@@ -101,12 +115,17 @@ public abstract class TableInOutExchangeState extends ExchangeState {
      * @return the exception to throw.
      */
     public static IllegalStateException refuse(OutputCollector out, String message) {
-        for (OutputCollector.Entry e : out.entries()) e.root().close();
+        release(out);
         return new IllegalStateException(message);
     }
 
+    private static void release(OutputCollector out) {
+        for (OutputCollector.Entry e : out.entries()) e.root().close();
+    }
+
     /**
-     * Processes a single input batch, emitting zero or one output batch.
+     * Processes a single input batch, emitting exactly one (possibly empty)
+     * output batch; a turn that emits none is refused.
      *
      * @param input the annotated input batch (root plus per-batch metadata).
      * @param out the collector to emit output batches on; {@code emit} takes

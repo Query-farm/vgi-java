@@ -4,7 +4,8 @@
  * Table-in-out functions: streaming row-in/row-out transforms.
  *
  * <p>These map to DuckDB's {@code INOUT_FUNCTION} kind, where each input batch
- * received from the engine produces zero or one output batch. State may
+ * received from the engine produces one (possibly empty) output batch, or
+ * several when the exchange continues its output. State may
  * accumulate across exchange ticks and round-trips with the stream, so the same
  * function works over both the launcher and HTTP transports. Sink+Source shapes
  * that buffer the whole input belong in {@code farm.query.vgi.buffering}.</p>

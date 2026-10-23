@@ -77,6 +77,10 @@ public final class PagedFunctions {
         if (pageSize < 1) throw new IllegalArgumentException("page_size must be at least 1, got " + pageSize);
         long ttl = longArg(args, "cache_ttl", 0);
         if (ttl < 0) throw new IllegalArgumentException("cache_ttl must not be negative, got " + ttl);
+        // vgi.cache.ttl is an int32 count of seconds.
+        if (ttl > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("cache_ttl must be at most " + Integer.MAX_VALUE + ", got " + ttl);
+        }
     }
 
     /**
@@ -239,7 +243,9 @@ public final class PagedFunctions {
                             "blended_sliced declares input_rows_per_call = 3 but got " + rows + " rows");
                 }
                 callRows = rows;
-                cc = cacheTtl > 0 ? CacheControl.builder().ttl((int) cacheTtl).perValue(true).build() : null;
+                cc = cacheTtl > 0
+                        ? CacheControl.builder().ttl(Math.toIntExact(cacheTtl)).perValue(true).build()
+                        : null;
             } else {
                 cc = begin(input.customMetadata().get(CacheControl.IF_NONE_MATCH_KEY));
             }
@@ -260,7 +266,7 @@ public final class PagedFunctions {
          * that says more — a protocol violation the client must refuse.
          */
         private CacheControl begin(String ifNoneMatch) {
-            if (!revalidate) return cacheTtl > 0 ? CacheControl.ttl((int) cacheTtl) : null;
+            if (!revalidate) return cacheTtl > 0 ? CacheControl.ttl(Math.toIntExact(cacheTtl)) : null;
             if (ifNoneMatch == null) {
                 bump = -1;
                 return CacheControl.builder().ttl(0).etag("v1").revalidatable(true).build();

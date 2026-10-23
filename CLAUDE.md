@@ -318,20 +318,28 @@ with several replies:
   fields hold the resume position; the private base field `morePending` rides the
   HTTP state token through `StateSerializer` like any other field.
 - **Refusals:** a tick with nothing pending or with rows, real input while pending,
-  cache control on a tick's reply, "more" without `resume()`, and "more" from a
-  `TableProducerState`. `not_modified` + more is the client's to refuse.
+  a turn (`onInputBatch` or `resume`) that emits no data batch, cache control on a
+  tick's reply, "more" without `resume()`, and "more" from a `TableProducerState`.
+  `not_modified` + more is the client's to refuse. The no-batch refusal matters on
+  the pipe transport: `RpcServer`'s tick loop writes whatever was emitted (HTTP's
+  `collector.validate()` catches it, pipes don't), so the client would wait forever.
+  A failed or refused turn releases what it emitted.
 - **Startup checks** (`internal/TableInOutContracts`, run in the `VgiServiceImpl`
   ctor): a continuing function declares `continuationState()` (its exchange class),
   which must implement `resume()`, hold fields of its own, have a no-arg ctor, not
   be a `PortableStreamState`, and not run with `maxWorkers() = 1`. `initTableInOut`
-  refuses an exchange that implements `resume()` undeclared.
+  refuses an exchange that implements `resume()` undeclared, and re-runs the class
+  checks on the exchange's runtime class (a subclass of the declared one is fine
+  only if it passes them too; results cached per class).
 - **`RowTransformFunction.inputRowsPerCall()`** → `FunctionInfo.input_rows_per_call`
   (nullable int64, contract hash changed); must be positive. Being on the blended
   interface, it cannot be declared on a classic function.
 - Java table-in-out never auto-applies pushdown filters, so it had no
   `parent_rows`-vs-filter mask bug to fix (Go and Python did).
 - Fixtures: `example/tableinout/PagedFunctions` (`blended_paged`, `blended_sliced`,
-  `paged_explode`). Unit: `internal/ContinuedOutputTest`.
+  `paged_explode`); unit-tested against the extension's fixture contracts in
+  `vgi-example-worker/.../tableinout/PagedStateTest`. Unit: `internal/ContinuedOutputTest`;
+  pipe + HTTP round trips: `client/ContinuedOutputTransportTest`.
 
 ## Attach tickets (2026-10-07)
 

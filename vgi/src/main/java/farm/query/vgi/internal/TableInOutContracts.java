@@ -40,42 +40,67 @@ public final class TableInOutContracts {
             throw new IllegalArgumentException(name + ": continued output is not supported with maxWorkers() = 1; "
                     + "the client runs such a function on one shared connection");
         }
-        if (!TableInOutExchangeState.overridesResume(cls)) {
-            throw new IllegalArgumentException(name + ": continuationState() " + cls.getName()
-                    + " does not implement resume()");
-        }
-        if (PortableStreamState.class.isAssignableFrom(cls)) {
-            throw new IllegalArgumentException(name + ": continuationState() " + cls.getName()
-                    + " encodes its own state, so the pending-output flag cannot ride the HTTP state token");
-        }
-        try {
-            cls.getDeclaredConstructor();
-        } catch (NoSuchMethodException e) {
-            throw new IllegalArgumentException(name + ": continuationState() " + cls.getName()
-                    + " needs a no-arg constructor to round-trip the HTTP state token");
-        }
-        if (!hasOwnState(cls)) {
-            throw new IllegalArgumentException(name + ": resume() continues from its state alone, so "
-                    + cls.getName() + " must hold the resume position in non-static, non-transient fields");
+        String problem = STATE_CLASS_PROBLEM.get(cls);
+        if (problem != null) {
+            throw new IllegalArgumentException(name + ": continuationState() " + problem);
         }
     }
 
     /**
-     * Check the exchange a function created against its declaration: a state
-     * that can continue must be the declared {@code continuationState()}, or the
-     * startup checks above never saw it.
+     * Check the exchange a function created against its declaration. An
+     * exchange that implements {@code resume()} must be an instance of the
+     * declared {@code continuationState()}, and its runtime class must itself
+     * pass the startup class checks: it is that class, not the declared one,
+     * whose fields and no-arg constructor carry the state token, so a subclass
+     * that encodes its own state or lacks a no-arg constructor is refused too.
      *
      * @param fn the function.
      * @param state the exchange {@code fn.createExchange} returned.
-     * @throws IllegalStateException when the exchange implements {@code resume()} undeclared.
+     * @throws IllegalStateException when the exchange implements {@code resume()}
+     *     undeclared, or its class could not continue.
      */
     public static void checkExchange(TableInOutFunction fn, TableInOutExchangeState state) {
-        if (!TableInOutExchangeState.overridesResume(state.getClass())) return;
+        Class<? extends TableInOutExchangeState> cls = state.getClass();
+        if (!TableInOutExchangeState.overridesResume(cls)) return;
         Class<? extends TableInOutExchangeState> declared = fn.continuationState();
         if (declared == null || !declared.isInstance(state)) {
-            throw new IllegalStateException(fn.name() + ": exchange " + state.getClass().getName()
+            throw new IllegalStateException(fn.name() + ": exchange " + cls.getName()
                     + " implements resume() but is not the function's continuationState()");
         }
+        String problem = STATE_CLASS_PROBLEM.get(cls);
+        if (problem != null) {
+            throw new IllegalStateException(fn.name() + ": exchange " + problem);
+        }
+    }
+
+    // Per class, why it cannot carry continued output (null when it can).
+    // Cached because checkExchange runs on every init.
+    private static final ClassValue<String> STATE_CLASS_PROBLEM = new ClassValue<>() {
+        @Override protected String computeValue(Class<?> type) {
+            @SuppressWarnings("unchecked")
+            Class<? extends TableInOutExchangeState> cls = (Class<? extends TableInOutExchangeState>) type;
+            return stateClassProblem(cls);
+        }
+    };
+
+    private static String stateClassProblem(Class<? extends TableInOutExchangeState> cls) {
+        if (!TableInOutExchangeState.overridesResume(cls)) {
+            return cls.getName() + " does not implement resume()";
+        }
+        if (PortableStreamState.class.isAssignableFrom(cls)) {
+            return cls.getName()
+                    + " encodes its own state, so the pending-output flag cannot ride the HTTP state token";
+        }
+        try {
+            cls.getDeclaredConstructor();
+        } catch (NoSuchMethodException e) {
+            return cls.getName() + " needs a no-arg constructor to round-trip the HTTP state token";
+        }
+        if (!hasOwnState(cls)) {
+            return cls.getName() + " must hold the resume position in non-static, non-transient fields, "
+                    + "since resume() continues from its state alone";
+        }
+        return null;
     }
 
     private static boolean hasOwnState(Class<?> cls) {
