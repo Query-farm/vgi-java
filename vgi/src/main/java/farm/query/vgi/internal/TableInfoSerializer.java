@@ -70,6 +70,7 @@ public final class TableInfoSerializer {
      * @return IPC stream bytes matching {@code TableInfoSchema}
      */
     public static byte[] serialize(TableInfo info) {
+        if (info.columns() != null && info.columns().length != 0) ColumnMetadata.validateIpc(info.columns());
         return IpcStructBuilder.build(SCHEMA, v -> {
             writeVarChar(v.get("comment"), info.comment());
             writeMap(v.get("tags"), info.tags());
