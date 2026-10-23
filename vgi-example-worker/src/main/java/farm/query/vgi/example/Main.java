@@ -90,6 +90,7 @@ import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
 import farm.query.vgi.example.tableinout.MultiBatchFinishFunction;
 import farm.query.vgi.example.tableinout.SubstreamPartialSumFunction;
 import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
+import farm.query.vgi.example.tableinout.PagedFunctions;
 import farm.query.vgi.example.tableinout.RepeatInputsFunction;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -737,6 +738,12 @@ public final class Main {
                 new BlendedFunctions.CachedDoubleFunction(),
                 new BlendedFunctions.CachedExplodeFunction(),
                 new BlendedFunctions.CachedRevalidatingDoubleFunction(),
+                // Continued output across replies, and input_rows_per_call
+                // (lateral_continuation.test, input_rows_per_call.test,
+                // continuation_classic.test, continuation_*.test).
+                new PagedFunctions.BlendedPagedFunction(),
+                new PagedFunctions.BlendedSlicedFunction(),
+                new PagedFunctions.PagedExplodeFunction(),
                 // Exchange-mode result-cache classics (cache/exchange_streaming
                 // + exchange_revalidate).
                 new CachedEchoFunctions.CachedEchoFunction(),

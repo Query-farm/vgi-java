@@ -238,7 +238,7 @@ class WireEnumNamesTest {
                 scalar.partition_kind(), scalar.order_dependent(), scalar.distinct_dependent(),
                 scalar.supports_window(), scalar.streaming_partitioned(), scalar.has_finalize(),
                 scalar.source_order_dependent(), scalar.sink_order_dependent(),
-                scalar.requires_input_batch_index(), scalar.input_from_args(),
+                scalar.requires_input_batch_index(), scalar.input_from_args(), scalar.input_rows_per_call(),
                 scalar.required_settings(), scalar.required_secrets());
         byte[] fn = FunctionInfoSerializer.serialize(lower);
         assertEquals("SCALAR", RecordCodec.deserializeFromBytes(fn, FunctionInfo.class).function_type());

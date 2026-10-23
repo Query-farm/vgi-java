@@ -232,7 +232,10 @@ public final class VgiServiceImpl implements VgiService {
         this.worker = worker;
         for (ScalarFunction f : scalars) this.scalars.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
         for (TableFunction f : tables) this.tables.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
-        for (TableInOutFunction f : tableInOuts) this.tableInOuts.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
+        for (TableInOutFunction f : tableInOuts) {
+            TableInOutContracts.check(f);
+            this.tableInOuts.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
+        }
         for (AggregateFunction<?> f : aggregates) this.aggregates.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
         for (var f : worker.bufferingFunctions())
             this.bufferingFns.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
@@ -790,6 +793,7 @@ public final class VgiServiceImpl implements VgiService {
                     new FinalizeProducerState(bio.fn().finish(params)), header);
         }
         TableInOutExchangeState state = bio.fn().createExchange(params);
+        TableInOutContracts.checkExchange(bio.fn(), state);
         return RpcStream.exchange(inputSchema, fnOutputSchema, state, header);
     }
 
@@ -3160,6 +3164,8 @@ public final class VgiServiceImpl implements VgiService {
                 base.source_order_dependent(), base.sink_order_dependent(),
                 base.requires_input_batch_index(),
                 fn instanceof farm.query.vgi.tableinout.RowTransformFunction,
+                fn instanceof farm.query.vgi.tableinout.RowTransformFunction rt
+                        ? rt.inputRowsPerCall() : null,
                 base.required_settings(), base.required_secrets());
     }
 
@@ -3192,7 +3198,7 @@ public final class VgiServiceImpl implements VgiService {
                 base.partition_kind(), base.order_dependent(), base.distinct_dependent(),
                 base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
                 base.source_order_dependent(), base.sink_order_dependent(),
-                base.requires_input_batch_index(), base.input_from_args(),
+                base.requires_input_batch_index(), base.input_from_args(), base.input_rows_per_call(),
                 base.required_settings(), required);
     }
 
@@ -3218,7 +3224,7 @@ public final class VgiServiceImpl implements VgiService {
                 base.partition_kind(), base.order_dependent(), base.distinct_dependent(),
                 base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
                 fn.sourceOrderDependent(), fn.sinkOrderDependent(), fn.requiresInputBatchIndex(),
-                base.input_from_args(),
+                base.input_from_args(), base.input_rows_per_call(),
                 base.required_settings(), base.required_secrets());
     }
 
@@ -3328,6 +3334,7 @@ public final class VgiServiceImpl implements VgiService {
                 false,  // sink_order_dependent
                 false,  // requires_input_batch_index
                 false,  // input_from_args — re-stamped true for RowTransformFunction
+                null,   // input_rows_per_call — re-stamped for RowTransformFunction
                 List.of(),
                 List.of());
     }

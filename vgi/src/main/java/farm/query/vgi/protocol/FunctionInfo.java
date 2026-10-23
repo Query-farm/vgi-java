@@ -75,6 +75,10 @@ import java.util.Map;
  *                                     placeholder), so one registration serves the literal /
  *                                     column / LATERAL call shapes. Set from
  *                                     {@link farm.query.vgi.tableinout.RowTransformFunction}.
+ * @param input_rows_per_call          blended only: the most input rows one worker call receives;
+ *                                     the client splits each input chunk into calls of at most this
+ *                                     many rows. {@code null} sends a whole chunk per call. Set from
+ *                                     {@link farm.query.vgi.tableinout.RowTransformFunction#inputRowsPerCall()}.
  * @param required_settings            session settings that must be present.
  * @param required_secrets             secrets the function needs to resolve.
  */
@@ -122,6 +126,7 @@ public record FunctionInfo(
         boolean sink_order_dependent,
         boolean requires_input_batch_index,
         boolean input_from_args,
+        @Nullable Long input_rows_per_call,
         List<String> required_settings,
         List<FunctionRequiredSecret> required_secrets) implements ArrowSerializableRecord {
     public String schema_name() {

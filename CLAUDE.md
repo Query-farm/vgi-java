@@ -303,6 +303,36 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## Continued table-in-out output (2026-10-23)
+
+Ported from vgi-python `a34e949` (spec: the extension's `docs/table_in_out.md`,
+"Continued Output" and "Input Rows Per Call"). One input batch may be answered
+with several replies:
+
+- **Emit "more":** `out.emit(root, TableInOutExchangeState.withMoreOutput(more, md))`
+  puts `vgi.status: HAVE_MORE_OUTPUT` on the reply. The framework does not need a
+  wrapped collector to see it: `TableInOutExchangeState.exchange` (final) reads the
+  emitted data entry's metadata after the call, so raw metadata is seen too.
+- **Resume:** the client's tick (zero rows, `vgi.status: CONTINUE`) calls the
+  exchange's `resume(out, ctx)`. The exchange object *is* the state, so its public
+  fields hold the resume position; the private base field `morePending` rides the
+  HTTP state token through `StateSerializer` like any other field.
+- **Refusals:** a tick with nothing pending or with rows, real input while pending,
+  cache control on a tick's reply, "more" without `resume()`, and "more" from a
+  `TableProducerState`. `not_modified` + more is the client's to refuse.
+- **Startup checks** (`internal/TableInOutContracts`, run in the `VgiServiceImpl`
+  ctor): a continuing function declares `continuationState()` (its exchange class),
+  which must implement `resume()`, hold fields of its own, have a no-arg ctor, not
+  be a `PortableStreamState`, and not run with `maxWorkers() = 1`. `initTableInOut`
+  refuses an exchange that implements `resume()` undeclared.
+- **`RowTransformFunction.inputRowsPerCall()`** → `FunctionInfo.input_rows_per_call`
+  (nullable int64, contract hash changed); must be positive. Being on the blended
+  interface, it cannot be declared on a classic function.
+- Java table-in-out never auto-applies pushdown filters, so it had no
+  `parent_rows`-vs-filter mask bug to fix (Go and Python did).
+- Fixtures: `example/tableinout/PagedFunctions` (`blended_paged`, `blended_sliced`,
+  `paged_explode`). Unit: `internal/ContinuedOutputTest`.
+
 ## Attach tickets (2026-10-07)
 
 > **Protocol 2.0.0 (2026-10-17):** `AttachTicket.expires_at` is a nullable

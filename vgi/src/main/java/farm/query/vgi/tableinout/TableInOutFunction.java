@@ -52,6 +52,23 @@ public interface TableInOutFunction extends FunctionDescriptor {
     default long maxWorkers() { return 0L; }
 
     /**
+     * The exchange-state class this function continues its output from, or
+     * {@code null} (the default) when every input batch gets exactly one reply.
+     * A function whose exchange emits
+     * {@link TableInOutExchangeState#withMoreOutput more output} and implements
+     * {@link TableInOutExchangeState#resume resume()} must declare that class
+     * here, so the worker can check at startup that the client can drive it:
+     * the class implements {@code resume()}, keeps its resume position in
+     * fields of its own (they ride the HTTP state token), has a no-arg
+     * constructor for that round trip, and the function does not set
+     * {@link #maxWorkers()} to {@code 1} (such a function runs on one connection
+     * shared by every pipeline, which cannot leave output pending).
+     *
+     * @return the continuing exchange class, or {@code null}.
+     */
+    default Class<? extends TableInOutExchangeState> continuationState() { return null; }
+
+    /**
      * Whether this function has a per-substream FINALIZE phase. When
      * {@code true} the wire {@code FunctionInfo.has_finalize} is set, the C++
      * extension keeps the substream's connection open at input EOS, and
