@@ -292,6 +292,18 @@ class CatalogContractsTest {
                         var restored = Marshalling.decodeRow(encoded);
                         assertEquals(row.get("column_path"), restored.get("column_path"));
                         assertEquals(row.get("ignore_not_found"), restored.get("ignore_not_found"));
+                        if (operation.equals("column_default_set") || operation.equals("column_type_change")) {
+                            if (operation.equals("column_type_change") && variant.equals("literal")) {
+                                assertNull(restored.get("expression"));
+                            } else {
+                                var payload = (byte[]) row.get("expression");
+                                assertArrayEquals(payload, (byte[]) restored.get("expression"));
+                                var expression = RecordCodec.deserializeFromBytes(payload, SqlExpression.class);
+                                assertEquals(row.get("schema_path"), expression.schema_path());
+                                assertFalse(expression.profile().isEmpty());
+                                assertNotNull(expression.evaluation_context());
+                            }
+                        }
                     }
                     assertFalse(reader.loadNextBatch());
                 }
