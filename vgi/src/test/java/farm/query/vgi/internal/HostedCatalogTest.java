@@ -41,6 +41,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 final class HostedCatalogTest {
 
+    @Test void nullableDefaultSchemaDoesNotInventAnImplicitSchema() {
+        for (String schema : new String[]{null, "main", "sales.archive"}) {
+            var worker = Worker.builder().catalogName("test_default").defaultSchema(schema);
+            var svc = service(worker);
+            var result = svc.catalog_attach(CatalogAttachRequest.of("test_default", null, null, null), null);
+            assertEquals(schema, RecordCodec.deserializeFromBytes(
+                    RecordCodec.serializeToBytes(result), CatalogAttachResult.class).default_schema());
+            assertEquals(schema == null ? List.of() : List.of(List.of(schema)), schemaPaths(svc, result.attach_opaque_data()));
+        }
+        for (var invalid : List.of("", "bad\0name")) {
+            assertThrows(IllegalArgumentException.class, () -> Worker.builder().defaultSchema(invalid));
+            assertThrows(IllegalArgumentException.class, () -> new farm.query.vgi.CatalogInterface.AttachInfo(invalid, null, Map.of(), true, true));
+        }
+        var worker = Worker.builder().defaultSchema(null);
+        assertThrows(IllegalStateException.class, () -> worker.schemaPathOf(new Probe()));
+    }
+
     private static final List<String> MAIN = List.of("main");
 
     /** A scalar of the main catalog. */

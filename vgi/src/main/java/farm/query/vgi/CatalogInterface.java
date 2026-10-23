@@ -66,17 +66,20 @@ public interface CatalogInterface {
     /**
      * What {@link #attach} reports about the attached catalog.
      *
-     * @param defaultSchema            the default schema name
+     * @param defaultSchema            one raw root identifier, or null for no implicit default
      * @param comment                  the catalog comment, or {@code null}
      * @param tags                     catalog tags
      * @param versionFrozen            the catalog version never changes for this attach
      * @param supportsCatalogContents  advertise {@code catalog_contents}
      */
-    record AttachInfo(String defaultSchema, @Nullable String comment, Map<String, String> tags,
+    record AttachInfo(@Nullable String defaultSchema, @Nullable String comment, Map<String, String> tags,
                       boolean versionFrozen, boolean supportsCatalogContents) {
 
         /** Defensive copy; null tags read as none. */
         public AttachInfo {
+            if (defaultSchema != null && (defaultSchema.isEmpty() || defaultSchema.indexOf('\0') >= 0)) {
+                throw new IllegalArgumentException("defaultSchema must be a non-empty raw root identifier without NUL, or null");
+            }
             tags = tags == null ? Map.of() : Map.copyOf(tags);
         }
     }

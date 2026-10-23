@@ -37,6 +37,12 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogContractsTest {
+    @Test void attachDefaultSchemaPreservesNullAndRawNames() throws Exception {
+        assertNull(roundTrip("attach_default_schema_none", farm.query.vgi.protocol.CatalogAttachResult.class).default_schema());
+        assertEquals("main", roundTrip("attach_default_schema_main", farm.query.vgi.protocol.CatalogAttachResult.class).default_schema());
+        assertEquals("sales.archive", roundTrip("attach_default_schema_dotted", farm.query.vgi.protocol.CatalogAttachResult.class).default_schema());
+    }
+
     @Test void typedIndexesPreserveRawPathsContextAndOptionState() throws Exception {
         assertEquals(List.of("a.b"), roundTrip("index_key_column", farm.query.vgi.protocol.IndexKey.class).column_path());
         assertEquals(List.of("record", "a.b"), roundTrip("index_key_nested", farm.query.vgi.protocol.IndexKey.class).column_path());

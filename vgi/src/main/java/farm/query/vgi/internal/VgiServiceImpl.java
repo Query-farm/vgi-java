@@ -2086,22 +2086,24 @@ public final class VgiServiceImpl implements VgiService {
         Map<String, String> comments = worker.schemaComments();
         Map<String, Map<String, String>> tags = worker.schemaTags();
         String defaultSchema = worker.defaultSchema();
-        result.add(new SchemaDesc(defaultSchema,
-                comments.getOrDefault(defaultSchema, "Default schema"),
-                tags.getOrDefault(defaultSchema, Map.of())));
+        if (defaultSchema != null) {
+            result.add(new SchemaDesc(defaultSchema,
+                    comments.getOrDefault(defaultSchema, "Default schema"),
+                    tags.getOrDefault(defaultSchema, Map.of())));
+        }
         // The minimal `versioned` fixture exposes only its default schema
         // (vgi-python parity); the example worker's auxiliary `data` schema is
         // not part of it. attach/versioning_http.test asserts exactly one schema.
         if ("versioned".equals(worker.catalogName())) return result;
         java.util.LinkedHashSet<String> extras = new java.util.LinkedHashSet<>();
         for (var t : worker.catalogTables()) {
-            if (!defaultSchema.equals(t.schema())) extras.add(t.schema());
+            if (!java.util.Objects.equals(defaultSchema, t.schema())) extras.add(t.schema());
         }
         for (var v : worker.views()) {
-            if (!defaultSchema.equals(v.schema())) extras.add(v.schema());
+            if (!java.util.Objects.equals(defaultSchema, v.schema())) extras.add(v.schema());
         }
         for (var m : worker.macros()) {
-            if (!defaultSchema.equals(m.schema())) extras.add(m.schema());
+            if (!java.util.Objects.equals(defaultSchema, m.schema())) extras.add(m.schema());
         }
         // ...and schemas that hold nothing but functions: a function registered
         // through registerScalar(schema, fn) lives in a schema DuckDB must be
@@ -2123,7 +2125,7 @@ public final class VgiServiceImpl implements VgiService {
     private void addFunctionSchema(Object fn, String defaultSchema, java.util.Set<String> extras) {
         if (worker.catalogOf(fn) != null) return;
         String schema = worker.schemaOf(fn);
-        if (!defaultSchema.equals(schema)) extras.add(schema);
+        if (!java.util.Objects.equals(defaultSchema, schema)) extras.add(schema);
     }
 
     /**

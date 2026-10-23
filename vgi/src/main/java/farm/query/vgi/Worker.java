@@ -525,10 +525,16 @@ public final class Worker {
      * Name the schema DuckDB selects by default after ATTACH. Functions,
      * tables and views without an explicit schema register here.
      *
-     * @param schema the default schema name (default {@code "main"})
+     * @param schema one raw root identifier, or null for no implicit default (omitted: {@code "main"})
      * @return this builder
      */
-    public Worker defaultSchema(String schema) { this.defaultSchema = schema; return this; }
+    public Worker defaultSchema(String schema) {
+        if (schema != null && (schema.isEmpty() || schema.indexOf('\0') >= 0)) {
+            throw new IllegalArgumentException("defaultSchema must be a non-empty raw root identifier without NUL, or null");
+        }
+        this.defaultSchema = schema;
+        return this;
+    }
 
     /** Per-schema comment surfaced via {@code catalog_schemas} /
      *  {@code catalog_schema_get}. Default comment for the default schema is
@@ -891,7 +897,11 @@ public final class Worker {
      */
     public List<String> schemaPathOf(Object fn) {
         FunctionHome h = functionHomes.get(fn);
-        return h == null || h.schemaPath() == null ? List.of(defaultSchema) : h.schemaPath();
+        if (h != null && h.schemaPath() != null) return h.schemaPath();
+        if (defaultSchema == null) {
+            throw new IllegalStateException("This catalog has no default schema; register the function with an explicit schema path");
+        }
+        return List.of(defaultSchema);
     }
 
     /** Legacy single-component view of a function's schema path. */
