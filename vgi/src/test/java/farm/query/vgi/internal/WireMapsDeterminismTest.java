@@ -56,10 +56,8 @@ final class WireMapsDeterminismTest {
     void handBuiltItemTagsAreWrittenInKeyOrder() {
         // MacroInfoSerializer, like the TableInfo / FunctionInfo / CopyFromFormatInfo
         // serialisers, writes tags through IpcStructBuilder.writeMap.
-        byte[] a = MacroInfoSerializer.serialize(new MacroInfo(null, ordered("k2", "v2", "k1", "v1", "k3", null),
-                "m", List.of("s"), "scalar", List.of("x"), null, "x", null));
-        byte[] b = MacroInfoSerializer.serialize(new MacroInfo(null, ordered("k3", null, "k1", "v1", "k2", "v2"),
-                "m", List.of("s"), "scalar", List.of("x"), null, "x", null));
+        byte[] a = MacroInfoSerializer.serialize(MacroFamilies.fromDescriptor(new farm.query.vgi.catalog.Macro("s", "m", farm.query.vgi.catalog.MacroType.SCALAR, List.of("x"), Map.of(), "x", null, ordered("k2", "v2", "k1", "v1", "k3", null))));
+        byte[] b = MacroInfoSerializer.serialize(MacroFamilies.fromDescriptor(new farm.query.vgi.catalog.Macro("s", "m", farm.query.vgi.catalog.MacroType.SCALAR, List.of("x"), Map.of(), "x", null, ordered("k3", null, "k1", "v1", "k2", "v2"))));
         assertArrayEquals(a, b);
     }
 }

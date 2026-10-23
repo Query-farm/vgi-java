@@ -69,11 +69,10 @@ class MacroArgumentsSchemaTest {
         byte[] argsSchemaIpc = MacroArgumentsSchema.toIpcBytes(params, Map.of(), docs);
         assertNotNull(argsSchemaIpc);
 
-        farm.query.vgi.protocol.MacroInfo info = new farm.query.vgi.protocol.MacroInfo(
-                "a comment", Map.of(), "m", "main", "scalar",
-                params, new byte[0], "a + b", argsSchemaIpc);
+        farm.query.vgi.protocol.MacroInfo info = MacroFamilies.fromDescriptor(new farm.query.vgi.catalog.Macro("main", "m", farm.query.vgi.catalog.MacroType.SCALAR,
+                params, Map.of(), docs, "a + b", "a comment", Map.of()));
 
-        // Serialize the full MacroInfo (arguments_schema rides as the last field)
+        // Serialize the full MacroInfo with its canonical overload family.
         // and confirm the embedded schema IPC bytes deserialize with vgi_doc intact.
         byte[] wire = MacroInfoSerializer.serialize(info);
         assertNotNull(wire);

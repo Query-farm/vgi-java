@@ -29,9 +29,8 @@ import farm.query.vgi.catalog.Macro;
  * Encodes a macro's named-parameter default values as a 1-row IPC RecordBatch
  * whose columns are the named parameters and whose row 0 holds the typed
  * default values. The default-value SQL strings in {@link Macro} are
- * parsed loosely: {@code 0}/{@code 100} → BIGINT, decimals → FLOAT64,
- * {@code 'foo'} → VARCHAR, {@code true}/{@code false} → BOOL. Anything else
- * falls back to VARCHAR with the literal text.
+ * resolved from supported literals: {@code 0}/{@code 100} → BIGINT, decimals → FLOAT64,
+ * {@code 'foo'} → VARCHAR, {@code true}/{@code false} → BOOL. {@code NULL} retains a null value. Unsupported SQL expressions are rejected.
  */
 public final class MacroDefaultsEncoder {
 
@@ -41,7 +40,7 @@ public final class MacroDefaultsEncoder {
      * Encode a macro's named-parameter defaults as a 1-row IPC RecordBatch.
      *
      * @param defaults named-parameter → default-value-SQL-literal map (insertion order preserved)
-     * @return IPC stream bytes for {@code MacroInfo.parameter_default_values}, or empty bytes when there are no defaults
+     * @return IPC stream bytes for a canonical parameter default, or empty bytes when there are no defaults
      */
     public static byte[] encode(Map<String, String> defaults) {
         if (defaults == null || defaults.isEmpty()) return new byte[0];
@@ -78,7 +77,7 @@ public final class MacroDefaultsEncoder {
 
     /**
      * Infer the Arrow type a default-value SQL literal encodes to, using the
-     * same loose parsing {@link #encode} applies. Used by
+     * same literal parsing {@link #encode} applies. Used by
      * {@link MacroArgumentsSchema} to type each parameter field.
      *
      * @param literal the default-value SQL literal
@@ -90,9 +89,9 @@ public final class MacroDefaultsEncoder {
 
     /**
      * Parse a default-value SQL literal to its typed Java value, using the same
-     * loose parsing {@link #encode} applies ({@code 0}/{@code 100} → {@link Long},
+     * literal parsing {@link #encode} applies ({@code 0}/{@code 100} → {@link Long},
      * decimals → {@link Double}, {@code 'foo'} → {@link String}, {@code true}/
-     * {@code false} → {@link Boolean}, else the literal text). Lets callers render
+     * {@code false} → {@link Boolean}, and {@code NULL} → null; other expressions are rejected). Lets callers render
      * the default as its typed JSON scalar (e.g. {@code 0} → {@code "0"}), matching
      * the Python reference producer's {@code json.dumps(default)}.
      *
@@ -106,18 +105,22 @@ public final class MacroDefaultsEncoder {
     private static Object parse(String literal) {
         if (literal == null) return null;
         String s = literal.trim();
-        if (s.isEmpty()) return "";
+        if (s.equalsIgnoreCase("null")) return null;
         if (s.equalsIgnoreCase("true")) return Boolean.TRUE;
         if (s.equalsIgnoreCase("false")) return Boolean.FALSE;
-        if (s.startsWith("'") && s.endsWith("'") && s.length() >= 2) {
-            return s.substring(1, s.length() - 1);
+        if (s.matches("'(?:[^']|'')*'")) {
+            return s.substring(1, s.length() - 1).replace("''", "'");
         }
         try { return Long.parseLong(s); } catch (NumberFormatException ignore) {}
-        try { return Double.parseDouble(s); } catch (NumberFormatException ignore) {}
-        return s;
+        if (s.matches("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?")) {
+            try { double value = Double.parseDouble(s); if (Double.isFinite(value)) return value; }
+            catch (NumberFormatException ignore) {}
+        }
+        throw new IllegalArgumentException("Macro default is not a supported resolved literal: " + s);
     }
 
     private static ArrowType arrowTypeFor(Object v) {
+        if (v == null) return new ArrowType.Null();
         if (v instanceof Boolean) return new ArrowType.Bool();
         if (v instanceof Long) return new ArrowType.Int(64, true);
         if (v instanceof Double) return new ArrowType.FloatingPoint(
@@ -126,7 +129,8 @@ public final class MacroDefaultsEncoder {
     }
 
     private static void writeScalar(FieldVector v, Object value) {
-        if (v instanceof BitVector b) b.setSafe(0, ((Boolean) value) ? 1 : 0);
+        if (value == null) v.setNull(0);
+        else if (v instanceof BitVector b) b.setSafe(0, ((Boolean) value) ? 1 : 0);
         else if (v instanceof BigIntVector bi) bi.setSafe(0, ((Number) value).longValue());
         else if (v instanceof Float8Vector f) f.setSafe(0, ((Number) value).doubleValue());
         else if (v instanceof VarCharVector vc) vc.setSafe(0, new Text(value == null ? "" : value.toString()));

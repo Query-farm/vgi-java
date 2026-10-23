@@ -1,75 +1,34 @@
 // Copyright 2026 Query Farm LLC - https://query.farm
-
 package farm.query.vgi.internal;
 
 import farm.query.vgi.protocol.MacroInfo;
+import farm.query.vgirpc.marshal.Marshalling;
+import farm.query.vgirpc.marshal.RecordCodec;
 import farm.query.vgirpc.schema.SchemaDerivation;
-import org.apache.arrow.vector.complex.ListVector;
-import org.apache.arrow.vector.dictionary.DictionaryProvider;
-import org.apache.arrow.vector.types.pojo.Schema;
+import farm.query.vgirpc.wire.Allocators;
+import farm.query.vgirpc.wire.IpcStreamWriter;
+import java.io.ByteArrayOutputStream;
+import java.util.Map;
 
-import java.util.List;
-
-import static farm.query.vgi.internal.IpcStructBuilder.BINARY;
-import static farm.query.vgi.internal.IpcStructBuilder.UTF8;
-import static farm.query.vgi.internal.IpcStructBuilder.listOfPrim;
-import static farm.query.vgi.internal.IpcStructBuilder.mapUtf8Utf8;
-import static farm.query.vgi.internal.IpcStructBuilder.nonNull;
-import static farm.query.vgi.internal.IpcStructBuilder.nullable;
-import static farm.query.vgi.internal.IpcStructBuilder.writeMap;
-import static farm.query.vgi.internal.IpcStructBuilder.writeStringList;
-import static farm.query.vgi.internal.IpcStructBuilder.writeVarBinarySafe;
-import static farm.query.vgi.internal.IpcStructBuilder.writeVarChar;
-
-/**
- * Serialiser for {@link MacroInfo}. The C++ extension's {@code MacroInfoSchema}
- * expects {@code macro_type} as {@code dictionary<int16, utf8>}; both binary
- * columns ({@code parameter_default_values}, {@code arguments_schema}) are
- * nullable, and this SDK writes empty bytes rather than null when absent.
- */
+/** Encodes the entire canonical family while preserving nullable, sorted tags. */
 public final class MacroInfoSerializer {
-
     private MacroInfoSerializer() {}
 
-    private static final EnumDict MACRO_TYPE = new EnumDict("macro_type",
-            DictionaryIds.MACRO_TYPE, List.of("scalar", "table"));
-
-    private static final Schema SCHEMA = new Schema(List.of(
-            nullable("comment", UTF8),
-            mapUtf8Utf8("tags"),
-            nonNull("name", UTF8),
-            listOfPrim("schema_path", UTF8),
-            MACRO_TYPE.field(false),
-            listOfPrim("parameters", UTF8),
-            nullable("parameter_default_values", BINARY),
-            nonNull("definition", UTF8),
-            nullable("arguments_schema", BINARY),
-            SchemaDerivation.schemaForRecord(MacroInfo.class).getFields().get(9)));
-
-    /**
-     * Serialise {@code info} as the 1-row IPC stream the C++ extension reads for a catalog macro.
-     *
-     * @param info the macro descriptor to encode
-     * @return IPC stream bytes matching {@code MacroInfoSchema}
-     */
     public static byte[] serialize(MacroInfo info) {
-        if (info.overloads() != null) {
-            throw new UnsupportedOperationException("macro overload families require a qualified catalog adapter");
+        var row = RecordCodec.toRowMap(info);
+        // The RPC generic map writer does not support nullable map values.
+        // Keep its nested-record support and use the catalog's existing map writer.
+        row.put("tags", Map.of());
+        try (var encoded = Marshalling.encodeRowForWire(
+                SchemaDerivation.schemaForRecord(MacroInfo.class), row, Allocators.root());
+             var bytes = new ByteArrayOutputStream();
+             var writer = new IpcStreamWriter(bytes)) {
+            IpcStructBuilder.writeMap(encoded.root().getVector("tags"), info.tags());
+            writer.writeBatch(encoded.root(), null, encoded.provider());
+            writer.writeEos();
+            return bytes.toByteArray();
+        } catch (Exception e) {
+            throw new RuntimeException("MacroInfo serialization failed", e);
         }
-        DictionaryProvider.MapDictionaryProvider provider = new DictionaryProvider.MapDictionaryProvider();
-        MACRO_TYPE.register(provider);
-
-        return IpcStructBuilder.build(SCHEMA, provider, v -> {
-            writeVarChar(v.get("comment"), info.comment());
-            writeMap(v.get("tags"), info.tags());
-            writeVarChar(v.get("name"), info.name());
-            writeStringList(v.get("schema_path"), info.schema_path());
-            MACRO_TYPE.write(v.get("macro_type"), info.macro_type());
-            writeStringList(v.get("parameters"), info.parameters());
-            writeVarBinarySafe(v.get("parameter_default_values"), info.parameter_default_values());
-            writeVarChar(v.get("definition"), info.definition());
-            writeVarBinarySafe(v.get("arguments_schema"), info.arguments_schema());
-            ((ListVector) v.get("overloads")).setNull(0);
-        });
     }
 }

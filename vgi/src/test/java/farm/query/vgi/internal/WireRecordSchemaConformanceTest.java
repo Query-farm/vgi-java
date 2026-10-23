@@ -866,6 +866,10 @@ class WireRecordSchemaConformanceTest {
      */
     private static Record sample(Class<? extends Record> record, Map<String, Object> enumValues)
             throws ReflectiveOperationException {
+        if (record == MacroInfo.class) {
+            return MacroFamilies.fromDescriptor(new farm.query.vgi.catalog.Macro("sample", "sample",
+                    farm.query.vgi.catalog.MacroType.SCALAR, List.of("x"), "x", "sample"));
+        }
         RecordComponent[] components = record.getRecordComponents();
         Class<?>[] types = new Class<?>[components.length];
         Object[] args = new Object[components.length];
@@ -880,11 +884,6 @@ class WireRecordSchemaConformanceTest {
     }
 
     private static Object sampleValue(RecordComponent component) {
-        // The native catalog adapter advertises only the legacy macro form.
-        // New families are exercised through RecordCodec by CatalogContractsTest.
-        if (component.getName().equals("overloads")) {
-            return null;
-        }
         // Scalar-only and shape-dependent; its dedicated serializer test
         // supplies a real argument schema and exercises a present list.
         if (component.getName().equals("argument_monotonicity")) {

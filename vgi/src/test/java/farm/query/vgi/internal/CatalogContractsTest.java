@@ -156,11 +156,9 @@ class CatalogContractsTest {
         var create = roundTrip("macro_create", farm.query.vgi.protocol.MacroCreateRequest.class);
         assertEquals(2, create.overloads().size());
         assertEquals("upper(x)", create.overloads().get(1).definition());
-        assertTrue(create.parameters().isEmpty());
-        assertEquals("", create.definition());
-        assertNull(roundTrip("macro_create_legacy", farm.query.vgi.protocol.MacroCreateRequest.class).overloads());
+        assertEquals(1, roundTrip("macro_create_single", farm.query.vgi.protocol.MacroCreateRequest.class).overloads().size());
         assertEquals(2, roundTrip("macro_info", farm.query.vgi.protocol.MacroInfo.class).overloads().size());
-        assertNull(roundTrip("macro_info_legacy", farm.query.vgi.protocol.MacroInfo.class).overloads());
+        assertEquals(1, roundTrip("macro_info_single", farm.query.vgi.protocol.MacroInfo.class).overloads().size());
         try (var allocator = new RootAllocator();
              var reader = new ArrowStreamReader(new ByteArrayInputStream(parameter.default_value()), allocator)) {
             assertTrue(reader.loadNextBatch());

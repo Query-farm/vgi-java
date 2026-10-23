@@ -1,67 +1,29 @@
 // Copyright 2026 Query Farm LLC - https://query.farm
-
 package farm.query.vgi.protocol;
 
 import farm.query.vgirpc.schema.ArrowField;
 import farm.query.vgirpc.schema.ArrowFieldType;
 import farm.query.vgirpc.schema.ArrowSerializableRecord;
 import farm.query.vgirpc.schema.Nullable;
-
 import java.util.List;
 import java.util.Map;
 
-/**
- * Mirrors the C++ {@code MacroInfoSchema}.
- *
- * <p>{@code macro_type} is a dictionary-encoded enum on the wire
- * ({@code "scalar"} or {@code "table"}); {@code parameter_default_values}
- * carries an IPC-encoded 1-row record batch holding default values for any
- * named parameters that omit a positional default.
- *
- * @param comment                  optional macro comment, or {@code null}.
- * @param tags                     arbitrary key/value metadata tags.
- * @param name                     macro name.
- * @param schema_path              owning schema identifier components.
- * @param macro_type               dictionary-encoded macro kind ({@code "scalar"} or {@code "table"}).
- * @param parameters               positional parameter names.
- * @param parameter_default_values IPC-encoded 1-row batch of named-parameter defaults;
- *                                 {@code null} or empty when there are none.
- * @param definition               the macro body / SQL definition.
- * @param arguments_schema         optional Arrow schema (serialized as IPC bytes) with one
- *                                 nullable field per parameter, in {@code parameters} order;
- *                                 each field's type is the parameter's default-value type when
- *                                 known (else Arrow null), and the {@code vgi_doc} field
- *                                 metadata key carries the parameter's description (UTF-8,
- *                                 presence-only). Mirrors the per-argument doc channel
- *                                 functions expose. {@code null} when the worker supplied no
- *                                 per-parameter docs (older workers).
- * @param overloads                optional complete overload family; null selects the legacy form.
- */
+/** A complete canonical macro overload family, with catalog identity and annotations. */
 public record MacroInfo(
         @Nullable String comment,
         Map<String, String> tags,
         String name,
         List<String> schema_path,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String macro_type,
-        List<String> parameters,
-        // Both wire COLUMNS are nullable binary (MacroInfoSchema). A worker may
-        // leave either unset, and absence travels as empty bytes, which is what
-        // MacroInfoSerializer writes for a null.
-        @Nullable byte[] parameter_default_values,
-        String definition,
-        @Nullable byte[] arguments_schema,
-        @Nullable List<MacroOverload> overloads) implements ArrowSerializableRecord {
-    public MacroInfo(String comment, Map<String, String> tags, String name, List<String> schema_path,
-            String macro_type, List<String> parameters, byte[] parameter_default_values,
-            String definition, byte[] arguments_schema) {
-        this(comment, tags, name, schema_path, macro_type, parameters,
-                parameter_default_values, definition, arguments_schema, null);
-    }
-
-    public MacroInfo(String comment, Map<String, String> tags, String name, String schema_name,
-            String macro_type, List<String> parameters, byte[] parameter_default_values,
-            String definition, byte[] arguments_schema) {
-        this(comment, tags, name, List.of(schema_name), macro_type, parameters,
-                parameter_default_values, definition, arguments_schema, null);
+        List<MacroOverload> overloads) implements ArrowSerializableRecord {
+    public MacroInfo {
+        if (overloads == null || overloads.isEmpty()) throw new IllegalArgumentException("macro family must be nonempty");
+        for (var overload : overloads) {
+            if (!overload.schema_path().equals(schema_path) || !overload.macro_type().equalsIgnoreCase(macro_type))
+                throw new IllegalArgumentException("macro overload kind and owner must equal parent macro");
+            if (overload.parameters().stream().anyMatch(p -> p.default_expression() != null))
+                throw new IllegalArgumentException("discovery macro defaults must be resolved values");
+        }
+        overloads = List.copyOf(overloads);
     }
 }
