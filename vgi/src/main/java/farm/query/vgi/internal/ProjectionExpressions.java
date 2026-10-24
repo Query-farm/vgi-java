@@ -50,6 +50,8 @@ public final class ProjectionExpressions {
             if (body < 0 || body > bytes.length - offset - length) throw new IllegalArgumentException("Invalid projection IPC body");
             offset += length + (int)body;
             messages++;
+            // A complete record body may end at physical EOF without an EOS marker.
+            if (offset == bytes.length) ended = messages == 2;
         }
         if (!ended) throw new IllegalArgumentException("Projection requires one complete IPC batch");
         try (var source = new java.io.ByteArrayInputStream(bytes);

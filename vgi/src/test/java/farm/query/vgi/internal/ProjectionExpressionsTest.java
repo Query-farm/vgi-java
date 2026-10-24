@@ -169,6 +169,11 @@ class ProjectionExpressionsTest {
 
     @Test void validatesRawOuterEnvelopeBeforeTypedDecoding() throws Exception {
         byte[] raw = RecordCodec.serializeToBytes(proposal(List.of("main")));
+        assertEquals(1, ProjectionExpressions.decodeRequest(Arrays.copyOf(raw, raw.length - 8)).expressions().size());
+        byte[] legacyEos = Arrays.copyOf(raw, raw.length - 4);
+        Arrays.fill(legacyEos, legacyEos.length - 4, legacyEos.length, (byte)0);
+        assertEquals(1, ProjectionExpressions.decodeRequest(legacyEos).expressions().size());
+        assertThrows(IllegalArgumentException.class, () -> ProjectionExpressions.decodeRequest(Arrays.copyOf(raw, raw.length - 1)));
         assertEquals(1, ProjectionExpressions.decodeRequest(raw).expressions().size());
         assertThrows(IllegalArgumentException.class, () -> ProjectionExpressions.decodeRequest(Arrays.copyOf(raw, raw.length + 1)));
         try (var reader = new org.apache.arrow.vector.ipc.ArrowStreamReader(new java.io.ByteArrayInputStream(raw), farm.query.vgirpc.wire.Allocators.root());
