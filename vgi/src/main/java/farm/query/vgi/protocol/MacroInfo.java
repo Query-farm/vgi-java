@@ -17,6 +17,8 @@ public record MacroInfo(
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String macro_type,
         List<MacroOverload> overloads) implements ArrowSerializableRecord {
     public MacroInfo {
+        tags = WireMaps.sorted(tags == null ? Map.of() : tags);
+        schema_path = schema_path == null ? List.of() : List.copyOf(schema_path);
         if (overloads == null || overloads.isEmpty()) throw new IllegalArgumentException("macro family must be nonempty");
         for (var overload : overloads) {
             if (!overload.schema_path().equals(schema_path) || !overload.macro_type().equalsIgnoreCase(macro_type))

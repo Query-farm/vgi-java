@@ -51,9 +51,6 @@ final class EmbeddedJavaHttpWorker implements VgiHttpWorkerUnderTest {
 
     @Override public String label() { return "vgi-java"; }
 
-    /** vgi-java emits the FunctionType enum's <em>value</em> here. */
-    @Override public String tableFunctionTypeLabel() { return "table"; }
-
     @Override
     public void close() {
         try {

@@ -27,7 +27,7 @@ public record TableInfo(
         @Nullable byte[] bind_result,
         List<List<List<String>>> required_filters,
         @Nullable byte[] options,
-        @Nullable byte[] layout) {
+        @Nullable byte[] layout) implements farm.query.vgirpc.schema.ArrowSerializableRecord {
     public TableInfo {
         constraints = List.copyOf(Objects.requireNonNull(constraints, "constraints"));
     }

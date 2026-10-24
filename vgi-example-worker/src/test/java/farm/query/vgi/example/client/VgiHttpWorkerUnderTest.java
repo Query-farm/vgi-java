@@ -29,29 +29,6 @@ interface VgiHttpWorkerUnderTest extends AutoCloseable {
      */
     String label();
 
-    /**
-     * How this worker spells a table function in
-     * {@code FunctionInfo.function_type}.
-     *
-     * <p>It is not the same on both sides, and neither is wrong. vgi-python
-     * puts enum <em>names</em> on the wire throughout — {@code TABLE},
-     * {@code PRESERVES_ORDER}, {@code NOT_PARTITIONED} — while vgi-java sends
-     * names for every one of those except this field, where it sends the enum
-     * <em>value</em> {@code table}. The C++ extension, which is the only
-     * normative reader of the field, accepts both spellings on purpose
-     * ({@code ParseVgiFunctionType} in {@code vgi_catalog_api.cpp} matches
-     * {@code "table" || "TABLE" || "table_in_out"}), so the protocol genuinely
-     * does not pin the case here and both workers are conformant.
-     *
-     * <p>This is declared per leg rather than normalised away in the shared
-     * assertion, so the divergence stays visible in the source and a change on
-     * either side fails a test instead of passing through a case-insensitive
-     * comparison. A JVM consumer switching on this string must accept both.
-     *
-     * @return the {@code function_type} value this worker emits for a table function
-     */
-    String tableFunctionTypeLabel();
-
     @Override
     void close();
 }

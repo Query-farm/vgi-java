@@ -28,10 +28,6 @@ public record BindResponse(
         List<String> lookup_names,
         List<String> projection_expression_profiles,
         BindRepeatability repeatability) implements ArrowSerializableRecord {
-    public BindResponse {
-        if (repeatability == null) throw new IllegalArgumentException("Bind repeatability cannot be null");
-    }
-
     public BindResponse(byte[] schema, byte[] opaque, List<String> types, List<String> scopes, List<String> names) {
         this(schema, opaque, types, scopes, names, List.of(), BindRepeatability.UNKNOWN);
     }
@@ -40,6 +36,20 @@ public record BindResponse(
                         List<String> profiles) {
         this(schema, opaque, types, scopes, names, profiles, BindRepeatability.UNKNOWN);
     }
+
+    /**
+     * Reads a {@code null} list/map component as empty: those columns are
+     * non-nullable on the wire, and the record codec would otherwise write a
+     * null into them, which a strict client rejects.
+     */
+    public BindResponse {
+        if (repeatability == null) throw new IllegalArgumentException("Bind repeatability cannot be null");
+        projection_expression_profiles = projection_expression_profiles == null ? List.of() : projection_expression_profiles;
+        lookup_secret_types = lookup_secret_types == null ? List.of() : lookup_secret_types;
+        lookup_scopes = lookup_scopes == null ? List.of() : lookup_scopes;
+        lookup_names = lookup_names == null ? List.of() : lookup_names;
+    }
+
 
     /**
      * Builds a response carrying only an output schema, with no opaque data and no secret lookup.

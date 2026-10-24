@@ -41,8 +41,9 @@ public record ViewInfo(
     /** Canonicalises the map columns to key order, so equal views encode to equal bytes. */
     public ViewInfo {
         if (!"regular".equals(security) && !"barrier".equals(security)) throw new IllegalArgumentException("unknown view security mode");
-        aliases = List.copyOf(aliases);
-        tags = WireMaps.sorted(tags);
-        column_comments = WireMaps.sorted(column_comments);
+        aliases = aliases == null ? List.of() : List.copyOf(aliases);
+        schema_path = schema_path == null ? List.of() : schema_path;
+        tags = WireMaps.sorted(tags == null ? Map.of() : tags);
+        column_comments = WireMaps.sorted(column_comments == null ? Map.of() : column_comments);
     }
 }

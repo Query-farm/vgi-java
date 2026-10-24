@@ -66,6 +66,18 @@ public interface RowTransformFunction extends TableInOutFunction {
     @Override default boolean hasFinalize() { return false; }
 
     /**
+     * The most input rows one worker call receives, advertised on the wire
+     * {@code FunctionInfo.input_rows_per_call}. The client's batched-LATERAL
+     * operator splits each input chunk, after dedup, into calls of at most this
+     * many rows ({@code 1} = a row per call). {@code null} (the default) sends a
+     * whole chunk per call. Must be positive; the worker refuses to start
+     * otherwise. Mirrors vgi-python's {@code Meta.input_rows_per_call}.
+     *
+     * @return the per-call input row cap, or {@code null} for a whole chunk.
+     */
+    default Long inputRowsPerCall() { return null; }
+
+    /**
      * Fold per-output-row provenance into an emit metadata map, for a blended
      * map whose output row count differs from its input's (1-&gt;N fan-out /
      * 1-&gt;0 filter). {@code parentRows[i]} is the 0-based index (into the

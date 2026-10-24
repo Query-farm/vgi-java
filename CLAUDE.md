@@ -188,8 +188,8 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 ## Releasing (Maven Central)
 
 Published: **`farm.query:vgi`** (this repo) and **`farm.query:vgirpc`** /
-`vgirpc-oauth` (the sibling). Latest as of 2026-10-07: **vgi 0.41.1 → vgirpc
-0.31.0**. To cut a release: bump `version` in `build.gradle.kts`, push, then
+`vgirpc-oauth` (the sibling). Latest as of 2026-10-23: **vgi 0.44.0 → vgirpc
+0.33.1**. To cut a release: bump `version` in `build.gradle.kts`, push, then
 create a GitHub Release whose tag is the version (`v0.2.0` for `0.2.0`). The
 `release.yml` workflow (trigger: `release: published`) verifies tag == version,
 runs tests, and publishes. Both repos now set
@@ -201,8 +201,8 @@ Maven Central with no manual Portal click** once it passes validation (changed
 `farm.query:vgirpc` from **Maven Central** (the composite is absent on CI —
 `VGI_RPC_JAVA_DIR` unset), *not* from source. So **`:vgi` cannot release until
 the `vgirpc` version it pins in `vgi/build.gradle.kts` is already published to
-Maven Central.** Integration CI hides this (it builds vgirpc from source via the
-composite), so green integration ≠ releasable. Before tagging a `:vgi` release,
+Maven Central.** CI now resolves the same published Maven dependency; local sibling builds
+can still substitute source. Before tagging a `:vgi` release,
 prove it builds against the *published* vgirpc with the composite disabled:
 
 ```bash
@@ -303,7 +303,52 @@ older interfaces** (`TableFunction`, `TableInOutFunction`, etc.) — the
 `ScalarFn` style hasn't been extended to those because their richer
 lifecycle methods + per-execution state don't translate one-for-one.
 
+## Continued table-in-out output (2026-10-23)
+
+Ported from vgi-python `a34e949` (spec: the extension's `docs/table_in_out.md`,
+"Continued Output" and "Input Rows Per Call"). One input batch may be answered
+with several replies:
+
+- **Emit "more":** `out.emit(root, TableInOutExchangeState.withMoreOutput(more, md))`
+  puts `vgi.status: HAVE_MORE_OUTPUT` on the reply. The framework does not need a
+  wrapped collector to see it: `TableInOutExchangeState.exchange` (final) reads the
+  emitted data entry's metadata after the call, so raw metadata is seen too.
+- **Resume:** the client's tick (zero rows, `vgi.status: CONTINUE`) calls the
+  exchange's `resume(out, ctx)`. The exchange object *is* the state, so its public
+  fields hold the resume position; the private base field `morePending` rides the
+  HTTP state token through `StateSerializer` like any other field.
+- **Refusals:** a tick with nothing pending or with rows, real input while pending,
+  a turn (`onInputBatch` or `resume`) that emits no data batch, cache control on a
+  tick's reply, "more" without `resume()`, and "more" from a `TableProducerState`.
+  `not_modified` + more is the client's to refuse. The no-batch refusal matters on
+  the pipe transport: `RpcServer`'s tick loop writes whatever was emitted (HTTP's
+  `collector.validate()` catches it, pipes don't), so the client would wait forever.
+  A failed or refused turn releases what it emitted.
+- **Startup checks** (`internal/TableInOutContracts`, run in the `VgiServiceImpl`
+  ctor): a continuing function declares `continuationState()` (its exchange class),
+  which must implement `resume()`, hold fields of its own, have a no-arg ctor, not
+  be a `PortableStreamState`, and not run with `maxWorkers() = 1`. `initTableInOut`
+  refuses an exchange that implements `resume()` undeclared, and re-runs the class
+  checks on the exchange's runtime class (a subclass of the declared one is fine
+  only if it passes them too; results cached per class).
+- **`RowTransformFunction.inputRowsPerCall()`** → `FunctionInfo.input_rows_per_call`
+  (nullable int64, contract hash changed); must be positive. Being on the blended
+  interface, it cannot be declared on a classic function.
+- Java table-in-out never auto-applies pushdown filters, so it had no
+  `parent_rows`-vs-filter mask bug to fix (Go and Python did).
+- Fixtures: `example/tableinout/PagedFunctions` (`blended_paged`, `blended_sliced`,
+  `paged_explode`); unit-tested against the extension's fixture contracts in
+  `vgi-example-worker/.../tableinout/PagedStateTest`. Unit: `internal/ContinuedOutputTest`;
+  pipe + HTTP round trips: `client/ContinuedOutputTransportTest`.
+
 ## Attach tickets (2026-10-07)
+
+> **Protocol 2.0.0 (2026-10-17):** `AttachTicket.expires_at` is a nullable
+> `timestamp[us, tz="UTC"]` (`Instant`, null = no expiry; was float64 seconds with
+> `+Infinity`), and `issue_grant` lives on `vgi_rpc.Identity.v2` (`IssuedGrant.expires_at`
+> is an `Instant`). The sealed claims are unchanged. Needs the vgi-rpc-java release with
+> Identity.v2. Fixed on the way: `seal_attach` with no lifetime ceiling and `ttl_seconds = 0`
+> threw NullPointerException (a `Long`/`long` ternary unboxed the null ceiling).
 
 `vgi.attach_tickets.v1` (`seal_attach`) and `vgi_attach_ticket` redemption, ported
 from vgi-python `f5e99c7` (`docs/protocol/vgi-attach-tickets.md`). Format and

@@ -222,7 +222,7 @@ class WireRecordSchemaConformanceTest {
         return List.of(
                 new HandBuilt(FunctionInfo.class, "FunctionInfo",
                         r -> FunctionInfoSerializer.serialize((FunctionInfo) r),
-                        Map.of("function_type", "table",
+                        Map.of("function_type", "TABLE",
                                 "stability", "CONSISTENT",
                                 "null_handling", "DEFAULT",
                                 "order_preservation", "NO_ORDER_GUARANTEE",
@@ -231,7 +231,10 @@ class WireRecordSchemaConformanceTest {
                                 "distinct_dependent", "NOT_DISTINCT_DEPENDENT")),
                 new HandBuilt(MacroInfo.class, "MacroInfo",
                         r -> MacroInfoSerializer.serialize((MacroInfo) r),
-                        Map.of("macro_type", "scalar")),
+                        Map.of("macro_type", "SCALAR")),
+                new HandBuilt(farm.query.vgi.protocol.IndexInfo.class, "IndexInfo",
+                        r -> farm.query.vgi.MetadataCollections.encode(List.of((farm.query.vgi.protocol.IndexInfo) r), farm.query.vgi.protocol.IndexInfo.class),
+                        Map.of()),
                 new HandBuilt(TableInfo.class, "TableInfo",
                         r -> TableInfoSerializer.serialize((TableInfo) r),
                         Map.of()),
@@ -666,9 +669,9 @@ class WireRecordSchemaConformanceTest {
                     new Field("ttl_seconds", FieldType.notNullable(new ArrowType.Int(64, true)), null))),
             "AttachTicket", new Schema(List.of(
                     new Field("ticket", FieldType.notNullable(new ArrowType.Utf8()), null),
-                    new Field("expires_at", FieldType.notNullable(
-                            new ArrowType.FloatingPoint(org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE)),
-                            null))));
+                    // Protocol 2.0.0: a nullable UTC timestamp, null = no expiry (was float64).
+                    new Field("expires_at", FieldType.nullable(new ArrowType.Timestamp(
+                            org.apache.arrow.vector.types.TimeUnit.MICROSECOND, "UTC")), null))));
 
     private static Schema resolveProtocolSchema(String name) {
         if (ATTACH_TICKET_SCHEMAS.containsKey(name)) return ATTACH_TICKET_SCHEMAS.get(name);

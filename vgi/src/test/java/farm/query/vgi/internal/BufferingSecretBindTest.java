@@ -73,7 +73,7 @@ class BufferingSecretBindTest {
     }
 
     private static BindRequest bindRequest(boolean resolved) {
-        return new BindRequest("secret_sink", null, "table_buffering",
+        return new BindRequest("secret_sink", null, "TABLE_BUFFERING",
                 null, null, null, null, null, resolved, null, null, null, null, "main");
     }
 

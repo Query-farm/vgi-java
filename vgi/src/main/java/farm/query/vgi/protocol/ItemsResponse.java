@@ -17,6 +17,16 @@ import java.util.List;
 public record ItemsResponse(List<byte[]> items) implements ArrowSerializableRecord {
 
     /**
+     * Reads a {@code null} list/map component as empty: those columns are
+     * non-nullable on the wire, and the record codec would otherwise write a
+     * null into them, which a strict client rejects.
+     */
+    public ItemsResponse {
+        items = items == null ? List.of() : items;
+    }
+
+
+    /**
      * Returns an items response carrying no items.
      *
      * @return an empty response.

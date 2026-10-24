@@ -70,6 +70,16 @@ public record PlanResponse(
         @Nullable byte[] start_position,
         @Nullable byte[] end_position) implements ArrowSerializableRecord {
 
+    /**
+     * Reads a {@code null} list/map component as empty: those columns are
+     * non-nullable on the wire, and the record codec would otherwise write a
+     * null into them, which a strict client rejects.
+     */
+    public PlanResponse {
+        splits = splits == null ? List.of() : splits;
+    }
+
+
     /** A plan with no splits: legal, and means the scan has no work to do.
      *
      * @return an empty plan at catalog scope

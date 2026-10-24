@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
  * Attach tickets: a user's ATTACH, sealed so a runner can replay it later as that user.
  *
  * <p>A ticket is the <em>what</em> half of an unattended session; a sealed grant
- * ({@code vgi_rpc.Identity.v1} {@code issue_grant}) is the <em>who</em>. While the user is
+ * ({@code vgi_rpc.Identity.v2} {@code issue_grant}) is the <em>who</em>. While the user is
  * attached and logged in, the client calls {@code seal_attach} ({@link AttachTicketsService}); the
  * worker seals the options it attached with -- secret ones included -- into a ticket only this
  * worker's key can open. Later a runner holding the user's grant attaches with the single option
@@ -64,7 +64,7 @@ public final class AttachTickets {
     /** Wire name of the protocol hosting {@code seal_attach}. */
     public static final String PROTOCOL_NAME = "vgi.attach_tickets.v1";
     /** Its declared protocol version. */
-    public static final String PROTOCOL_VERSION = "1.0.0";
+    public static final String PROTOCOL_VERSION = "2.0.0";
     /** The envelope version byte, fixed by this format. */
     public static final byte ENVELOPE_VERSION = 0x01;
     /** Largest options record (serialized Arrow IPC bytes) a ticket may carry. */

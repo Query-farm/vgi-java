@@ -2,6 +2,7 @@
 
 package farm.query.vgi.example.scalar;
 
+import farm.query.vgi.InvalidArgumentException;
 import farm.query.vgi.function.Arguments;
 import farm.query.vgi.function.TypeBoundPredicate;
 import farm.query.vgi.scalar.ScalarFn;
@@ -46,7 +47,7 @@ public final class DoubleFunction extends ScalarFn {
                 || in instanceof ArrowType.LargeUtf8
                 || in instanceof ArrowType.Binary
                 || in instanceof ArrowType.LargeBinary) {
-            throw new IllegalArgumentException(
+            throw new InvalidArgumentException(
                     "double: _is_multipliable_type rejects " + in
                             + " — only numeric types (int/float/decimal) are supported");
         }

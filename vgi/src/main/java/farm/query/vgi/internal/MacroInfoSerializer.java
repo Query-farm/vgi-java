@@ -16,6 +16,7 @@ public final class MacroInfoSerializer {
 
     public static byte[] serialize(MacroInfo info) {
         var row = RecordCodec.toRowMap(info);
+        row.put("macro_type", info.macro_type().toUpperCase(java.util.Locale.ROOT));
         // The RPC generic map writer does not support nullable map values.
         // Keep its nested-record support and use the catalog's existing map writer.
         row.put("tags", Map.of());

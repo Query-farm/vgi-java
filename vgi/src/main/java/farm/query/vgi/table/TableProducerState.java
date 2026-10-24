@@ -3,6 +3,7 @@
 package farm.query.vgi.table;
 
 import farm.query.vgi.pushdown.FilterApplier;
+import farm.query.vgi.tableinout.TableInOutExchangeState;
 import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
@@ -74,11 +75,22 @@ public abstract class TableProducerState extends ProducerState {
     @Override
     public final void produce(OutputCollector out, CallContext ctx) {
         produceTick(out, ctx);
+        refuseMoreOutput(out);
     }
 
     @Override
     public final void produce(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
         produceTick(input, out, ctx);
+        refuseMoreOutput(out);
+    }
+
+    // Only a table-in-out exchange can continue its output; a producer's client
+    // would never send the tick.
+    private void refuseMoreOutput(OutputCollector out) {
+        if (TableInOutExchangeState.saysMore(TableInOutExchangeState.emittedMetadata(out))) {
+            throw TableInOutExchangeState.refuse(out, getClass().getSimpleName()
+                    + ": more output is only valid in a table-in-out exchange");
+        }
     }
 
     /**

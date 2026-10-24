@@ -5,7 +5,7 @@
 # stdio, AF_UNIX and HTTP (with --identity). The group checks that the worker
 # hosts `conformance.Secondary.v1` beside `vgi.v2` through Worker.hostedProtocols,
 # the vgi-rpc error model, the traceback policy, and -- over HTTP -- the
-# vgi_rpc.Identity.v1 conformance policy.
+# vgi_rpc.Identity.v2 conformance policy.
 #
 # Required environment:
 #   VGI_WORKER_BIN   path to the built example worker launcher

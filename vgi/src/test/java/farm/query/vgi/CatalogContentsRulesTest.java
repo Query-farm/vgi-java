@@ -33,12 +33,12 @@ final class CatalogContentsRulesTest {
         byte[] info = RecordCodec.serializeToBytes(
                 new SchemaInfo(null, Map.of(), new byte[] {7}, List.of(path), null));
         return new SchemaContents(List.of(path), info,
-                List.of(String.join(".", path).getBytes(StandardCharsets.UTF_8)),
+                List.of(),
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     private static List<List<String>> paths(CatalogContentsResponse r) {
-        return r.schemas().stream().map(SchemaContents::path).toList();
+        return farm.query.vgi.CatalogContents.schemas(r).stream().map(SchemaContents::path).toList();
     }
 
     // ---- not_modified rules --------------------------------------------------
@@ -50,7 +50,7 @@ final class CatalogContentsRulesTest {
         assertTrue(r.not_modified());
         assertEquals("e1", r.etag());
         assertEquals(5L, r.catalog_version());
-        assertTrue(r.schemas().isEmpty());
+        assertTrue(farm.query.vgi.CatalogContents.schemas(r).isEmpty());
     }
 
     @Test
@@ -75,7 +75,7 @@ final class CatalogContentsRulesTest {
                 CatalogContentsResult.of(List.of(schema("a")), "e1"), "e1", CatalogContentsEtag.NONE);
         assertTrue(r.not_modified());
         assertEquals("e1", r.etag());
-        assertTrue(r.schemas().isEmpty());
+        assertTrue(farm.query.vgi.CatalogContents.schemas(r).isEmpty());
     }
 
     @Test
@@ -93,7 +93,7 @@ final class CatalogContentsRulesTest {
                 CatalogContentsResult.of(List.of(schema("a"))), "e1", CatalogContentsEtag.NONE);
         assertFalse(r.not_modified());
         assertNull(r.etag());
-        assertEquals(1, r.schemas().size());
+        assertEquals(1, farm.query.vgi.CatalogContents.schemas(r).size());
     }
 
     // ---- paths ---------------------------------------------------------------
@@ -144,7 +144,7 @@ final class CatalogContentsRulesTest {
                 CatalogContentsResult.of(List.of(schema("b"), schema("a"))), null, CatalogContentsEtag.CONTENT_HASH);
         assertEquals(64, first.etag().length());
         assertEquals(first.etag(), again.etag(), "same snapshot, same etag");
-        assertEquals(CatalogContents.digest(first.schemas()), first.etag(), "hash of the wire-order snapshot");
+        assertEquals(CatalogContents.digest(first), first.etag(), "hash of the wire-order snapshot");
 
         CatalogContentsResponse changed = CatalogContents.respond(1L,
                 CatalogContentsResult.of(List.of(schema("a"))), null, CatalogContentsEtag.CONTENT_HASH);
@@ -154,7 +154,7 @@ final class CatalogContentsRulesTest {
                 CatalogContentsResult.of(List.of(schema("b"), schema("a"))), first.etag(),
                 CatalogContentsEtag.CONTENT_HASH);
         assertTrue(conditional.not_modified());
-        assertTrue(conditional.schemas().isEmpty());
+        assertTrue(farm.query.vgi.CatalogContents.schemas(conditional).isEmpty());
         assertEquals(first.etag(), conditional.etag());
     }
 

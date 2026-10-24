@@ -38,6 +38,6 @@ public final class MacroFamilies {
         if (macro.definition() == null || macro.definition().isBlank() || macro.definition().indexOf('\0') >= 0)
             throw new IllegalArgumentException("macro definition must be nonempty SQL without NUL");
         var overload = new MacroOverload(parameters, macro.definition(), "duckdb.macro.v1", owner, kind, context);
-        return new MacroInfo(macro.comment(), macro.tags() == null ? Map.of() : macro.tags(), macro.name(), owner, kind, List.of(overload));
+        return new MacroInfo(macro.comment(), macro.tags() == null ? Map.of() : macro.tags(), macro.name(), owner, kind.toUpperCase(Locale.ROOT), List.of(overload));
     }
 }

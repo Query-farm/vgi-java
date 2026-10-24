@@ -1,5 +1,7 @@
 # CI: the vgi integration suite
 
+CI uses the VGI source revision pinned by `VGI_REF` for both the test suite and a native runner linked with that VGI extension. `scripts/ci_fetch_native_runner.py` verifies the runner provenance and sets `RUNNER_LINKS_EXTENSIONS=1`; this lets wire-contract changes run before a separate public extension release. The local driver still defaults to the signed community extension when that flag is omitted. Existing test exclusions and coverage floors apply in both modes.
+
 [`.github/workflows/integration.yml`](../.github/workflows/integration.yml)
 runs the canonical [Query-farm/vgi](https://github.com/Query-farm/vgi)
 integration sqllogictest suite against this repo's Java example worker on every
@@ -8,33 +10,19 @@ green run here is real wire-compatibility evidence.
 
 ## How it works (no C++ build)
 
-Rather than building the vgi DuckDB extension from source, CI drives a
-**prebuilt** standalone `haybarn-unittest` (the DuckDB/Haybarn sqllogictest
-runner, published in Haybarn's releases) and installs the **signed** vgi
-extension from the Haybarn community channel:
+CI downloads the native integration artifact built by the pinned VGI revision.
+The SDK repository builds only its Java worker:
 
-1. **Build the worker once** — a producer job runs
-   `./gradlew :vgi-example-worker:installDist`, archives the generated
-   distribution, and every transport lane downloads that same artifact.
-2. **Checkout the test suite** — `Query-farm/vgi` at `main`; its
-   `test/sql/integration/*.test` files are the suite.
-3. **Download the runner** — `haybarn_unittest-linux-amd64.zip` from the latest
-   Haybarn release.
-4. **Preprocess** — the standalone runner links none of the extensions the
-   tests gate on, so [`preprocess-require.awk`](preprocess-require.awk) rewrites
-   each `require <ext>` into an explicit signed `INSTALL <ext> FROM
-   {community,core}; LOAD <ext>;`. Everything else (notably `require-env`) is
-   left untouched.
-5. **Run** — [`run-integration.sh`](run-integration.sh) stages the preprocessed
-   tree, points the four `VGI_*_WORKER` env vars at the worker (via `launch:`,
-   which amortises JVM cold-start across the run) and the three catalog
-   [`wrappers/`](wrappers), warms the extension cache once, then runs the whole
-   suite in a **single `unittest` invocation** (as `make test_launcher` does).
-   The CI log streams the runner's native report — a `[i/N] (..%): test/...`
-   line per file and the final `All tests passed (.. N assertions in M test
-   cases)` summary (thousands of assertions across the ~185 files) — so you can
-   see the tests actually ran. Any failed assertion exits non-zero and fails
-   the job.
+1. **Build the worker once** — `./gradlew :vgi-example-worker:installDist`
+   creates the distribution shared by every transport lane.
+2. **Checkout the test suite** — `Query-farm/vgi` at `VGI_REF` supplies the
+   canonical sqllogictest files and artifact-fetch helper.
+3. **Download and verify the runner** — the helper selects that exact commit's
+   artifact, validates its manifest and checksums, and exports the runner path.
+4. **Stage and run** — `RUNNER_LINKS_EXTENSIONS=1` preserves extension gates and
+   runs the staged suite against the linked native build. The driver still
+   supports preprocessing signed community installs for independent local
+   runners. Existing skip checks and execution floors apply to both modes.
 
 ## Transport lanes
 
@@ -45,23 +33,11 @@ The workflow runs a matrix over transports (`run-integration.sh` honours
 - **`shm`** — `launch` plus the POSIX shared-memory side channel
   (`VGI_RPC_SHM_SIZE_BYTES`); needs JDK 22+ (`--enable-native-access`).
 
-Both lanes also boot a **versioned_tables catalog worker over HTTP** and set
+All lanes also boot a **versioned_tables catalog worker over HTTP** and set
 `VGI_VERSIONED_TABLES_HTTP_WORKER`, so the four `attach/versioned_tables_*_http`
-tests run (they attach an `http://` worker regardless of the main transport and
-pass against the Java worker). The other http-only tests stay skipped because
-they need Java worker HTTP features that aren't ported yet: `versioning_http`
-(sticky-session `vgi_sticky` cookies), `bearer_token` (HTTP bearer auth),
-`gzip_fallback` (zstd-disable negotiation).
-
-**`http` is intentionally *not* a CI lane yet.** `TRANSPORT=http` works locally
-(it boots the worker with `--http` and attaches over `http://`), but the Java
-worker's HTTP transport has a known gap: **table-function streaming** (e.g.
-`example.sequence(...)`) errors over http where the vgi-python worker succeeds.
-The haybarn runner has a built-in `skip_error_messages HTTP` policy that turns
-those errors into *skips*, so an http run looks green (0 fail) while silently
-dropping the broken table tests. Promoting http to the matrix should wait until
-that streaming path is fixed. (`subprocess` was skipped as low-value — same
-logic as `launch` but with per-ATTACH JVM cold-start.)
+tests run. The **`http`** lane runs the main worker through its stateless HTTP
+transport and is required alongside launch and shared memory. Optional fixture
+capabilities remain controlled by the driver's `require-env` settings.
 
 Out of scope and excluded: `writable/`, `simple_writable/` (the port is
 read-only), `nested_type_combinations.test` (segfaults the upstream runner —
@@ -122,16 +98,9 @@ The workflow's `env:` block identifies these upstream inputs:
 
 | Input | What | Policy |
 |-------|------|--------|
-| `VGI_REF` | the `Query-farm/vgi` revision supplying the `.test` files | always `main`; no pin or fallback |
-| `VGI_RPC_JAVA_REF` | the `Query-farm/vgi-rpc-java` revision built from source | a release tag (`v0.27.0`), kept in step with `farm.query:vgirpc` in `vgi/build.gradle.kts`; an untagged SHA only while a needed fix is unreleased |
-| `HAYBARN_RELEASE` | the Haybarn release supplying `haybarn-unittest` | resolved to the latest release at runtime |
+| `VGI_REF` | the `Query-farm/vgi` revision supplying the suite and native runner | exact commit; both inputs must match |
+| `VGI_RPC_JAVA_REF` | the RPC framework built from source | released tag, or exact source commit while the required package is unreleased |
 
-The vgi extension is pulled live from the community channel (`INSTALL vgi FROM
-community`), while the canonical test suite comes from VGI `main`. CI therefore
-checks both the current shared contract and what users can install today. If
-publication lags behind `main`, the resulting schema or behavior mismatch is an
-intentional signal to finish the publication; the workflow does not fall back
-to an older test revision. The catalog
-[`wrappers/`](wrappers) encode the canonical `versioned` /
-`versioned_tables` / `attach_options` fixture version sets and must track those
-fixtures when they move.
+Signed community publication is a separate release step. An independent local
+runner can still exercise that channel through the driver's default mode. The
+catalog [`wrappers/`](wrappers) must track the canonical fixture definitions.

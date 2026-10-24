@@ -20,8 +20,9 @@ import java.util.Map;
  * @param tags                         arbitrary key/value metadata tags.
  * @param name                         function name.
  * @param schema_path                  owning schema identifier components.
- * @param function_type                dictionary-encoded function kind (e.g. {@code "scalar"},
- *                                     {@code "table"}, {@code "table_in_out"}, {@code "table_buffering"}).
+ * @param function_type                dictionary-encoded function kind: the vgi-python enum
+ *                                     member name, one of {@code "SCALAR"}, {@code "TABLE"},
+ *                                     {@code "AGGREGATE"}, {@code "TABLE_BUFFERING"}.
  * @param arguments                    IPC-encoded argument-spec batch.
  * @param output_schema                IPC-encoded output schema.
  * @param stability                    dictionary-encoded function stability, or {@code null}.
@@ -74,6 +75,10 @@ import java.util.Map;
  *                                     placeholder), so one registration serves the literal /
  *                                     column / LATERAL call shapes. Set from
  *                                     {@link farm.query.vgi.tableinout.RowTransformFunction}.
+ * @param input_rows_per_call          blended only: the most input rows one worker call receives;
+ *                                     the client splits each input chunk into calls of at most this
+ *                                     many rows. {@code null} sends a whole chunk per call. Set from
+ *                                     {@link farm.query.vgi.tableinout.RowTransformFunction#inputRowsPerCall()}.
  * @param required_settings            session settings that must be present.
  * @param required_secrets             secrets the function needs to resolve.
  */
@@ -83,9 +88,9 @@ public record FunctionInfo(
         String name,
         List<String> schema_path,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) String function_type,
-        byte[] arguments,
-        byte[] output_schema,
-        @Nullable byte[] parameter_default_values,
+        @ArrowField(ArrowFieldType.DICT_INT32_BINARY) byte[] arguments,
+        @ArrowField(ArrowFieldType.DICT_INT32_BINARY) byte[] output_schema,
+        @Nullable @ArrowField(ArrowFieldType.DICT_INT32_BINARY) byte[] parameter_default_values,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String stability,
         @ArrowField(ArrowFieldType.DICT_INT16_UTF8) @Nullable String null_handling,
         @Nullable List<String> argument_monotonicity,
@@ -121,6 +126,7 @@ public record FunctionInfo(
         boolean sink_order_dependent,
         boolean requires_input_batch_index,
         boolean input_from_args,
+        @Nullable Long input_rows_per_call,
         List<String> required_settings,
         List<FunctionRequiredSecret> required_secrets) implements ArrowSerializableRecord {
     public String schema_name() {

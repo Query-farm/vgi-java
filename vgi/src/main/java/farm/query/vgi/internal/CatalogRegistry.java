@@ -2,6 +2,8 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.InvalidArgumentException;
+import farm.query.vgi.NotFoundException;
 import farm.query.vgi.Worker;
 import farm.query.vgi.catalog.CatalogTable;
 
@@ -94,6 +96,35 @@ public final class CatalogRegistry {
         return r == null ? null : r.catalogName();
     }
 
+    private static final byte[] ATTACH_HEADER = new byte[]{'V','G','I','A','T','T',2,0};
+
+    /** Put routing metadata inside the authenticated attach envelope, preserving author bytes. */
+    public byte[] recoverableAttach(byte[] authorState, String dataVersion, String catalogName) {
+        try {
+            var bytes = new java.io.ByteArrayOutputStream();
+            var output = new java.io.DataOutputStream(bytes);
+            output.write(ATTACH_HEADER); output.writeUTF(catalogName);
+            output.writeBoolean(dataVersion != null); if (dataVersion != null) output.writeUTF(dataVersion);
+            output.writeInt(authorState.length); output.write(authorState); output.flush();
+            return bytes.toByteArray();
+        } catch (java.io.IOException error) { throw new IllegalArgumentException("invalid attach routing metadata", error); }
+    }
+
+    /** Call only after OpaqueDataSealer has authenticated/opened the enclosing token. */
+    public byte[] restoreAttach(byte[] authenticatedState) {
+        if (authenticatedState == null || authenticatedState.length < ATTACH_HEADER.length
+                || !java.util.Arrays.equals(ATTACH_HEADER, java.util.Arrays.copyOf(authenticatedState, ATTACH_HEADER.length))) return authenticatedState;
+        try {
+            var input = new java.io.DataInputStream(new java.io.ByteArrayInputStream(authenticatedState, ATTACH_HEADER.length, authenticatedState.length - ATTACH_HEADER.length));
+            String name = input.readUTF(); String version = input.readBoolean() ? input.readUTF() : null;
+            int length = input.readInt();
+            if (length < 16 || length != input.available() || !worker.extraCatalogs().containsKey(name)) throw new java.io.IOException("invalid catalog route");
+            byte[] authorState = input.readNBytes(length);
+            recordAttach(authorState, version, name);
+            return authorState;
+        } catch (java.io.IOException error) { throw OpaqueDataSealer.notRecognized("attach_opaque_data"); }
+    }
+
     private AttachRecord lookup(byte[] attachId) {
         return attachId == null ? null : attaches.get(HexId.encode(attachId));
     }
@@ -183,17 +214,17 @@ public final class CatalogRegistry {
         int version = -1;
         if ("version".equalsIgnoreCase(at_unit)) {
             try { version = Integer.parseInt(at_value); }
-            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + at_value); }
+            catch (NumberFormatException e) { throw new InvalidArgumentException("Unknown version: " + at_value); }
         } else if ("timestamp".equalsIgnoreCase(at_unit)) {
             String s = at_value;
             int yearEnd = Math.min(4, s.length());
             int year;
             try { year = Integer.parseInt(s.substring(0, yearEnd)); }
             catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Unknown timestamp: " + at_value);
+                throw new InvalidArgumentException("Unknown timestamp: " + at_value);
             }
             if (year < 2020) {
-                throw new IllegalArgumentException("table did not exist before 2020");
+                throw new NotFoundException("table did not exist before 2020");
             }
             if (year < 2021) version = 1;
             else if (year < 2022) version = 2;
@@ -202,7 +233,7 @@ public final class CatalogRegistry {
             return t;
         }
         if (version < 1 || version > 3) {
-            throw new IllegalArgumentException("Unknown version: " + version);
+            throw new NotFoundException("Unknown version: " + version);
         }
         String versionedName = t.name() + "_v" + version;
         for (CatalogTable vt : worker.catalogTables()) {

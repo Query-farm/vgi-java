@@ -1,15 +1,8 @@
 # Copyright 2026 Query Farm LLC - https://query.farm
 #
-# Runs the canonical vgi integration sqllogictest suite against the Java
-# example worker on every push / PR. Rather than building the C++ extension
-# from source, it drives a prebuilt standalone `haybarn-unittest` (the
-# DuckDB/Haybarn sqllogictest runner) and installs the SIGNED vgi extension
-# from the Haybarn community channel + its deps from core. The .test files
-# come from Query-farm/vgi main; ci/preprocess-require.awk turns
-# each `require <ext>` gate into an explicit INSTALL+LOAD so the standalone
-# runner (which links none of these extensions) can run them.
-#
-# See ci/README.md for the full design.
+# Run the canonical VGI suite against the Java worker using a native runner
+# built from the same pinned VGI revision. Local standalone-runner checks still
+# support the signed community extension through ci/run-integration.sh.
 name: Integration suite
 
 on:
@@ -19,25 +12,17 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: integration-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  # Track the shared implementation directly. There is deliberately no VGI
-  # commit pin or fallback: CI should expose any lag in the published artifact.
-  VGI_REF: main
-  # The Haybarn release providing the prebuilt haybarn-unittest binary is
-  # resolved to the latest release at run time (see the "Resolve latest haybarn
-  # release" step) so the unittest host stays ABI-compatible with the rebuilt
-  # community-published vgi extension, mirroring the vgi-typescript CI.
-  # The vgi-rpc-java revision built from source (composite include) for the
-  # worker's HTTP features. The composite substitutes the `farm.query:vgirpc`
-  # coordinate declared in vgi/build.gradle.kts, so this ref, not the declared
-  # version, is what the worker actually compiles against: see the pin's full
-  # comment in ci.yml, and keep the two in step.
-  VGI_RPC_JAVA_REF: v0.31.0
+  # Match the test suite to the native runner built from this exact revision.
+  VGI_REF: fc3e08f7e7fd800165a0edc00313de46fed15329
+  # Disable local sibling substitution: validate the released Maven dependency.
+  VGI_RPC_JAVA_DIR: /nonexistent
 
 jobs:
   build-worker:
@@ -46,13 +31,6 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
-
-      - name: Checkout pinned vgi-rpc-java
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-java
-          ref: ${{ env.VGI_RPC_JAVA_REF }}
-          path: vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -71,8 +49,6 @@ jobs:
 
       - name: Build example worker
         run: ./gradlew --no-daemon :vgi-example-worker:installDist
-        env:
-          VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
       # Archive before upload because upload-artifact does not preserve the
       # executable bit on the generated launcher script.
@@ -127,25 +103,12 @@ jobs:
       - name: Extract worker
         run: tar -xzf vgi-java-worker.tar.gz
 
-      - name: Resolve latest haybarn release
-        run: |
-          REL=$(gh release view --repo Query-farm-haybarn/haybarn --json tagName --jq .tagName)
-          echo "HAYBARN_RELEASE=$REL" >> "$GITHUB_ENV"
-          echo "Latest haybarn release: $REL"
+      - name: Fetch matching native integration runner
+        run: >-
+          python3 "$VGI_SRC/scripts/ci_fetch_native_runner.py"
+          --source "$VGI_SRC" --output "$RUNNER_TEMP/vgi-native"
         env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Download haybarn-unittest
-        run: |
-          gh release download "$HAYBARN_RELEASE" \
-            --repo Query-farm-haybarn/haybarn \
-            --pattern 'haybarn_unittest-linux-amd64.zip' \
-            --output /tmp/haybarn-unittest.zip --clobber
-          unzip -o -q /tmp/haybarn-unittest.zip -d /tmp/haybarn-unittest
-          UNITTEST=$(find /tmp/haybarn-unittest -name 'haybarn-unittest' -type f | head -1)
-          chmod +x "$UNITTEST"
-          echo "HAYBARN_UNITTEST=$UNITTEST" >> "$GITHUB_ENV"
-        env:
+          VGI_SRC: ${{ github.workspace }}/vgi-upstream
           GH_TOKEN: ${{ github.token }}
 
       - name: Run integration suite (${{ matrix.lane }})

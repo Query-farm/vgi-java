@@ -27,7 +27,7 @@ for, so without that principal's grant (or login) it attaches nothing.
 
 ## Turning it on
 
-The worker hosts `vgi.attach_tickets.v1` (protocol version `1.0.0`) only when
+The worker hosts `vgi.attach_tickets.v1` (protocol version `2.0.0`) only when
 **all** of these hold. Otherwise the protocol is absent, not hosted-and-refusing,
 so a client learns the answer from reflection.
 
@@ -70,7 +70,11 @@ and `ttl_seconds`.
 - **Lifetime.** The worker's grant maximum is the grant keys' `maxTtlSeconds`,
   else `VGI_RPC_GRANT_MAX_TTL_SECONDS`.
   - `ttl_seconds = 0` means as long as that maximum allows, or no expiry
-    (`expires_at = +Infinity`) when there is no maximum.
+    (`expires_at` null) when there is no maximum.
+  - The reply's `expires_at` is a nullable `timestamp[us, tz="UTC"]`
+    (`java.time.Instant` on `AttachTicket`); protocol `1.0.0` carried a
+    `float64` of unix seconds with `+Infinity` for no expiry. The sealed
+    ticket's own claim (int64 seconds, `0` = none) is unchanged.
   - A positive TTL is capped at the maximum.
 
 ## Redemption

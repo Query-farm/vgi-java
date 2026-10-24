@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Opt the HTTP fixture into {@code vgi_rpc.Identity.v1} with the vgi-rpc conformance policy.
+ * Opt the HTTP fixture into {@code vgi_rpc.Identity.v2} with the vgi-rpc conformance policy.
  *
  * <p>Enabled by {@code --identity} (or {@code VGI_FIXTURE_IDENTITY=1}) so the cross-SDK
  * hosted-protocols group can run its identity cases with
@@ -54,7 +54,8 @@ public final class IdentityFixture {
     private static final double MAX_AUTH_AGE = 900.0;
     private static final String GRANT_TOKEN_PREFIX = "conformance-grant-for:";
     private static final String SCOPE_SEPARATOR = "|";
-    private static final double GRANT_EXPIRES_AT = 1893456000.0;
+    /** 2030-01-01T00:00:00Z, the instant the vgi-rpc conformance suite pins. */
+    private static final java.time.Instant GRANT_EXPIRES_AT = java.time.Instant.ofEpochSecond(1893456000L);
     private static final String GRANT_ID = "conformance-grant-id";
     private static final String REFUSED_PURPOSE = "conformance-refused";
     private static final String MINIMAL_PURPOSE = "conformance-minimal";

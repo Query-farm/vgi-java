@@ -3,7 +3,7 @@
 A VGI worker speaks `vgi.v2`, the protocol the DuckDB/Haybarn extension calls.
 It can also serve other [vgi-rpc](https://github.com/Query-farm/vgi-rpc-java)
 protocols from the same process, on the same listener, and it can answer
-`vgi_rpc.Identity.v1` so a reverse proxy can resolve credentials.
+`vgi_rpc.Identity.v2` so a reverse proxy can resolve credentials.
 
 ## Extra protocols: `Worker.hostedProtocols`
 
@@ -53,7 +53,7 @@ throw new StatusError("report is being rebuilt", Code.UNAVAILABLE,
 
 ## Token introspection: `resolveToken` / `mintGrant`
 
-`vgi_rpc.Identity.v1` lets a reverse proxy that terminates the only public
+`vgi_rpc.Identity.v2` lets a reverse proxy that terminates the only public
 listener resolve an opaque bearer credential to a principal
 (`introspect_token`), and lets an authenticated caller mint a scoped grant
 (`issue_grant`).
@@ -111,7 +111,7 @@ cache.
 
 `issue_grant` mints a grant that unattended automation later presents as an
 ordinary bearer. Configure grant keys and the worker both mints those grants
-and accepts them back (IDENTITY_V1_SPEC §9):
+and accepts them back (IDENTITY_V2_SPEC §9):
 
 ```bash
 # 32 random bytes, base64. The first key mints; every key listed verifies.

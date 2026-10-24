@@ -90,6 +90,7 @@ import farm.query.vgi.example.tableinout.SlowCancellableInoutFunction;
 import farm.query.vgi.example.tableinout.MultiBatchFinishFunction;
 import farm.query.vgi.example.tableinout.SubstreamPartialSumFunction;
 import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
+import farm.query.vgi.example.tableinout.PagedFunctions;
 import farm.query.vgi.example.tableinout.RepeatInputsFunction;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -329,7 +330,7 @@ public final class Main {
             return;
         }
         Worker worker = buildWorker(catalogName, implVer, dataSpec);
-        // Test-only: host vgi_rpc.Identity.v1 over HTTP with the vgi-rpc conformance policy and
+        // Test-only: host vgi_rpc.Identity.v2 over HTTP with the vgi-rpc conformance policy and
         // its spoofable header authentication, for `vgi-rpc-test-hosted --url ... --identity`.
         // Off by default so the DuckDB integration runs see the same worker as before.
         List<String> rest = new ArrayList<>(List.of(args));
@@ -738,6 +739,12 @@ public final class Main {
                 new BlendedFunctions.CachedDoubleFunction(),
                 new BlendedFunctions.CachedExplodeFunction(),
                 new BlendedFunctions.CachedRevalidatingDoubleFunction(),
+                // Continued output across replies, and input_rows_per_call
+                // (lateral_continuation.test, input_rows_per_call.test,
+                // continuation_classic.test, continuation_*.test).
+                new PagedFunctions.BlendedPagedFunction(),
+                new PagedFunctions.BlendedSlicedFunction(),
+                new PagedFunctions.PagedExplodeFunction(),
                 // Exchange-mode result-cache classics (cache/exchange_streaming
                 // + exchange_revalidate).
                 new CachedEchoFunctions.CachedEchoFunction(),

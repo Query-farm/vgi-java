@@ -2,7 +2,11 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.InvalidArgumentException;
+import farm.query.vgi.NotFoundException;
+import farm.query.vgi.ReadOnlyCatalogException;
 import farm.query.vgi.SettingSpec;
+import farm.query.vgi.UnimplementedException;
 import farm.query.vgi.VgiService;
 import farm.query.vgi.Worker;
 import farm.query.vgi.aggregate.AggregateFunction;
@@ -228,7 +232,10 @@ public final class VgiServiceImpl implements VgiService {
         this.worker = worker;
         for (ScalarFunction f : scalars) this.scalars.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
         for (TableFunction f : tables) this.tables.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
-        for (TableInOutFunction f : tableInOuts) this.tableInOuts.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
+        for (TableInOutFunction f : tableInOuts) {
+            TableInOutContracts.check(f);
+            this.tableInOuts.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
+        }
         for (AggregateFunction<?> f : aggregates) this.aggregates.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
         for (var f : worker.bufferingFunctions())
             this.bufferingFns.computeIfAbsent(f.name(), k -> new ArrayList<>()).add(f);
@@ -300,7 +307,7 @@ public final class VgiServiceImpl implements VgiService {
                     scopeCandidates(bufferingFns.get(name), name, schemaPath, catalogName, copyHandler),
                     args, inputSchema, settings, argCount, token, ctx);
         }
-        throw new IllegalArgumentException("Unknown function: " + name);
+        throw new NotFoundException("Unknown function: " + name);
     }
 
     /**
@@ -346,7 +353,7 @@ public final class VgiServiceImpl implements VgiService {
             if (java.util.Objects.equals(worker.catalogOf(fn), catalogName)) byCatalog.add(fn);
         }
         if (byCatalog.isEmpty()) {
-            throw new IllegalArgumentException(
+            throw new NotFoundException(
                     "Function '" + name + "' is not registered in catalog '"
                     + (catalogName == null ? worker.catalogName() : catalogName)
                     + "'. It is available in: " + sorted(catalogsDeclaring(all)));
@@ -359,7 +366,7 @@ public final class VgiServiceImpl implements VgiService {
             if (schemaPathEquals(schemaPath, worker.schemaPathOf(fn))) bySchema.add(fn);
         }
         if (bySchema.isEmpty()) {
-            throw new IllegalArgumentException(
+            throw new NotFoundException(
                     "Function '" + name + "' is not registered in schema '" + String.join(".", schemaPath)
                     + "'. It is available in: " + schemaPathsDisplay(schemasDeclaring(byCatalog)));
         }
@@ -450,7 +457,7 @@ public final class VgiServiceImpl implements VgiService {
                 OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         AuthContext auth = authOf(ctx);
-        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(request.attach_opaque_data(), auth));
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(),
                 attachPlain, attachScopedStorage(attachPlain), request.copy_to(),
@@ -491,7 +498,7 @@ public final class VgiServiceImpl implements VgiService {
         TableFunction fn = OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         AuthContext auth = authOf(ctx);
-        byte[] attachPlain = sealer.unsealAttach(request.attach_opaque_data(), auth);
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(request.attach_opaque_data(), auth));
         byte[] txnPlain = sealer.unsealTransaction(
                 request.transaction_opaque_data(), request.attach_opaque_data(), auth);
         TableBindParams bindParams = new TableBindParams(name, args, inputSchema, settings,
@@ -804,6 +811,7 @@ public final class VgiServiceImpl implements VgiService {
                     new FinalizeProducerState(bio.fn().finish(params)), header);
         }
         TableInOutExchangeState state = bio.fn().createExchange(params);
+        TableInOutContracts.checkExchange(bio.fn(), state);
         return RpcStream.exchange(inputSchema, fnOutputSchema, state, header);
     }
 
@@ -864,15 +872,15 @@ public final class VgiServiceImpl implements VgiService {
         if (atUnit == null || atUnit.isEmpty()) return 2;
         if ("version".equalsIgnoreCase(atUnit)) {
             try { return Integer.parseInt(atValue); }
-            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + atValue); }
+            catch (NumberFormatException e) { throw new InvalidArgumentException("Unknown version: " + atValue); }
         }
         if ("timestamp".equalsIgnoreCase(atUnit)) {
             int year;
             try { year = Integer.parseInt(atValue.substring(0, Math.min(4, atValue.length()))); }
-            catch (RuntimeException e) { throw new IllegalArgumentException("Unknown timestamp: " + atValue); }
+            catch (RuntimeException e) { throw new InvalidArgumentException("Unknown timestamp: " + atValue); }
             return year <= 2020 ? 1 : 2;
         }
-        throw new IllegalArgumentException("Unsupported at_unit: " + atUnit);
+        throw new InvalidArgumentException("Unsupported at_unit: " + atUnit);
     }
 
     /**
@@ -886,17 +894,17 @@ public final class VgiServiceImpl implements VgiService {
         int version;
         if ("version".equalsIgnoreCase(atUnit)) {
             try { version = Integer.parseInt(atValue); }
-            catch (NumberFormatException e) { throw new IllegalArgumentException("Unknown version: " + atValue); }
+            catch (NumberFormatException e) { throw new InvalidArgumentException("Unknown version: " + atValue); }
         } else if ("timestamp".equalsIgnoreCase(atUnit)) {
             int year;
             try { year = Integer.parseInt(atValue.substring(0, Math.min(4, atValue.length()))); }
-            catch (RuntimeException e) { throw new IllegalArgumentException("Unknown timestamp: " + atValue); }
-            if (year < 2020) throw new IllegalArgumentException("table did not exist before 2020");
+            catch (RuntimeException e) { throw new InvalidArgumentException("Unknown timestamp: " + atValue); }
+            if (year < 2020) throw new NotFoundException("table did not exist before 2020");
             version = year <= 2020 ? 1 : (year <= 2021 ? 2 : 3);
         } else {
-            throw new IllegalArgumentException("Unsupported at_unit: " + atUnit);
+            throw new InvalidArgumentException("Unsupported at_unit: " + atUnit);
         }
-        if (version < 1 || version > 3) throw new IllegalArgumentException("Unknown version: " + version);
+        if (version < 1 || version > 3) throw new NotFoundException("Unknown version: " + version);
         return version;
     }
 
@@ -1270,7 +1278,7 @@ public final class VgiServiceImpl implements VgiService {
                                                 CallContext ctx) {
         List<AggregateFunction<?>> all = aggregates.get(name);
         if (all == null || all.isEmpty()) {
-            throw new IllegalArgumentException("Unknown aggregate: " + name);
+            throw new NotFoundException("Unknown aggregate: " + name);
         }
         List<AggregateFunction<?>> scoped = scopeCandidates(
                 all, name, schemaPath, attachExtraCatalogName(attachOpaqueData, ctx),
@@ -1421,7 +1429,7 @@ public final class VgiServiceImpl implements VgiService {
         byte[] txnId = new byte[16];
         rng.nextBytes(txnId);
         AuthContext auth = authOf(ctx);
-        transactionStore.begin(txnId, sealer.unsealAttach(attach_opaque_data, auth));
+        transactionStore.begin(txnId, catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth)));
         return new farm.query.vgi.protocol.TransactionBeginResponse(
                 sealer.sealTransaction(txnId, attach_opaque_data, auth));
     }
@@ -1437,7 +1445,7 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_transaction_commit(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                              CallContext ctx) {
         AuthContext auth = authOf(ctx);
-        byte[] attachPlain = sealer.unsealAttach(attach_opaque_data, auth);
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth));
         transactionStore.end(
                 sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
                 attachPlain);
@@ -1454,7 +1462,7 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_transaction_rollback(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                                CallContext ctx) {
         AuthContext auth = authOf(ctx);
-        byte[] attachPlain = sealer.unsealAttach(attach_opaque_data, auth);
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth));
         transactionStore.end(
                 sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
                 attachPlain);
@@ -1508,7 +1516,7 @@ public final class VgiServiceImpl implements VgiService {
             }
             catalogRegistry.recordAttach(extraAttachId, extra.dataVersion(), request.name());
             return new CatalogAttachResult(
-                    sealer.sealAttach(extraAttachId, authOf(ctx)),
+                    sealer.sealAttach(catalogRegistry.recoverableAttach(extraAttachId, extra.dataVersion(), request.name()), authOf(ctx)),
                     false, false, extra.versionFrozen(),
                     CATALOG_VERSION,
                     true,  // attach_opaque_data_required
@@ -1632,7 +1640,7 @@ public final class VgiServiceImpl implements VgiService {
                 : java.util.List.of(supported);
         String resolved = SemverHelpers.resolveNpmSpec(requested, implVersions);
         if (resolved == null) {
-            throw new IllegalArgumentException("Unsupported implementation_version: " + requested);
+            throw new InvalidArgumentException("Unsupported implementation_version: " + requested);
         }
         return resolved;
     }
@@ -1652,7 +1660,7 @@ public final class VgiServiceImpl implements VgiService {
         List<String> supportedVersions = supportedVersions();
         String resolved = SemverHelpers.resolveNpmSpec(spec, supportedVersions);
         if (resolved == null || !SemverHelpers.matchesRange(resolved, range)) {
-            throw new IllegalArgumentException("Unsupported data_version_spec: " + spec);
+            throw new InvalidArgumentException("Unsupported data_version_spec: " + spec);
         }
         return resolved;
     }
@@ -1713,7 +1721,7 @@ public final class VgiServiceImpl implements VgiService {
      * {@code "attach_opaque_data not recognized"} ({@link OpaqueDataSealer#notRecognized}).
      */
     private byte[] openAttach(byte[] attachOpaqueData, CallContext ctx) {
-        return sealer.unsealAttach(attachOpaqueData, authOf(ctx));
+        return catalogRegistry.restoreAttach(sealer.unsealAttach(attachOpaqueData, authOf(ctx)));
     }
 
     private CatalogAttachResult attachHosted(farm.query.vgi.CatalogInterface catalog, CatalogAttachRequest request,
@@ -1845,7 +1853,7 @@ public final class VgiServiceImpl implements VgiService {
                                          List<String> column_path, byte[] column_definition, boolean ignore_not_found,
                                          boolean if_column_not_exists, byte[] transaction_opaque_data,
                                          CallContext ctx) {
-        throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_add not supported");
+        throw new UnimplementedException("catalog is read-only: catalog_table_column_add not supported");
     }
 
     /**
@@ -1865,14 +1873,14 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_table_column_drop(byte[] attach_opaque_data, List<String> schema_path, String name,
                                           List<String> column_path, boolean ignore_not_found, boolean if_column_exists,
                                           boolean cascade, byte[] transaction_opaque_data, CallContext ctx) {
-        throw new UnsupportedOperationException("catalog is read-only: catalog_table_column_drop not supported");
+        throw new UnimplementedException("catalog is read-only: catalog_table_column_drop not supported");
     }
 
     /** The attach's code-implemented catalog; DDL on any other catalog of this worker is refused. */
     private Hosted requireHosted(byte[] attachOpaqueData, CallContext ctx, String method) {
         Hosted h = hostedOf(attachOpaqueData, ctx);
         if (h == null) {
-            throw new UnsupportedOperationException("catalog is read-only: " + method + " not supported");
+            throw new ReadOnlyCatalogException("catalog is read-only: " + method + " not supported");
         }
         return h;
     }
@@ -1928,17 +1936,33 @@ public final class VgiServiceImpl implements VgiService {
         String recorded = catalogRegistry.catalogName(plain);
         String catalogName = recorded != null ? recorded : worker.catalogName();
         farm.query.vgi.CatalogInterface hosted = recorded == null ? null : worker.catalogInterfaces().get(recorded);
+        Worker.ExtraCatalog contentsOwner = recorded == null ? null : worker.extraCatalogs().get(recorded);
+        farm.query.vgi.CatalogContentsProvider provider = contentsOwner != null && contentsOwner.ownsCatalogContents()
+                ? contentsOwner.contentsProvider() : worker.catalogContentsProvider();
+        farm.query.vgi.CatalogContentsEtag etagMode = contentsOwner != null && contentsOwner.ownsCatalogContents()
+                ? contentsOwner.contentsEtag() : worker.catalogContentsEtag();
+        if (worker.catalogSnapshot() != null) {
+            var policy=worker.catalogSnapshot();
+            long snapshotVersion=catalog_version(attach_opaque_data,null,ctx).version();
+            var request=new farm.query.vgi.catalog.snapshot.SnapshotRequest(plain,
+                    farm.query.vgi.catalog.snapshot.CatalogSnapshotManager.hash(attach_opaque_data),snapshotVersion,ctx);
+            var delivery=policy.manager.serve(policy,request,if_none_match,()->farm.query.vgi.CatalogContents.serve(
+                    this,attach_opaque_data,null,ctx,catalogName,
+                    hosted != null ? hosted::catalogContents : provider,
+                    hosted != null ? hosted.catalogContentsEtag() : etagMode));
+            if(delivery.reference()!=null) {
+                if(ctx==null) throw new IllegalStateException("published catalog delivery requires an RPC call context; use manager.warm for startup publication");
+                ctx.respondWithExternalRef(delivery.reference());
+                return null;
+            }
+            return delivery.response();
+        }
         if (hosted != null) {
             // A code-implemented catalog may change between calls (DDL), so its
             // answer is never cached here: the catalog revalidates itself.
             return farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx,
                     catalogName, hosted::catalogContents, hosted.catalogContentsEtag());
         }
-        Worker.ExtraCatalog contentsOwner = recorded == null ? null : worker.extraCatalogs().get(recorded);
-        farm.query.vgi.CatalogContentsProvider provider = contentsOwner != null && contentsOwner.ownsCatalogContents()
-                ? contentsOwner.contentsProvider() : worker.catalogContentsProvider();
-        farm.query.vgi.CatalogContentsEtag etagMode = contentsOwner != null && contentsOwner.ownsCatalogContents()
-                ? contentsOwner.contentsEtag() : worker.catalogContentsEtag();
         if (!worker.catalogContentsCache()) {
             return farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, if_none_match, ctx,
                     catalogName, provider, etagMode);
@@ -1949,8 +1973,7 @@ public final class VgiServiceImpl implements VgiService {
                 k -> farm.query.vgi.CatalogContents.serve(this, attach_opaque_data, null, ctx,
                         catalogName, provider, etagMode));
         if (if_none_match != null && if_none_match.equals(cached.etag())) {
-            return new farm.query.vgi.protocol.CatalogContentsResponse(
-                    cached.catalog_version(), cached.etag(), true, List.of());
+            return farm.query.vgi.CatalogContents.unchanged(cached.catalog_version(), cached.etag());
         }
         return cached;
     }
@@ -2323,7 +2346,7 @@ public final class VgiServiceImpl implements VgiService {
                                     t.scanFunctionName(), List.of(schema_name), extraCatalog.name()));
                 }
             }
-            throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
+            throw new NotFoundException("scan_function_get: unknown table " + schema_name + "." + name);
         }
         var at = catalogRegistry.effectiveAt(attach_opaque_data_plain, at_unit, at_value);
         // Columns-based time-travel + pushdown: resolve AT -> version and pass it
@@ -2357,7 +2380,7 @@ public final class VgiServiceImpl implements VgiService {
                                 resolved.scanFunctionName(), List.of(schema_name), null));
             }
         }
-        throw new IllegalArgumentException("scan_function_get: unknown table " + schema_name + "." + name);
+        throw new NotFoundException("scan_function_get: unknown table " + schema_name + "." + name);
     }
 
     /**
@@ -2398,7 +2421,7 @@ public final class VgiServiceImpl implements VgiService {
                     return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
                 }
             }
-            throw new IllegalArgumentException(
+            throw new NotFoundException(
                     "scan_branches_get: unknown table " + schema_name + "." + name);
         }
         // Explicitly declared multi-branch table — return its branches as-is
@@ -2448,7 +2471,7 @@ public final class VgiServiceImpl implements VgiService {
                 return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
             }
         }
-        throw new IllegalArgumentException(
+        throw new NotFoundException(
                 "scan_branches_get: unknown table " + schema_name + "." + name);
     }
 
@@ -2480,7 +2503,7 @@ public final class VgiServiceImpl implements VgiService {
             String name, List<String> schemaPath, byte[] attachOpaqueData, CallContext ctx) {
         var list = bufferingFns.get(name);
         if (list == null || list.isEmpty()) {
-            throw new IllegalArgumentException("Unknown buffering function: " + name);
+            throw new NotFoundException("Unknown buffering function: " + name);
         }
         return scopeCandidates(list, name, schemaPath,
                 attachExtraCatalogName(attachOpaqueData, ctx), /*copyHandler=*/false).get(0);
@@ -3012,7 +3035,7 @@ public final class VgiServiceImpl implements VgiService {
                 }
             }
             // Buffering (Sink+Source) functions also surface as table functions;
-            // their FunctionInfo.function_type="table_buffering" selects the
+            // their FunctionInfo.function_type="TABLE_BUFFERING" selects the
             // C++ buffering operator.
             for (var variants : bufferingFns.values()) {
                 for (var fn : variants) {
@@ -3143,7 +3166,7 @@ public final class VgiServiceImpl implements VgiService {
      */
     static FunctionInfo scalarFunctionInfo(ScalarFunction fn, String schemaName) {
         BindResponse r = fn.onBind(new ScalarBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return baseFunctionInfo(fn, schemaName, "scalar", bindOutput(r), false);
+        return baseFunctionInfo(fn, schemaName, "SCALAR", bindOutput(r), false);
     }
 
     private FunctionInfo toTableFunctionInfo(TableFunction fn, String schemaName) {
@@ -3166,11 +3189,11 @@ public final class VgiServiceImpl implements VgiService {
             // context. Calling onBind here would (intentionally) throw, so
             // advertise an empty output schema, mirroring vgi-python's
             // _function_to_info (which emits an empty schema for table funcs).
-            return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "table",
+            return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "TABLE",
                     SchemaUtil.serializeSchema(new Schema(List.of())), false), fn.requiredSecrets());
         }
         BindResponse r = fn.onBind(new TableBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "table", bindOutput(r), false),
+        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "TABLE", bindOutput(r), false),
                 fn.requiredSecrets());
     }
 
@@ -3182,7 +3205,7 @@ public final class VgiServiceImpl implements VgiService {
         // C++ in-out registration branch with real-typed positional args; the
         // C++ rejects input_from_args && has_finalize, and RowTransformFunction
         // pins hasFinalize() to false, so the pair stays consistent.
-        FunctionInfo base = baseFunctionInfo(fn, schemaName, "table", bindOutput(r), fn.hasFinalize());
+        FunctionInfo base = baseFunctionInfo(fn, schemaName, "TABLE", bindOutput(r), fn.hasFinalize());
         // Re-stamp the TIO-specific fields baseFunctionInfo hardcodes:
         // max_workers (0 = the C++ parallel-by-default per-substream fan-out;
         // 1 would be the A3 serial opt-out AND disqualify the exchange-mode
@@ -3203,13 +3226,15 @@ public final class VgiServiceImpl implements VgiService {
                 base.source_order_dependent(), base.sink_order_dependent(),
                 base.requires_input_batch_index(),
                 fn instanceof farm.query.vgi.tableinout.RowTransformFunction,
+                fn instanceof farm.query.vgi.tableinout.RowTransformFunction rt
+                        ? rt.inputRowsPerCall() : null,
                 base.required_settings(), base.required_secrets());
     }
 
     private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
         // The C++ extension pre-resolves the declared secrets and delivers them
         // on AggregateBindRequest.secrets.
-        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "aggregate",
+        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "AGGREGATE",
                 SchemaUtil.serializeSchema(fn.outputSchema()), false), fn.requiredSecrets());
     }
 
@@ -3235,14 +3260,14 @@ public final class VgiServiceImpl implements VgiService {
                 base.partition_kind(), base.order_dependent(), base.distinct_dependent(),
                 base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
                 base.source_order_dependent(), base.sink_order_dependent(),
-                base.requires_input_batch_index(), base.input_from_args(),
+                base.requires_input_batch_index(), base.input_from_args(), base.input_rows_per_call(),
                 base.required_settings(), required);
     }
 
     private FunctionInfo toBufferingFunctionInfo(
             farm.query.vgi.buffering.TableBufferingFunction fn, String schemaName) {
         BindResponse r = fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        FunctionInfo base = baseFunctionInfo(fn.name(), fn.metadata(), schemaName, "table_buffering",
+        FunctionInfo base = baseFunctionInfo(fn.name(), fn.metadata(), schemaName, "TABLE_BUFFERING",
                 ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), bindOutput(r),
                 encodeParameterDefaults(fn), /*hasFinalize=*/true, 1, null);
         // Re-stamp the buffering-specific ordering flags (baseFunctionInfo
@@ -3261,7 +3286,7 @@ public final class VgiServiceImpl implements VgiService {
                 base.partition_kind(), base.order_dependent(), base.distinct_dependent(),
                 base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
                 fn.sourceOrderDependent(), fn.sinkOrderDependent(), fn.requiresInputBatchIndex(),
-                base.input_from_args(),
+                base.input_from_args(), base.input_rows_per_call(),
                 base.required_settings(), base.required_secrets());
     }
 
@@ -3300,7 +3325,7 @@ public final class VgiServiceImpl implements VgiService {
         int maxWorkers = fn instanceof TableFunction tf ? (int) tf.maxWorkers() : 1;
         List<String> argumentMonotonicity = null;
         if (fn.argumentMonotonicity() != null) {
-            if (!"scalar".equals(type)) {
+            if (!"SCALAR".equals(type)) {
                 throw new IllegalArgumentException(
                         "argumentMonotonicity is only valid for scalar functions");
             }
@@ -3340,7 +3365,7 @@ public final class VgiServiceImpl implements VgiService {
                 outputSchema,
                 parameterDefaultValues,
                 stabilityWire(md.stability()),
-                (BAD_ENUM_MODE && "scalar".equals(type) && "double".equals(name))
+                (BAD_ENUM_MODE && "SCALAR".equals(type) && "double".equals(name))
                         ? "WEIRD" : nullHandlingWire(md.nullHandling()),
                 argumentMonotonicity,
                 md.description(),
@@ -3371,6 +3396,7 @@ public final class VgiServiceImpl implements VgiService {
                 false,  // sink_order_dependent
                 false,  // requires_input_batch_index
                 false,  // input_from_args — re-stamped true for RowTransformFunction
+                null,   // input_rows_per_call — re-stamped for RowTransformFunction
                 List.of(),
                 List.of());
     }

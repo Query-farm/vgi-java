@@ -111,7 +111,11 @@ public final class AttachTicketsImpl implements AttachTicketsService {
         long issuedAt = System.currentTimeMillis() / 1000;
         long ttl = request.ttl_seconds();
         // 0 asks for the ceiling; otherwise the request, capped at the ceiling.
-        Long lifetime = ttl == 0 ? maxTtlSeconds : (maxTtlSeconds == null ? ttl : Math.min(ttl, maxTtlSeconds));
+        // (Not one ternary: mixing Long and long operands unboxes a null ceiling, so "no
+        // maximum lifetime" used to throw NullPointerException instead of sealing no expiry.)
+        Long lifetime;
+        if (ttl == 0) lifetime = maxTtlSeconds;
+        else lifetime = maxTtlSeconds == null ? ttl : Math.min(ttl, maxTtlSeconds);
         long expiresAt = lifetime == null ? 0 : issuedAt + lifetime;
         String token;
         try {
@@ -120,7 +124,7 @@ public final class AttachTicketsImpl implements AttachTicketsService {
         } catch (IllegalArgumentException e) {
             throw invalidRequest(List.of(new ErrorDetail.FieldViolation("request", e.getMessage())));
         }
-        return new AttachTicket(token, expiresAt == 0 ? Double.POSITIVE_INFINITY : (double) expiresAt);
+        return new AttachTicket(token, expiresAt == 0 ? null : java.time.Instant.ofEpochSecond(expiresAt));
     }
 
     private static StatusError invalidRequest(List<ErrorDetail.FieldViolation> violations) {

@@ -12,7 +12,8 @@ import java.util.List;
  *
  * @param function_name registered function name to bind
  * @param arguments serialised Arrow batch of the positional bind-time constant arguments
- * @param function_type the function kind being bound (e.g. table, table-in-out, scalar)
+ * @param function_type the function kind being bound: {@code SCALAR}, {@code TABLE},
+ *     {@code AGGREGATE} or {@code TABLE_BUFFERING} (vgi-python enum member names)
  * @param input_schema serialised Arrow {@code Schema} (IPC) of the input columns, where applicable
  * @param settings serialised Arrow batch of session settings
  * @param secrets serialised Arrow batch of secret values; populated when
