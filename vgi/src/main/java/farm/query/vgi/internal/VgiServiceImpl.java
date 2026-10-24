@@ -1717,6 +1717,7 @@ public final class VgiServiceImpl implements VgiService {
         if (!req.constraint_definitions().isEmpty() || req.comment() != null || req.tags() != null || req.options() != null || req.layout() != null)
             throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create requires negotiated table profiles");
         ColumnMetadata.validateIpc(req.columns());
+        ColumnExpressions.validateIpc(req.columns(), req.schema_path(), false);
         SchemaUtil.requireUnconstrainedColumns(req.columns());
         Hosted h = requireHosted(req.attach_opaque_data(), ctx, "catalog_table_create");
         h.catalog().tableCreate(h.attachId(), req);

@@ -207,14 +207,14 @@ public final class Main {
         return out;
     }
 
-    /** Build a Field with a generated_expression metadata key. */
+    /** Build a canonical VIRTUAL column owned by the data schema. */
     private static Field genCol(String name,
                 ArrowType type,
                 boolean nullable,
                 String expr) {
         return new Field(name,
                 new FieldType(nullable, type, null,
-                        Map.of("generated_expression", expr)),
+                        Map.of("vgi.column.generated.v1", farm.query.vgi.internal.ColumnExpressions.generatedMetadata(expr, List.of("data")), "vgi.column.generation.v1", "virtual")),
                 null);
     }
 
