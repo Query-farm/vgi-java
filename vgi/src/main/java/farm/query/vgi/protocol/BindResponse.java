@@ -26,9 +26,19 @@ public record BindResponse(
         List<String> lookup_secret_types,
         List<String> lookup_scopes,
         List<String> lookup_names,
-        List<String> projection_expression_profiles) implements ArrowSerializableRecord {
+        List<String> projection_expression_profiles,
+        BindRepeatability repeatability) implements ArrowSerializableRecord {
+    public BindResponse {
+        if (repeatability == null) throw new IllegalArgumentException("Bind repeatability cannot be null");
+    }
+
     public BindResponse(byte[] schema, byte[] opaque, List<String> types, List<String> scopes, List<String> names) {
-        this(schema, opaque, types, scopes, names, List.of());
+        this(schema, opaque, types, scopes, names, List.of(), BindRepeatability.UNKNOWN);
+    }
+
+    public BindResponse(byte[] schema, byte[] opaque, List<String> types, List<String> scopes, List<String> names,
+                        List<String> profiles) {
+        this(schema, opaque, types, scopes, names, profiles, BindRepeatability.UNKNOWN);
     }
 
     /**

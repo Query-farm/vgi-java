@@ -39,7 +39,7 @@ public final class ProjectionSequenceFunction extends SimpleTableFunction {
   public BindResponse onBind(TableBindParams params) {
     return new BindResponse(SchemaUtil.serializeSchema(OUTPUT), new byte[0],
                             List.of(), List.of(), List.of(),
-                            List.of(ProjectionExpressions.PROFILE));
+                            List.of(ProjectionExpressions.PROFILE), BindRepeatability.STABLE_WITHIN_QUERY);
   }
   @Override
   public TableFunctionProjectionResponse
@@ -70,7 +70,7 @@ public final class ProjectionSequenceFunction extends SimpleTableFunction {
             new Schema(fields, source.getCustomMetadata())),
         Integer.toString(indices.size()).getBytes(StandardCharsets.US_ASCII),
         List.of(), List.of(), List.of(),
-        original.projection_expression_profiles());
+        original.projection_expression_profiles(), original.repeatability());
     return new TableFunctionProjectionResponse(
         indices, RecordCodec.serializeToBytes(accepted));
   }

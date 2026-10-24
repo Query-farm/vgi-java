@@ -68,12 +68,38 @@ public final class ProjectionExpressions {
         }
         return RecordCodec.deserializeFromBytes(bytes, TableFunctionProjectionRequest.class);
     }
+    private static BindResponse readBind(byte[] bytes) {
+        try (var reader = new farm.query.vgirpc.wire.IpcStreamReader(
+                 new java.io.ByteArrayInputStream(bytes), farm.query.vgirpc.wire.Allocators.root())) {
+            reader.readNextBatch();
+            var row = reader.root();
+            var field = reader.wireSchema().findField("repeatability");
+            if (row.getRowCount() != 1 || field == null || field.isNullable() ||
+                field.getDictionary() == null ||
+                !field.getDictionary().getIndexType().equals(new org.apache.arrow.vector.types.pojo.ArrowType.Int(16, true)) ||
+                !(field.getType() instanceof org.apache.arrow.vector.types.pojo.ArrowType.Utf8) ||
+                !(row.getVector("repeatability") instanceof org.apache.arrow.vector.SmallIntVector indices) ||
+                indices.isNull(0))
+                throw new IllegalArgumentException("Bind repeatability requires a nonnullable dictionary<int16, utf8>");
+            var dictionary = reader.dictionaryProvider().lookup(field.getDictionary().getId());
+            int selected = indices.get(0);
+            if (dictionary == null || !(dictionary.getVector() instanceof org.apache.arrow.vector.VarCharVector values) ||
+                selected < 0 || selected >= values.getValueCount() || values.isNull(selected))
+                throw new IllegalArgumentException("Bind repeatability dictionary value must be present and non-null");
+            var name = new String(values.get(selected), java.nio.charset.StandardCharsets.UTF_8);
+            if (!name.equals("UNKNOWN") && !name.equals("STABLE_WITHIN_QUERY"))
+                throw new IllegalArgumentException("Invalid bind repeatability wire name");
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("Invalid bind response", error);
+        }
+        return RecordCodec.deserializeFromBytes(bytes, BindResponse.class);
+    }
     public static BindRequest validateRequest(TableFunctionProjectionRequest request) {
         size((long)request.bind_call().length + request.bind_result().length +
              request.result_schema().length + request.expressions().stream().mapToLong(b -> b.length).sum());
         size(RecordCodec.serializeToBytes(request).length);
         var bind = RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class);
-        var source = RecordCodec.deserializeFromBytes(request.bind_result(), BindResponse.class);
+        var source = readBind(request.bind_result());
         validateOffer(source.projection_expression_profiles());
         if (!"table".equalsIgnoreCase(bind.function_type()) || bind.input_schema() != null ||
             bind.schema_path() == null)
@@ -127,9 +153,11 @@ public final class ProjectionExpressions {
         }
         if (response.bind_result() == null)
             return;
-        var original = RecordCodec.deserializeFromBytes(request.bind_result(), BindResponse.class);
-        var accepted = RecordCodec.deserializeFromBytes(response.bind_result(), BindResponse.class);
+        var original = readBind(request.bind_result());
+        var accepted = readBind(response.bind_result());
         validateOffer(accepted.projection_expression_profiles());
+        if (accepted.repeatability() != original.repeatability())
+            throw new IllegalArgumentException("Accepted projection changed bind repeatability");
         if (!accepted.projection_expression_profiles().equals(original.projection_expression_profiles()) ||
             !accepted.lookup_names().isEmpty() || !accepted.lookup_scopes().isEmpty() ||
             !accepted.lookup_secret_types().isEmpty())
@@ -164,6 +192,6 @@ public final class ProjectionExpressions {
                 BindEnvelope.class);
         if (call == null || !Arrays.equals(envelope.bind_call(), RecordCodec.serializeToBytes(call)))
             throw new IllegalArgumentException("Projection bind invocation identity changed");
-        return RecordCodec.deserializeFromBytes(envelope.bind_result(), BindResponse.class);
+        return readBind(envelope.bind_result());
     }
 }

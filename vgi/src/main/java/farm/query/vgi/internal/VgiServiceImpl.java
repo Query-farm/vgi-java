@@ -463,7 +463,8 @@ public final class VgiServiceImpl implements VgiService {
                 request.secrets(), attachPlain, bindOpaque,
                 request.input_schema(), request.copy_to(), request.argument_names()));
         return new BindResponse(upstream.output_schema(), token,
-                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
+                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names(),
+                upstream.projection_expression_profiles(), upstream.repeatability());
     }
 
     private BindResponse bindScalar(BindRequest request, String name, List<ScalarFunction> candidates,
@@ -479,7 +480,8 @@ public final class VgiServiceImpl implements VgiService {
                 request.arguments(), request.settings(), upstream.output_schema(),
                 request.secrets(), request.argument_names()));
         return new BindResponse(upstream.output_schema(), token,
-                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
+                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names(),
+                upstream.projection_expression_profiles(), upstream.repeatability());
     }
 
     private BindResponse bindTable(BindRequest request, String name, List<TableFunction> candidates,
@@ -504,13 +506,14 @@ public final class VgiServiceImpl implements VgiService {
         // Offered binds are portable and stable across equivalent rebinding. Ordinary
         // unoffered functions retain the existing random pending-bind handle.
         byte[] wireState = upstream.projection_expression_profiles().isEmpty()
+                && upstream.repeatability() == farm.query.vgi.protocol.BindRepeatability.UNKNOWN
                 ? token : ProjectionExpressions.envelope(upstream, request);
         pendingBinds.put(bytesKey(wireState), new BoundTable(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
                 request.secrets(), attachPlain, bindOpaque, request.at_unit(), request.at_value(),
                 request.copy_from(), request.argument_names()));
         return new BindResponse(upstream.output_schema(), wireState,
-                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names(), upstream.projection_expression_profiles());
+                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names(), upstream.projection_expression_profiles(), upstream.repeatability());
     }
 
     private BindResponse bindTableInOut(BindRequest request, String name, List<TableInOutFunction> candidates,
@@ -562,7 +565,8 @@ public final class VgiServiceImpl implements VgiService {
                 request.arguments(), request.settings(), upstream.output_schema(),
                 request.secrets(), attachPlain, request.argument_names()));
         return new BindResponse(upstream.output_schema(), token,
-                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
+                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names(),
+                upstream.projection_expression_profiles(), upstream.repeatability());
     }
 
     /**
@@ -1032,17 +1036,18 @@ public final class VgiServiceImpl implements VgiService {
         if (providerBind == null) {
             providerBind = new BindResponse(original.output_schema(), table.bindOpaqueData(),
                     original.lookup_secret_types(), original.lookup_scopes(), original.lookup_names(),
-                    original.projection_expression_profiles());
+                    original.projection_expression_profiles(), original.repeatability());
         }
         if (!SchemaUtil.deserializeSchema(providerBind.output_schema()).equals(SchemaUtil.deserializeSchema(original.output_schema()))
-                || !providerBind.projection_expression_profiles().equals(original.projection_expression_profiles()))
+                || !providerBind.projection_expression_profiles().equals(original.projection_expression_profiles())
+                || providerBind.repeatability() != original.repeatability())
             throw new IllegalArgumentException("Projection source envelope differs from bind result");
         var providerRequest = new farm.query.vgi.protocol.TableFunctionProjectionRequest(proposal.bind_call(), RecordCodec.serializeToBytes(providerBind), proposal.expressions(), proposal.result_schema());
         var response = table.fn().projection(providerRequest);
         ProjectionExpressions.validateResponse(providerRequest, response);
         if (response.bind_result() != null) {
             var accepted = RecordCodec.deserializeFromBytes(response.bind_result(), BindResponse.class);
-            var portable = new BindResponse(accepted.output_schema(), ProjectionExpressions.envelope(accepted, call), accepted.lookup_secret_types(), accepted.lookup_scopes(), accepted.lookup_names(), accepted.projection_expression_profiles());
+            var portable = new BindResponse(accepted.output_schema(), ProjectionExpressions.envelope(accepted, call), accepted.lookup_secret_types(), accepted.lookup_scopes(), accepted.lookup_names(), accepted.projection_expression_profiles(), accepted.repeatability());
             response = new farm.query.vgi.protocol.TableFunctionProjectionResponse(response.accepted_indices(), RecordCodec.serializeToBytes(portable));
         }
         ProjectionExpressions.validateResponse(proposal, response);
