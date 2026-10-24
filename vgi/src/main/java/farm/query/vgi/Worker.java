@@ -240,6 +240,22 @@ public final class Worker {
 
     private Worker() {}
 
+    /** Provider-owned capability advertisement and exact selection for the main catalog. */
+    public record CatalogCapabilitySelection(byte[] advertised, byte[] selected) {}
+    private java.util.function.Function<farm.query.vgi.protocol.CatalogAttachRequest, CatalogCapabilitySelection>
+            catalogCapabilitySelector;
+
+    public Worker catalogCapabilities(java.util.function.Function<farm.query.vgi.protocol.CatalogAttachRequest,
+            CatalogCapabilitySelection> selector) {
+        catalogCapabilitySelector = java.util.Objects.requireNonNull(selector);
+        return this;
+    }
+
+    public CatalogCapabilitySelection selectCatalogCapabilities(farm.query.vgi.protocol.CatalogAttachRequest request) {
+        return catalogCapabilitySelector == null ? new CatalogCapabilitySelection(null, null)
+                : catalogCapabilitySelector.apply(request);
+    }
+
     /**
      * Start building a worker. Defaults: catalog name {@code "vgi"}, default
      * schema {@code "main"}, empty comment/tags, no versioning metadata.

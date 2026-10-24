@@ -144,7 +144,7 @@ final class ExampleCatalogContentsTest {
 
     @Test
     @Timeout(120)
-    void constrainedFixturesPublishExplicitUntrustedRecords() throws Exception {
+    void constrainedFixturesPublishValidatedImmutableFacts() throws Exception {
         try (Pipe p = Pipe.start(Main.buildWorker("example", null, null))) {
             byte[] handle = attach(p.vgi()).attach_opaque_data();
             var wanted = java.util.Set.of("products", "departments", "employees", "projects", "versioned_constraints");
@@ -157,8 +157,8 @@ final class ExampleCatalogContentsTest {
                 assertFalse(table.constraints().isEmpty());
                 for (byte[] encoded : table.constraints()) {
                     var constraint = RecordCodec.deserializeFromBytes(encoded, farm.query.vgi.protocol.ConstraintInfo.class);
-                    assertEquals("METADATA_ONLY", constraint.enforcement());
-                    assertEquals("UNVALIDATED", constraint.validation());
+                    assertEquals("ENFORCED", constraint.enforcement());
+                    assertEquals("ALL_ROWS", constraint.validation());
                     var identity = RecordCodec.deserializeFromBytes(constraint.ref(), farm.query.vgi.protocol.CatalogObjectRef.class);
                     assertEquals(table.name(), identity.owner_table());
                     assertEquals(List.of("data"), identity.schema_path());

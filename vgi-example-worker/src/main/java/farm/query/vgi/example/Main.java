@@ -258,7 +258,8 @@ public final class Main {
             return new CatalogTable(
                     schema, name, cols(fields), comment, Map.of(),
                     "_table_data", List.of((Object) name), Map.of(),
-                    null, null, false, /*inlineScanFunction=*/true);
+                    null, null, false, /*inlineScanFunction=*/true)
+                    .withCanonicalConstraints(FixtureConstraints.snapshot(name, fields), FixtureConstraints.REVISION);
         }
         return new CatalogTable(
                 schema, name, cols(fields), comment, Map.of(),
@@ -365,6 +366,7 @@ public final class Main {
      */
     public static Worker buildWorker(String catalogName, String implVer, String dataSpec) {
         Worker w = Worker.builder()
+                .catalogCapabilities(FixtureConstraints::negotiate)
                 .catalogName(catalogName)
                 .implementationVersion(implVer)
                 .dataVersionSpec(dataSpec)
@@ -867,7 +869,7 @@ public final class Main {
                         .withCardinality(10000L, 10000L))
                 .registerCatalogTable(stubTable("data", "products",
                         "Product table with column defaults",
-                        col("id", Schemas.INT64, true, "Unique product identifier", null),
+                        col("id", Schemas.INT64, false, "Unique product identifier", null),
                         col("name", Schemas.UTF8, true, "Product display name", "'unknown'"),
                         col("price", Schemas.FLOAT64, true, "Unit price in USD", "9.99"),
                         col("quantity", Schemas.INT64, true, null, "0"))
@@ -886,8 +888,8 @@ public final class Main {
                 "price", 0.99d, 999.99d, false, null))))
                 .registerCatalogTable(stubTable("data", "departments",
                         "Department reference table",
-                        col("id", Schemas.INT64, true),
-                        col("name", Schemas.UTF8, true),
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, false),
                         col("budget", Schemas.FLOAT64, true, null, "0"))
                         .withCanonicalConstraints(List.of(
                                 FixtureConstraints.of("departments", "id_nn", "NOT_NULL", "id"),
@@ -905,9 +907,9 @@ public final class Main {
                 "budget", 50000.0d, 500000.0d, false, 10L))))
                 .registerCatalogTable(stubTable("data", "employees",
                         "Employee table with FK to departments",
-                        col("id", Schemas.INT64, true),
-                        col("name", Schemas.UTF8, true),
-                        col("email", Schemas.UTF8, true),
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, false),
+                        col("email", Schemas.UTF8, false),
                         col("department_id", Schemas.INT64, true))
                         .withCanonicalConstraints(List.of(
                                 FixtureConstraints.of("employees", "id_nn", "NOT_NULL", "id"),
@@ -1052,9 +1054,9 @@ public final class Main {
                         genCol("label", Schemas.UTF8, true, "'item_' || n::VARCHAR")))
                 .registerCatalogTable(stubTable("data", "projects",
                         "Projects with composite PK and FK to departments",
-                        col("department_id", Schemas.INT64, true),
-                        col("project_code", Schemas.UTF8, true),
-                        col("title", Schemas.UTF8, true))
+                        col("department_id", Schemas.INT64, false),
+                        col("project_code", Schemas.UTF8, false),
+                        col("title", Schemas.UTF8, false))
                         .withCanonicalConstraints(List.of(
                                 FixtureConstraints.of("projects", "department_nn", "NOT_NULL", "department_id"),
                                 FixtureConstraints.of("projects", "code_nn", "NOT_NULL", "project_code"),
@@ -1246,8 +1248,8 @@ public final class Main {
                         col("score", Schemas.FLOAT64, true)))
                 .registerCatalogTable(stubTable("data", "versioned_constraints",
                         "Table with constraints that evolve across versions",
-                        col("id", Schemas.INT64, true),
-                        col("name", Schemas.UTF8, true),
+                        col("id", Schemas.INT64, false),
+                        col("name", Schemas.UTF8, false),
                         col("email", Schemas.UTF8, true),
                         col("department_id", Schemas.INT64, true))
                         .withCanonicalConstraints(List.of(
@@ -1265,12 +1267,12 @@ public final class Main {
                         "v2 (id, name, email)",
                         col("id", Schemas.INT64, false),
                         col("name", Schemas.UTF8, false),
-                        col("email", Schemas.UTF8, false)))
+                        col("email", Schemas.UTF8, true)))
                 .registerCatalogTable(stubTable("data", "versioned_constraints_v3",
                         "v3 (id, name, email, department_id)",
                         col("id", Schemas.INT64, false),
                         col("name", Schemas.UTF8, false),
-                        col("email", Schemas.UTF8, false),
+                        col("email", Schemas.UTF8, true),
                         col("department_id", Schemas.INT64, true)))
                 // Animals table for the "versioned_tables" worker — only
                 // visible when that catalog is loaded. Schema evolves

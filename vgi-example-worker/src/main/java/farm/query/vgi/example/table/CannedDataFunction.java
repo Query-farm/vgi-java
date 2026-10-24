@@ -399,6 +399,20 @@ public final class CannedDataFunction implements TableFunction {
     public static boolean has(String tableName) { return SCHEMAS.containsKey(tableName); }
     public static Schema schemaFor(String tableName) { return SCHEMAS.get(tableName); }
 
+    /** A detached snapshot of the immutable rows used by the actual scan. */
+    public static List<Map<String, Object>> rowsFor(String tableName) {
+        Schema schema = SCHEMAS.get(tableName);
+        Object[][] rows = ROWS.get(tableName);
+        if (schema == null || rows == null) throw new IllegalArgumentException("No fixed rows for " + tableName);
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object[] values : rows) {
+            Map<String, Object> row = new HashMap<>();
+            for (int i = 0; i < values.length; i++) row.put(schema.getFields().get(i).getName(), values[i]);
+            result.add(java.util.Collections.unmodifiableMap(row));
+        }
+        return List.copyOf(result);
+    }
+
     public static final class State extends TableProducerState implements Serializable {
         private static final long serialVersionUID = 1L;
         public String tableName;

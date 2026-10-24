@@ -195,7 +195,8 @@ public final class CatalogRegistry {
                             t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
                             vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
                             null, null, false, true,
-                            List.of(), List.of(), List.of(), List.of());
+                            List.of(), List.of(), List.of(), List.of())
+                            .withCanonicalConstraints(vt.constraints(), vt.definitionRevision());
                 }
             }
             return t;
@@ -242,7 +243,8 @@ public final class CatalogRegistry {
                         t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
                         vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
                         null, null, false, true,
-                        List.of(), List.of(), List.of(), List.of());
+                        List.of(), List.of(), List.of(), List.of())
+                        .withCanonicalConstraints(vt.constraints(), vt.definitionRevision());
             }
         }
         return t;

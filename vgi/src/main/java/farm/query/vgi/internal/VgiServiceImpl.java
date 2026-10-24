@@ -1579,6 +1579,7 @@ public final class VgiServiceImpl implements VgiService {
         if ("versioned".equals(worker.catalogName()) && ctx != null) {
             ctx.setCookie("vgi_sticky", java.util.UUID.randomUUID().toString().replace("-", ""));
         }
+        var capabilitySelection = worker.selectCatalogCapabilities(request);
         return new CatalogAttachResult(
                 sealer.sealAttach(attachId, authOf(ctx)),
                 true, true, false,  // supports_transactions, supports_time_travel, catalog_version_frozen
@@ -1603,7 +1604,7 @@ public final class VgiServiceImpl implements VgiService {
                 resolvedImpl,
                 // supports_catalog_contents: the catalog is declarative, so the
                 // client may load it whole (VgiService#catalog_contents).
-                worker.supportsCatalogContents(), null, null, null);
+                worker.supportsCatalogContents(), capabilitySelection.advertised(), capabilitySelection.selected(), null);
     }
 
     /**
