@@ -497,15 +497,20 @@ public final class VgiServiceImpl implements VgiService {
                 transactionStore.view(txnPlain, attachPlain), attachScopedStorage(attachPlain),
                 request.copy_from(), request.argument_names());
         BindResponse upstream = fn.onBind(bindParams);
+        ProjectionExpressions.validateOffer(upstream.projection_expression_profiles());
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
-        pendingBinds.put(bytesKey(token), new BoundTable(fn, args, inputSchema, outputSchema, settings,
+        // Offered binds are portable and stable across equivalent rebinding. Ordinary
+        // unoffered functions retain the existing random pending-bind handle.
+        byte[] wireState = upstream.projection_expression_profiles().isEmpty()
+                ? token : ProjectionExpressions.envelope(upstream, request);
+        pendingBinds.put(bytesKey(wireState), new BoundTable(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
                 request.secrets(), attachPlain, bindOpaque, request.at_unit(), request.at_value(),
                 request.copy_from(), request.argument_names()));
-        return new BindResponse(upstream.output_schema(), token,
-                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names());
+        return new BindResponse(upstream.output_schema(), wireState,
+                upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names(), upstream.projection_expression_profiles());
     }
 
     private BindResponse bindTableInOut(BindRequest request, String name, List<TableInOutFunction> candidates,
@@ -598,6 +603,15 @@ public final class VgiServiceImpl implements VgiService {
             throw new IllegalStateException("init: no bind context — bind_opaque_data=" +
                     (request.bind_opaque_data() == null ? "null" : "present") +
                     " bind_call_len=" + (request.bind_call() == null ? -1 : request.bind_call().length));
+        }
+        var projectionCall = request.bind_call() == null || request.bind_call().length == 0 ? null
+                : RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class);
+        var acceptedProjection = ProjectionExpressions.open(request.bind_opaque_data(), projectionCall);
+        if (acceptedProjection != null) {
+            if (!(bound instanceof BoundTable table)) throw new IllegalArgumentException("Projection init requires ordinary table");
+            if (!SchemaUtil.deserializeSchema(acceptedProjection.output_schema()).equals(SchemaUtil.deserializeSchema(request.output_schema())))
+                throw new IllegalArgumentException("Projection init schema differs from accepted bind");
+            bound = new BoundTable(table.fn(), table.args(), table.inputSchema(), SchemaUtil.deserializeSchema(acceptedProjection.output_schema()), table.settings(), table.argumentsIpc(), table.settingsIpc(), acceptedProjection.output_schema(), table.secrets(), table.attachId(), acceptedProjection.opaque_data(), table.atUnit(), table.atValue(), table.copyFrom(), table.argumentNames());
         }
         Schema realOutputSchema = SchemaUtil.deserializeSchema(request.output_schema());
         byte[] execId = request.execution_id() != null ? request.execution_id() : newExecutionId();
@@ -999,6 +1013,41 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     private record DynamicToStringInner(byte[] bind_call, byte[] bind_opaque_data, byte[] global_execution_id) {}
+
+    /** Validate a pure optional projection proposal before publishing replacement bind state. */
+    @Override
+    public byte[] table_function_projection(byte[] request, CallContext ctx) {
+        ProjectionExpressions.size(request.length);
+        var proposal = ProjectionExpressions.decodeRequest(request);
+        var call = ProjectionExpressions.validateRequest(proposal);
+        var original = RecordCodec.deserializeFromBytes(proposal.bind_result(), BindResponse.class);
+        BoundEntry bound = original.opaque_data() == null ? null : pendingBinds.get(bytesKey(original.opaque_data()));
+        if (bound == null) {
+            var rebound = bind(call, ctx);
+            bound = pendingBinds.get(bytesKey(rebound.opaque_data()));
+            pendingBinds.remove(bytesKey(rebound.opaque_data()));
+        }
+        if (!(bound instanceof BoundTable table)) throw new IllegalArgumentException("Projection requires ordinary table");
+        var providerBind = ProjectionExpressions.open(original.opaque_data(), call);
+        if (providerBind == null) {
+            providerBind = new BindResponse(original.output_schema(), table.bindOpaqueData(),
+                    original.lookup_secret_types(), original.lookup_scopes(), original.lookup_names(),
+                    original.projection_expression_profiles());
+        }
+        if (!SchemaUtil.deserializeSchema(providerBind.output_schema()).equals(SchemaUtil.deserializeSchema(original.output_schema()))
+                || !providerBind.projection_expression_profiles().equals(original.projection_expression_profiles()))
+            throw new IllegalArgumentException("Projection source envelope differs from bind result");
+        var providerRequest = new farm.query.vgi.protocol.TableFunctionProjectionRequest(proposal.bind_call(), RecordCodec.serializeToBytes(providerBind), proposal.expressions(), proposal.result_schema());
+        var response = table.fn().projection(providerRequest);
+        ProjectionExpressions.validateResponse(providerRequest, response);
+        if (response.bind_result() != null) {
+            var accepted = RecordCodec.deserializeFromBytes(response.bind_result(), BindResponse.class);
+            var portable = new BindResponse(accepted.output_schema(), ProjectionExpressions.envelope(accepted, call), accepted.lookup_secret_types(), accepted.lookup_scopes(), accepted.lookup_names(), accepted.projection_expression_profiles());
+            response = new farm.query.vgi.protocol.TableFunctionProjectionResponse(response.accepted_indices(), RecordCodec.serializeToBytes(portable));
+        }
+        ProjectionExpressions.validateResponse(proposal, response);
+        return RecordCodec.serializeToBytes(response);
+    }
 
     /**
      * Divide a table-function scan into named, redeemable splits.

@@ -328,6 +328,8 @@ class WireRecordSchemaConformanceTest {
         m.put(AttachCatalogInfo.class, new Codec("AttachCatalogInfo", ORDERED));
         m.put(BindRequest.class, new Codec("BindRequest", BY_NAME));
         m.put(BindResponse.class, new Codec("BindResult", ORDERED));
+        m.put(farm.query.vgi.protocol.TableFunctionProjectionRequest.class, new Codec("TableFunctionProjectionRequest", ORDERED));
+        m.put(farm.query.vgi.protocol.TableFunctionProjectionResponse.class, new Codec("TableFunctionProjectionResult", ORDERED));
         m.put(CardinalityRequest.class, new Codec("TableFunctionCardinalityRequest", BY_NAME));
         m.put(CardinalityResponse.class, new Codec("TableFunctionCardinalityResult", ORDERED));
         m.put(CatalogAttachRequest.class, new Codec("CatalogAttachRequest", BY_NAME));

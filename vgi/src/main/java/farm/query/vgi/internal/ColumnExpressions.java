@@ -40,8 +40,7 @@ public final class ColumnExpressions {
         text(value.sql(), 1024 * 1024);
         if (value.sql().isBlank() || !PROFILE.equals(value.profile()))
             throw new IllegalArgumentException("Unsupported generated profile or empty SQL");
-        if (value.schema_path() == null || value.schema_path().isEmpty()
-            || value.schema_path().size() > 32)
+        if (value.schema_path() == null || value.schema_path().size() > 32)
             throw new IllegalArgumentException("Invalid expression owner");
         for (var part : value.schema_path()) text(part, 4096);
         if (!value.schema_path().equals(owner))
@@ -103,7 +102,7 @@ public final class ColumnExpressions {
         }
         throw new IllegalArgumentException("Expression IPC lacks end marker");
     }
-    private static void encoded(String encoded, List<String> owner) throws Exception {
+    public static void encoded(String encoded, List<String> owner) throws Exception {
         if (encoded.isEmpty() || encoded.length() > 4 * ((MAXIMUM + 2) / 3))
             throw new IllegalArgumentException("Invalid expression size");
         byte[] bytes = Base64.getDecoder().decode(encoded);

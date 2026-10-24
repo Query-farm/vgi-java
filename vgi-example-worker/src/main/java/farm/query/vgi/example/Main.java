@@ -553,6 +553,7 @@ public final class Main {
     private static void registerTables(Worker w) {
         w.registerTables(List.of(
                 new SequenceFunction(),
+                new farm.query.vgi.example.table.ProjectionSequenceFunction(),
                 // Split-capable fixtures — the Java half of the cross-SDK splits
                 // suite (test/sql/integration/splits/*).
                 new farm.query.vgi.example.table.SplitFunctions.SplitSequence(),
@@ -786,6 +787,9 @@ public final class Main {
     }
 
     private static void registerCatalogTables(Worker w) {
+        w.registerCatalogTable(CatalogTable.functionBacked("main", "projection_rows",
+                SchemaUtil.serializeSchema(farm.query.vgi.example.table.ProjectionSequenceFunction.OUTPUT),
+                "Optional scalar projection example", "projection_sequence"));
         w.registerCatalogTable(CatalogTable.functionBacked(
                         "main", farm.query.vgi.example.table.SameNameTableFunctions.TABLE_NAME,
                         SchemaUtil.serializeSchema(

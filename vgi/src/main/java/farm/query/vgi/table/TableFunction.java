@@ -27,6 +27,10 @@ public interface TableFunction extends FunctionDescriptor {
      * @return the bind response carrying the output schema (and any opaque data)
      */
     BindResponse onBind(TableBindParams params);
+    /** Optional, pure planning hook. No execution resources, row consumption, or effects. */
+    default farm.query.vgi.protocol.TableFunctionProjectionResponse projection(farm.query.vgi.protocol.TableFunctionProjectionRequest request) {
+        return farm.query.vgi.protocol.TableFunctionProjectionResponse.decline();
+    }
 
     /**
      * Builds a fresh per-call producer. The framework owns the returned object.

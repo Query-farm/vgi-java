@@ -25,7 +25,11 @@ public record BindResponse(
         @Nullable byte[] opaque_data,
         List<String> lookup_secret_types,
         List<String> lookup_scopes,
-        List<String> lookup_names) implements ArrowSerializableRecord {
+        List<String> lookup_names,
+        List<String> projection_expression_profiles) implements ArrowSerializableRecord {
+    public BindResponse(byte[] schema, byte[] opaque, List<String> types, List<String> scopes, List<String> names) {
+        this(schema, opaque, types, scopes, names, List.of());
+    }
 
     /**
      * Builds a response carrying only an output schema, with no opaque data and no secret lookup.
