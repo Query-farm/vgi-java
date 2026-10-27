@@ -10,7 +10,7 @@ import farm.query.vgirpc.schema.Nullable;
  * stream. Mirrors {@code vgi.GlobalInitResponseWire} in vgi-go.
  *
  * <p>Component order is the wire field order of the {@code init} stream header,
- * and therefore part of the {@code vgi.v2} protocol hash: it must stay
+ * and therefore part of the {@code vgi.v3} protocol hash: it must stay
  * {@code execution_id, opaque_data, max_workers}, the reference's generated
  * schema order.
  *

@@ -23,9 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The {@code vgi.v2} surface is the reference's, method for method and schema for schema.
+ * The {@code vgi.v3} surface is the reference's, method for method and schema for schema.
  *
- * <p>The protocol is the unit of optionality: every SDK registers every {@code vgi.v2} method
+ * <p>The protocol is the unit of optionality: every SDK registers every {@code vgi.v3} method
  * with exactly the reference's params, result and header schemas, so
  * {@code vgi_rpc.Reflection.v1} reports one protocol hash everywhere. A method this SDK does not
  * implement is still registered, and answers {@code UNIMPLEMENTED}.
@@ -33,15 +33,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class VgiProtocolSurfaceTest {
 
     /**
-     * The canonical {@code vgi.v2} protocol hash of the reference (vgi-python 0.43.0, 72 methods).
+     * The canonical {@code vgi.v3} protocol hash of the reference (the combined contract, 85 methods).
      *
-     * <p>This changes only when {@code vgi.v2}'s protocol version (currently 2.2.0) changes. If
+     * <p>This changes only when {@code vgi.v3}'s protocol version (currently 3.0.0) changes. If
      * this test fails without such a change, a method or a params/result/header schema (field
      * name, order, nullability or type) has drifted from the reference: fix the drift, do not
      * update the constant.
      */
-    static final String REFERENCE_VGI_V2_HASH =
-            "41f61f37c7ce42f63f3ca47f8861508f3f356d2422a5b8a0bab48ff92c0857a8";
+    static final String REFERENCE_VGI_V3_HASH =
+            "50e9404173bee3262e96b8939eb5c425463336abca2a17916812d68b6e0f6cad";
 
     /** The reference methods this SDK registers but does not implement. */
     private static final Set<String> UNIMPLEMENTED = new TreeSet<>(List.of(
@@ -61,8 +61,8 @@ final class VgiProtocolSurfaceTest {
     }
 
     @Test
-    void vgiV2HashIsTheReference() {
-        assertEquals(REFERENCE_VGI_V2_HASH, worker().rpcServer().protocolHash());
+    void vgiV3HashIsTheReference() {
+        assertEquals(REFERENCE_VGI_V3_HASH, worker().rpcServer().protocolHash());
     }
 
     @Test

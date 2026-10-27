@@ -366,7 +366,7 @@ class WireRecordSchemaConformanceTest {
         m.put(ForeignKeyInfo.class, new Codec("ForeignKeyInfo", ORDERED));
         m.put(GlobalInitResponse.class, new Codec("GlobalInitResponse", BY_NAME));
         m.put(InitRequest.class, new Codec("InitRequest", BY_NAME));
-        // vgi.attach_tickets.v1 records: not part of vgi.v2, so VgiProtocolSchemas has no entry;
+        // vgi.attach_tickets.v1 records: not part of vgi.v3, so VgiProtocolSchemas has no entry;
         // compared against ATTACH_TICKET_SCHEMAS, transcribed from vgi-python's ARROW_SCHEMA.
         m.put(farm.query.vgi.protocol.SealAttachRequest.class, new Codec("SealAttachRequest", ORDERED));
         m.put(farm.query.vgi.protocol.AttachTicket.class, new Codec("AttachTicket", ORDERED));
@@ -658,7 +658,7 @@ class WireRecordSchemaConformanceTest {
      * The {@code vgi.attach_tickets.v1} record schemas, transcribed from vgi-python's
      * {@code vgi.attach_ticket.SealAttachRequest.ARROW_SCHEMA} / {@code AttachTicket.ARROW_SCHEMA}
      * ({@code docs/protocol/vgi-attach-tickets.md} §5.2). The generated
-     * {@link VgiProtocolSchemas} covers {@code vgi.v2} only.
+     * {@link VgiProtocolSchemas} covers {@code vgi.v3} only.
      */
     private static final Map<String, Schema> ATTACH_TICKET_SCHEMAS = Map.of(
             "SealAttachRequest", new Schema(List.of(

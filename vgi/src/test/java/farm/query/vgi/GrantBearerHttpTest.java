@@ -39,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The grant loop, closed end to end over HTTP: a freshly logged-in user mints a grant through
- * {@code issue_grant}, and a {@code vgi.v2} call presenting it as {@code Bearer <grant>} is
+ * {@code issue_grant}, and a {@code vgi.v3} call presenting it as {@code Bearer <grant>} is
  * authenticated as that user.
  */
 @Timeout(60)
@@ -63,7 +63,7 @@ final class GrantBearerHttpTest {
         return AuthContext.ANONYMOUS;
     };
 
-    /** Records who each vgi.v2 dispatch was authenticated as. */
+    /** Records who each vgi.v3 dispatch was authenticated as. */
     private static final class Who implements DispatchHook {
         final List<String> seen = new CopyOnWriteArrayList<>();
 
@@ -111,7 +111,7 @@ final class GrantBearerHttpTest {
             assertTrue(grant.token().startsWith("vgig1."), grant.token());
             try (HttpRpcConnection bot = HttpRpcConnection.builder(url).bearerToken(grant.token()).build()) {
                 bot.proxy(VgiService.class).catalog_catalogs(null);
-                assertEquals(List.of("alice|grant"), who.seen, "the vgi.v2 call is authenticated as the owner");
+                assertEquals(List.of("alice|grant"), who.seen, "the vgi.v3 call is authenticated as the owner");
                 RpcError e = assertThrows(RpcError.class, () -> issueGrant(bot, "child"));
                 assertEquals("stale_auth", e.errorKind(), "a grant cannot mint a grant");
             }

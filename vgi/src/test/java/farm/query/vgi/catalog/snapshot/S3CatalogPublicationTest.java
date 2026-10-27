@@ -12,7 +12,7 @@ class S3CatalogPublicationTest {
     }
     @Test void durableDiscoveryConditionalInvalidationAndRenewal() throws Exception {
         var store=new Store();var first=new S3CatalogPublicationRepository(store,"bucket","catalog","profile",600,3600);String url=first.upload(new byte[]{1,2,3},null).toString();var location=first.location(new ExternalRef(url,"a".repeat(64)));
-        var m=new CatalogPublicationManifest("key","manifest","vgi.v2","2.2",farm.query.vgi.VgiService.CATALOG_CONTRACT_HASH,"catalog-collections-1",1,"etag","a".repeat(64),3,3,url,location.object_id(),location.expires_at(),location.retain_until(),false,1,1);
+        var m=new CatalogPublicationManifest("key","manifest","vgi.v3","3.0",farm.query.vgi.VgiService.CATALOG_CONTRACT_HASH,"catalog-collections-1",1,"etag","a".repeat(64),3,3,url,location.object_id(),location.expires_at(),location.retain_until(),false,1,1);
         assertEquals(m,first.commitIfAbsent(m));var restarted=new S3CatalogPublicationRepository(store,"bucket","catalog","profile",600,3600);assertEquals(m,restarted.lookup("key"));
         var renewed=restarted.renew(m);assertNotEquals(m.url(),renewed.url());assertEquals(m.sha256(),renewed.sha256());assertEquals(renewed,first.lookup("key"));
         assertFalse(first.invalidate("key","wrong"));assertTrue(first.invalidate("key","manifest"));assertNull(restarted.lookup("key"));

@@ -17,4 +17,4 @@ The manager exposes startup warming, trusted manifest import, and conditional in
 
 Java: call `Worker.catalogSnapshot(policy)`. Use `policy.manager.warm`, `importPublication`, and `invalidate`. This implementation requires `farm.query:vgirpc:0.33.1`, including its collection row codec and idempotent IPC stream termination.
 
-Version 0.43.0 requires native clients and workers on wire 2.2.x; wire 2.1 is incompatible. The protocol route remains `vgi.v2`. CI and release builds resolve RPC 0.33.1 from Maven Central.
+The prepared protocol requires native clients and workers on wire 3.0.x under `vgi.v3`; published `vgi.v2` peers are incompatible. CI and release builds resolve RPC 0.33.1 from Maven Central.

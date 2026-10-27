@@ -237,7 +237,7 @@ pin, then release `:vgi`.
   `vgi/src/main/java/farm/query/vgi/VgiService.java` is emitted from
   vgi-python's `VgiProtocol` by `vgi.codegen.java_registry`
   (`uv run --project ../vgi-python python scripts/regen_generated.py`). It
-  declares every `vgi.v2` method with the reference's exact signature —
+  declares every `vgi.v3` method with the reference's exact signature —
   vgi-rpc-java derives the wire schemas from it, so it *is* the
   registration — each with a `default` body throwing
   `MethodNotImplementedError` (UNIMPLEMENTED). Every method takes a trailing

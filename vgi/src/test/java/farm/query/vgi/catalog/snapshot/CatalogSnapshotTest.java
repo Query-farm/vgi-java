@@ -30,6 +30,15 @@ class CatalogSnapshotTest {
             restarted.manager.warm(restarted,new SnapshotRequest(new byte[]{1},"sealed-b",1,null),build);assertEquals(2,objects.uploads.get());
         }
     }
+    @Test void publicationUsesV3AndRefusesPublishedV2Manifests() throws Exception {
+        try(var objects=new Objects()){
+            var repo=new MemoryCatalogPublicationRepository(objects.storage(),"test",new PublicationLocation(null,null,null,true));var p=policy(repo);var req=new SnapshotRequest(new byte[]{1},"v3",1,null);
+            p.manager.warm(p,req,CatalogSnapshotTest::response);var m=repo.lookup(CatalogSnapshotManager.key(p,req,p.identity.apply(req)));
+            assertEquals("vgi.v3",m.protocol_name());assertEquals("3.0",m.wire_revision());
+            var previous=new CatalogPublicationManifest(m.cache_key(),m.manifest_id(),"vgi.v2","2.2",m.contract_hash(),m.codec_revision(),m.catalog_version(),m.etag(),m.sha256(),m.raw_size(),m.stored_size(),m.url(),m.object_id(),m.expires_at(),m.retain_until(),m.stable(),m.format_version(),m.validator_revision());
+            assertThrows(IllegalArgumentException.class,()->p.manager.importPublication(p,req,previous));assertEquals(1,objects.gets.get());
+        }
+    }
     @Test void capsRejectBeforeUploadAndCorruptionIsNotCommitted() throws Exception {
         try(var objects=new Objects()){
             var repo=new MemoryCatalogPublicationRepository(objects.storage(),"test",new PublicationLocation(null,null,null,true));var policy=policy(repo);policy.maxRawBytes=1;var req=new SnapshotRequest(new byte[]{1},"a",1,null);

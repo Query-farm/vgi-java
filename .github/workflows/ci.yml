@@ -63,7 +63,7 @@ jobs:
           path: vgi/build/reports/tests/test
 
   # vgi-rpc's hosted-protocols group against the example worker on stdio, unix
-  # and HTTP: conformance.Secondary.v1 hosted beside vgi.v2 through
+  # and HTTP: conformance.Secondary.v1 hosted beside vgi.v3 through
   # Worker.hostedProtocols, the error model, the traceback policy, and over HTTP
   # the vgi_rpc.Identity.v2 conformance policy (--identity).
   #

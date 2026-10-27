@@ -19,7 +19,7 @@ VGI lets [Haybarn](https://github.com/Query-farm-haybarn/haybarn) — Query Farm
 
 Wire-compatible with the [Python reference implementation](https://github.com/Query-farm/vgi-python) and the [Go port](https://github.com/Query-farm/vgi-go): all three serve the same integration suite against the same C++ extension.
 
-Version 0.43.0 uses VGI wire 2.2.0 under `vgi.v2` and requires a native VGI client speaking wire 2.2.x. Upgrade clients and workers together; wire 2.1 clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+The prepared protocol uses VGI wire 3.0.0 under `vgi.v3` and requires a native VGI client speaking wire 3.0.x. Upgrade clients and workers together; published `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
 
 ## What you can serve
 
@@ -147,7 +147,7 @@ The `launch:` location scheme starts the worker once behind a flock-coordinated 
 
 For authenticated `iroh://` and HTTP-semantics `httpi://` deployments, see
 [Iroh workers and clients](docs/iroh.md). To serve other vgi-rpc protocols
-beside `vgi.v2`, or to answer token introspection for a reverse proxy, see
+beside `vgi.v3`, or to answer token introspection for a reverse proxy, see
 [Hosting extra protocols, and token introspection](docs/hosted-protocols.md).
 To let a runner reattach a user's catalog later with only that user's grant and
 a sealed ticket (`vgi.attach_tickets.v1`), see [Attach tickets](docs/attach-tickets.md).

@@ -5,12 +5,12 @@ package farm.query.vgi;
 import java.util.Objects;
 
 /**
- * One additional vgi-rpc application protocol a worker hosts beside {@code vgi.v2}: the
+ * One additional vgi-rpc application protocol a worker hosts beside {@code vgi.v3}: the
  * protocol's service interface and the object its calls are dispatched to.
  *
  * <p>Returned by the hook a worker installs with {@link Worker#hostedProtocols}. The interface
  * names the protocol with {@code @ProtocolName} (and optionally versions it with
- * {@code @ProtocolVersion}); its routing key must be distinct from {@code vgi.v2} and from every
+ * {@code @ProtocolVersion}); its routing key must be distinct from {@code vgi.v3} and from every
  * other hosted protocol, and may not use the reserved {@code vgi_rpc.} prefix.
  *
  * @param protocol the protocol's service interface

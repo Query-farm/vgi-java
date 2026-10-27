@@ -1,6 +1,6 @@
 # Hosting extra protocols, and token introspection
 
-A VGI worker speaks `vgi.v2`, the protocol the DuckDB/Haybarn extension calls.
+A VGI worker speaks `vgi.v3`, the protocol the DuckDB/Haybarn extension calls.
 It can also serve other [vgi-rpc](https://github.com/Query-farm/vgi-rpc-java)
 protocols from the same process, on the same listener, and it can answer
 `vgi_rpc.Identity.v2` so a reverse proxy can resolve credentials.
@@ -25,7 +25,7 @@ worker.runFromArgs(args);
 
 - **Every transport.** The hook's result is hosted on stdin/stdout, AF_UNIX,
   TCP, the Iroh raw upstream and HTTP. Reflection's `list_protocols` reports
-  `vgi.v2` first, then these, in the order returned.
+  `vgi.v3` first, then these, in the order returned.
 - **Called once per server.** Each `run*` entry point (and `rpcServer()`)
   builds one server and calls the hook once while doing so. The hook may read
   configuration or the environment, but what it returns is fixed for the life
@@ -34,12 +34,12 @@ worker.runFromArgs(args);
   protocol's methods. If a capability is optional, make it its own protocol and
   return it or not.
 - **Names.** Each protocol needs its own `@ProtocolName`. A name may not
-  repeat, may not be `vgi.v2`, and may not use the reserved `vgi_rpc.` prefix.
+  repeat, may not be `vgi.v3`, and may not use the reserved `vgi_rpc.` prefix.
   Reflection is always hosted, and Identity is turned on by the hooks below.
   Any violation stops the worker at startup with an error that names
   `Worker.hostedProtocols`.
-- **`vgi.v2` is unaffected.** Requests are routed on their `vgi_rpc.protocol`
-  key with no fallback to the primary. A client that only names `vgi.v2` (the
+- **`vgi.v3` is unaffected.** Requests are routed on their `vgi_rpc.protocol`
+  key with no fallback to the primary. A client that only names `vgi.v3` (the
   extension) dispatches exactly as it would against a single-protocol worker.
 
 Errors from an extra protocol use vgi-rpc's error model. To pick the code, the

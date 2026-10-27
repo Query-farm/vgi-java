@@ -3,6 +3,7 @@ package farm.query.vgi.catalog.snapshot;
 import com.google.gson.Gson;
 import farm.query.vgi.CatalogContents;
 import farm.query.vgi.MetadataCollections;
+import farm.query.vgi.VgiService;
 import farm.query.vgi.protocol.*;
 import farm.query.vgirpc.external.*;
 import farm.query.vgirpc.marshal.Marshalling;
@@ -23,7 +24,7 @@ import java.util.function.Supplier;
 /** Builds, publishes and validates once; warm calls retain only a small descriptor. */
 public final class CatalogSnapshotManager {
     public record Delivery(CatalogContentsResponse response, ExternalRef reference) {}
-    private static final String WIRE="2.2", CODEC="catalog-collections-1";
+    private static final String WIRE=VgiService.PROTOCOL_VERSION.substring(0,VgiService.PROTOCOL_VERSION.lastIndexOf('.')), CODEC="catalog-collections-1";
     private static final Gson JSON=new Gson();
     private static final Schema OUTER=new Schema(List.of(new Field("result",FieldType.notNullable(ArrowType.Binary.INSTANCE),List.of())));
     private final Map<String,CatalogPublicationManifest> validated=new java.util.concurrent.ConcurrentHashMap<>();
@@ -108,7 +109,7 @@ public final class CatalogSnapshotManager {
                 reference=Externalizer.publishExternal(envelope.root(),bounded,p.external.compression(),true);
             }
             PublicationLocation location=p.repository.location(reference);
-            manifest=new CatalogPublicationManifest(key,UUID.randomUUID().toString().replace("-",""),"vgi.v2",WIRE,contractHash(),CODEC,id.catalog_version(),response.etag(),reference.sha256(),sizes[0],sizes[1],reference.url(),location.object_id(),location.expires_at(),location.retain_until(),location.stable(),1,1);
+            manifest=new CatalogPublicationManifest(key,UUID.randomUUID().toString().replace("-",""),VgiService.PROTOCOL_NAME,WIRE,contractHash(),CODEC,id.catalog_version(),response.etag(),reference.sha256(),sizes[0],sizes[1],reference.url(),location.object_id(),location.expires_at(),location.retain_until(),location.stable(),1,1);
             CatalogContentsResponse readback=read(p,key,id,manifest);
             if(!same(response,readback)) throw new IllegalStateException("published catalog differs from collected snapshot");
             if(!id.equals(p.identity.apply(request))) continue;
@@ -138,7 +139,7 @@ public final class CatalogSnapshotManager {
     private synchronized void remember(CatalogSnapshotPolicy p,String key,CatalogPublicationManifest value) { if(validated.size()>=Math.max(1,p.maxCachedManifests)) validated.clear();validated.put(key,value); }
 
     private CatalogContentsResponse read(CatalogSnapshotPolicy p,String key,SnapshotIdentity id,CatalogPublicationManifest m) throws Exception {
-        if(!m.cache_key().equals(key)||m.catalog_version()!=id.catalog_version()||!m.protocol_name().equals("vgi.v2")||!m.wire_revision().equals(WIRE)||!m.contract_hash().equals(contractHash())||!m.codec_revision().equals(CODEC)||m.format_version()!=1||m.validator_revision()!=1||(m.sha256()==null||m.sha256().length()!=64)||m.raw_size()<=0||m.raw_size()>p.maxRawBytes||m.stored_size()<=0||m.stored_size()>p.maxStoredBytes||!usable(m,p.expiryMarginSeconds)) throw new IllegalArgumentException("invalid or expired catalog publication manifest");
+        if(!m.cache_key().equals(key)||m.catalog_version()!=id.catalog_version()||!m.protocol_name().equals(VgiService.PROTOCOL_NAME)||!m.wire_revision().equals(WIRE)||!m.contract_hash().equals(contractHash())||!m.codec_revision().equals(CODEC)||m.format_version()!=1||m.validator_revision()!=1||(m.sha256()==null||m.sha256().length()!=64)||m.raw_size()<=0||m.raw_size()>p.maxRawBytes||m.stored_size()<=0||m.stored_size()>p.maxStoredBytes||!usable(m,p.expiryMarginSeconds)) throw new IllegalArgumentException("invalid or expired catalog publication manifest");
         ExternalLocationConfig config=ExternalLocationConfig.builder().maxFetchBytes(Math.min(p.external.maxFetchBytes(),p.maxStoredBytes)).maxDecompressedBytes(Math.min(p.external.maxDecompressedBytes(),p.maxRawBytes)).urlValidator(p.external.urlValidator()).maxRetries(p.external.maxRetries()).httpTimeout(p.external.httpTimeout()).build();
         byte[] bytes=new ExternalFetcher(config).fetch(URI.create(m.url()),m.sha256());
         if(bytes.length!=m.raw_size()) throw new IllegalArgumentException("catalog publication size mismatch");
@@ -167,7 +168,7 @@ public final class CatalogSnapshotManager {
     private static String contractHash() { return farm.query.vgi.VgiService.CATALOG_CONTRACT_HASH; }
     static String key(CatalogSnapshotPolicy p,SnapshotRequest r,SnapshotIdentity id) {
         if(id.catalog_namespace()==null||id.catalog_namespace().isEmpty()||id.source_revision()==null||id.source_revision().isEmpty()||id.catalog_version()!=r.catalog_version()) throw new IllegalArgumentException("publication needs namespace, stable revision and matching catalog version");
-        return hash(JSON.toJson(List.of("vgi.v2",WIRE,contractHash(),CODEC,id.catalog_namespace(),id.source_revision(),id.visibility_scope()==null?r.attachment_scope():id.visibility_scope(),id.catalog_version(),p.repository.profile(),String.valueOf(p.external.compression()))).getBytes(StandardCharsets.UTF_8));
+        return hash(JSON.toJson(List.of(VgiService.PROTOCOL_NAME,WIRE,contractHash(),CODEC,id.catalog_namespace(),id.source_revision(),id.visibility_scope()==null?r.attachment_scope():id.visibility_scope(),id.catalog_version(),p.repository.profile(),String.valueOf(p.external.compression()))).getBytes(StandardCharsets.UTF_8));
     }
     private static byte[][] streams(CatalogContentsResponse r) { return new byte[][]{r.schemas(),r.tables(),r.views(),r.functions(),r.macros(),r.indexes()}; }
     public static String digest(CatalogContentsResponse r) {

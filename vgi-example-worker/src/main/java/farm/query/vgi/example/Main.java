@@ -401,9 +401,9 @@ public final class Main {
         }
         registerViews(w);
         registerCatalogTables(w);
-        // conformance.Secondary.v1, hosted beside vgi.v2 on every transport through the hosting
-        // hook -- additive: vgi.v2 requests route exactly as before. Checked by vgi-rpc's
-        // hosted-protocols group (`vgi-rpc-test-hosted --expect vgi.v2,conformance.Secondary.v1`).
+        // conformance.Secondary.v1, hosted beside vgi.v3 on every transport through the hosting
+        // hook -- additive: vgi.v3 requests route exactly as before. Checked by vgi-rpc's
+        // hosted-protocols group (`vgi-rpc-test-hosted --expect vgi.v3,conformance.Secondary.v1`).
         w.hostedProtocols(() -> List.of(farm.query.vgi.HostedProtocol.of(
                 farm.query.vgi.example.conformance.Secondary.class,
                 new farm.query.vgi.example.conformance.SecondaryImpl())));

@@ -6,7 +6,7 @@ import farm.query.vgirpc.schema.ProtocolName;
 
 /**
  * {@code conformance.Secondary.v1} -- the vgi-rpc fixture protocol every SDK fixture worker hosts
- * beside {@code vgi.v2}, through {@code Worker.hostedProtocols}. Copied from the port's
+ * beside {@code vgi.v3}, through {@code Worker.hostedProtocols}. Copied from the port's
  * conformance module (MULTI_PROTOCOL_HOSTING.md §7 allows either), so the example worker does not
  * depend on an unpublished artifact.
  *
@@ -18,7 +18,7 @@ import farm.query.vgirpc.schema.ProtocolName;
  *       the vgi-rpc conformance service's {@code echo_string}; its reply is prefixed, so a mis-route is a wrong
  *       value rather than a coincidentally right one.</li>
  *   <li><b>A per-binding version gate.</b> No {@code @ProtocolVersion} on purpose, while the
- *       primary ({@code vgi.v2}) declares one: a server that gates every call against the primary's
+ *       primary ({@code vgi.v3}) declares one: a server that gates every call against the primary's
  *       version refuses this protocol's calls.</li>
  *   <li><b>The error model.</b> {@code fail} raises whatever code and kind the caller names, with
  *       fixed details; {@code fail_oversized} raises details over the 4 KiB cap.</li>

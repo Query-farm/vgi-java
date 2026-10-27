@@ -57,7 +57,7 @@ public final class Worker {
      *  advertises the RPC by default (see {@link #supportsCatalogContents(boolean)}).
      *
      *  <p>The value is {@link VgiService#PROTOCOL_VERSION}, generated from the
-     *  reference with the rest of the {@code vgi.v2} registry, so a worker and
+     *  reference with the rest of the {@code vgi.v3} registry, so a worker and
      *  the interface its clients use cannot disagree.</p> */
     public static final String VGI_PROTOCOL_VERSION = VgiService.PROTOCOL_VERSION;
 
@@ -78,7 +78,7 @@ public final class Worker {
      *  opaque data. {@code null} ⇒ per-process random (single-replica only).
      *  See {@link #opaqueDataKey(byte[])}. */
     private byte[] opaqueDataKey;
-    /** Supplies the protocols hosted beside {@code vgi.v2}; see {@link #hostedProtocols}. */
+    /** Supplies the protocols hosted beside {@code vgi.v3}; see {@link #hostedProtocols}. */
     private java.util.function.Supplier<? extends java.util.Collection<HostedProtocol>> hostedProtocolsHook;
     /** {@code vgi_rpc.Identity.v2} hooks; absent unless set. See {@link #resolveToken}. */
     private farm.query.vgirpc.identity.TokenResolveHook resolveTokenHook;
@@ -329,13 +329,13 @@ public final class Worker {
     public String dataVersionSpec() { return dataVersionSpec; }
 
     /**
-     * Install the hook that returns additional vgi-rpc protocols to host beside {@code vgi.v2}.
+     * Install the hook that returns additional vgi-rpc protocols to host beside {@code vgi.v3}.
      *
      * <p>Use it to serve other protocols from the same process as the VGI protocol, on the
      * <strong>same</strong> listener whatever the transport. The hook's result is hosted on every
      * transport this worker serves -- stdin/stdout, AF_UNIX, TCP, the Iroh raw upstream and HTTP --
-     * after {@code vgi.v2} and in the order returned, so reflection's {@code list_protocols}
-     * reports {@code vgi.v2} first and then these.
+     * after {@code vgi.v3} and in the order returned, so reflection's {@code list_protocols}
+     * reports {@code vgi.v3} first and then these.
      *
      * <p>The hook is called <strong>once</strong>, when a transport's server is built. It may
      * consult configuration or the environment, but its answer is fixed for the life of that
@@ -345,11 +345,11 @@ public final class Worker {
      * methods. A capability that is optional should be its own protocol, returned here or not.
      *
      * <p>Each protocol needs a distinct wire name ({@code @ProtocolName}). Names may not repeat,
-     * may not be {@code vgi.v2}, and may not use the reserved {@code vgi_rpc.} prefix: reflection
+     * may not be {@code vgi.v3}, and may not use the reserved {@code vgi_rpc.} prefix: reflection
      * is hosted automatically, and {@code vgi_rpc.Identity.v2} is enabled by
      * {@link #resolveToken} / {@link #mintGrant}. A violation is a startup error naming this hook.
      * Requests are routed on their {@code vgi_rpc.protocol} key, so hosting more protocols never
-     * changes how a {@code vgi.v2} request is dispatched.
+     * changes how a {@code vgi.v3} request is dispatched.
      *
      * @param hook returns the pairs to host; {@code null} hosts none
      * @return this worker
@@ -1693,7 +1693,7 @@ public final class Worker {
      *
      * <p>What a server hosts, in reflection order:
      * <ol>
-     *   <li>{@code vgi.v2};</li>
+     *   <li>{@code vgi.v3};</li>
      *   <li>the {@link #hostedProtocols} hook's result, in the order returned -- on
      *       <strong>every</strong> transport;</li>
      *   <li>{@code vgi.attach_tickets.v1} -- HTTP only, and only when a signing key is configured

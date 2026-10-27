@@ -32,7 +32,7 @@ final class HostedProtocolsTest {
         String ping();
     }
 
-    @ProtocolName("vgi.v2")
+    @ProtocolName("vgi.v3")
     public interface Impostor {
         String ping();
     }
@@ -56,7 +56,7 @@ final class HostedProtocolsTest {
             RpcServer server = w.buildServer(t);
             List<String> names = server.applicationProtocols().stream()
                     .map(RpcServer.ApplicationProtocol::name).toList();
-            assertEquals(List.of("vgi.v2", "demo.Extra.v1"), names, t.name());
+            assertEquals(List.of("vgi.v3", "demo.Extra.v1"), names, t.name());
         }
         assertEquals(Worker.Transport.values().length, calls.get());
     }

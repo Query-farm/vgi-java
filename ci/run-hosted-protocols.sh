@@ -3,7 +3,7 @@
 #
 # Run vgi-rpc's hosted-protocols conformance group against the example worker on
 # stdio, AF_UNIX and HTTP (with --identity). The group checks that the worker
-# hosts `conformance.Secondary.v1` beside `vgi.v2` through Worker.hostedProtocols,
+# hosts `conformance.Secondary.v1` beside `vgi.v3` through Worker.hostedProtocols,
 # the vgi-rpc error model, the traceback policy, and -- over HTTP -- the
 # vgi_rpc.Identity.v2 conformance policy.
 #
@@ -15,7 +15,7 @@ set -euo pipefail
 
 : "${VGI_WORKER_BIN:?path to the example worker launcher}"
 read -r -a HOSTED <<<"${HOSTED:-vgi-rpc-test-hosted}"
-EXPECT="vgi.v2,conformance.Secondary.v1"
+EXPECT="vgi.v3,conformance.Secondary.v1"
 PIDS=()
 cleanup() { for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT

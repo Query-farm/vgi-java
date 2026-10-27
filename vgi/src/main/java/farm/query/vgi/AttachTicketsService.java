@@ -12,7 +12,7 @@ import farm.query.vgirpc.schema.ProtocolVersion;
  * {@code vgi.attach_tickets.v1}: sealing a user's ATTACH so a runner holding their grant can
  * replay it later ({@code docs/protocol/vgi-attach-tickets.md}).
  *
- * <p>The framework hosts it beside {@code vgi.v2}, on HTTP only, and only when the worker's
+ * <p>The framework hosts it beside {@code vgi.v3}, on HTTP only, and only when the worker's
  * signing key is configured explicitly and the worker can issue grants; see
  * {@link Worker#signingKey(byte[])}. Absent otherwise, so a client learns the answer from
  * reflection.

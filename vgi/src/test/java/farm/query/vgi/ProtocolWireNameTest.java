@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The VGI protocol's wire name, pinned.
  *
- * <p>{@code vgi.v2} is a cross-port contract, not a local choice: the DuckDB C++ extension emits
+ * <p>{@code vgi.v3} is a cross-port contract, not a local choice: the DuckDB C++ extension emits
  * it from a generated header, and every implementation must answer to the same string or a client
  * cannot address them all. Nothing else in this repo's suite would notice it changing —
  * a worker that renamed itself passes every functional test it has, because its own client
@@ -32,8 +32,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class ProtocolWireNameTest {
 
     @Test
-    void theWireNameIsVgiV2() {
-        assertEquals("vgi.v2", VgiService.PROTOCOL_NAME);
+    void theWireNameIsVgiV3() {
+        assertEquals("vgi.v3", VgiService.PROTOCOL_NAME);
+        assertEquals("3.0.0", VgiService.PROTOCOL_VERSION);
     }
 
     @Test
@@ -48,7 +49,7 @@ final class ProtocolWireNameTest {
         // Through the object that actually answers requests: the name the server advertises and
         // routes on is what a client reaches, and it is resolved once at construction.
         RpcServer server = Worker.builder().catalogName("wire_name_probe").rpcServer();
-        assertEquals("vgi.v2", server.protocolName());
+        assertEquals("vgi.v3", server.protocolName());
     }
 
     /**
