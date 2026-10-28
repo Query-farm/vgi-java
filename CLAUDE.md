@@ -188,8 +188,8 @@ change to `~/Development/vgi-rpc-java/` doesn't show up, run
 ## Releasing (Maven Central)
 
 Published: **`farm.query:vgi`** (this repo) and **`farm.query:vgirpc`** /
-`vgirpc-oauth` (the sibling). Latest as of 2026-10-23: **vgi 0.44.0 → vgirpc
-0.33.1**. To cut a release: bump `version` in `build.gradle.kts`, push, then
+`vgirpc-oauth` (the sibling). The VGI 3 release uses **vgi 0.45.0 → vgirpc
+0.33.2**. To cut a release: bump `version` in `build.gradle.kts`, push, then
 create a GitHub Release whose tag is the version (`v0.2.0` for `0.2.0`). The
 `release.yml` workflow (trigger: `release: published`) verifies tag == version,
 runs tests, and publishes. Both repos now set
@@ -197,9 +197,9 @@ runs tests, and publishes. Both repos now set
 Maven Central with no manual Portal click** once it passes validation (changed
 2026-06-13 — was `false`/click-gated through vgi 0.1.0 + vgirpc 0.10.1).
 
-**VGI 3 preparation (2026-10-27):** this branch now pins the prepared RPC
-`0.33.2` candidate for scalar dictionary-field annotations. It is not published
-yet. Keep the dependency pin unmerged until RPC 0.33.2 is on Maven Central;
+**VGI 3 release (2026-10-28):** RPC `0.33.2` supplies the scalar dictionary-field
+annotations required by the successor catalog records. Release qualification must
+resolve the published Maven artifacts with the composite source override disabled;
 qualification against an isolated local Maven artifact is not publication proof.
 
 **The cross-repo ordering trap.** The `release.yml` build resolves

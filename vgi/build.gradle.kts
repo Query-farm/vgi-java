@@ -5,7 +5,7 @@ plugins {
 
 dependencies {
     // farm.query is the published group (see ../build.gradle.kts allprojects).
-    // Prepared dependency; publish RPC 0.33.2 before merging this pin (see docs/catalog_publication.md).
+    // RPC 0.33.2 preserves declared scalar dictionary fields in catalog records.
     api("farm.query:vgirpc:0.33.2")
     implementation("org.slf4j:slf4j-api:2.0.17")
     // Cross-process aggregate state store. DuckDB spawns multiple worker

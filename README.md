@@ -19,7 +19,7 @@ VGI lets [Haybarn](https://github.com/Query-farm-haybarn/haybarn) — Query Farm
 
 Wire-compatible with the [Python reference implementation](https://github.com/Query-farm/vgi-python) and the [Go port](https://github.com/Query-farm/vgi-go): all three serve the same integration suite against the same C++ extension.
 
-The prepared protocol uses VGI wire 3.0.0 under `vgi.v3` and requires a native VGI client speaking wire 3.0.x. Upgrade clients and workers together; published `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+Version 0.45.0 uses VGI wire 3.0.0 under `vgi.v3` and requires a native VGI client speaking wire 3.0.x. Upgrade clients and workers together; `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
 
 ## What you can serve
 
@@ -45,7 +45,7 @@ Artifacts are published to Maven Central under the `farm.query` group.
 
 ```kotlin
 dependencies {
-    implementation("farm.query:vgi:0.44.0")
+    implementation("farm.query:vgi:0.45.0")
 }
 ```
 
@@ -55,7 +55,7 @@ dependencies {
 <dependency>
   <groupId>farm.query</groupId>
   <artifactId>vgi</artifactId>
-  <version>0.44.0</version>
+  <version>0.45.0</version>
 </dependency>
 ```
 
