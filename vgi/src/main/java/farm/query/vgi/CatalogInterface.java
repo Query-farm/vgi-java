@@ -257,11 +257,12 @@ public interface CatalogInterface {
     /**
      * {@code CREATE VIEW}. Default: read-only.
      *
-     * @param attachId   the attach id
+     * @param attach     the attach id
      * @param path       the schema path
      * @param name       the view name
      * @param definition the view's SQL
-     * @param onConflict what to do when it exists
+     * @param conflict   what to do when it exists
+     * @param aliases    optional view column aliases
      */
     default void viewCreate(byte[] attach, List<String> path, String name, String definition, OnConflict conflict, List<String> aliases) {
         viewCreate(attach, path, name, definition, conflict, aliases, null, null, null);
