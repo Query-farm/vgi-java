@@ -451,6 +451,9 @@ fi
 if [ "$TRANSPORT" = "launch" ]; then
   echo "Running the buffering crash files (subprocess transport, private worker) ..."
   ( export VGI_TEST_WORKER="$VGI_WORKER_BIN" VGI_TEST_DEDICATED_WORKER="$VGI_WORKER_BIN"
+    # Also exercise function-to-catalog pool ownership on a private process;
+    # the main launch/shm suite uses socket sessions instead of this pool.
+    run_unittest "test/sql/integration/table_in_out/shm_pool_metadata.test"
     run_unittest "test/sql/integration/table_in_out/table_buffering_worker_crash.test"
     run_unittest "test/sql/integration/table_in_out/table_buffering_pool_recovery.test" )
 fi
