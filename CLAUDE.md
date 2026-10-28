@@ -197,6 +197,11 @@ runs tests, and publishes. Both repos now set
 Maven Central with no manual Portal click** once it passes validation (changed
 2026-06-13 — was `false`/click-gated through vgi 0.1.0 + vgirpc 0.10.1).
 
+**VGI 3 preparation (2026-10-27):** this branch now pins the prepared RPC
+`0.33.2` candidate for scalar dictionary-field annotations. It is not published
+yet. Keep the dependency pin unmerged until RPC 0.33.2 is on Maven Central;
+qualification against an isolated local Maven artifact is not publication proof.
+
 **The cross-repo ordering trap.** The `release.yml` build resolves
 `farm.query:vgirpc` from **Maven Central** (the composite is absent on CI —
 `VGI_RPC_JAVA_DIR` unset), *not* from source. So **`:vgi` cannot release until
