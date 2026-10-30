@@ -70,10 +70,45 @@ public final class TableInfoSerializer {
      * @return IPC stream bytes matching {@code TableInfoSchema}
      */
     public static byte[] serialize(TableInfo info) {
-        if (info.columns() != null && info.columns().length != 0) ColumnMetadata.validateIpc(info.columns());
-        if (info.columns() != null && info.columns().length > 0) ColumnExpressions.validateIpc(info.columns(), info.schema_path(), true);
+        return serialize(info, null);
+    }
+
+    /**
+     * Serialise {@code info} as it must be served: constraint rules checked (foreign-key
+     * targets through {@code lookup}), Arrow nullability rewritten to match the records, and
+     * legacy generated-column metadata translated.
+     *
+     * @param info   the table descriptor to encode
+     * @param lookup the catalog's other tables, or null to skip cross-table checks
+     * @return IPC stream bytes matching {@code TableInfoSchema}
+     */
+    public static byte[] serialize(TableInfo info, ConstraintContract.TableLookup lookup) {
+        return encode(served(info, lookup));
+    }
+
+    /**
+     * The table as the extension must see it: legacy generated-column metadata translated,
+     * column metadata and the constraint rules checked, nullability rewritten.
+     *
+     * @param info   the table descriptor
+     * @param lookup the catalog's other tables, or null to skip cross-table checks
+     * @return the served descriptor
+     */
+    public static TableInfo served(TableInfo info, ConstraintContract.TableLookup lookup) {
+        if (info.columns() != null && info.columns().length != 0) {
+            info = ColumnExpressions.translateLegacy(info);
+            ColumnMetadata.validateIpc(info.columns());
+        }
         // The extension rejects the whole ATTACH on a violation; fail here, naming the table.
-        ConstraintContract.validate(info);
+        info = ConstraintContract.serve(info, lookup);
+        // After the nullability rewrite: a generated column a NOT_NULL record names is refused.
+        if (info.columns() != null && info.columns().length != 0)
+            ColumnExpressions.validateIpc(info.columns(), info.schema_path(), true);
+        return info;
+    }
+
+    /** Encodes {@code info} as given, without the serve-time rules: wire round-trip tests only. */
+    static byte[] encode(TableInfo info) {
         return IpcStructBuilder.build(SCHEMA, v -> {
             writeVarChar(v.get("comment"), info.comment());
             writeMap(v.get("tags"), info.tags());

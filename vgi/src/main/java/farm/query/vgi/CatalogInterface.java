@@ -119,6 +119,25 @@ public interface CatalogInterface {
     }
 
     /**
+     * This catalog's own capability advertisement and selection for an attach: build it with
+     * {@link CatalogProfiles#negotiate}. The framework merges in {@link #catalogReadProfiles},
+     * and gates the DDL it forwards on the selection: {@code CREATE TABLE} with constraint
+     * definitions reaches {@link #tableCreate} only when {@link CatalogProfiles#CONSTRAINT_CREATE},
+     * {@link CatalogProfiles#CONSTRAINT_ENFORCE} and {@link CatalogProfiles#CONSTRAINT_RECORDS_READ}
+     * were selected (DuckDB sends none otherwise). A catalog that selects them enforces every
+     * record it then serves, on every write path.
+     *
+     * <p>Default: no decision of its own.
+     *
+     * @param attachId the attach id
+     * @param request  the attach request (its {@code client_capabilities} is the client's offer)
+     * @return the decision; either side may be null
+     */
+    default Worker.CatalogCapabilitySelection catalogCapabilities(byte[] attachId, CatalogAttachRequest request) {
+        return new Worker.CatalogCapabilitySelection(null, null);
+    }
+
+    /**
      * Release an attach. Default: nothing to release.
      *
      * @param attachId the attach id
@@ -177,7 +196,8 @@ public interface CatalogInterface {
     default List<ViewInfo> views(byte[] attachId, List<String> path) { return List.of(); }
 
     /**
-     * The macros of a schema of one type. Default: none.
+     * The macros of a schema of one type. Default: none. Build each family from a simple
+     * descriptor with {@link MacroInfo#of(farm.query.vgi.catalog.Macro)}.
      *
      * @param attachId the attach id
      * @param path     the schema path
@@ -280,7 +300,27 @@ public interface CatalogInterface {
     }
 
     /**
-     * {@code CREATE VIEW}. Default: read-only.
+     * {@code CREATE VIEW}, as vgi 0.44 declared it. Default: read-only.
+     *
+     * @param attachId   the attach id
+     * @param path       the schema path
+     * @param name       the view name
+     * @param definition the view's SQL
+     * @param onConflict what to do when it exists
+     * @deprecated override {@link #viewCreate(byte[], List, String, String, OnConflict, List)}
+     *             (column aliases) or the full form (comment, tags, column comments); an
+     *             override of this one is still reached for a view that uses none of them.
+     */
+    @Deprecated
+    default void viewCreate(byte[] attachId, List<String> path, String name, String definition,
+                            OnConflict onConflict) {
+        throw readOnly("catalog_view_create");
+    }
+
+    /**
+     * {@code CREATE VIEW} with optional column aliases. Default: the 5-argument form when there
+     * are no aliases; with aliases, refused as read-only (or, when only the 5-argument form is
+     * overridden, as unsupported, rather than dropping them).
      *
      * @param attach     the attach id
      * @param path       the schema path
@@ -289,13 +329,48 @@ public interface CatalogInterface {
      * @param conflict   what to do when it exists
      * @param aliases    optional view column aliases
      */
-    default void viewCreate(byte[] attach, List<String> path, String name, String definition, OnConflict conflict, List<String> aliases) {
-        viewCreate(attach, path, name, definition, conflict, aliases, null, null, null);
+    @SuppressWarnings("deprecation")
+    default void viewCreate(byte[] attach, List<String> path, String name, String definition, OnConflict conflict,
+                            List<String> aliases) {
+        if (aliases == null || aliases.isEmpty()) {
+            viewCreate(attach, path, name, definition, conflict);
+            return;
+        }
+        if (overrides("viewCreate", byte[].class, List.class, String.class, String.class, OnConflict.class)) {
+            throw new UnsupportedOperationException("catalog " + name() + " does not support view column aliases:"
+                    + " override viewCreate(attachId, path, name, definition, onConflict, aliases)");
+        }
+        throw readOnly("catalog_view_create");
     }
 
+    /**
+     * {@code CREATE VIEW} with every option; the framework calls this one. Default: the
+     * 6-argument form when there is no comment, tag or column comment; otherwise refused as
+     * read-only (or, when a shorter form is overridden, as unsupported, rather than dropping them).
+     *
+     * @param attachId       the attach id
+     * @param path           the schema path
+     * @param name           the view name
+     * @param definition     the view's SQL
+     * @param onConflict     what to do when it exists
+     * @param aliases        optional view column aliases
+     * @param comment        the view comment, or {@code null}
+     * @param tags           view tags, or {@code null}
+     * @param columnComments per-output-column comments, or {@code null}
+     */
     default void viewCreate(byte[] attachId, List<String> path, String name, String definition,
                             OnConflict onConflict, List<String> aliases, String comment,
                             Map<String, String> tags, Map<String, String> columnComments) {
+        if (comment == null && (tags == null || tags.isEmpty()) && (columnComments == null || columnComments.isEmpty())) {
+            viewCreate(attachId, path, name, definition, onConflict, aliases == null ? List.of() : aliases);
+            return;
+        }
+        if (overrides("viewCreate", byte[].class, List.class, String.class, String.class, OnConflict.class, List.class)
+                || overrides("viewCreate", byte[].class, List.class, String.class, String.class, OnConflict.class)) {
+            throw new UnsupportedOperationException("catalog " + name() + " does not support view comments or tags:"
+                    + " override viewCreate(attachId, path, name, definition, onConflict, aliases, comment, tags,"
+                    + " columnComments)");
+        }
         throw readOnly("catalog_view_create");
     }
 
@@ -354,6 +429,15 @@ public interface CatalogInterface {
     private UnsupportedOperationException readOnly(String method) {
         return new ReadOnlyCatalogException(
                 "catalog " + name() + " is read-only: " + method + " not supported");
+    }
+
+    /** Whether this catalog's class overrides the named default method. */
+    private boolean overrides(String method, Class<?>... parameters) {
+        try {
+            return getClass().getMethod(method, parameters).getDeclaringClass() != CatalogInterface.class;
+        } catch (NoSuchMethodException e) {
+            return false;
+        }
     }
 
     /**

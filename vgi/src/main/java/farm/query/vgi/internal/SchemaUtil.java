@@ -101,7 +101,12 @@ public final class SchemaUtil {
         }
     }
 
-    /** Reject column semantics that an unconstrained mutable catalog cannot enforce. */
+    /**
+     * Reject column semantics a catalog that stores no constraint records cannot honour:
+     * logical-type (extension) columns and non-nullable columns.
+     *
+     * @param bytes the {@code CREATE TABLE} columns schema
+     */
     public static void requireUnconstrainedColumns(byte[] bytes) {
         Schema schema = deserializeSchema(bytes);
         if (schema == null) throw new IllegalArgumentException("catalog_table_create: missing columns schema");
@@ -113,9 +118,9 @@ public final class SchemaUtil {
         if (topLevel && metadata != null && metadata.containsKey("is_row_id")) return;
         if (field.getType() instanceof ArrowType.ExtensionType || (metadata != null && metadata.keySet().stream()
                 .anyMatch(key -> key.startsWith("ARROW:extension:") || key.startsWith("vgi.logical_type."))))
-            throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create: logical column semantics are not supported");
+            throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create: column " + field.getName() + " has a logical/extension type, which this catalog does not support");
         if (!field.isNullable())
-            throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create: nonnullable columns require canonical constraints");
+            throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create: column " + field.getName() + " is NOT NULL, which this catalog cannot enforce");
         if (field.getType() instanceof ArrowType.Struct)
             for (Field child : field.getChildren()) requireUnconstrainedField(child, false);
     }

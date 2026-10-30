@@ -23,3 +23,17 @@ RPC 0.33.2 includes the scalar `DICT_INT16_UTF8` record fix required by macro an
 constraint metadata. Release qualification disables the composite source override
 and resolves that published dependency from Maven Central. No local repository
 fallback is part of the SDK build.
+
+## Constraints, nullability, generated columns and macros (vgi.v3)
+
+Constraints are canonical `ConstraintInfo` records the worker attests: build them with `ConstraintRecord.builder(schema, table, id)` (`notNull`, `primaryKey`, `unique`, `check`, `foreignKey`), state `ENFORCED` + `ALL_ROWS`, and attach them with `CatalogTable.Builder#constraints(records, revision)`. The pre-v3 `primaryKey`/`unique`/`check`/`foreignKeys` builders are `@Deprecated` and refused when the table is served. Every catalog path (main, auxiliary, hosted) advertises `vgi.constraint.records.read.v1` + `vgi.expression.duckdb.scalar.v1` and selects what the client offers automatically.
+
+Before serving a table the framework applies the rules DuckDB applies at ATTACH and refuses, naming the table, constraint id and column path: records owned by another table or a multi-component schema path, duplicate ids or declared names (case-insensitive), a second PRIMARY KEY, column paths that do not resolve (nested paths only on NOT_NULL, through ordinary STRUCTs), foreign keys to another schema, with an action other than NO_ACTION/RESTRICT or whose referenced key the catalog does not declare, and CHECK expressions outside the one-numeric-comparison grammar (`budget >= 0`: unqualified signed-integer/float columns and numeric literals).
+
+Nullability needs no author work: the served Arrow schema is rewritten so a field is non-nullable exactly when a NOT_NULL/PRIMARY_KEY record names it (descending through ordinary STRUCTs; the row-id column and logical-type storage are untouched). A non-nullable field no record names is served nullable.
+
+Generated columns: `CatalogColumns.virtualGenerated(name, type, sql, schemaPath)` builds a VIRTUAL column (nullable; BOOLEAN, signed integer or VARCHAR; the extension's deterministic scalar grammar, no division or float literals). Legacy `generated_expression` metadata is translated to that form when served.
+
+Capabilities: `CatalogProfiles` encodes, decodes and negotiates profiles (`negotiate`, `select`, `clientOffer`, `defaultClientOffer`). A hosted catalog that enforces constraints on its own write paths selects `vgi.constraint.create.v1` + `vgi.constraint.enforce.v1` from `CatalogInterface#catalogCapabilities`; only then does `CREATE TABLE` with constraint definitions reach its `tableCreate`. Auxiliary catalogs use `ExtraCatalog#withCapabilities`. `InMemoryCatalog` stores no rows and enforces nothing, so it refuses constrained, NOT NULL, logical-type and generated columns on `CREATE TABLE`.
+
+Macros: hosted catalogs build `MacroInfo` from a `Macro` descriptor with `MacroInfo.of(macro)`. Parameter defaults are literal values only (`NULL`, booleans, numbers, `'strings'`); an expression default such as `current_date` is refused by `registerMacro` at startup.

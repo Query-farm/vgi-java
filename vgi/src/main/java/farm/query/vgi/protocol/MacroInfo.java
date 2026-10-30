@@ -28,4 +28,18 @@ public record MacroInfo(
         }
         overloads = List.copyOf(overloads);
     }
+
+    /**
+     * The canonical one-overload family for a simple macro descriptor: what the framework
+     * serves for a registered {@link farm.query.vgi.catalog.Macro}, and what a
+     * {@link farm.query.vgi.CatalogInterface} returns from {@code macros(..)} instead of
+     * hand-building overloads.
+     *
+     * @param macro the descriptor; parameter defaults must be resolved literals
+     * @return the family
+     * @throws IllegalArgumentException if the macro is malformed or a default is an expression
+     */
+    public static MacroInfo of(farm.query.vgi.catalog.Macro macro) {
+        return farm.query.vgi.internal.MacroFamilies.fromDescriptor(macro);
+    }
 }

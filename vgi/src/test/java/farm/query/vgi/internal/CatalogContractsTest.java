@@ -453,7 +453,9 @@ class CatalogContractsTest {
         assertNull(old.layout());
         assertEquals(1, create.constraint_definitions().size());
         assertTrue(old.constraint_definitions().isEmpty());
-        var info = farm.query.vgi.client.TableInfoDecoder.decode(TableInfoSerializer.serialize(
+        // The fixture's two-component schema path is a wire shape DuckDB will not read, so it
+        // round-trips through the encoder without the serve-time constraint rules.
+        var info = farm.query.vgi.client.TableInfoDecoder.decode(TableInfoSerializer.encode(
                 farm.query.vgi.client.TableInfoDecoder.decode(fixture("table_info"))));
         assertArrayEquals(new byte[] {114, 101, 118, 105, 115, 105, 111, 110, 0, (byte) 255}, info.definition_revision());
         assertEquals(1, info.constraints().size());

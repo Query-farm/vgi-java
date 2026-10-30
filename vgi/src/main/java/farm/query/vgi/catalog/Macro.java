@@ -8,7 +8,10 @@ import java.util.Map;
 /**
  * A SQL macro exposed in the catalog. {@code parameterDefaults} is an
  * optional ordered map of parameter-name → supported SQL literal (used when the
- * macro has named-with-default parameters). {@code parameterDocs} is an
+ * macro has named-with-default parameters). Defaults are literal values only —
+ * {@code NULL}, {@code true}/{@code false}, integers, decimals and
+ * {@code 'strings'}; vgi.v3 discovery carries resolved values, so an expression
+ * default such as {@code current_date} is refused when the macro is registered. {@code parameterDocs} is an
  * optional parameter-name → description map: each documented parameter's
  * description flows through the canonical overload parameter's
  * {@code documentation} field, so the DuckDB extension's {@code vgi_function_arguments()}

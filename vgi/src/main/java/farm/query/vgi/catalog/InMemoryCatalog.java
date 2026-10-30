@@ -28,7 +28,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Every change bumps the catalog {@link #version}, which starts at {@code 1},
  * so a client polling the version (or revalidating a {@code catalog_contents}
  * snapshot whose etag derives from it) sees the change. Tables hold metadata
- * only: they can be listed and described but have no rows to scan.</p>
+ * only: they can be listed and described but have no rows to scan. Because
+ * nothing stores or checks rows, {@code CREATE TABLE} refuses constraints
+ * ({@code NOT NULL}, {@code PRIMARY KEY}, {@code UNIQUE}, {@code CHECK},
+ * {@code FOREIGN KEY}), logical-type columns and generated columns; DuckDB
+ * itself refuses a constrained {@code CREATE TABLE} first, since this catalog
+ * negotiates no {@code vgi.constraint.create.v1}.</p>
  *
  * <p>State is either private to each ATTACH ({@link Scope#PER_ATTACH} — every
  * ATTACH starts from an empty catalog with one {@code main} schema, and DETACH
@@ -240,9 +245,14 @@ public class InMemoryCatalog implements CatalogInterface {
 
     @Override
     public void tableCreate(byte[] attachId, TableCreateRequest request) {
+        // Metadata-only tables: nothing here stores rows or enforces a constraint, so no
+        // constraint profile is negotiated and constrained or logical-typed columns are refused.
         if (!request.constraint_definitions().isEmpty())
-            throw new farm.query.vgirpc.MethodNotImplementedError("canonical constraint enforcement is not supported");
+            throw new farm.query.vgirpc.MethodNotImplementedError("InMemoryCatalog " + name + ": CREATE TABLE with"
+                    + " NOT NULL, PRIMARY KEY, UNIQUE, CHECK or FOREIGN KEY is not supported (it stores no rows and"
+                    + " enforces no constraints)");
         farm.query.vgi.internal.SchemaUtil.requireUnconstrainedColumns(request.columns());
+        farm.query.vgi.internal.ColumnExpressions.validateIpc(request.columns(), request.schema_path(), false);
         State s = state(attachId);
         synchronized (s) {
             SchemaState schema = requireSchema(s, request.schema_path());

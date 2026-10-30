@@ -114,7 +114,9 @@ public record CatalogTable(
      * @param pkColumns        referenced column names in the target table
      * @param referencedSchemaPath schema path of the referenced table
      * @param referencedTable  name of the referenced table
+     * @deprecated not sent under vgi.v3; use {@link ConstraintRecord.Builder#foreignKey}.
      */
+    @Deprecated
     public record ForeignKey(
             List<String> fkColumns,
             List<String> pkColumns,
@@ -349,7 +351,11 @@ public record CatalogTable(
          *
          * @param pk column-index groups; {@code null} becomes empty
          * @return this builder
+         * @deprecated not sent under vgi.v3; serving a table that sets it fails. Declare a
+         *             {@link ConstraintRecord} ({@link ConstraintRecord#builder}) and pass it to
+         *             {@link #constraints(List, byte[])} instead.
          */
+        @Deprecated
         public Builder primaryKey(List<List<Integer>> pk) {
             this.primaryKey = pk == null ? List.of() : pk;
             return this;
@@ -360,7 +366,11 @@ public record CatalogTable(
          *
          * @param u column-index groups; {@code null} becomes empty
          * @return this builder
+         * @deprecated not sent under vgi.v3; serving a table that sets it fails. Declare a
+         *             {@link ConstraintRecord} ({@link ConstraintRecord#builder}) and pass it to
+         *             {@link #constraints(List, byte[])} instead.
          */
+        @Deprecated
         public Builder unique(List<List<Integer>> u) {
             this.uniqueConstraints = u == null ? List.of() : u;
             return this;
@@ -371,7 +381,11 @@ public record CatalogTable(
          *
          * @param c CHECK expressions; {@code null} becomes empty
          * @return this builder
+         * @deprecated not sent under vgi.v3; serving a table that sets it fails. Declare a
+         *             {@link ConstraintRecord} ({@link ConstraintRecord#builder}) and pass it to
+         *             {@link #constraints(List, byte[])} instead.
          */
+        @Deprecated
         public Builder check(List<String> c) {
             this.checkConstraints = c == null ? List.of() : c;
             return this;
@@ -382,7 +396,11 @@ public record CatalogTable(
          *
          * @param fks foreign keys; {@code null} becomes empty
          * @return this builder
+         * @deprecated not sent under vgi.v3; serving a table that sets it fails. Declare a
+         *             {@link ConstraintRecord} ({@link ConstraintRecord#builder}) and pass it to
+         *             {@link #constraints(List, byte[])} instead.
          */
+        @Deprecated
         public Builder foreignKeys(List<ForeignKey> fks) {
             this.foreignKeys = fks == null ? List.of() : fks;
             return this;
@@ -493,7 +511,10 @@ public record CatalogTable(
      * @param check  CHECK constraint expressions; {@code null} becomes empty
      * @param fks    foreign-key constraints; {@code null} becomes empty
      * @return a new table with the constraints applied
+     * @deprecated not sent under vgi.v3; serving a table that sets them fails. Use
+     *             {@link #withConstraintRecords(List, byte[])} with {@link ConstraintRecord#builder}.
      */
+    @Deprecated
     public CatalogTable withConstraints(List<List<Integer>> pk,
                                           List<List<Integer>> unique,
                                           List<String> check,

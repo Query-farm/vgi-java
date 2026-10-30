@@ -32,7 +32,11 @@ class ColumnExpressionsTest {
                 var info = new TableInfo(null, Map.of(), item.getKey(), List.of("main"), raw,
                     List.of(), null, Map.of(), false, null, null, null, null, null, null, null,
                     null, List.of());
-                if (group.equals("invalid"))
+                // The SDK translates a lone legacy generated_expression to the canonical
+                // VIRTUAL form when it serves a table, instead of refusing it.
+                if (item.getKey().equals("legacy_generated_only"))
+                    assertDoesNotThrow(() -> TableInfoSerializer.serialize(info));
+                else if (group.equals("invalid"))
                     assertThrows(
                         Exception.class, () -> TableInfoSerializer.serialize(info), item.getKey());
                 else {

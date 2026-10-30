@@ -1515,7 +1515,7 @@ public final class VgiServiceImpl implements VgiService {
                 extraAttachId = joined;
             }
             catalogRegistry.recordAttach(extraAttachId, extra.dataVersion(), request.name());
-            var extraCapabilities = ConstraintContract.merge(new Worker.CatalogCapabilitySelection(null, null),
+            var extraCapabilities = ConstraintContract.merge(extra.selectCapabilities(request),
                     ConstraintContract.readProfilesFor(worker.extraCatalogTables().get(extra.name())),
                     request.client_capabilities());
             return new CatalogAttachResult(
@@ -1694,6 +1694,7 @@ public final class VgiServiceImpl implements VgiService {
         if (hosted != null) {
             hosted.catalog().detach(hosted.attachId());
             catalogRegistry.forget(hosted.attachId());
+            hostedSelections.remove(java.util.HexFormat.of().formatHex(hosted.attachId()));
         }
     }
 
@@ -1703,6 +1704,10 @@ public final class VgiServiceImpl implements VgiService {
 
     /** A {@link farm.query.vgi.CatalogInterface} attach: the catalog and its plain attach id. */
     private record Hosted(farm.query.vgi.CatalogInterface catalog, byte[] attachId) {}
+
+    /** The profiles selected at each hosted attach, keyed by hex attach id: gates forwarded DDL. */
+    private final Map<String, farm.query.vgi.protocol.CatalogCapabilities> hostedSelections =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * The code-implemented catalog an attach belongs to, or {@code null} when it
@@ -1739,8 +1744,10 @@ public final class VgiServiceImpl implements VgiService {
         farm.query.vgi.CatalogInterface.AttachInfo info = catalog.attach(attachId, request);
         catalogRegistry.recordAttach(attachId, null, catalog.name());
         long version = catalog.version(attachId);
-        var capabilities = ConstraintContract.merge(new Worker.CatalogCapabilitySelection(null, null),
+        var capabilities = ConstraintContract.merge(catalog.catalogCapabilities(attachId, request),
                 catalog.catalogReadProfiles(attachId), request.client_capabilities());
+        hostedSelections.put(java.util.HexFormat.of().formatHex(attachId),
+                farm.query.vgi.CatalogProfiles.decode(capabilities.selected()));
         return new CatalogAttachResult(
                 sealer.sealAttach(attachId, authOf(ctx)),
                 false, false, info.versionFrozen(),
@@ -1786,12 +1793,24 @@ public final class VgiServiceImpl implements VgiService {
     public void catalog_table_create(byte[] request, CallContext ctx) {
         farm.query.vgi.protocol.TableCreateRequest req =
                 RecordCodec.deserializeFromBytes(request, farm.query.vgi.protocol.TableCreateRequest.class);
-        if (!req.constraint_definitions().isEmpty() || req.comment() != null || req.tags() != null || req.options() != null || req.layout() != null)
-            throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create requires negotiated table profiles");
-        ColumnMetadata.validateIpc(req.columns());
-        ColumnExpressions.validateIpc(req.columns(), req.schema_path(), false);
-        SchemaUtil.requireUnconstrainedColumns(req.columns());
         Hosted h = requireHosted(req.attach_opaque_data(), ctx, "catalog_table_create");
+        if (!req.constraint_definitions().isEmpty()) {
+            var selected = hostedSelections.getOrDefault(java.util.HexFormat.of().formatHex(h.attachId()),
+                    farm.query.vgi.CatalogProfiles.none());
+            for (String profile : List.of(farm.query.vgi.CatalogProfiles.CONSTRAINT_RECORDS_READ,
+                    farm.query.vgi.CatalogProfiles.CONSTRAINT_CREATE, farm.query.vgi.CatalogProfiles.CONSTRAINT_ENFORCE)) {
+                if (!farm.query.vgi.CatalogProfiles.contains(selected, profile))
+                    throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create: constraint definitions"
+                            + " require the negotiated " + profile + " profile (select it in"
+                            + " CatalogInterface#catalogCapabilities)");
+            }
+        }
+        // vgi.v3 defines no profile for table comment/tags/options/layout on CREATE, and DuckDB never sends them.
+        if (req.comment() != null || req.tags() != null || req.options() != null || req.layout() != null)
+            throw new farm.query.vgirpc.MethodNotImplementedError("catalog_table_create: comment, tags, options and"
+                    + " layout on CREATE TABLE have no negotiable vgi.v3 profile");
+        ColumnMetadata.validateIpc(req.columns());
+        ColumnExpressions.validateIpc(req.columns(), req.schema_path(), true);
         h.catalog().tableCreate(h.attachId(), req);
     }
 
@@ -2069,6 +2088,34 @@ public final class VgiServiceImpl implements VgiService {
      * filtered to {@code schema}. Empty when the attach is not an extra catalog
      * or the catalog declares no tables.
      */
+    /** Foreign-key targets of a hosted catalog: its own {@code table} lookup. */
+    private static ConstraintContract.TableLookup hostedLookup(Hosted hosted) {
+        return (path, name) -> hosted.catalog().table(hosted.attachId(), path, name).orElse(null);
+    }
+
+    /** Foreign-key targets of an auxiliary catalog: its registered tables. */
+    private ConstraintContract.TableLookup extraLookup(Worker.ExtraCatalog extra) {
+        return (path, name) -> {
+            for (CatalogTable t : worker.extraCatalogTables().getOrDefault(extra.name(), List.of())) {
+                if (List.of(t.schema()).equals(path) && t.name().equals(name)) return toTableInfo(t, extra.name());
+            }
+            return null;
+        };
+    }
+
+    /** Foreign-key targets of the main catalog, at the attach's resolved data version. */
+    private ConstraintContract.TableLookup mainLookup(String dataVersion) {
+        return (path, name) -> {
+            for (CatalogTable t : worker.catalogTables()) {
+                if (List.of(t.schema()).equals(path) && t.name().equals(name)) {
+                    return toTableInfo(dataVersion == null ? t
+                            : catalogRegistry.resolveVersion(t, "data_version", dataVersion), null);
+                }
+            }
+            return null;
+        };
+    }
+
     private List<CatalogTable> extraCatalogTablesFor(byte[] attachPlain, String schema) {
         Worker.ExtraCatalog extra = extraCatalogOf(attachPlain);
         if (extra == null) return List.of();
@@ -2284,7 +2331,7 @@ public final class VgiServiceImpl implements VgiService {
         if (hosted != null) {
             List<byte[]> hostedItems = new ArrayList<>();
             for (farm.query.vgi.protocol.TableInfo t : hosted.catalog().tables(hosted.attachId(), path)) {
-                hostedItems.add(TableInfoSerializer.serialize(t));
+                hostedItems.add(TableInfoSerializer.serialize(t, hostedLookup(hosted)));
             }
             return new ItemsResponse(hostedItems);
         }
@@ -2294,7 +2341,7 @@ public final class VgiServiceImpl implements VgiService {
         if (extraCatalog != null) {
             List<byte[]> extraItems = new ArrayList<>();
             for (CatalogTable t : extraTables) {
-                extraItems.add(TableInfoSerializer.serialize(toTableInfo(t, extraCatalog.name())));
+                extraItems.add(TableInfoSerializer.serialize(toTableInfo(t, extraCatalog.name()), extraLookup(extraCatalog)));
             }
             return new ItemsResponse(extraItems);
         }
@@ -2315,7 +2362,7 @@ public final class VgiServiceImpl implements VgiService {
             if (isVersionedTables != isVtFixture) continue;
             if (catalogRegistry.isHiddenInVersionedTables(t.name(), attach_opaque_data_plain)) continue;
             CatalogTable resolved = dv == null ? t : catalogRegistry.resolveVersion(t, "data_version", dv);
-            items.add(TableInfoSerializer.serialize(toTableInfo(resolved, null)));
+            items.add(TableInfoSerializer.serialize(toTableInfo(resolved, null), mainLookup(dv)));
         }
         return new ItemsResponse(items);
     }
@@ -2636,7 +2683,7 @@ public final class VgiServiceImpl implements VgiService {
         Hosted hosted = hostedOf(attach_opaque_data, ctx);
         if (hosted != null) {
             return hosted.catalog().table(hosted.attachId(), schema_path, name)
-                    .map(t -> new ItemsResponse(List.of(TableInfoSerializer.serialize(t))))
+                    .map(t -> new ItemsResponse(List.of(TableInfoSerializer.serialize(t, hostedLookup(hosted)))))
                     .orElseGet(ItemsResponse::empty);
         }
         byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
@@ -2645,7 +2692,7 @@ public final class VgiServiceImpl implements VgiService {
             for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
                 if (t.name().equals(name)) {
                     return new ItemsResponse(List.of(TableInfoSerializer.serialize(
-                            toTableInfo(t, extraCatalog.name()))));
+                            toTableInfo(t, extraCatalog.name()), extraLookup(extraCatalog))));
                 }
             }
             return ItemsResponse.empty();
@@ -2661,7 +2708,8 @@ public final class VgiServiceImpl implements VgiService {
                 // a generic time-travel error from resolveVersion.
                 CatalogTable resolved = isMultiBranch
                         ? t : catalogRegistry.resolveVersion(t, at.unit(), at.value());
-                return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(resolved, null))));
+                return new ItemsResponse(List.of(TableInfoSerializer.serialize(toTableInfo(resolved, null),
+                        mainLookup(catalogRegistry.dataVersion(attach_opaque_data_plain)))));
             }
         }
         return ItemsResponse.empty();

@@ -209,14 +209,8 @@ public final class Main {
     }
 
     /** Build a canonical VIRTUAL column owned by the data schema. */
-    private static Field genCol(String name,
-                ArrowType type,
-                boolean nullable,
-                String expr) {
-        return new Field(name,
-                new FieldType(nullable, type, null,
-                        Map.of("vgi.column.generated.v1", farm.query.vgi.internal.ColumnExpressions.generatedMetadata(expr, List.of("data")), "vgi.column.generation.v1", "virtual")),
-                null);
+    private static Field genCol(String name, ArrowType type, String expr) {
+        return farm.query.vgi.catalog.CatalogColumns.virtualGenerated(name, type, expr, List.of("data"));
     }
 
     /** STRUCT(xmin, ymin, xmax, ymax FLOAT) bbox column used by the native
@@ -1049,8 +1043,8 @@ public final class Main {
                 .registerCatalogTable(stubTable("data", "generated_sequence",
                         "Table with generated columns backed by sequence(10)",
                         col("n", Schemas.INT64, true),
-                        genCol("doubled", Schemas.INT64, true, "n * 2"),
-                        genCol("label", Schemas.UTF8, true, "'item_' || n::VARCHAR")))
+                        genCol("doubled", Schemas.INT64, "n * 2"),
+                        genCol("label", Schemas.UTF8, "'item_' || n::VARCHAR")))
                 .registerCatalogTable(stubTable("data", "projects",
                         "Projects with composite PK and FK to departments",
                         col("department_id", Schemas.INT64, false),

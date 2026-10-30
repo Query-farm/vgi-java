@@ -17,7 +17,9 @@ import java.util.Map;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /** Canonical VIRTUAL expression carriers. Validation never evaluates SQL. */
@@ -126,6 +128,90 @@ public final class ColumnExpressions {
         }
         expression(RecordCodec.deserializeFromBytes(bytes, SqlExpression.class), owner);
     }
+    /** The pre-vgi.v3 metadata key carrying a generated column's raw SQL. */
+    public static final String LEGACY_GENERATED = "generated_expression";
+
+    /**
+     * Refuses a generated column the extension cannot serve: it must be nullable and of a
+     * Boolean, signed-integer (8-64 bit) or UTF-8 string type, not an extension type.
+     *
+     * @param field the generated column
+     */
+    static void requireGeneratedShape(Field field) {
+        if (!field.isNullable())
+            throw new IllegalArgumentException("Column " + field.getName()
+                + ": generated columns must be nullable");
+        var type = field.getType();
+        boolean ok = !(type instanceof ArrowType.ExtensionType)
+            && !field.getMetadata().containsKey("ARROW:extension:name")
+            && field.getDictionary() == null
+            && (type instanceof ArrowType.Bool || type instanceof ArrowType.Utf8
+                || (type instanceof ArrowType.Int t && t.getIsSigned()));
+        if (!ok)
+            throw new IllegalArgumentException("Column " + field.getName()
+                + ": generated columns require a BOOLEAN, TINYINT, SMALLINT, INTEGER, BIGINT or VARCHAR type");
+    }
+
+    /**
+     * The canonical metadata for a VIRTUAL generated column, checked against the grammar the
+     * extension reads.
+     *
+     * @param sql   the DuckDB scalar expression
+     * @param owner the owning table's schema path
+     * @return the {@code vgi.column.generated.v1} / {@code vgi.column.generation.v1} entries
+     */
+    public static Map<String, String> virtualMetadata(String sql, List<String> owner) {
+        GeneratedExpressionGrammar.validate(sql);
+        return Map.of(GENERATED, generatedMetadata(sql, owner), GENERATION, "virtual");
+    }
+
+    /**
+     * Translates legacy {@code generated_expression} metadata (raw SQL) on top-level columns
+     * into the canonical VIRTUAL form, when the column carries no canonical generated
+     * metadata of its own. The translated column is served nullable.
+     *
+     * @param schema the schema
+     * @param owner  the owning table's schema path
+     * @return the schema, translated
+     */
+    public static Schema translateLegacy(Schema schema, List<String> owner) {
+        boolean changed = false;
+        List<Field> out = new java.util.ArrayList<>(schema.getFields().size());
+        for (Field f : schema.getFields()) {
+            Map<String, String> md = f.getMetadata();
+            if (md == null || !md.containsKey(LEGACY_GENERATED) || md.containsKey(GENERATED)
+                    || md.containsKey(GENERATION)) {
+                out.add(f);
+                continue;
+            }
+            Map<String, String> merged = new java.util.LinkedHashMap<>(md);
+            String sql = merged.remove(LEGACY_GENERATED);
+            merged.putAll(virtualMetadata(sql, owner));
+            out.add(new Field(f.getName(), new FieldType(true, f.getType(), f.getDictionary(), merged),
+                f.getChildren()));
+            changed = true;
+        }
+        return changed ? new Schema(out, schema.getCustomMetadata()) : schema;
+    }
+
+    /**
+     * {@link #translateLegacy(Schema, List)} applied to a served table.
+     *
+     * @param info the table
+     * @return the table, translated
+     */
+    public static farm.query.vgi.protocol.TableInfo translateLegacy(farm.query.vgi.protocol.TableInfo info) {
+        Schema schema = SchemaUtil.deserializeSchema(info.columns());
+        Schema translated = translateLegacy(schema, info.schema_path());
+        if (translated == schema) return info;
+        return new farm.query.vgi.protocol.TableInfo(info.comment(), info.tags(), info.name(), info.schema_path(),
+            SchemaUtil.serializeSchema(translated), info.constraints(), info.definition_revision(),
+            info.write_result_modes(), info.supports_column_statistics(), info.scan_function(),
+            info.insert_function(), info.update_function(), info.delete_function(), info.cardinality_estimate(),
+            info.cardinality_max(), info.column_statistics(), info.bind_result(), info.required_filters(),
+            info.options(), info.layout());
+    }
+
     public static String generatedMetadata(String sql, List<String> owner) {
         try {
             var value = new SqlExpression(sql, PROFILE, List.copyOf(owner),
@@ -140,7 +226,7 @@ public final class ColumnExpressions {
         try {
             for (var field : schema.getFields()) field(field, owner, allowGenerated);
         } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid generated column metadata", e);
+            throw new IllegalArgumentException("Invalid generated column metadata: " + e.getMessage(), e);
         }
     }
     private static void field(Field field, List<String> owner, boolean allowGenerated)
@@ -150,18 +236,29 @@ public final class ColumnExpressions {
             if ((key.startsWith("vgi.column.generated.") && !key.equals(GENERATED))
                 || (key.startsWith("vgi.column.generation.") && !key.equals(GENERATION)))
                 throw new IllegalArgumentException("Unknown generated metadata version");
-        if (values.containsKey("generated_expression"))
-            throw new IllegalArgumentException(
-                "Legacy generated expression requires explicit canonical translation");
+        if (values.containsKey(LEGACY_GENERATED))
+            throw new IllegalArgumentException("Column " + field.getName()
+                + ": legacy generated_expression metadata could not be translated (it is combined with"
+                + " canonical generated metadata); declare it with CatalogColumns.virtualGenerated(..)");
         if (values.containsKey(GENERATED) != values.containsKey(GENERATION))
             throw new IllegalArgumentException(
                 "Generated expression and category must occur together");
         if (values.containsKey(GENERATED)) {
             if (!"virtual".equals(values.get(GENERATION)))
-                throw new IllegalArgumentException("Only VIRTUAL generated columns are supported");
+                throw new IllegalArgumentException("Column " + field.getName()
+                    + ": only VIRTUAL generated columns are supported (got " + values.get(GENERATION) + ")");
             if (values.containsKey("default") || values.containsKey("vgi.column.default.v1"))
                 throw new IllegalArgumentException("Generated column cannot have a default");
             encoded(values.get(GENERATED), owner);
+            requireGeneratedShape(field);
+            String sql = RecordCodec.deserializeFromBytes(
+                Base64.getDecoder().decode(values.get(GENERATED)), SqlExpression.class).sql();
+            try {
+                GeneratedExpressionGrammar.validate(sql);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Column " + field.getName() + ": generated expression ("
+                    + sql + ") is outside the grammar DuckDB reads: " + e.getMessage(), e);
+            }
             if (!allowGenerated)
                 throw new UnsupportedOperationException(
                     "Generated columns unsupported by this catalog");
@@ -172,8 +269,10 @@ public final class ColumnExpressions {
         try (var reader =
                  new ArrowStreamReader(new ByteArrayInputStream(bytes), Allocators.root())) {
             validate(reader.getVectorSchemaRoot().getSchema(), owner, allowGenerated);
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid generated column schema", e);
+            throw new IllegalArgumentException("Invalid generated column schema: " + e.getMessage(), e);
         }
     }
 }

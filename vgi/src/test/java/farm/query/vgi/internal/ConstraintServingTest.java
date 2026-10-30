@@ -210,24 +210,28 @@ final class ConstraintServingTest {
         }
     }
 
-    @Test
-    void nullabilityMustMatchTheRecordsEvenWithoutRecords() {
-        String message = refused(columns(Schemas.nonNull("id", Schemas.INT64)));
-        assertTrue(message.contains("'main.t'") && message.contains("column id")
-                && message.contains("no NOT_NULL/PRIMARY_KEY record"), message);
+    private static List<Field> served(byte[] columns, ConstraintRecord... records) {
+        TableInfo info = tableInfo(columns, java.util.Arrays.stream(records).map(ConstraintRecord::encode).toList());
+        return SchemaUtil.deserializeSchema(farm.query.vgi.client.TableInfoDecoder.decode(
+                TableInfoSerializer.serialize(info)).columns()).getFields();
+    }
 
-        message = refused(columns(Schemas.nullable("id", Schemas.INT64)), fact("main", "t", "id_nn", "id"));
-        assertTrue(message.contains("column id") && message.contains("nullable"), message);
+    @Test
+    void nullabilityIsServedToMatchTheRecords() {
+        // Nothing attests an unnamed non-nullable field: it is served nullable.
+        assertTrue(served(columns(Schemas.nonNull("id", Schemas.INT64))).get(0).isNullable());
+        // A record attests a nullable field: it is served non-nullable.
+        assertTrue(!served(columns(Schemas.nullable("id", Schemas.INT64)), fact("main", "t", "id_nn", "id"))
+                .get(0).isNullable());
 
         ConstraintRecord pk = ConstraintRecord.builder("main", "t", "pk").primaryKey("id")
                 .enforcement(Enforcement.ENFORCED).validation(Validation.ALL_ROWS).build();
-        assertDoesNotThrow(() -> serve(columns(Schemas.nonNull("id", Schemas.INT64)), pk));
-        assertDoesNotThrow(() -> serve(columns(Schemas.nullable("id", Schemas.INT64))));
+        assertTrue(!served(columns(Schemas.nonNull("id", Schemas.INT64)), pk).get(0).isNullable());
 
         Field rowId = new Field("rowid", new FieldType(false, Schemas.INT64, null, Map.of("is_row_id", "true")), null);
-        assertDoesNotThrow(() -> serve(columns(rowId, Schemas.nullable("v", Schemas.UTF8))));
+        assertTrue(!served(columns(rowId, Schemas.nullable("v", Schemas.UTF8))).get(0).isNullable());
 
-        message = refused(columns(Schemas.nullable("v", Schemas.UTF8)), fact("main", "t", "gone_nn", "gone"));
+        String message = refused(columns(Schemas.nullable("v", Schemas.UTF8)), fact("main", "t", "gone_nn", "gone"));
         assertTrue(message.contains("names column gone"), message);
     }
 
@@ -240,18 +244,20 @@ final class ConstraintServingTest {
         Field xmin = Schemas.nonNull("xmin", Schemas.FLOAT64);
         Field xmax = Schemas.nullable("xmax", Schemas.FLOAT64);
         byte[] ordinary = columns(struct("bbox", true, null, xmin, xmax));
-        assertDoesNotThrow(() -> serve(ordinary, fact("main", "t", "xmin_nn", "bbox", "xmin")));
-        String message = refused(ordinary);
-        assertTrue(message.contains("'main.t'") && message.contains("column bbox.xmin"), message);
+        Field bbox = served(ordinary, fact("main", "t", "xmin_nn", "bbox", "xmin")).get(0);
+        assertTrue(bbox.isNullable() && !bbox.getChildren().get(0).isNullable() && bbox.getChildren().get(1).isNullable());
+        assertTrue(served(ordinary).get(0).getChildren().get(0).isNullable());
 
         byte[] nested = columns(struct("outer", false, null, struct("inner", true, null, Schemas.nullable("leaf", Schemas.INT32))));
-        message = refused(nested, fact("main", "t", "outer_nn", "outer"), fact("main", "t", "leaf_nn", "outer", "inner", "leaf"));
-        assertTrue(message.contains("column outer.inner.leaf") && message.contains("nullable"), message);
+        Field outer = served(nested, fact("main", "t", "outer_nn", "outer"),
+                fact("main", "t", "leaf_nn", "outer", "inner", "leaf")).get(0);
+        assertTrue(!outer.isNullable() && outer.getChildren().get(0).isNullable()
+                && !outer.getChildren().get(0).getChildren().get(0).isNullable());
 
-        // A logical-type struct is opaque storage: its members are neither checked nor addressable.
+        // A logical-type struct is opaque storage: its members are neither rewritten nor addressable.
         for (String key : List.of("ARROW:extension:name", "vgi.logical_type.name")) {
             byte[] opaque = columns(struct("geom", true, Map.of(key, "x"), xmin));
-            assertDoesNotThrow(() -> serve(opaque));
+            assertTrue(!served(opaque).get(0).getChildren().get(0).isNullable());
             assertTrue(refused(opaque, fact("main", "t", "x_nn", "geom", "xmin")).contains("names column geom.xmin"));
         }
     }

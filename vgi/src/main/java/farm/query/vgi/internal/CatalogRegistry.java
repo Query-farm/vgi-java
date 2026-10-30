@@ -191,12 +191,7 @@ public final class CatalogRegistry {
             String dvName = t.name() + suffix;
             for (CatalogTable vt : worker.catalogTables()) {
                 if (vt.schema().equals(t.schema()) && vt.name().equals(dvName)) {
-                    return new CatalogTable(
-                            t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
-                            vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
-                            null, null, false, true,
-                            List.of(), List.of(), List.of(), List.of())
-                            .withCanonicalConstraints(vt.constraints(), vt.definitionRevision());
+                    return servedAs(t, vt);
                 }
             }
             return t;
@@ -239,14 +234,37 @@ public final class CatalogRegistry {
         String versionedName = t.name() + "_v" + version;
         for (CatalogTable vt : worker.catalogTables()) {
             if (vt.schema().equals(t.schema()) && vt.name().equals(versionedName)) {
-                return new CatalogTable(
-                        t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
-                        vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
-                        null, null, false, true,
-                        List.of(), List.of(), List.of(), List.of())
-                        .withCanonicalConstraints(vt.constraints(), vt.definitionRevision());
+                return servedAs(t, vt);
             }
         }
         return t;
+    }
+
+    /**
+     * The variant {@code vt} served under the base table's identity: the variant's columns,
+     * scan, constraint records (re-owned to the base name, since the extension refuses records
+     * owned by another table), statistics and required filters — when the variant declares
+     * none, the base's, restricted to columns the variant has.
+     */
+    private static CatalogTable servedAs(CatalogTable t, CatalogTable vt) {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        var schema = SchemaUtil.deserializeSchema(vt.columns());
+        if (schema != null) schema.getFields().forEach(f -> names.add(f.getName()));
+        List<farm.query.vgi.catalog.ColumnStatistics> stats =
+                vt.statistics() != null && !vt.statistics().isEmpty() ? vt.statistics()
+                : t.statistics() == null ? List.of()
+                : t.statistics().stream().filter(c -> names.contains(c.columnName())).toList();
+        List<List<List<String>>> filters = vt.requiredFilters() != null && !vt.requiredFilters().isEmpty()
+                ? vt.requiredFilters()
+                : t.requiredFilters() == null ? List.of()
+                : t.requiredFilters().stream()
+                        .filter(g -> g.stream().allMatch(p -> names.contains(p.get(0)))).toList();
+        return new CatalogTable(
+                t.schema(), t.name(), vt.columns(), t.comment(), t.tags(),
+                vt.scanFunctionName(), vt.scanFunctionPositional(), vt.scanFunctionNamed(),
+                null, null, false, true,
+                List.of(), List.of(), List.of(), List.of(),
+                stats == null ? List.of() : stats, filters == null ? List.of() : filters,
+                ConstraintContract.reown(vt.constraints(), vt.name(), t.name()), vt.definitionRevision());
     }
 }

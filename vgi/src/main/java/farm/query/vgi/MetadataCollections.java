@@ -136,6 +136,11 @@ public final class MetadataCollections {
     public static <T extends ArrowSerializableRecord> byte[] merge(List<byte[]> items, Class<T> type) {
         List<T> records = new ArrayList<>();
         for (byte[] item : items) records.addAll(decode(item, type));
+        // A provider's own tables reach catalog_contents here: serve them as the listing would.
+        if (type == farm.query.vgi.protocol.TableInfo.class) {
+            records.replaceAll(r -> type.cast(farm.query.vgi.internal.TableInfoSerializer.served(
+                    (farm.query.vgi.protocol.TableInfo) r, null)));
+        }
         return encode(records, type);
     }
 }

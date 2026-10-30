@@ -5,6 +5,7 @@ package farm.query.vgi;
 import farm.query.vgi.aggregate.AggregateFunction;
 import farm.query.vgi.catalog.CatalogTable;
 import farm.query.vgi.catalog.Macro;
+import farm.query.vgi.protocol.MacroInfo;
 import farm.query.vgi.catalog.View;
 import farm.query.vgi.internal.VgiServiceImpl;
 import farm.query.vgi.scalar.ScalarFunction;
@@ -112,12 +113,17 @@ public final class Worker {
     private final List<Macro> macros = new ArrayList<>();
 
     /**
-     * Register a SQL macro.
+     * Register a SQL macro. Parameter defaults must be resolved literals ({@code NULL},
+     * {@code true}/{@code false}, integers, decimals, {@code 'strings'}): vgi.v3 discovery
+     * carries default values, not expressions, so an expression default such as
+     * {@code current_date} is refused here, at startup, rather than when a client lists macros.
      *
      * @param m the macro to register
      * @return this builder
+     * @throws IllegalArgumentException if the macro cannot be served (e.g. an expression default)
      */
     public Worker registerMacro(Macro m) {
+        MacroInfo.of(m);
         macros.add(m);
         return this;
     }
@@ -129,7 +135,7 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerMacros(Iterable<? extends Macro> ms) {
-        for (Macro m : ms) macros.add(m);
+        for (Macro m : ms) registerMacro(m);
         return this;
     }
 
@@ -640,12 +646,40 @@ public final class Worker {
      *                      {@link #attachOptions(AttachOptionSpec...)}, which is the main catalog's:
      *                      a worker may serve one catalog that requires an option and another that
      *                      takes none.
+     * @param capabilities  the catalog's own per-attach capability decision, or null (see
+     *                      {@link #withCapabilities})
      */
     public record ExtraCatalog(String name, String implementationVersion, String dataVersion,
                                String schemaComment, List<AttachOptionSpec> attachOptions,
                                String catalogComment, Map<String, String> schemaComments,
                                boolean versionFrozen, Boolean supportsCatalogContents,
-                               CatalogContentsProvider contentsProvider, CatalogContentsEtag contentsEtag) {
+                               CatalogContentsProvider contentsProvider, CatalogContentsEtag contentsEtag,
+                               java.util.function.Function<farm.query.vgi.protocol.CatalogAttachRequest,
+                                       CatalogCapabilitySelection> capabilities) {
+
+        /**
+         * An auxiliary catalog with no capability decision of its own.
+         *
+         * @param name the catalog name used in {@code ATTACH '<name>' ...}
+         * @param implementationVersion the advertised/resolved implementation version
+         * @param dataVersion the advertised {@code data_version_spec} and resolved data version
+         * @param schemaComment the comment on the catalog's {@code main} schema
+         * @param attachOptions ATTACH-time options this catalog alone declares
+         * @param catalogComment the catalog comment, or {@code null}
+         * @param schemaComments comments on schemas other than {@code main}
+         * @param versionFrozen whether the catalog version is frozen
+         * @param supportsCatalogContents the catalog's own {@code catalog_contents} flag, or null to inherit
+         * @param contentsProvider the catalog's own {@code catalog_contents} answer, or null
+         * @param contentsEtag the etag policy, or null for NONE
+         */
+        public ExtraCatalog(String name, String implementationVersion, String dataVersion,
+                            String schemaComment, List<AttachOptionSpec> attachOptions,
+                            String catalogComment, Map<String, String> schemaComments,
+                            boolean versionFrozen, Boolean supportsCatalogContents,
+                            CatalogContentsProvider contentsProvider, CatalogContentsEtag contentsEtag) {
+            this(name, implementationVersion, dataVersion, schemaComment, attachOptions, catalogComment,
+                    schemaComments, versionFrozen, supportsCatalogContents, contentsProvider, contentsEtag, null);
+        }
 
         /** Defensive copies; a null option list reads as none declared, a null etag policy as NONE. */
         public ExtraCatalog {
@@ -693,7 +727,7 @@ public final class Worker {
         public ExtraCatalog withCatalogComment(String comment) {
             return new ExtraCatalog(name, implementationVersion, dataVersion, schemaComment, attachOptions,
                     comment, schemaComments, versionFrozen, supportsCatalogContents, contentsProvider,
-                    contentsEtag);
+                    contentsEtag, capabilities);
         }
 
         /**
@@ -709,7 +743,7 @@ public final class Worker {
             comments.put(schema, comment);
             return new ExtraCatalog(name, implementationVersion, dataVersion, schemaComment, attachOptions,
                     catalogComment, comments, versionFrozen, supportsCatalogContents, contentsProvider,
-                    contentsEtag);
+                    contentsEtag, capabilities);
         }
 
         /**
@@ -722,7 +756,7 @@ public final class Worker {
         public ExtraCatalog withVersionFrozen(boolean frozen) {
             return new ExtraCatalog(name, implementationVersion, dataVersion, schemaComment, attachOptions,
                     catalogComment, schemaComments, frozen, supportsCatalogContents, contentsProvider,
-                    contentsEtag);
+                    contentsEtag, capabilities);
         }
 
         /**
@@ -740,7 +774,33 @@ public final class Worker {
                                                 CatalogContentsEtag etag) {
             return new ExtraCatalog(name, implementationVersion, dataVersion, schemaComment, attachOptions,
                     catalogComment, schemaComments, versionFrozen, supports, provider,
-                    etag == null ? CatalogContentsEtag.NONE : etag);
+                    etag == null ? CatalogContentsEtag.NONE : etag, capabilities);
+        }
+
+        /**
+         * This catalog with its own capability advertisement and selection, decided per attach
+         * (build it with {@link CatalogProfiles#negotiate}). The constraint read profiles its
+         * tables require are merged in by the framework either way.
+         *
+         * @param selector the per-attach decision
+         * @return a copy
+         */
+        public ExtraCatalog withCapabilities(java.util.function.Function<farm.query.vgi.protocol.CatalogAttachRequest,
+                CatalogCapabilitySelection> selector) {
+            return new ExtraCatalog(name, implementationVersion, dataVersion, schemaComment, attachOptions,
+                    catalogComment, schemaComments, versionFrozen, supportsCatalogContents, contentsProvider,
+                    contentsEtag, java.util.Objects.requireNonNull(selector, "selector"));
+        }
+
+        /**
+         * This catalog's own capability decision for an attach (before the framework merges in
+         * the constraint read profiles).
+         *
+         * @param request the attach request
+         * @return the decision; both sides null when no selector is set
+         */
+        public CatalogCapabilitySelection selectCapabilities(farm.query.vgi.protocol.CatalogAttachRequest request) {
+            return capabilities == null ? new CatalogCapabilitySelection(null, null) : capabilities.apply(request);
         }
 
         /**
@@ -865,6 +925,7 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerExtraCatalogMacro(String catalogName, Macro m) {
+        MacroInfo.of(m);
         extraCatalogMacros.computeIfAbsent(catalogName, k -> new ArrayList<>()).add(m);
         return this;
     }

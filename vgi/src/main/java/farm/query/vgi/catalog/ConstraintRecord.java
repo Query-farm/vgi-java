@@ -29,8 +29,14 @@ import java.util.Objects;
  * {@value #CONSTRAINT_RECORDS_READ} read profile, which the framework advertises and
  * selects automatically for every catalog whose tables carry records. It also
  * requires, for every table, that a column's Arrow field is non-nullable exactly
- * when a {@code NOT_NULL} or {@code PRIMARY_KEY} record names its path; the framework
- * checks both rules when it serves the table.
+ * when a {@code NOT_NULL} or {@code PRIMARY_KEY} record names its path: the framework
+ * serves each table's schema rewritten to satisfy that (a field a record names is served
+ * non-nullable, any other field nullable, descending through ordinary STRUCTs), and
+ * refuses, naming the table, constraint and column path, every record the extension
+ * would refuse at ATTACH (another owner, duplicate ids or declared names, a second
+ * PRIMARY KEY, unresolvable column paths, a cross-schema or non-NO_ACTION/RESTRICT
+ * foreign key or one whose referenced key the catalog does not declare, and a CHECK
+ * outside the one-numeric-comparison grammar DuckDB reads).
  *
  * <pre>{@code
  * byte[] pk = ConstraintRecord.builder("data", "products", "products_pk")
@@ -260,6 +266,18 @@ public record ConstraintRecord(
         return records.stream().map(ConstraintRecord::encode).toList();
     }
 
+    /**
+     * Decodes a table's {@code constraints} entries, as a client reading
+     * {@code TableInfo.constraints} does.
+     *
+     * @param records {@code ConstraintInfo} IPC records
+     * @return the typed records, in order
+     * @throws IllegalArgumentException if any entry is not a well-formed constraint record
+     */
+    public static List<ConstraintRecord> decodeAll(List<byte[]> records) {
+        return records == null ? List.of() : records.stream().map(ConstraintRecord::decode).toList();
+    }
+
     private static byte[] ref(String kind, List<String> schemaPath, String name, String owner) {
         return RecordCodec.serializeToBytes(new CatalogObjectRef(kind, schemaPath, name, owner));
     }
@@ -470,6 +488,22 @@ public record ConstraintRecord(
             if (kind == null) throw new IllegalStateException("constraint '" + id + "' has no kind");
             if (enforcement == null) throw new IllegalStateException("constraint '" + id + "' must state enforcement");
             if (validation == null) throw new IllegalStateException("constraint '" + id + "' must state validation");
+            if (schemaPath != null && schemaPath.size() != 1) {
+                throw new IllegalArgumentException("constraint '" + id
+                        + "': DuckDB reads constraints only in one-component schema paths");
+            }
+            if (kind != Kind.NOT_NULL) {
+                for (List<String> path : columns) {
+                    if (path != null && path.size() != 1) {
+                        throw new IllegalArgumentException("constraint '" + id + "': " + kind
+                                + " takes top-level columns; nested paths are read only on NOT_NULL");
+                    }
+                }
+            }
+            if (references != null && !references.schemaPath().equals(schemaPath)) {
+                throw new IllegalArgumentException("constraint '" + id
+                        + "': a FOREIGN KEY must reference a table in the same schema");
+            }
             return new ConstraintRecord(schemaPath, table, id, kind, columns, enforcement, validation,
                     declaredName, checkSql, references);
         }
