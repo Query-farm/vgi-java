@@ -1176,7 +1176,7 @@ without a C++ build:
     expose the SQL.
   - **Evaluator (worker):** `example/table/ExpressionFilterEvaluator` evaluates
     the predicates against each batch via an embedded **haybarn_jdbc** engine
-    (Maven Central `farm.query.haybarn:haybarn_jdbc:2.0.0-rc8`, Haybarn 2.0 + `arrow-c-data`),
+    (Maven Central `farm.query.haybarn:haybarn_jdbc:2.0.0-rc9`, Haybarn 2.0 + `arrow-c-data`),
     thread-local connection with spatial loaded — the Java analogue of
     vgi-python's `vgi._duckdb` evaluator. Batch is bridged in via the Arrow C
     Data interface (`registerArrowStream`); a registered stream is **single-use**
