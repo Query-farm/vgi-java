@@ -1515,6 +1515,9 @@ public final class VgiServiceImpl implements VgiService {
                 extraAttachId = joined;
             }
             catalogRegistry.recordAttach(extraAttachId, extra.dataVersion(), request.name());
+            var extraCapabilities = ConstraintContract.merge(new Worker.CatalogCapabilitySelection(null, null),
+                    ConstraintContract.readProfilesFor(worker.extraCatalogTables().get(extra.name())),
+                    request.client_capabilities());
             return new CatalogAttachResult(
                     sealer.sealAttach(catalogRegistry.recoverableAttach(extraAttachId, extra.dataVersion(), request.name()), authOf(ctx)),
                     false, false, extra.versionFrozen(),
@@ -1532,7 +1535,8 @@ public final class VgiServiceImpl implements VgiService {
                     extra.dataVersion(),
                     extra.implementationVersion(),
                     extra.ownsCatalogContents()
-                            ? extra.supportsCatalogContents() : worker.supportsCatalogContents(), null, null, null);
+                            ? extra.supportsCatalogContents() : worker.supportsCatalogContents(),
+                    extraCapabilities.advertised(), extraCapabilities.selected(), null);
         }
         // Options declared required must actually be supplied: fail the attach
         // loudly rather than yielding a catalog that reads as empty.
@@ -1579,7 +1583,10 @@ public final class VgiServiceImpl implements VgiService {
         if ("versioned".equals(worker.catalogName()) && ctx != null) {
             ctx.setCookie("vgi_sticky", java.util.UUID.randomUUID().toString().replace("-", ""));
         }
-        var capabilitySelection = worker.selectCatalogCapabilities(request);
+        // Tables carrying canonical records are readable only under the negotiated read
+        // profile; select it from the request whatever the provider decided itself.
+        var capabilitySelection = ConstraintContract.merge(worker.selectCatalogCapabilities(request),
+                ConstraintContract.readProfilesFor(worker.catalogTables()), request.client_capabilities());
         return new CatalogAttachResult(
                 sealer.sealAttach(attachId, authOf(ctx)),
                 true, true, false,  // supports_transactions, supports_time_travel, catalog_version_frozen
@@ -1732,6 +1739,8 @@ public final class VgiServiceImpl implements VgiService {
         farm.query.vgi.CatalogInterface.AttachInfo info = catalog.attach(attachId, request);
         catalogRegistry.recordAttach(attachId, null, catalog.name());
         long version = catalog.version(attachId);
+        var capabilities = ConstraintContract.merge(new Worker.CatalogCapabilitySelection(null, null),
+                catalog.catalogReadProfiles(attachId), request.client_capabilities());
         return new CatalogAttachResult(
                 sealer.sealAttach(attachId, authOf(ctx)),
                 false, false, info.versionFrozen(),
@@ -1744,7 +1753,7 @@ public final class VgiServiceImpl implements VgiService {
                 false,
                 List.of(), "",
                 null, null,
-                info.supportsCatalogContents(), null, null, null);
+                info.supportsCatalogContents(), capabilities.advertised(), capabilities.selected(), null);
     }
 
     private static List<byte[]> hostedSchemaItems(List<SchemaInfo> schemas) {
@@ -2701,7 +2710,10 @@ public final class VgiServiceImpl implements VgiService {
                 || (t.uniqueConstraints() != null && !t.uniqueConstraints().isEmpty())
                 || (t.checkConstraints() != null && !t.checkConstraints().isEmpty())
                 || (t.foreignKeys() != null && !t.foreignKeys().isEmpty())) {
-            throw new UnsupportedOperationException("legacy constraint metadata requires canonical provider records");
+            throw new UnsupportedOperationException("Table '" + t.schema() + "." + t.name()
+                    + "': primaryKey/uniqueConstraints/checkConstraints/foreignKeys are not sent under vgi.v3;"
+                    + " declare canonical records with ConstraintRecord.builder(..) and"
+                    + " CatalogTable.Builder#constraints(List, byte[]) instead");
         }
         boolean hasStats = t.statistics() != null && !t.statistics().isEmpty();
         byte[] inlineStats = hasStats

@@ -240,17 +240,40 @@ public final class Worker {
 
     private Worker() {}
 
-    /** Provider-owned capability advertisement and exact selection for the main catalog. */
+    /**
+     * Provider-owned capability advertisement and exact selection for the main catalog.
+     *
+     * @param advertised {@code CatalogCapabilities} IPC bytes the catalog implements, or null
+     * @param selected   {@code CatalogCapabilities} IPC bytes selected for this attach, or null
+     */
     public record CatalogCapabilitySelection(byte[] advertised, byte[] selected) {}
     private java.util.function.Function<farm.query.vgi.protocol.CatalogAttachRequest, CatalogCapabilitySelection>
             catalogCapabilitySelector;
 
+    /**
+     * Sets the main catalog's own capability advertisement and selection, decided per attach.
+     *
+     * <p>Not needed to serve constraint records: every catalog (main, auxiliary and
+     * {@link #registerCatalog hosted}) whose tables carry
+     * {@link farm.query.vgi.catalog.ConstraintRecord}s advertises the constraint read profiles
+     * and selects those the client offers automatically, merged into this decision.
+     *
+     * @param selector the per-attach decision
+     * @return this builder
+     */
     public Worker catalogCapabilities(java.util.function.Function<farm.query.vgi.protocol.CatalogAttachRequest,
             CatalogCapabilitySelection> selector) {
         catalogCapabilitySelector = java.util.Objects.requireNonNull(selector);
         return this;
     }
 
+    /**
+     * The main catalog's own capability decision for an attach (before the framework merges
+     * in the constraint read profiles).
+     *
+     * @param request the attach request
+     * @return the decision; both sides null when no selector is set
+     */
     public CatalogCapabilitySelection selectCatalogCapabilities(farm.query.vgi.protocol.CatalogAttachRequest request) {
         return catalogCapabilitySelector == null ? new CatalogCapabilitySelection(null, null)
                 : catalogCapabilitySelector.apply(request);

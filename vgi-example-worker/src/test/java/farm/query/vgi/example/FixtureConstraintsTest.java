@@ -11,20 +11,28 @@ import static org.junit.jupiter.api.Assertions.*;
 import farm.query.vgi.protocol.*;
 
 class FixtureConstraintsTest {
-    @Test void readsOnlySelectOfferedProfilesAndTheirPrerequisite() {
+    @Test void exampleCatalogNegotiatesConstraintReadsWithoutProviderCode() {
         String read = "vgi.constraint.records.read.v1";
         String scalar = "vgi.expression.duckdb.scalar.v1";
+        var worker = Main.buildWorker("example", null, null);
+        var svc = new farm.query.vgi.internal.VgiServiceImpl(worker, worker.scalars(), worker.tables(),
+                worker.tableInOuts(), worker.aggregates());
         for (var offered : List.of(List.<String>of(), List.of(scalar), List.of(read), List.of(read, scalar))) {
             var offer = new CatalogCapabilities(offered, List.of(), List.of("vgi.constraint.enforce.v1"), List.of());
             var client = new ClientCapabilities("fixture-test", List.of(), List.of(), true, List.of(), RecordCodec.serializeToBytes(offer));
-            var request = new CatalogAttachRequest("example", null, null, null, RecordCodec.serializeToBytes(client));
-            var selected = RecordCodec.deserializeFromBytes(FixtureConstraints.negotiate(request).selected(), CatalogCapabilities.class);
+            var result = svc.catalog_attach(new CatalogAttachRequest("example", null, null, null, RecordCodec.serializeToBytes(client)), null);
+            var advertised = RecordCodec.deserializeFromBytes(result.catalog_capabilities(), CatalogCapabilities.class);
+            var selected = RecordCodec.deserializeFromBytes(result.selected_capabilities(), CatalogCapabilities.class);
+            assertEquals(List.of(read, scalar), advertised.read());
             assertEquals(offered.contains(read) ? offered : List.of(), selected.read());
             assertTrue(selected.write().isEmpty());
             assertTrue(selected.ddl().isEmpty());
             assertTrue(selected.transaction().isEmpty());
+            // Every served table satisfies the extension's ATTACH-time constraint rules.
+            for (String schema : List.of("main", "data")) {
+                assertDoesNotThrow(() -> svc.catalog_schema_contents_tables(result.attach_opaque_data(), List.of(schema), null, null));
+            }
         }
-        assertNull(FixtureConstraints.negotiate(CatalogAttachRequest.of("other", null, null, null)).selected());
     }
 
     @Test void invalidImmutableDataCannotBecomeTrustedFacts() {

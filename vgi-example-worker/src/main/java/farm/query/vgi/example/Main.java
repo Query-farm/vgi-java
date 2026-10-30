@@ -366,7 +366,6 @@ public final class Main {
      */
     public static Worker buildWorker(String catalogName, String implVer, String dataSpec) {
         Worker w = Worker.builder()
-                .catalogCapabilities(FixtureConstraints::negotiate)
                 .catalogName(catalogName)
                 .implementationVersion(implVer)
                 .dataVersionSpec(dataSpec)

@@ -20,22 +20,6 @@ final class FixtureConstraints {
         return RecordCodec.serializeToBytes(new CatalogObjectRef(kind, List.of("data"), name, owner));
     }
 
-    static farm.query.vgi.Worker.CatalogCapabilitySelection negotiate(CatalogAttachRequest request) {
-        if (!"example".equals(request.name())) return new farm.query.vgi.Worker.CatalogCapabilitySelection(null, null);
-        var read = List.of("vgi.constraint.records.read.v1", "vgi.expression.duckdb.scalar.v1");
-        var advertised = new CatalogCapabilities(read, List.of(), List.of(), List.of());
-        var client = request.client_capabilities() == null ? null
-                : RecordCodec.deserializeFromBytes(request.client_capabilities(), ClientCapabilities.class);
-        var offer = client == null || client.catalog() == null
-                ? new CatalogCapabilities(List.of(), List.of(), List.of(), List.of())
-                : RecordCodec.deserializeFromBytes(client.catalog(), CatalogCapabilities.class);
-        var selected = new CatalogCapabilities(read.stream().filter(offer.read()::contains)
-                .filter(profile -> profile.equals(read.getFirst()) || offer.read().contains(read.getFirst())).sorted().toList(),
-                List.of(), List.of(), List.of());
-        return new farm.query.vgi.Worker.CatalogCapabilitySelection(RecordCodec.serializeToBytes(advertised),
-                RecordCodec.serializeToBytes(selected));
-    }
-
     static List<byte[]> snapshot(String table, org.apache.arrow.vector.types.pojo.Field[] fields) {
         if (table.startsWith("versioned_constraints_v")) {
             int version = Integer.parseInt(table.substring(table.length() - 1));

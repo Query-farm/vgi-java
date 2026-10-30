@@ -415,7 +415,26 @@ public record CatalogTable(
             return this;
         }
 
-        /** Sets explicit canonical records and their provider-owned revision. */
+        /**
+         * Sets the table's canonical constraint records and their provider-owned revision.
+         * Each record must be owned by this table, and Arrow nullability must agree with the
+         * {@code NOT_NULL}/{@code PRIMARY_KEY} records; both are checked when the table is served.
+         *
+         * @param records  the records, built with {@link ConstraintRecord#builder}
+         * @param revision provider-owned definition revision (non-empty), or {@code null}
+         * @return this builder
+         */
+        public Builder constraints(List<ConstraintRecord> records, byte[] revision) {
+            return canonicalConstraints(ConstraintRecord.encodeAll(records), revision);
+        }
+
+        /**
+         * Sets explicit canonical records, already encoded, and their provider-owned revision.
+         *
+         * @param records  {@code ConstraintInfo} IPC records ({@link ConstraintRecord#encode()})
+         * @param revision provider-owned definition revision, or {@code null}
+         * @return this builder
+         */
         public Builder canonicalConstraints(List<byte[]> records, byte[] revision) {
             this.constraints = List.copyOf(records);
             this.definitionRevision = revision;
@@ -490,7 +509,24 @@ public record CatalogTable(
                 requiredFilters, constraints, definitionRevision);
     }
 
-    /** Returns a copy with explicit provider-owned canonical records and revision. */
+    /**
+     * Returns a copy with the given canonical constraint records and revision.
+     *
+     * @param records  the records, built with {@link ConstraintRecord#builder}
+     * @param revision provider-owned definition revision (non-empty), or {@code null}
+     * @return a new table carrying the records
+     */
+    public CatalogTable withConstraintRecords(List<ConstraintRecord> records, byte[] revision) {
+        return withCanonicalConstraints(ConstraintRecord.encodeAll(records), revision);
+    }
+
+    /**
+     * Returns a copy with explicit provider-owned canonical records and revision.
+     *
+     * @param records  {@code ConstraintInfo} IPC records ({@link ConstraintRecord#encode()})
+     * @param revision provider-owned definition revision, or {@code null}
+     * @return a new table carrying the records
+     */
     public CatalogTable withCanonicalConstraints(List<byte[]> records, byte[] revision) {
         return new CatalogTable(schema, name, columns, comment, tags,
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,

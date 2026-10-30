@@ -72,6 +72,8 @@ public final class TableInfoSerializer {
     public static byte[] serialize(TableInfo info) {
         if (info.columns() != null && info.columns().length != 0) ColumnMetadata.validateIpc(info.columns());
         if (info.columns() != null && info.columns().length > 0) ColumnExpressions.validateIpc(info.columns(), info.schema_path(), true);
+        // The extension rejects the whole ATTACH on a violation; fail here, naming the table.
+        ConstraintContract.validate(info);
         return IpcStructBuilder.build(SCHEMA, v -> {
             writeVarChar(v.get("comment"), info.comment());
             writeMap(v.get("tags"), info.tags());

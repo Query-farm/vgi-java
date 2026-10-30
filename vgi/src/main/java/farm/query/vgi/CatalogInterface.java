@@ -94,6 +94,31 @@ public interface CatalogInterface {
     AttachInfo attach(byte[] attachId, CatalogAttachRequest request);
 
     /**
+     * The read profiles this catalog implements for an attach, advertised on the attach result
+     * and selected against the client's offer by the framework. Tables carrying canonical
+     * constraint records ({@link farm.query.vgi.catalog.ConstraintRecord}) are readable only
+     * under {@link farm.query.vgi.catalog.ConstraintRecord#CONSTRAINT_RECORDS_READ}.
+     *
+     * <p>Default: both constraint read profiles when any table of {@link #schemas} carries
+     * records, found by listing every schema's tables right after {@link #attach}. Override
+     * when that listing is expensive, or when tables gain records after attach.
+     *
+     * @param attachId the attach id
+     * @return the read profiles, or empty
+     */
+    default List<String> catalogReadProfiles(byte[] attachId) {
+        for (SchemaInfo s : schemas(attachId)) {
+            for (TableInfo t : tables(attachId, s.path())) {
+                if (!t.constraints().isEmpty()) {
+                    return List.of(farm.query.vgi.catalog.ConstraintRecord.CONSTRAINT_RECORDS_READ,
+                            farm.query.vgi.catalog.ConstraintRecord.SCALAR_EXPRESSION_READ);
+                }
+            }
+        }
+        return List.of();
+    }
+
+    /**
      * Release an attach. Default: nothing to release.
      *
      * @param attachId the attach id
