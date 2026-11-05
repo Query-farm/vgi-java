@@ -92,6 +92,18 @@ class SplitRedemptionTest {
         org.junit.jupiter.api.Assertions.assertTrue(wire.length > 0);
     }
 
+    @Test
+    void nullableLocationIdsAreRejectedInsteadOfSilentlyBecomingZero() {
+        farm.query.vgi.protocol.ScanSplit split = new farm.query.vgi.protocol.ScanSplit(
+                new byte[0], new byte[] {1}, null, false, null,
+                null, null, null, null, null, java.util.Arrays.asList(1L, null), null, null);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class, () -> ScanSplitSerializer.serialize(split));
+
+        org.junit.jupiter.api.Assertions.assertTrue(error.getMessage().contains("location_ids"));
+    }
+
     /** Tiny holder so the assertions above read as intent rather than accessors. */
     private record ScanSplitLike(farm.query.vgi.protocol.ScanSplit split) {
         byte[] token() {

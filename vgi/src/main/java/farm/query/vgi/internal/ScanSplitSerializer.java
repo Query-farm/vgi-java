@@ -88,11 +88,14 @@ public final class ScanSplitSerializer {
             if (split.location_ids() == null) {
                 locations.setNull(0);
             } else {
+                if (split.location_ids().stream().anyMatch(java.util.Objects::isNull)) {
+                    throw new IllegalArgumentException("ScanSplit.location_ids must not contain null elements");
+                }
                 UnionListWriter w = locations.getWriter();
                 w.setPosition(0);
                 w.startList();
                 for (Long id : split.location_ids()) {
-                    w.bigInt().writeBigInt(id == null ? 0L : id);
+                    w.bigInt().writeBigInt(id);
                 }
                 w.endList();
             }

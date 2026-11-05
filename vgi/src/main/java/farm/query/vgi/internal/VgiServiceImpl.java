@@ -1115,12 +1115,8 @@ public final class VgiServiceImpl implements VgiService {
             // only the first wants a default.
             splitCapable = fn.metadata().supportsSplits();
         }
-        if (planned.isEmpty()) {
-            return splitCapable
-                    ? new PlanResponse(List.of(), List.of(), null, new byte[0], null, 0L, 0L,
-                            null, null, "catalog", null, List.of(), List.of(), null,
-                            new byte[0], new byte[0])
-                    : PlanResponse.of(List.of(defaultSplitBytes()));
+        if (planned.isEmpty() && !splitCapable) {
+            return PlanResponse.of(List.of(defaultSplitBytes()));
         }
 
         byte[] fingerprint = SplitToken.bindFingerprint(
