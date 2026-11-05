@@ -1146,14 +1146,16 @@ public final class VgiServiceImpl implements VgiService {
         }
         PlanResponse response = PlanResponse.of(blobs);
         if (!result.nextCursors().isEmpty() || result.estimatedTotalSplits() != null
-                || result.estimatedTotalRows() != null || result.maxWorkers() != null) {
+                || result.estimatedTotalRows() != null || result.maxWorkers() != null
+                || result.keyGrouping() != null || result.rangePartitioning() != null) {
             response = new PlanResponse(
                     response.splits(),
                     result.nextCursors(),
                     response.execution_id(), response.init_opaque_data(),
                     result.maxWorkers(), result.estimatedTotalSplits(), result.estimatedTotalRows(),
                     response.estimated_total_bytes(), response.catalog_version(), response.scope(),
-                    response.locations(), response.partitioning(), response.sort_order(),
+                    response.locations(), result.keyGrouping(), result.rangePartitioning(),
+                    response.partitioning(), response.sort_order(),
                     response.cache_max_age_seconds(), response.start_position(),
                     response.end_position());
         }

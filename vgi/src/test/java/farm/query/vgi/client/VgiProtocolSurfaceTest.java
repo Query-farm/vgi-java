@@ -35,7 +35,7 @@ final class VgiProtocolSurfaceTest {
     /**
      * The canonical {@code vgi.v3} protocol hash of the reference (the combined contract, 85 methods).
      *
-     * <p>This changes only when {@code vgi.v3}'s protocol version (currently 3.0.0) changes. If
+     * <p>This changes only when {@code vgi.v3}'s protocol version (currently 3.1.0) changes. If
      * this test fails without such a change, a method or a params/result/header schema (field
      * name, order, nullability or type) has drifted from the reference: fix the drift, do not
      * update the constant.

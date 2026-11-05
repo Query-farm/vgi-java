@@ -37,10 +37,11 @@ import java.util.List;
  *        {@code transaction}
  * @param locations a hoisted host list splits index into, which keeps a large
  *        plan off the coordinator heap
- * @param partitioning serialised partition transforms. NOT derivable from a
- *        split's partition values — {@code country=US} does not say whether
- *        partitions are {@code identity(country)} or {@code bucket(16, user_id)}.
- *        Report nothing here unless every split really is single-valued
+ * @param key_grouping serialized {@link KeyGrouping}, when each split has one
+ *        exact transformed key tuple
+ * @param range_partitioning serialized {@link RangePartitioning}, containing
+ *        exact ordered split points and their comparator
+ * @param partitioning deprecated protocol-2 partition-transform list
  * @param sort_order ordering WITHIN each split, never a global claim across
  *        splits: concatenating K non-contiguous sorted runs is not sorted
  * @param cache_max_age_seconds how long this plan stays reusable
@@ -64,6 +65,8 @@ public record PlanResponse(
         @Nullable Long catalog_version,
         String scope,
         @Nullable List<String> locations,
+        @Nullable byte[] key_grouping,
+        @Nullable byte[] range_partitioning,
         @Nullable List<byte[]> partitioning,
         @Nullable List<byte[]> sort_order,
         @Nullable Long cache_max_age_seconds,
@@ -77,6 +80,31 @@ public record PlanResponse(
      */
     public PlanResponse {
         splits = splits == null ? List.of() : splits;
+    }
+
+    /** Protocol-2 source compatibility while protocol 3 producers migrate. */
+    @Deprecated
+    public PlanResponse(
+            List<byte[]> splits,
+            @Nullable List<byte[]> next_cursors,
+            @Nullable byte[] execution_id,
+            @Nullable byte[] init_opaque_data,
+            @Nullable Long max_workers,
+            @Nullable Long estimated_total_splits,
+            @Nullable Long estimated_total_rows,
+            @Nullable Long estimated_total_bytes,
+            @Nullable Long catalog_version,
+            String scope,
+            @Nullable List<String> locations,
+            @Nullable List<byte[]> partitioning,
+            @Nullable List<byte[]> sort_order,
+            @Nullable Long cache_max_age_seconds,
+            @Nullable byte[] start_position,
+            @Nullable byte[] end_position) {
+        this(splits, next_cursors, execution_id, init_opaque_data, max_workers,
+                estimated_total_splits, estimated_total_rows, estimated_total_bytes,
+                catalog_version, scope, locations, null, null, partitioning, sort_order,
+                cache_max_age_seconds, start_position, end_position);
     }
 
 
@@ -98,6 +126,7 @@ public record PlanResponse(
     public static PlanResponse of(List<byte[]> splits) {
         return new PlanResponse(
                 splits, List.of(), null, new byte[0], null, null, null, null, null,
-                "catalog", null, List.of(), List.of(), null, new byte[0], new byte[0]);
+                "catalog", null, null, null, List.of(), List.of(), null,
+                new byte[0], new byte[0]);
     }
 }
