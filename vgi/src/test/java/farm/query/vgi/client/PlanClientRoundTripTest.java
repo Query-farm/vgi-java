@@ -140,10 +140,19 @@ final class PlanClientRoundTripTest {
             long splits = namedLong(params, "splits");
             List<Range> all = evenRanges(n, splits);
 
+            // A split-capable worker may need a continuation before it can
+            // produce its first split. The service must preserve this empty
+            // page instead of replacing it with a terminal whole-scan answer.
+            if (request.cursor() == null || request.cursor().length == 0) {
+                return new PlanResult(
+                        List.of(),
+                        List.of(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(0).array()),
+                        null, (long) all.size(), n, 2L);
+            }
+
             long cap = request.maxSplitsPerResponse() == null
                     ? all.size() : request.maxSplitsPerResponse();
-            long page = request.cursor() == null || request.cursor().length == 0
-                    ? 0 : ByteBuffer.wrap(request.cursor()).order(ByteOrder.LITTLE_ENDIAN).getLong();
+            long page = ByteBuffer.wrap(request.cursor()).order(ByteOrder.LITTLE_ENDIAN).getLong();
             int lo = (int) Math.min(page * cap, all.size());
             int hi = (int) Math.min(lo + cap, all.size());
 
@@ -248,7 +257,7 @@ final class PlanClientRoundTripTest {
                 assertTrue(pages < 10, "runaway pagination — next_cursors never emptied");
                 planReq = planReq.withCursor(resp.next_cursors().get(0), 2);
             }
-            assertEquals(3, pages, "6 splits at 2 per page must take exactly 3 calls");
+            assertEquals(4, pages, "one empty continuation page plus 3 split pages");
             assertEquals(6, tokens.size(), "all 6 splits across every page");
 
             // REDEEM every split and drain it, collecting the union of rows.
