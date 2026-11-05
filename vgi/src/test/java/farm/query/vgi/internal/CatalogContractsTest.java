@@ -18,6 +18,12 @@ import farm.query.vgi.protocol.CatalogCapabilities;
 import farm.query.vgi.protocol.OptionDefinitions;
 import farm.query.vgi.protocol.OptionState;
 import farm.query.vgi.protocol.RequiredFilterPaths;
+import farm.query.vgi.protocol.FieldPath;
+import farm.query.vgi.protocol.KeyGrouping;
+import farm.query.vgi.protocol.PlanResponse;
+import farm.query.vgi.protocol.RangePartitioning;
+import farm.query.vgi.protocol.ScanSplit;
+import farm.query.vgi.protocol.TransformSpec;
 import farm.query.vgirpc.marshal.RecordCodec;
 import farm.query.vgirpc.marshal.Marshalling;
 import farm.query.vgirpc.marshal.ParameterBinder;
@@ -37,6 +43,60 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogContractsTest {
+    @Test void protocol31PartitionDistributionDecodesPythonGoldenPlan() throws Exception {
+        assertEquals(List.of("customer", "region"),
+                roundTrip("partition_field_path", FieldPath.class).components());
+
+        var transform = roundTrip("partition_parameterized_transform", TransformSpec.class);
+        assertEquals("example.bucket/2", transform.id());
+        try (var allocator = new RootAllocator();
+             var reader = new ArrowStreamReader(new ByteArrayInputStream(transform.parameters()), allocator)) {
+            assertTrue(reader.loadNextBatch());
+            var root = reader.getVectorSchemaRoot();
+            assertEquals(16, ((org.apache.arrow.vector.IntVector) root.getVector("buckets")).get(0));
+            assertEquals("murmur3", new String(
+                    ((org.apache.arrow.vector.VarCharVector) root.getVector("algorithm")).get(0),
+                    java.nio.charset.StandardCharsets.UTF_8));
+            assertEquals(1, ((org.apache.arrow.vector.BitVector) root.getVector("nulls_equal")).get(0));
+        }
+
+        assertEquals(2, roundTrip("partition_key_grouping", KeyGrouping.class).keys().size());
+        var ranges = roundTrip("partition_range_partitioning", RangePartitioning.class);
+        assertEquals(2, ranges.keys().size());
+        try (var allocator = new RootAllocator();
+             var reader = new ArrowStreamReader(new ByteArrayInputStream(ranges.split_points()), allocator)) {
+            assertTrue(reader.loadNextBatch());
+            var root = reader.getVectorSchemaRoot();
+            var regions = (org.apache.arrow.vector.VarCharVector) root.getVector("customer.region");
+            var times = (org.apache.arrow.vector.BigIntVector) root.getVector("event_time");
+            assertTrue(regions.isNull(0));
+            assertEquals("east", new String(regions.get(1), java.nio.charset.StandardCharsets.UTF_8));
+            assertEquals("west", new String(regions.get(3), java.nio.charset.StandardCharsets.UTF_8));
+            assertTrue(times.isNull(0));
+            assertEquals(List.of(20L, 10L, 99L), List.of(times.get(1), times.get(2), times.get(3)));
+        }
+
+        var split = roundTrip("partition_scan_split", ScanSplit.class);
+        assertEquals(2L, split.range_index());
+        assertEquals(List.of(0L, 1L), split.location_ids());
+        try (var allocator = new RootAllocator();
+             var reader = new ArrowStreamReader(new ByteArrayInputStream(split.key_value()), allocator)) {
+            assertTrue(reader.loadNextBatch());
+            var root = reader.getVectorSchemaRoot();
+            assertEquals("east", new String(
+                    ((org.apache.arrow.vector.VarCharVector) root.getVector("customer.region")).get(0),
+                    java.nio.charset.StandardCharsets.UTF_8));
+            assertEquals(15L, ((org.apache.arrow.vector.BigIntVector) root.getVector("event_time")).get(0));
+        }
+
+        var plan = roundTrip("partition_plan_response", PlanResponse.class);
+        assertEquals(3L, plan.max_workers());
+        assertEquals(List.of("worker-a", "worker-b"), plan.locations());
+        assertArrayEquals(fixture("partition_key_grouping"), plan.key_grouping());
+        assertArrayEquals(fixture("partition_range_partitioning"), plan.range_partitioning());
+        assertArrayEquals(fixture("partition_scan_split"), plan.splits().getFirst());
+    }
+
     @Test void attachDefaultSchemaPreservesNullAndRawNames() throws Exception {
         assertNull(roundTrip("attach_default_schema_none", farm.query.vgi.protocol.CatalogAttachResult.class).default_schema());
         assertEquals("main", roundTrip("attach_default_schema_main", farm.query.vgi.protocol.CatalogAttachResult.class).default_schema());
