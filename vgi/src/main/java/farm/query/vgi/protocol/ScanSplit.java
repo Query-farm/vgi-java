@@ -31,8 +31,10 @@ import java.util.List;
  * @param estimated_bytes byte estimate. Load-bearing for engines that bin-pack
  *        (DataFusion weight, Trino SplitWeight); {@code null} degrades them to
  *        round-robin by count. A greedily claiming client needs no cost model
- * @param partition_bounds 2-row (min, max) batch in the existing
- *        {@code vgi_partition_values} encoding, one column per partition column
+ * @param key_value exact one-row transformed key tuple for key grouping
+ * @param range_index zero-based range owned by this split
+ * @param column_bounds 2-row (min, max) containment/pruning metadata
+ * @param partition_bounds deprecated protocol-2 spelling for column bounds
  * @param column_statistics per-column statistics blob for this split
  * @param location_ids indices into {@code PlanResponse.locations} naming hosts
  *        where this split is cheap to read
@@ -46,11 +48,32 @@ public record ScanSplit(
         @Nullable Long estimated_rows,
         boolean rows_exact,
         @Nullable Long estimated_bytes,
+        @Nullable byte[] key_value,
+        @Nullable Long range_index,
+        @Nullable byte[] column_bounds,
         @Nullable byte[] partition_bounds,
         @Nullable byte[] column_statistics,
         @Nullable List<Long> location_ids,
         @Nullable byte[] start_position,
         @Nullable byte[] end_position) implements ArrowSerializableRecord {
+
+    /** Protocol-2 source compatibility while protocol 3 producers migrate. */
+    @Deprecated
+    public ScanSplit(
+            byte[] payload,
+            byte[] token,
+            @Nullable Long estimated_rows,
+            boolean rows_exact,
+            @Nullable Long estimated_bytes,
+            @Nullable byte[] partition_bounds,
+            @Nullable byte[] column_statistics,
+            @Nullable List<Long> location_ids,
+            @Nullable byte[] start_position,
+            @Nullable byte[] end_position) {
+        this(payload, token, estimated_rows, rows_exact, estimated_bytes, null, null,
+                null, partition_bounds, column_statistics, location_ids, start_position,
+                end_position);
+    }
 
     /** A split naming the given work, with no estimates.
      *
@@ -58,7 +81,8 @@ public record ScanSplit(
      * @return a split carrying that payload
      */
     public static ScanSplit of(byte[] payload) {
-        return new ScanSplit(payload, new byte[0], null, false, null, null, null, null, null, null);
+        return new ScanSplit(payload, new byte[0], null, false, null, null, null,
+                null, null, null, null, null, null);
     }
 
     /** A split naming the given work, with an exact row count and a byte estimate.
@@ -69,7 +93,22 @@ public record ScanSplit(
      * @return a split carrying that payload and those estimates
      */
     public static ScanSplit of(byte[] payload, long rows, long bytes) {
-        return new ScanSplit(payload, new byte[0], rows, true, bytes, null, null, null, null, null);
+        return new ScanSplit(payload, new byte[0], rows, true, bytes, null, null,
+                null, null, null, null, null, null);
+    }
+
+    /** This split with its exact transformed key tuple. */
+    public ScanSplit withKeyValue(byte[] value) {
+        return new ScanSplit(payload, token, estimated_rows, rows_exact, estimated_bytes,
+                value, range_index, column_bounds, partition_bounds, column_statistics,
+                location_ids, start_position, end_position);
+    }
+
+    /** This split assigned to one zero-based range. */
+    public ScanSplit withRangeIndex(long value) {
+        return new ScanSplit(payload, token, estimated_rows, rows_exact, estimated_bytes,
+                key_value, value, column_bounds, partition_bounds, column_statistics,
+                location_ids, start_position, end_position);
     }
 
     /** This split with its framework-stamped token attached, and its payload cleared.
@@ -84,6 +123,7 @@ public record ScanSplit(
      */
     public ScanSplit withToken(byte[] stamped) {
         return new ScanSplit(new byte[0], stamped, estimated_rows, rows_exact, estimated_bytes,
-                partition_bounds, column_statistics, location_ids, start_position, end_position);
+                key_value, range_index, column_bounds, partition_bounds, column_statistics,
+                location_ids, start_position, end_position);
     }
 }

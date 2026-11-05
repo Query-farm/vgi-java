@@ -59,6 +59,9 @@ public final class ScanSplitSerializer {
                 i64("estimated_rows", true),
                 new Field("rows_exact", new FieldType(false, BOOL, null), null),
                 i64("estimated_bytes", true),
+                bin("key_value", true),
+                i64("range_index", true),
+                bin("column_bounds", true),
                 bin("partition_bounds", true),
                 bin("column_statistics", true),
                 new Field("location_ids", new FieldType(true, new ArrowType.List(), null),
@@ -73,6 +76,9 @@ public final class ScanSplitSerializer {
             setLong(root, "estimated_rows", split.estimated_rows());
             ((BitVector) root.getVector("rows_exact")).setSafe(0, split.rows_exact() ? 1 : 0);
             setLong(root, "estimated_bytes", split.estimated_bytes());
+            setBinary(root, "key_value", split.key_value());
+            setLong(root, "range_index", split.range_index());
+            setBinary(root, "column_bounds", split.column_bounds());
             setBinary(root, "partition_bounds", split.partition_bounds());
             setBinary(root, "column_statistics", split.column_statistics());
             setBinary(root, "start_position", split.start_position());

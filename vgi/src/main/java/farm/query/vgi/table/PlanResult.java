@@ -43,7 +43,16 @@ public record PlanResult(
         Long catalogVersion,
         Long estimatedTotalSplits,
         Long estimatedTotalRows,
-        Long maxWorkers) {
+        Long maxWorkers,
+        byte[] keyGrouping,
+        byte[] rangePartitioning) {
+
+    /** Source-compatible constructor for plans without distribution metadata. */
+    public PlanResult(List<ScanSplit> splits, List<byte[]> nextCursors, Long catalogVersion,
+            Long estimatedTotalSplits, Long estimatedTotalRows, Long maxWorkers) {
+        this(splits, nextCursors, catalogVersion, estimatedTotalSplits,
+                estimatedTotalRows, maxWorkers, null, null);
+    }
 
     /** The not-split-capable answer: no splits, so the client scans normally.
      *
@@ -69,7 +78,7 @@ public record PlanResult(
      */
     public PlanResult withCatalogVersion(long version) {
         return new PlanResult(splits, nextCursors, version, estimatedTotalSplits,
-                estimatedTotalRows, maxWorkers);
+                estimatedTotalRows, maxWorkers, keyGrouping, rangePartitioning);
     }
 
     /** This plan, with a continuation cursor so enumeration carries on.
@@ -79,6 +88,18 @@ public record PlanResult(
      */
     public PlanResult withNextCursor(byte[] cursor) {
         return new PlanResult(splits, List.of(cursor), catalogVersion, estimatedTotalSplits,
-                estimatedTotalRows, maxWorkers);
+                estimatedTotalRows, maxWorkers, keyGrouping, rangePartitioning);
+    }
+
+    /** This plan with serialized protocol-3 key-grouping metadata. */
+    public PlanResult withKeyGrouping(byte[] value) {
+        return new PlanResult(splits, nextCursors, catalogVersion, estimatedTotalSplits,
+                estimatedTotalRows, maxWorkers, value, rangePartitioning);
+    }
+
+    /** This plan with serialized protocol-3 range metadata. */
+    public PlanResult withRangePartitioning(byte[] value) {
+        return new PlanResult(splits, nextCursors, catalogVersion, estimatedTotalSplits,
+                estimatedTotalRows, maxWorkers, keyGrouping, value);
     }
 }

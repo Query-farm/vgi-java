@@ -19,7 +19,7 @@ VGI lets [Haybarn](https://github.com/Query-farm-haybarn/haybarn) — Query Farm
 
 Wire-compatible with the [Python reference implementation](https://github.com/Query-farm/vgi-python) and the [Go port](https://github.com/Query-farm/vgi-go): all three serve the same integration suite against the same C++ extension.
 
-The prepared protocol uses VGI wire 3.0.0 under `vgi.v3` and requires a native VGI client speaking wire 3.0.x. Upgrade clients and workers together; published `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+The prepared protocol uses VGI wire 3.1.0 under `vgi.v3` and requires a native VGI client speaking wire 3.1.x. Upgrade clients and workers together; published `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
 
 ## What you can serve
 

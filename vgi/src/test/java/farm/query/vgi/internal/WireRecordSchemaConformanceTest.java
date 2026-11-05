@@ -351,6 +351,12 @@ class WireRecordSchemaConformanceTest {
         m.put(farm.query.vgi.protocol.SortKey.class, new Codec("SortKey", ORDERED));
         m.put(farm.query.vgi.protocol.TableLayout.class, new Codec("TableLayout", ORDERED));
         m.put(farm.query.vgi.protocol.TableLayoutChange.class, new Codec("TableLayoutChange", ORDERED));
+        m.put(farm.query.vgi.protocol.FieldPath.class, new Codec("FieldPath", ORDERED));
+        m.put(farm.query.vgi.protocol.TransformSpec.class, new Codec("TransformSpec", ORDERED));
+        m.put(farm.query.vgi.protocol.KeyGrouping.class, new Codec("KeyGrouping", ORDERED));
+        m.put(farm.query.vgi.protocol.RangeKey.class, new Codec("RangeKey", ORDERED));
+        m.put(farm.query.vgi.protocol.RangePartitioning.class,
+                new Codec("RangePartitioning", ORDERED));
 
         m.put(CopyFromContext.class, new Codec("CopyFromContext", BY_NAME));
         m.put(CopyToContext.class, new Codec("CopyToContext", BY_NAME));
