@@ -8,6 +8,9 @@ import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.internal.BatchUtil;
 import farm.query.vgi.internal.EmitMetadata;
 import farm.query.vgi.protocol.ScanSplit;
+import farm.query.vgi.protocol.FieldPath;
+import farm.query.vgi.protocol.KeyGrouping;
+import farm.query.vgi.protocol.TransformSpec;
 import farm.query.vgi.pushdown.PushdownFilter;
 import farm.query.vgi.pushdown.PushdownFilters;
 import farm.query.vgi.table.PlanRequest;
@@ -19,6 +22,7 @@ import farm.query.vgi.table.TableProducerState;
 import farm.query.vgi.types.Schemas;
 import farm.query.vgirpc.CallContext;
 import farm.query.vgirpc.OutputCollector;
+import farm.query.vgirpc.marshal.RecordCodec;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -913,6 +917,7 @@ public final class SplitFunctions {
                                 .withSplits()
                                 .withPartitionKind(FunctionMetadata.PartitionKind.SINGLE_VALUE_PARTITIONS))
                         .named("rows_per_country", Schemas.INT64, "5")
+                        .named("key_mode", Schemas.UTF8, "valid")
                         .build();
 
         @Override public farm.query.vgi.function.FunctionSpec spec() { return SPEC; }
@@ -925,12 +930,48 @@ public final class SplitFunctions {
         /** Names each partition by INDEX, so a redemption reads the same
          *  partition however many times it runs and in whichever process. */
         @Override public PlanResult plan(TableBindParams params, PlanRequest request) {
+            String keyMode = params.arguments().namedString("key_mode", "valid");
             List<ScanSplit> splits = new ArrayList<>(COUNTRIES.length);
             for (int i = 0; i < COUNTRIES.length; i++) {
-                splits.add(new ScanSplit(encode(new Range(i, i)), new byte[0],
-                        null, false, null, null, null, null, null, null));
+                ScanSplit split = ScanSplit.of(encode(new Range(i, i)));
+                byte[] keyValue = keyValue(COUNTRIES[i], keyMode);
+                splits.add(keyValue == null ? split : split.withKeyValue(keyValue));
             }
-            return PlanResult.of(splits);
+            byte[] path = RecordCodec.serializeToBytes(new FieldPath(List.of("country")));
+            byte[] transform = RecordCodec.serializeToBytes(
+                    new TransformSpec("vgi.identity/1", List.of(path), null));
+            return PlanResult.of(splits).withKeyGrouping(
+                    RecordCodec.serializeToBytes(new KeyGrouping(List.of(transform))));
+        }
+
+        private static byte[] keyValue(String country, String mode) {
+            if ("missing".equals(mode)) return null;
+            if (!List.of("valid", "two_rows", "wrong_type").contains(mode)) {
+                throw new IllegalArgumentException(
+                        "unknown split_partitioned key_mode: " + mode);
+            }
+            boolean wrongType = "wrong_type".equals(mode);
+            int rows = "two_rows".equals(mode) ? 2 : 1;
+            Schema schema = wrongType
+                    ? Schemas.of(Schemas.nullable("country", Schemas.INT64))
+                    : Schemas.of(Schemas.nullable("country", Schemas.UTF8));
+            try (org.apache.arrow.vector.VectorSchemaRoot root =
+                    org.apache.arrow.vector.VectorSchemaRoot.create(
+                            schema, farm.query.vgirpc.wire.Allocators.root())) {
+                root.allocateNew();
+                if (wrongType) {
+                    BigIntVector values = (BigIntVector) root.getVector("country");
+                    values.setSafe(0, 1L);
+                    values.setValueCount(1);
+                } else {
+                    VarCharVector values = (VarCharVector) root.getVector("country");
+                    byte[] text = country.getBytes(StandardCharsets.UTF_8);
+                    for (int i = 0; i < rows; i++) values.setSafe(i, text);
+                    values.setValueCount(rows);
+                }
+                root.setRowCount(rows);
+                return BatchUtil.writeSingleBatch(root);
+            }
         }
 
         @Override public TableProducerState createProducer(TableInitParams params) {
