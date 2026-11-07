@@ -38,7 +38,7 @@ import java.util.Map;
  *   <li>{@code vgi_choices} — JSON array of the closed set of allowed values.</li>
  *   <li>{@code vgi_range} — interval notation built from {@code ge}/{@code le}/
  *       {@code gt}/{@code lt} (e.g. {@code "[0, 10]"}, {@code "(0, +inf)"}).</li>
- *   <li>{@code vgi_pattern} — the raw regex the value must match.</li>
+ *   <li>{@code vgi_pattern} — the raw regex, an unanchored search over the value.</li>
  * </ul>
  */
 public final class ArgumentSpecSerializer {

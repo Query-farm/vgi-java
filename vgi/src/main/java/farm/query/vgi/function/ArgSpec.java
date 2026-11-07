@@ -78,7 +78,7 @@ public record ArgSpec(
      * @param le      inclusive upper bound ({@code value <= le}), or {@code null}.
      * @param gt      exclusive lower bound ({@code value > gt}), or {@code null}.
      * @param lt      exclusive upper bound ({@code value < lt}), or {@code null}.
-     * @param pattern regex the value must match, or {@code null}.
+     * @param pattern regex the value must contain a match for (unanchored search; anchor with {@code ^}/{@code $} for a full match), or {@code null}.
      */
     public record Constraints(
             List<Object> choices,
@@ -132,7 +132,7 @@ public record ArgSpec(
         /**
          * Regex constraint only.
          *
-         * @param pattern the regex the value must match.
+         * @param pattern the regex searched for in the value (unanchored; anchor with {@code ^}/{@code $} for a full match).
          * @return a pattern-only {@link Constraints}.
          */
         public static Constraints pattern(String pattern) {

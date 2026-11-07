@@ -58,6 +58,6 @@ public @interface Vector {
     /** {@return exclusive upper bound ({@code value < lt}); {@link Double#NaN}
      *  means unbounded} */
     double lt() default Double.NaN;
-    /** {@return regex the value must match ({@code vgi_pattern}); empty for none} */
+    /** {@return regex searched for in the value ({@code vgi_pattern}; unanchored, anchor with {@code ^}/{@code $} for a full match); empty for none} */
     String pattern() default "";
 }

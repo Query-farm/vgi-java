@@ -3224,8 +3224,9 @@ public final class VgiServiceImpl implements VgiService {
      * @return the wire {@link FunctionInfo}.
      */
     static FunctionInfo scalarFunctionInfo(ScalarFunction fn, String schemaName) {
-        BindResponse r = fn.onBind(new ScalarBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return baseFunctionInfo(fn, schemaName, "SCALAR", bindOutput(r), false);
+        byte[] out = catalogBindOutput(fn.name(),
+                () -> fn.onBind(new ScalarBindParams(fn.name(), Arguments.empty(), null, Map.of())));
+        return baseFunctionInfo(fn, schemaName, "SCALAR", out, false);
     }
 
     private FunctionInfo toTableFunctionInfo(TableFunction fn, String schemaName) {
@@ -3251,20 +3252,22 @@ public final class VgiServiceImpl implements VgiService {
             return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "TABLE",
                     SchemaUtil.serializeSchema(new Schema(List.of())), false), fn.requiredSecrets());
         }
-        BindResponse r = fn.onBind(new TableBindParams(fn.name(), Arguments.empty(), null, Map.of()));
-        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "TABLE", bindOutput(r), false),
+        byte[] out = catalogBindOutput(fn.name(),
+                () -> fn.onBind(new TableBindParams(fn.name(), Arguments.empty(), null, Map.of())));
+        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "TABLE", out, false),
                 fn.requiredSecrets());
     }
 
     private FunctionInfo toTableInOutFunctionInfo(TableInOutFunction fn, String schemaName) {
-        BindResponse r = fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of()));
+        byte[] out = catalogBindOutput(fn.name(),
+                () -> fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of())));
         // has_finalize drives the C++ per-substream FINALIZE-phase init after
         // input EOS (parallel streaming finalize). Blended (RowTransformFunction)
         // registrations additionally advertise input_from_args, entering the
         // C++ in-out registration branch with real-typed positional args; the
         // C++ rejects input_from_args && has_finalize, and RowTransformFunction
         // pins hasFinalize() to false, so the pair stays consistent.
-        FunctionInfo base = baseFunctionInfo(fn, schemaName, "TABLE", bindOutput(r), fn.hasFinalize());
+        FunctionInfo base = baseFunctionInfo(fn, schemaName, "TABLE", out, fn.hasFinalize());
         // Re-stamp the TIO-specific fields baseFunctionInfo hardcodes:
         // max_workers (0 = the C++ parallel-by-default per-substream fan-out;
         // 1 would be the A3 serial opt-out AND disqualify the exchange-mode
@@ -3325,9 +3328,10 @@ public final class VgiServiceImpl implements VgiService {
 
     private FunctionInfo toBufferingFunctionInfo(
             farm.query.vgi.buffering.TableBufferingFunction fn, String schemaName) {
-        BindResponse r = fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of()));
+        byte[] out = catalogBindOutput(fn.name(),
+                () -> fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of())));
         FunctionInfo base = baseFunctionInfo(fn.name(), fn.metadata(), schemaName, "TABLE_BUFFERING",
-                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), bindOutput(r),
+                ArgumentSpecSerializer.toIpcBytes(fn.argumentSpecs()), out,
                 encodeParameterDefaults(fn), /*hasFinalize=*/true, 1, null);
         // Re-stamp the buffering-specific ordering flags (baseFunctionInfo
         // hardcodes them false; they're only meaningful for TableBuffering).
@@ -3351,6 +3355,29 @@ public final class VgiServiceImpl implements VgiService {
 
     private static byte[] bindOutput(BindResponse r) {
         return r.output_schema() != null ? r.output_schema() : new byte[0];
+    }
+
+    private static final org.slf4j.Logger CATALOG_LOG =
+            org.slf4j.LoggerFactory.getLogger(VgiServiceImpl.class);
+
+    /**
+     * Run a catalog-listing bind (empty arguments, no input schema) and return its
+     * output schema bytes. A function whose {@code onBind} rejects the empty-argument
+     * probe (validating required arguments, needing an attach, ...) must not break
+     * ATTACH for the whole catalog: the failure is swallowed and an empty output
+     * schema is advertised instead, which is what vgi-python always advertises for
+     * table functions. The real bind at call time still runs {@code onBind} with the
+     * caller's arguments. Constraint enforcement is a no-op here: every declared
+     * argument is absent, and absent values skip their constraints.
+     */
+    private static byte[] catalogBindOutput(String name, java.util.function.Supplier<BindResponse> bind) {
+        try {
+            return bindOutput(bind.get());
+        } catch (RuntimeException e) {
+            CATALOG_LOG.debug("catalog listing: onBind of '{}' with empty arguments threw ({}); "
+                    + "advertising an empty output schema", name, e.toString());
+            return SchemaUtil.serializeSchema(new Schema(List.of()));
+        }
     }
 
     private static farm.query.vgi.pushdown.PushdownFiltersDecoder.Capabilities filterCapabilities(

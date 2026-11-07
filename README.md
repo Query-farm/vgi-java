@@ -45,7 +45,7 @@ Artifacts are published to Maven Central under the `farm.query` group.
 
 ```kotlin
 dependencies {
-    implementation("farm.query:vgi:0.46.0")
+    implementation("farm.query:vgi:0.46.1")
 }
 ```
 
@@ -55,7 +55,7 @@ dependencies {
 <dependency>
   <groupId>farm.query</groupId>
   <artifactId>vgi</artifactId>
-  <version>0.46.0</version>
+  <version>0.46.1</version>
 </dependency>
 ```
 
@@ -142,6 +142,16 @@ SELECT demo.multiply(21, 2);  -- 42
 ```
 
 The `launch:` location scheme starts the worker once behind a flock-coordinated Unix socket and reuses it across queries and engine processes — essential for JVM workers, which are expensive to cold-start. Plain subprocess (`/path/to/worker`) and `http(s)://` locations also work.
+
+## Running several HTTP replicas
+
+Set the same `VGI_SIGNING_KEY` (or call `Worker.signingKey(byte[])`) on every
+replica. It seals `attach_opaque_data` and, through an HKDF-SHA256 derivation
+(label `vgi.http.state_token_key.v1`, never the raw key), keys the HTTP
+stream-state tokens, so a table-function stream started on one replica resumes
+on any other and survives a restart. Without it each process uses a random key
+and logs a warning at startup. An explicit `HttpServer.Config.Builder.tokenKey`
+still takes precedence.
 
 ## Example worker
 

@@ -24,24 +24,56 @@ public final class ConstraintEnforcer {
     /**
      * Validate a function's const arguments against their declared constraints.
      *
-     * <p>Const arguments are numbered sequentially (the i-th const spec reads the
-     * i-th positional value); a value that violates a declared choices /
-     * ge/le/gt/lt / pattern constraint throws {@link IllegalArgumentException}. A
-     * null (absent) value is skipped, matching the other SDKs.
+     * <p>Where each const argument's value is read from:
+     * <ul>
+     *   <li>a <b>named-only</b> spec ({@code position() < 0}, e.g.
+     *       {@link ArgSpec#named}) reads {@code args.named().get(name)} and does
+     *       <em>not</em> consume a positional slot;</li>
+     *   <li>a <b>positional</b> const spec reads the next value of
+     *       {@code args.positional()}: the wire carries only the const values
+     *       there, densely, in declaration order (column, TABLE and named
+     *       arguments are not in it), so the i-th positional const spec reads
+     *       the i-th positional value;</li>
+     *   <li>a <b>varargs</b> const spec checks every remaining positional value.</li>
+     * </ul>
+     * A value that violates a declared choices / ge/le/gt/lt / pattern constraint
+     * throws {@link IllegalArgumentException}. A null (absent) value is skipped,
+     * matching the other SDKs, so a catalog-listing bind with empty arguments
+     * never trips a constraint.
+     *
+     * <p>{@code pattern} is an <b>unanchored search</b> (like JSON Schema / ECMA
+     * {@code pattern}, and the Rust and Go SDKs): {@code "https?://"} accepts
+     * {@code "see http://x"}. Anchor explicitly with {@code ^} / {@code $} to
+     * require a full match.
      *
      * @param args the bound call arguments (may be {@code null}).
      * @param specs the function's argument specs in declaration order (may be {@code null}).
      */
     public static void enforce(Arguments args, List<ArgSpec> specs) {
         if (args == null || specs == null) return;
+        List<Object> positional = args.positional() == null ? List.of() : args.positional();
+        java.util.Map<String, Object> named = args.named() == null ? java.util.Map.of() : args.named();
         int constIdx = 0;
         for (ArgSpec spec : specs) {
             if (!spec.isConst()) continue;
             ArgSpec.Constraints c = spec.constraints();
-            if (c != null && !c.isEmpty()) {
-                Object value = constIdx < args.positional().size()
-                        ? args.positional().get(constIdx)
-                        : null;
+            boolean constrained = c != null && !c.isEmpty();
+            if (spec.position() < 0) {
+                // Named-only: looked up by name, consumes no positional slot.
+                if (constrained) validateConstValue(spec.name(), c, named.get(spec.name()));
+                continue;
+            }
+            if (spec.varargs()) {
+                if (constrained) {
+                    for (int i = constIdx; i < positional.size(); i++) {
+                        validateConstValue(spec.name(), c, positional.get(i));
+                    }
+                }
+                constIdx = Math.max(constIdx, positional.size());
+                continue;
+            }
+            if (constrained) {
+                Object value = constIdx < positional.size() ? positional.get(constIdx) : null;
                 validateConstValue(spec.name(), c, value);
             }
             constIdx++;
@@ -70,7 +102,7 @@ public final class ConstraintEnforcer {
         }
         if (c.pattern() != null && !c.pattern().isEmpty() && value instanceof String s) {
             try {
-                if (!Pattern.matches(c.pattern(), s)) {
+                if (!Pattern.compile(c.pattern()).matcher(s).find()) {
                     throw constraintError(name, "must match pattern " + c.pattern());
                 }
             } catch (PatternSyntaxException ignored) {

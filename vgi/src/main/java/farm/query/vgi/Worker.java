@@ -496,7 +496,9 @@ public final class Worker {
      *
      * <p>Any length: a 32-byte key is used as-is, any other is replaced by its SHA-256, exactly as
      * {@code VGI_SIGNING_KEY} is normalized in every VGI SDK. A configured key also lets replicas
-     * open each other's opaque data and tickets. Without one each HTTP process seals with a random
+     * open each other's opaque data and tickets, and keys the HTTP stream-state tokens (an
+     * HKDF-SHA256 derivation, never the raw key; see {@link #runHttp}) so table-function streams
+     * resume on any replica and across restarts. Without one each HTTP process seals with a random
      * key of its own, and attach tickets are not hosted: every ticket would die on restart.
      *
      * @param key the key bytes, or {@code null} to defer to {@code VGI_SIGNING_KEY}
@@ -2265,6 +2267,12 @@ public final class Worker {
      *  (15 s by default; see {@code HttpServer}'s {@code setStopTimeout}) and
      *  then forcibly closes any stragglers.
      *
+     *  <p>State tokens: when {@code config} sets no {@code tokenKey} and a signing key is
+     *  configured ({@link #signingKey(byte[])} or {@code VGI_SIGNING_KEY}), the stream-state
+     *  token key is derived from it (HKDF-SHA256, label {@value #STATE_TOKEN_KEY_LABEL}), so
+     *  every replica sharing the signing key can resume table-function streams another replica
+     *  started. With neither, the key is random per process and a warning is logged.
+     *
      * @param config fully-built HTTP server configuration
      * @throws Exception if the server fails to start or serve
      */
@@ -2276,6 +2284,7 @@ public final class Worker {
         HttpServer.Config effective = config.landingInfo() != null
                 ? config
                 : config.withLandingInfo(farm.query.vgi.http.WorkerLandingInfo.of(this));
+        effective = withStateTokenKey(effective, configuredSigningKey(), log);
         HttpServer http = new HttpServer(buildServer(Transport.HTTP), effective);
         http.start();
         System.out.println("PORT:" + http.port());
@@ -2292,6 +2301,86 @@ public final class Worker {
             }
         }, "vgi-http-shutdown"));
         http.join();
+    }
+
+    /** HKDF {@code info} label for the HTTP stream-state token key derived from the signing key. */
+    static final String STATE_TOKEN_KEY_LABEL = "vgi.http.state_token_key.v1";
+
+    /**
+     * Give an HTTP config a stable stream-state token key when it has none.
+     *
+     * <p>Table-function state (cursors, the per-turn producer state) travels between HTTP
+     * requests in AEAD-sealed state tokens. With no token key vgi-rpc seals them with a random
+     * per-process key, so a token minted by one replica (or before a restart) cannot be opened by
+     * another. When a signing key is configured ({@link #signingKey(byte[])} or
+     * {@code VGI_SIGNING_KEY}) the token key is derived from it with HKDF-SHA256 under the label
+     * {@value #STATE_TOKEN_KEY_LABEL} (never the raw signing key), so every replica sharing the
+     * signing key can resume every other replica's streams. An explicit
+     * {@code HttpServer.Config.Builder#tokenKey} always wins. Without either, the per-process key
+     * is kept and a one-line warning is logged.
+     *
+     * @param config     the HTTP config
+     * @param signingKey the normalized configured signing key, or {@code null}
+     * @param log        where to log the single-replica warning, or {@code null}
+     * @return {@code config}, or a copy carrying the derived token key
+     */
+    static HttpServer.Config withStateTokenKey(HttpServer.Config config, byte[] signingKey,
+                                               org.slf4j.Logger log) {
+        if (config.tokenKey() != null) return config;
+        if (signingKey == null) {
+            if (log != null) {
+                log.warn("HTTP state tokens are sealed with a random per-process key: table-function "
+                        + "streams cannot resume on another replica or after a restart; set "
+                        + SIGNING_KEY_ENV + " (or Worker.signingKey) for multi-replica deployments");
+            }
+            return config;
+        }
+        return copyConfigWithTokenKey(config, deriveStateTokenKey(signingKey));
+    }
+
+    /**
+     * Derive the 32-byte HTTP state-token key from a signing key: HKDF-SHA256 (RFC 5869) with an
+     * all-zero salt and {@code info} = {@value #STATE_TOKEN_KEY_LABEL}.
+     *
+     * @param signingKey the signing key (input keying material)
+     * @return the derived 32-byte key
+     */
+    static byte[] deriveStateTokenKey(byte[] signingKey) {
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(new byte[32], "HmacSHA256"));
+            byte[] prk = mac.doFinal(signingKey);
+            mac.init(new javax.crypto.spec.SecretKeySpec(prk, "HmacSHA256"));
+            mac.update(STATE_TOKEN_KEY_LABEL.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            mac.update((byte) 1);
+            return mac.doFinal(); // L = 32 = HashLen: one expand block
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException("HmacSHA256 unavailable", e);
+        }
+    }
+
+    /** Copy the {@code HttpServer.Config} record with {@code tokenKey} replaced, via its canonical
+     *  constructor, so this keeps working as vgi-rpc adds config components. */
+    private static HttpServer.Config copyConfigWithTokenKey(HttpServer.Config config, byte[] tokenKey) {
+        try {
+            java.lang.reflect.RecordComponent[] comps = HttpServer.Config.class.getRecordComponents();
+            Object[] values = new Object[comps.length];
+            Class<?>[] types = new Class<?>[comps.length];
+            boolean found = false;
+            for (int i = 0; i < comps.length; i++) {
+                types[i] = comps[i].getType();
+                if ("tokenKey".equals(comps[i].getName())) {
+                    values[i] = tokenKey;
+                    found = true;
+                } else {
+                    values[i] = comps[i].getAccessor().invoke(config);
+                }
+            }
+            if (!found) throw new IllegalStateException("HttpServer.Config has no tokenKey component");
+            return HttpServer.Config.class.getDeclaredConstructor(types).newInstance(values);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("cannot set the HTTP state-token key", e);
+        }
     }
 
     private static void requireLoopback(String host, String label) {
