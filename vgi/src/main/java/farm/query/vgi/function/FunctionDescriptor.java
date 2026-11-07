@@ -72,4 +72,20 @@ public interface FunctionDescriptor {
      * @return the defaults batch, or {@code null} when no parameter defaults
      */
     default VectorSchemaRoot parameterDefaultValues() { return null; }
+
+    /**
+     * Secrets the extension resolves before the first bind and sends on it,
+     * surfaced on the wire as {@code FunctionInfo.required_secrets}. Every
+     * function kind (scalar, table, table-in-out, buffering, aggregate) can
+     * declare them; they arrive on the bind/process params of that kind as the
+     * resolved-secrets blob (parse it with {@code farm.query.vgi.Secrets}). A
+     * secret that does not exist is simply absent, not an error. Build entries
+     * with {@code FunctionRequiredSecret.ofType/scoped/named}; a null entry fails
+     * the catalog listing rather than being dropped. Default: none.
+     *
+     * @return the required-secret declarations, or an empty list
+     */
+    default List<farm.query.vgi.protocol.FunctionRequiredSecret> requiredSecrets() {
+        return List.of();
+    }
 }

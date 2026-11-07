@@ -3226,7 +3226,8 @@ public final class VgiServiceImpl implements VgiService {
     static FunctionInfo scalarFunctionInfo(ScalarFunction fn, String schemaName) {
         byte[] out = catalogBindOutput(fn.name(),
                 () -> fn.onBind(new ScalarBindParams(fn.name(), Arguments.empty(), null, Map.of())));
-        return baseFunctionInfo(fn, schemaName, "SCALAR", out, false);
+        return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "SCALAR", out, false),
+                fn.requiredSecrets());
     }
 
     private FunctionInfo toTableFunctionInfo(TableFunction fn, String schemaName) {
@@ -3258,7 +3259,7 @@ public final class VgiServiceImpl implements VgiService {
                 fn.requiredSecrets());
     }
 
-    private FunctionInfo toTableInOutFunctionInfo(TableInOutFunction fn, String schemaName) {
+    static FunctionInfo toTableInOutFunctionInfo(TableInOutFunction fn, String schemaName) {
         byte[] out = catalogBindOutput(fn.name(),
                 () -> fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of())));
         // has_finalize drives the C++ per-substream FINALIZE-phase init after
@@ -3272,7 +3273,7 @@ public final class VgiServiceImpl implements VgiService {
         // max_workers (0 = the C++ parallel-by-default per-substream fan-out;
         // 1 would be the A3 serial opt-out AND disqualify the exchange-mode
         // result cache) and input_from_args for blended registrations.
-        return new FunctionInfo(
+        return withRequiredSecrets(new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.parameter_default_values(),
                 base.stability(), base.null_handling(), base.argument_monotonicity(),
@@ -3290,7 +3291,7 @@ public final class VgiServiceImpl implements VgiService {
                 fn instanceof farm.query.vgi.tableinout.RowTransformFunction,
                 fn instanceof farm.query.vgi.tableinout.RowTransformFunction rt
                         ? rt.inputRowsPerCall() : null,
-                base.required_settings(), base.required_secrets());
+                base.required_settings(), base.required_secrets()), fn.requiredSecrets());
     }
 
     private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
@@ -3335,7 +3336,7 @@ public final class VgiServiceImpl implements VgiService {
                 base.required_settings(), required);
     }
 
-    private FunctionInfo toBufferingFunctionInfo(
+    static FunctionInfo toBufferingFunctionInfo(
             farm.query.vgi.buffering.TableBufferingFunction fn, String schemaName) {
         byte[] out = catalogBindOutput(fn.name(),
                 () -> fn.onBind(new TableInOutBindParams(fn.name(), Arguments.empty(), null, Map.of())));
@@ -3344,7 +3345,7 @@ public final class VgiServiceImpl implements VgiService {
                 encodeParameterDefaults(fn), /*hasFinalize=*/true, 1, null);
         // Re-stamp the buffering-specific ordering flags (baseFunctionInfo
         // hardcodes them false; they're only meaningful for TableBuffering).
-        return new FunctionInfo(
+        return withRequiredSecrets(new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.parameter_default_values(),
                 base.stability(), base.null_handling(), base.argument_monotonicity(),
@@ -3359,7 +3360,7 @@ public final class VgiServiceImpl implements VgiService {
                 base.supports_window(), base.streaming_partitioned(), base.has_finalize(),
                 fn.sourceOrderDependent(), fn.sinkOrderDependent(), fn.requiresInputBatchIndex(),
                 base.input_from_args(), base.input_rows_per_call(),
-                base.required_settings(), base.required_secrets());
+                base.required_settings(), base.required_secrets()), fn.requiredSecrets());
     }
 
     private static byte[] bindOutput(BindResponse r) {
