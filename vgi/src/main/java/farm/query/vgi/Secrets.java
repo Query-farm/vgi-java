@@ -29,6 +29,27 @@ import java.util.Optional;
  * <p>Mirrors {@code vgi::Secrets} in the Rust SDK. Parse the {@code byte[]} blob
  * carried on the params with {@link #parse(byte[])}, then select by name, type,
  * or scope.</p>
+ *
+ * <p><b>Select by type with the type selectors, never by column name.</b> The
+ * column is the secret's name: an unnamed {@code CREATE SECRET (TYPE brave, ...)}
+ * arrives as {@code __default_brave}, a named one under whatever its author
+ * called it. {@link #lookup(String)}, {@link #ofType(String)},
+ * {@link #require(String)} and {@link #forScopeOfType(String, String)} match the
+ * secret's {@code type} field (falling back to the column name only for a secret
+ * that carries no {@code type} field). The selection rules follow
+ * {@code vgi-secrets.md} section 5:</p>
+ * <ul>
+ *   <li><b>By name</b> ({@link #lookupNamed}): the secret of that name, if its
+ *       type matches.</li>
+ *   <li><b>By scope</b> ({@link #forScopeOfType}): among secrets of the type, the
+ *       one with the longest scope prefix of the path; failing that, one with an
+ *       empty scope; failing that, none.</li>
+ *   <li><b>By type alone</b> ({@link #lookup}): a secret of the type with an
+ *       empty scope; failing that, the first secret of the type.</li>
+ * </ul>
+ *
+ * <p>Every selected field map also carries a {@code name} entry (the secret's
+ * name), filled from the column name when the client did not send one.</p>
  */
 public final class Secrets {
 
@@ -85,6 +106,7 @@ public final class Secrets {
                         fields.put(f.getName(), render(col));
                     }
                     if (!fields.isEmpty()) {
+                        fields.putIfAbsent("name", f.getName());
                         byName.put(f.getName(), fields);
                     }
                 }
@@ -119,18 +141,86 @@ public final class Secrets {
         return namedField(name, "type");
     }
 
-    /** Every resolved secret whose {@code type} field matches {@code secretType}. */
+    /**
+     * Every resolved secret of {@code secretType}, in delivery order. A secret
+     * matches on its {@code type} field; one that carries no {@code type} field
+     * matches when its column name equals {@code secretType}.
+     *
+     * @param secretType the DuckDB secret type
+     * @return the matching secrets' fields (possibly empty)
+     */
     public List<Map<String, String>> ofType(String secretType) {
-        return byName.values().stream()
-                .filter(m -> secretType.equals(m.get("type")))
+        return byName.entrySet().stream()
+                .filter(e -> isOfType(e.getKey(), e.getValue(), secretType))
+                .map(Map.Entry::getValue)
                 .toList();
+    }
+
+    /**
+     * The secret of {@code secretType} to use when no path chooses between
+     * several: one with an empty scope, failing that the first of the type.
+     * Matches on the secret's {@code type} field, not its name, so an unnamed
+     * {@code __default_<type>} secret and one named unlike its type are both
+     * found.
+     *
+     * @param secretType the DuckDB secret type
+     * @return the selected secret's fields, or empty when none of the type was resolved
+     */
+    public Optional<Map<String, String>> lookup(String secretType) {
+        Map<String, String> first = null;
+        for (Map.Entry<String, Map<String, String>> e : byName.entrySet()) {
+            if (!isOfType(e.getKey(), e.getValue(), secretType)) {
+                continue;
+            }
+            String scope = e.getValue().get("scope");
+            if (scope == null || scope.isEmpty()) {
+                return Optional.of(e.getValue());
+            }
+            if (first == null) {
+                first = e.getValue();
+            }
+        }
+        return Optional.ofNullable(first);
+    }
+
+    /**
+     * The secret named {@code name}, only if it is of {@code secretType}.
+     *
+     * @param secretType the DuckDB secret type the secret must have
+     * @param name the secret's unique DuckDB name (e.g. {@code __default_s3})
+     * @return its fields, or empty when no such secret, or it has another type
+     */
+    public Optional<Map<String, String>> lookupNamed(String secretType, String name) {
+        Map<String, String> m = byName.get(name);
+        return m != null && isOfType(name, m, secretType) ? Optional.of(m) : Optional.empty();
+    }
+
+    /**
+     * Like {@link #lookup(String)} but a missing secret is an error. The message
+     * names the type and never a secret value, so it is safe to surface from a
+     * bind.
+     *
+     * @param secretType the DuckDB secret type
+     * @return the selected secret's fields
+     * @throws IllegalStateException when no secret of {@code secretType} was resolved
+     */
+    public Map<String, String> require(String secretType) {
+        return lookup(secretType).orElseThrow(() -> new IllegalStateException(
+                "required secret of type '" + secretType + "' was not found; create one with "
+                        + "CREATE SECRET (TYPE " + secretType + ", ...)"));
+    }
+
+    private static boolean isOfType(String name, Map<String, String> fields, String secretType) {
+        String type = fields.get("type");
+        return type != null ? type.equals(secretType) : name.equals(secretType);
     }
 
     /**
      * The fields of the secret whose {@code scope} is the longest prefix of
      * {@code path}. The connector serializes each secret's scope as a
      * newline-joined list of prefixes; a secret with no (or empty) scope matches
-     * as a last-resort fallback. Empty only when there are no candidate secrets.
+     * as a last-resort fallback. Empty when no scope matches and no candidate is
+     * unscoped.
      *
      * @param path the path to match (e.g. {@code s3://bucket/data/x.dat})
      * @return the best-matching secret's fields
@@ -153,8 +243,9 @@ public final class Secrets {
         Map<String, String> best = null;
         int bestLen = -1;
         Map<String, String> fallback = null;
-        for (Map<String, String> fields : byName.values()) {
-            if (secretType != null && !secretType.equals(fields.get("type"))) {
+        for (Map.Entry<String, Map<String, String>> e : byName.entrySet()) {
+            Map<String, String> fields = e.getValue();
+            if (secretType != null && !isOfType(e.getKey(), fields, secretType)) {
                 continue;
             }
             String scope = fields.get("scope");

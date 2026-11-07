@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -74,5 +75,44 @@ class FunctionInfoRequiredSecretsTest {
     void noDeclarationYieldsEmptyList() {
         FunctionInfo info = VgiServiceImpl.tableFunctionInfo(new DeclaresNothing(), "main");
         assertTrue(info.required_secrets().isEmpty());
+    }
+
+    /** Declares a requirement list containing a null entry. */
+    static final class DeclaresNull extends SimpleTableFunction {
+        @Override public FunctionSpec spec() { return FunctionSpec.builder("declares_null").description("doc").build(); }
+        @Override protected Schema outputSchema() { return OUTPUT; }
+        @Override public List<FunctionRequiredSecret> requiredSecrets() {
+            java.util.List<FunctionRequiredSecret> l = new java.util.ArrayList<>();
+            l.add(FunctionRequiredSecret.ofType("vgi_example"));
+            l.add(null);
+            return l;
+        }
+        @Override public TableProducerState createProducer(TableInitParams p) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    @Test
+    void everyDeclarationFormIsRequested() {
+        assertEquals(new FunctionRequiredSecret("vgi_example", null, null),
+                FunctionRequiredSecret.ofType("vgi_example"));
+        assertEquals(new FunctionRequiredSecret("s3", "s3://b/", null),
+                FunctionRequiredSecret.scoped("s3", "s3://b/"));
+        assertEquals(new FunctionRequiredSecret("s3", null, "mine"),
+                FunctionRequiredSecret.named("s3", "mine"));
+    }
+
+    @Test
+    void blankTypeIsRejectedNotDropped() {
+        assertThrows(IllegalArgumentException.class, () -> FunctionRequiredSecret.ofType(""));
+        assertThrows(IllegalArgumentException.class, () -> FunctionRequiredSecret.ofType("  "));
+        assertThrows(IllegalArgumentException.class, () -> new FunctionRequiredSecret(null, "s3://x/", null));
+    }
+
+    @Test
+    void nullDeclarationIsAnErrorNamingTheFunction() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> VgiServiceImpl.tableFunctionInfo(new DeclaresNull(), "main"));
+        assertTrue(e.getMessage().contains("declares_null"), e.getMessage());
     }
 }

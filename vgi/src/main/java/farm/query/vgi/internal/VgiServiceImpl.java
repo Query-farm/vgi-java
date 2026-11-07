@@ -3308,6 +3308,15 @@ public final class VgiServiceImpl implements VgiService {
     private static FunctionInfo withRequiredSecrets(
             FunctionInfo base, List<farm.query.vgi.protocol.FunctionRequiredSecret> required) {
         if (required == null || required.isEmpty()) return base;
+        for (int i = 0; i < required.size(); i++) {
+            if (required.get(i) == null) {
+                // A dropped entry would mean the extension never resolves the
+                // secret the function depends on; fail the listing instead.
+                throw new IllegalArgumentException("function '" + base.name()
+                        + "' declares a null required secret at index " + i
+                        + "; use FunctionRequiredSecret.ofType/scoped/named");
+            }
+        }
         return new FunctionInfo(
                 base.comment(), base.tags(), base.name(), base.schema_path(), base.function_type(),
                 base.arguments(), base.output_schema(), base.parameter_default_values(),

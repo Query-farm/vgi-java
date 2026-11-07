@@ -127,6 +127,10 @@ install -m 0755 "$DATABASE_WORKER_FIXTURE" \
 #            vgi's `make test_http`).
 export VGI_WORKER_BIN
 export VGI_DATABASE_PACKAGE_WORKER="$VGI_WORKER_BIN"
+# The example worker implements the five secret-lookup conformance fixtures
+# (SecretLookupFixtures; contract: vgi docs/secret_lookup_fixtures.md), so opt
+# the secret/secret_lookup_*.test files in. Unset, they skip.
+export VGI_SECRET_LOOKUP_FIXTURES=1
 # Scratch dir for the native-branch / required-field-filter fixtures. The tests
 # COPY their parquet/csv here and the worker's scan branches read the same path
 # back, so both sides must name the SAME directory (upstream gates those 6 tests

@@ -570,6 +570,13 @@ public final class Main {
                 new farm.query.vgi.example.table.SecretDemoFunction(),
                 new farm.query.vgi.example.table.ScopedSecretDemoFunction(),
                 new farm.query.vgi.example.table.MultiSecretDemoFunction(),
+                // Secret-lookup conformance fixtures (secret/secret_lookup_*.test;
+                // contract: vgi docs/secret_lookup_fixtures.md).
+                new farm.query.vgi.example.table.SecretLookupFixtures.ByType(),
+                new farm.query.vgi.example.table.SecretLookupFixtures.ByName(),
+                new farm.query.vgi.example.table.SecretLookupFixtures.ForScope(),
+                new farm.query.vgi.example.table.SecretLookupFixtures.Required(),
+                new farm.query.vgi.example.table.SecretLookupFixtures.TypesSeen(),
                 new farm.query.vgi.example.table.CannedDataFunction(),
                 new farm.query.vgi.example.table.ConstantColumnsFunction(),
                 new farm.query.vgi.example.table.RowIdSequenceFunction(),
