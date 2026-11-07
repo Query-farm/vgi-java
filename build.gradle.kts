@@ -8,7 +8,7 @@ plugins {
 
 allprojects {
     group = "farm.query"
-    version = "0.46.1"
+    version = "0.46.2"
 
     repositories {
         mavenCentral()
