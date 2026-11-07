@@ -310,6 +310,22 @@ if [ "$TRANSPORT" = "http" ]; then
   )
 fi
 
+# Engine-gated files (vgi Makefile VGI_ENGINE_TEST_VARS). The native runner
+# exports each VGI_ENGINE_* var its engine supports (=1, from the artifact
+# manifest, via scripts/ci_fetch_native_runner.py): the files written for
+# engines WITHOUT the feature then skip with "require-env-not V", and on an
+# engine lacking it (e.g. a local haybarn-unittest with the community
+# extension, which exports none) the files that need it skip with
+# "require-env V 1". Exactly one side of each pair runs, as in the vgi
+# Makefiles VGI_ENGINE_EXPECTED_SKIPS, so allow only that sides skip.
+for engine_var in VGI_ENGINE_CORRELATED_NAMED_ARGS VGI_ENGINE_DELETE_RETURNING_VIRTUAL_COLUMNS; do
+  if [ "${!engine_var:-}" = "1" ]; then
+    EXPECTED_SKIP_REASONS+=("require-env-not $engine_var")
+  else
+    EXPECTED_SKIP_REASONS+=("require-env $engine_var 1")
+  fi
+done
+
 # Floor on executed cases in the main suite invocation. Deliberately a floor, not
 # an equality — the upstream suite grows. Measured 2026-07-24 against
 # Query-farm/vgi main: the launch (and shm, which runs TRANSPORT=launch) lane
