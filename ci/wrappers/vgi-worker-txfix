@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Routes the single example worker binary into the `txfix` catalog: the
+# writable-table / transaction-hook fixture (vgi docs/writable_tx_fixtures.md;
+# Main.java short-circuits this catalog name to TxFixWorker, a dedicated worker
+# built only from the SDK's public API). Worker binary named via $VGI_WORKER_BIN.
+export VGI_WORKER_CATALOG_NAME=txfix
+exec "${VGI_WORKER_BIN:?set VGI_WORKER_BIN to the example worker launcher}" "$@"

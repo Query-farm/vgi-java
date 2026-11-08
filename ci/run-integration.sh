@@ -137,6 +137,15 @@ export VGI_SECRET_LOOKUP_FIXTURES=1
 # behind `require-env VGI_TEST_BRANCH_DIR`; unset, they silently skip).
 export VGI_TEST_BRANCH_DIR="${VGI_TEST_BRANCH_DIR:-$(mktemp -d)}"
 echo "branch scratch dir: $VGI_TEST_BRANCH_DIR"
+# The txfix writable-table / transaction-hook fixture (vgi
+# docs/writable_tx_fixtures.md; TxFixWorker, routed by ci/wrappers/vgi-worker-txfix)
+# opts the writable_tx/*.test files in on every lane; VGI_WRITABLE_TX_WORKER is set
+# per transport below. Its state is shared by the lane's worker processes through
+# files in VGI_TXFIX_STATE_DIR, private to this run so concurrent lanes on one host
+# never see each other's rows.
+export VGI_WRITABLE_TX_FIXTURES=1
+export VGI_TXFIX_STATE_DIR="${VGI_TXFIX_STATE_DIR:-$(mktemp -d)}"
+echo "txfix state dir: $VGI_TXFIX_STATE_DIR"
 # An empty VGI_RPC_SHM_SIZE_BYTES must not reach the C++ client (it would try to
 # attach a zero-size segment); only a real value enables the shm side channel.
 [ -n "${VGI_RPC_SHM_SIZE_BYTES:-}" ] || unset VGI_RPC_SHM_SIZE_BYTES
@@ -202,6 +211,7 @@ case "$TRANSPORT" in
     # strict-enum rejection (bad_enum.test). Skipped over HTTP (like
     # bad-protocol), so wired on the launch lane only.
     export VGI_BAD_ENUM_WORKER="launch:${HERE}/wrappers/vgi-worker-bad-enum"
+    export VGI_WRITABLE_TX_WORKER="launch:${HERE}/wrappers/vgi-worker-txfix"
     # We are the launcher transport, so opt into the launcher-only tests
     # (launcher/options_smoke.test) — matches vgi's `make test_launcher`.
     export VGI_REQUIRE_LAUNCHER_TRANSPORT=1
@@ -245,6 +255,9 @@ case "$TRANSPORT" in
     export VGI_ATTACH_OPTIONS_WORKER="http://localhost:${ao_port}"
     export VGI_ATTACH_OPTIONS_REQUIRED_WORKER="$VGI_ATTACH_OPTIONS_WORKER"
     echo "attach_options http worker on ${VGI_ATTACH_OPTIONS_WORKER}"
+    boot_http_worker "${HERE}/wrappers/vgi-worker-txfix"; tx_port="$BOOTED_PORT"
+    export VGI_WRITABLE_TX_WORKER="http://localhost:${tx_port}"
+    echo "txfix http worker on ${VGI_WRITABLE_TX_WORKER}"
     # NB: VGI_TEST_DEDICATED_WORKER stays UNSET here. The buffering crash /
     # pool-recovery tests SIGKILL their worker mid-process, which is only safe on
     # a subprocess (bare-path) transport — over http it would tear down the single

@@ -53,6 +53,7 @@ VERSIONED_TABLES_LOCATION := $(LAUNCHER_PREFIX)$(WRAPPERS)/vgi-worker-versioned-
 ATTACH_OPTIONS_LOCATION   := $(LAUNCHER_PREFIX)$(WRAPPERS)/vgi-worker-attach-options
 BAD_ENUM_LOCATION         := $(LAUNCHER_PREFIX)$(WRAPPERS)/vgi-worker-bad-enum
 BAD_PROTOCOL_LOCATION     := $(LAUNCHER_PREFIX)$(WRAPPERS)/vgi-worker-bad-protocol
+WRITABLE_TX_LOCATION      := $(LAUNCHER_PREFIX)$(WRAPPERS)/vgi-worker-txfix
 
 # Every fixture-worker variable the shared suite reads, in one place so `test`
 # and `test-single` cannot drift apart.
@@ -74,6 +75,8 @@ BAD_PROTOCOL_LOCATION     := $(LAUNCHER_PREFIX)$(WRAPPERS)/vgi-worker-bad-protoc
 #   VGI_ATTACH_OPTIONS_WORKER: that worker serves the `attach_options_required`
 #   catalog too, and upstream split those assertions into their own file behind
 #   their own env var.
+#   VGI_WRITABLE_TX_WORKER is the txfix writable-table / transaction-hook fixture
+#   (vgi docs/writable_tx_fixtures.md), the same binary routed by its wrapper.
 #   VGI_TEST_BRANCH_DIR is the scratch dir the multi_branch_* fixtures and the
 #   .test files that seed them (parquet / csv) must BOTH name. The vgi Makefile
 #   exports it, so this lane inherited it under `make test_java` and not when run
@@ -90,6 +93,8 @@ FIXTURE_ENV := \
 	VGI_ATTACH_OPTIONS_REQUIRED_WORKER=$(ATTACH_OPTIONS_LOCATION) \
 	VGI_BAD_ENUM_WORKER=$(BAD_ENUM_LOCATION) \
 	VGI_BAD_PROTOCOL_WORKER=$(BAD_PROTOCOL_LOCATION) \
+	VGI_WRITABLE_TX_FIXTURES=1 \
+	VGI_WRITABLE_TX_WORKER=$(WRITABLE_TX_LOCATION) \
 	VGI_REQUIRE_LAUNCHER_TRANSPORT=1
 
 .PHONY: build smoke test test-crash test-http test-single clean

@@ -301,6 +301,12 @@ public final class Main {
         }
         String implVer = System.getenv("VGI_WORKER_IMPLEMENTATION_VERSION");
         String dataSpec = System.getenv("VGI_WORKER_DATA_VERSION_SPEC");
+        if (farm.query.vgi.example.txfix.TxFixWorker.CATALOG_NAME.equals(catalogName)) {
+            // Writable-table / transaction-hook fixture (vgi docs/writable_tx_fixtures.md): a
+            // dedicated worker built only from public API, nothing of the example catalog.
+            farm.query.vgi.example.txfix.TxFixWorker.build().runFromArgs(args);
+            return;
+        }
         if (farm.query.vgi.example.table.AttachOptionsFixture.CATALOG_NAME.equals(catalogName)) {
             // Dedicated attach_options worker mode: register only echo_attach_options
             // and the 20 declared option specs. ATTACH 'attach_options' AS … must
