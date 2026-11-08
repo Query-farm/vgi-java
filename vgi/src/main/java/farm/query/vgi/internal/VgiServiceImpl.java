@@ -137,8 +137,9 @@ public final class VgiServiceImpl implements VgiService {
     private final byte[] secretOptionKey;
 
     /**
-     * The key secret ATTACH option values are encrypted with inside the attach id: the
-     * configured key, else the sealing key (HTTP), else the per-user host key.
+     * The root of the key secret ATTACH option values are encrypted with inside the attach id
+     * (the AEAD key is {@link SecretOptionsKey#derive HKDF} of it): the configured key, else the
+     * sealing key (HTTP), else the per-user host key.
      */
     private byte[] secretKey() {
         if (secretOptionKey != null) return secretOptionKey;
@@ -161,20 +162,25 @@ public final class VgiServiceImpl implements VgiService {
         try (org.apache.arrow.vector.VectorSchemaRoot plain = AttachOptionsAttachId.decode(attachPlain, Allocators.root())) {
             Map<String, Object> values = farm.query.vgi.AttachOptions.valuesOf(plain);
             java.util.Set<String> secretNames = new java.util.LinkedHashSet<>();
-            boolean available = true;
             if (AttachOptionsAttachId.hasSecrets(attachPlain)) {
-                try (org.apache.arrow.vector.VectorSchemaRoot secrets =
-                             AttachOptionsAttachId.openSecrets(attachPlain, secretKey(), Allocators.root())) {
+                // A blob that does not open (another deployment's key, a key file deleted or
+                // rotated mid-session, a blob moved from another attach) is the sealing spec's
+                // uniform refusal, never secrets silently reading as absent.
+                org.apache.arrow.vector.VectorSchemaRoot secrets;
+                try {
+                    secrets = AttachOptionsAttachId.openSecrets(attachPlain, secretKey(), Allocators.root());
+                } catch (RuntimeException e) {
+                    throw OpaqueDataSealer.notRecognized(OpaqueDataSealer.ATTACH_FIELD);
+                }
+                try (secrets) {
                     Map<String, Object> s = farm.query.vgi.AttachOptions.valuesOf(secrets);
                     values.putAll(s);
                     secretNames.addAll(s.keySet());
-                } catch (RuntimeException e) {
-                    available = false;
                 }
             }
-            opened = farm.query.vgi.AttachOptions.of(values, secretNames, available);
+            opened = farm.query.vgi.AttachOptions.of(values, secretNames, true);
         }
-        if (opened.secretsAvailable()) attachOptionsCache.put(key, opened);
+        attachOptionsCache.put(key, opened);
         return opened;
     }
 
@@ -312,6 +318,7 @@ public final class VgiServiceImpl implements VgiService {
         this.aggregateRunner = new AggregateRunner(storage);
         this.catalogRegistry = new CatalogRegistry(worker);
         ServiceLocator.setCurrent(new ServiceLocator(this.scalars));
+        farm.query.vgi.AttachOptions.installResolver(this::attachOptionsOf);
     }
 
     // -----------------------------------------------------------------------

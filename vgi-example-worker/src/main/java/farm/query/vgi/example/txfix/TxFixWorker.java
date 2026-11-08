@@ -91,12 +91,28 @@ public final class TxFixWorker {
         return new Schema(fields);
     }
 
+    /** Whether {@code needle} occurs in {@code haystack}: the never-plaintext check whoami reports. */
+    static boolean contains(byte[] haystack, byte[] needle) {
+        if (haystack == null || needle.length == 0) return false;
+        outer:
+        for (int i = 0; i + needle.length <= haystack.length; i++) {
+            for (int j = 0; j < needle.length; j++) if (haystack[i + j] != needle[j]) continue outer;
+            return true;
+        }
+        return false;
+    }
+
     static String hex(byte[] b) {
         return b == null ? null : HexFormat.of().formatHex(b);
     }
 
     static String token(AttachOptions o) {
         return o.getString("token");
+    }
+
+    /** The state partition of the attach's token (a digest; the token itself is never stored). */
+    static String partition(AttachOptions o) {
+        return TxFixState.partition(token(o));
     }
 
     /** The transaction a call stages under: its id on a transactional attach, else none. */
@@ -179,7 +195,7 @@ public final class TxFixWorker {
         public byte[] begin(AttachContext attach) {
             byte[] id = new byte[16];
             RNG.nextBytes(id);
-            TxFixState.withPartition(token(attach.options()), p -> {
+            TxFixState.withPartition(partition(attach.options()), p -> {
                 p.event("begin", hex(id), true);
                 return null;
             });
@@ -189,7 +205,7 @@ public final class TxFixWorker {
         @Override
         public void commit(AttachContext attach, byte[] transactionId) {
             String tx = hex(transactionId);
-            String refused = TxFixState.withPartition(token(attach.options()), p -> {
+            String refused = TxFixState.withPartition(partition(attach.options()), p -> {
                 TreeMap<Integer, TxFixState.Row> staged = p.staged.remove(tx);
                 if (staged != null) {
                     for (TxFixState.Row r : staged.values()) {
@@ -209,7 +225,7 @@ public final class TxFixWorker {
         @Override
         public void rollback(AttachContext attach, byte[] transactionId) {
             String tx = hex(transactionId);
-            TxFixState.withPartition(token(attach.options()), p -> {
+            TxFixState.withPartition(partition(attach.options()), p -> {
                 p.staged.remove(tx);
                 p.event("rollback", tx, true);
                 return null;
@@ -271,18 +287,18 @@ public final class TxFixWorker {
         public TableProducerState createProducer(TableInitParams params) {
             ResetState s = new ResetState();
             s.outputSchema = params.outputSchema();
-            s.token = token(params.attachOptions());
+            s.partition = partition(params.attachOptions());
             return s;
         }
     }
 
     /** {@code reset()} producer. */
     public static final class ResetState extends OnceState {
-        public String token;
+        public String partition;
 
         @Override
         List<Map<String, Object>> rows() {
-            TxFixState.withPartition(token, p -> {
+            TxFixState.withPartition(partition, p -> {
                 p.reset();
                 return null;
             });
@@ -296,7 +312,8 @@ public final class TxFixWorker {
         @Override String name0() { return "whoami"; }
         @Override Schema schema() {
             return new Schema(List.of(Schemas.nullable("token", Schemas.UTF8),
-                    Schemas.nullable("transactional", Schemas.BOOL)));
+                    Schemas.nullable("transactional", Schemas.BOOL),
+                    Schemas.nullable("token_in_attach_data", Schemas.BOOL)));
         }
         @Override String description() { return "The attach's options as the function sees them"; }
 
@@ -304,22 +321,25 @@ public final class TxFixWorker {
         public TableProducerState createProducer(TableInitParams params) {
             WhoAmIState s = new WhoAmIState();
             s.outputSchema = params.outputSchema();
-            s.token = token(params.attachOptions());
-            s.transactional = params.attachOptions().getBoolean("transactional", false);
+            // Only the attach id is kept: the token is opened again while producing.
+            s.attachId = params.attachId();
             return s;
         }
     }
 
-    /** {@code whoami()} producer. */
+    /** {@code whoami()} producer: re-opens the options from the attach id; no secret in state. */
     public static final class WhoAmIState extends OnceState {
-        public String token;
-        public boolean transactional;
+        public byte[] attachId;
 
         @Override
         List<Map<String, Object>> rows() {
+            AttachOptions options = AttachOptions.open(attachId);
+            String token = token(options);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("token", token);
-            row.put("transactional", transactional);
+            row.put("transactional", options.getBoolean("transactional", false));
+            row.put("token_in_attach_data",
+                    token != null && contains(attachId, token.getBytes(StandardCharsets.UTF_8)));
             return List.of(row);
         }
     }
@@ -367,18 +387,18 @@ public final class TxFixWorker {
         public TableProducerState createProducer(TableInitParams params) {
             EventsState s = new EventsState();
             s.outputSchema = params.outputSchema();
-            s.token = token(params.attachOptions());
+            s.partition = partition(params.attachOptions());
             return s;
         }
     }
 
     /** {@code events()} producer. */
     public static final class EventsState extends OnceState {
-        public String token;
+        public String partition;
 
         @Override
         List<Map<String, Object>> rows() {
-            return TxFixState.withPartition(token, p -> {
+            return TxFixState.withPartition(partition, p -> {
                 List<Map<String, Object>> out = new ArrayList<>();
                 for (TxFixState.Event e : p.events) {
                     Map<String, Object> row = new LinkedHashMap<>();
@@ -404,7 +424,7 @@ public final class TxFixWorker {
         public TableProducerState createProducer(TableInitParams params) {
             ItemsState s = new ItemsState();
             s.outputSchema = params.outputSchema();
-            s.token = token(params.attachOptions());
+            s.partition = partition(params.attachOptions());
             s.txId = stagingTx(params.attachOptions(), params.transactionId());
             return s;
         }
@@ -412,12 +432,12 @@ public final class TxFixWorker {
 
     /** {@code items_scan()} producer: committed rows overlaid with the transaction's staged ones. */
     public static final class ItemsState extends OnceState {
-        public String token;
+        public String partition;
         public String txId;
 
         @Override
         List<Map<String, Object>> rows() {
-            return TxFixState.withPartition(token, p -> {
+            return TxFixState.withPartition(partition, p -> {
                 List<Map<String, Object>> out = new ArrayList<>();
                 for (TxFixState.Row r : p.view(txId).values()) {
                     Map<String, Object> row = r.asMap();
@@ -486,7 +506,7 @@ public final class TxFixWorker {
         @Override
         public TableInOutExchangeState createExchange(TableInOutInitParams params) {
             UpdateState s = new UpdateState();
-            s.token = token(params.attachOptions());
+            s.partition = partition(params.attachOptions());
             s.transactional = params.attachOptions().getBoolean("transactional", false);
             s.txId = stagingTx(params.attachOptions(), params.transactionId());
             s.mode = WriteOptions.from(params.arguments()).resultMode().wireName();
@@ -496,7 +516,7 @@ public final class TxFixWorker {
 
     /** {@code items_update} exchange: validates every row, then applies or stages them. */
     public static final class UpdateState extends TableInOutExchangeState {
-        public String token;
+        public String partition;
         public boolean transactional;
         public String txId;
         public String mode;
@@ -508,7 +528,7 @@ public final class TxFixWorker {
             if (rowids == null) throw new IllegalArgumentException("txfix: UPDATE input carries no rowid");
             List<Map<String, Object>> before = new ArrayList<>();
             List<Map<String, Object>> after = new ArrayList<>();
-            TxFixState.withPartition(token, p -> {
+            TxFixState.withPartition(partition, p -> {
                 TreeMap<Integer, TxFixState.Row> current = p.view(txId);
                 List<TxFixState.Row> updated = new ArrayList<>();
                 for (int i = 0; i < batch.getRowCount(); i++) {

@@ -43,7 +43,8 @@ import java.util.Map;
  *     that needs it while processing input keeps it in a field of its state (exchange state
  *     fields survive HTTP turns).
  * @param attachOptions the attach's ATTACH option values, secret ones included; never
- *     {@code null}
+ *     {@code null}. An exchange that needs a secret while processing keeps {@link #attachId()} in
+ *     its state and calls {@link farm.query.vgi.AttachOptions#open}, never the secret itself.
  */
 public record TableInOutInitParams(
         String functionName,

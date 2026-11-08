@@ -81,7 +81,11 @@ final class TxFixState {
         return d != null && !d.isBlank() ? Path.of(d) : Path.of(System.getProperty("java.io.tmpdir"), "vgi-txfix");
     }
 
-    private static String partitionName(String token) {
+    /**
+     * The partition a token's state lives in: a digest, so function state and file names never
+     * hold the secret itself.
+     */
+    static String partition(String token) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(
                     (token == null ? "\0null" : "t:" + token).getBytes(StandardCharsets.UTF_8));
@@ -91,10 +95,9 @@ final class TxFixState {
         }
     }
 
-    /** Run {@code body} on the token's partition under its lock, saving whatever it changed. */
-    static <T> T withPartition(String token, Function<Partition, T> body) {
+    /** Run {@code body} on a partition ({@link #partition}) under its lock, saving what it changed. */
+    static <T> T withPartition(String name, Function<Partition, T> body) {
         Path dir = dir();
-        String name = partitionName(token);
         IN_PROCESS.lock();
         try {
             Files.createDirectories(dir);

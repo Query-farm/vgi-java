@@ -32,10 +32,12 @@ import java.util.Map;
  * left out of the merged batch on every transport: on stdio / AF_UNIX the attach id
  * travels unsealed, and a credential must not sit in plaintext in a value the client
  * stores and returns ({@code docs/protocol/vgi-opaque-data-sealing.md} rule 5). When the
- * caller supplies a key ({@link #encode(List, byte[], SecureRandom, byte[])}), the secret
- * options' values are instead AEAD-encrypted (ChaCha20-Poly1305, AAD-bound to this attach
- * id's uuid) into the merged batch's schema metadata under {@link #SECRET_OPTIONS_KEY}, and
- * {@link #openSecrets} recovers them with the same key. Readers that ignore schema metadata
+ * caller supplies a root key ({@link #encode(List, byte[], SecureRandom, byte[])}), the secret
+ * options' values are instead AEAD-encrypted into the merged batch's schema metadata under
+ * {@link #SECRET_OPTIONS_KEY}, and {@link #openSecrets} recovers them with the same root key.
+ * The AEAD key is {@link SecretOptionsKey#derive HKDF-SHA256(root)}, never the root itself; the
+ * blob is {@code version(0x01) || nonce || ciphertext || tag} (ChaCha20-Poly1305), and its AAD is
+ * {@code "vgi.attach_secret_options.v1" 0x00 || uuid}, so it opens only inside its own attach. Readers that ignore schema metadata
  * see exactly the non-secret batch they always did.
  */
 public final class AttachOptionsAttachId {
@@ -45,6 +47,8 @@ public final class AttachOptionsAttachId {
 
     /** Schema-metadata key of the encrypted secret-option batch (base64). */
     public static final String SECRET_OPTIONS_KEY = "vgi.secret_options";
+    /** Envelope version: ChaCha20-Poly1305 with an HKDF-derived key. */
+    private static final byte SECRET_VERSION = 1;
     private static final byte[] SECRET_AAD_PREFIX =
             "vgi.attach_secret_options.v1\0".getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
@@ -70,8 +74,8 @@ public final class AttachOptionsAttachId {
      * @param declared       declared option specs (define column order and defaults)
      * @param userOptionsIpc IPC batch of user-supplied option values, or {@code null}/empty
      * @param rng            source of the 16-byte uniqueness prefix
-     * @param secretKey      32-byte key the secret values are encrypted with, or {@code null}
-     *                       to drop them
+     * @param secretKey      root key the secret values' AEAD key is derived from, or
+     *                       {@code null} to drop them
      * @return the encoded {@code attach_id} bytes
      */
     public static byte[] encode(List<AttachOptionSpec> declared, byte[] userOptionsIpc,
@@ -87,7 +91,7 @@ public final class AttachOptionsAttachId {
      * @param declared       declared option specs (define column order and defaults)
      * @param userOptionsIpc IPC batch of user-supplied option values, or {@code null}/empty
      * @param rng            source of the 16-byte uniqueness prefix
-     * @param secretKey      supplies the 32-byte key, or {@code null} to drop secret values
+     * @param secretKey      supplies the root key, or {@code null} to drop secret values
      * @return the encoded {@code attach_id} bytes
      * @throws IllegalStateException when a secret option has a value and no key is available
      */
@@ -122,13 +126,16 @@ public final class AttachOptionsAttachId {
                 }
                 if (anyValue) {
                     byte[] key = secretKey.get();
-                    if (key == null || key.length != 32) {
+                    if (key == null || key.length == 0) {
                         throw new IllegalStateException("secret ATTACH options were given but this worker"
                                 + " has no key to encrypt them with; set VGI_SIGNING_KEY");
                     }
                     byte[] secretIpc = mergedBatch(secretSpecs, userCols, alloc, null);
-                    byte[] sealed = farm.query.vgirpc.http.auth.Crypto.chacha20Poly1305Seal(
-                            key, secretIpc, secretAad(uuid));
+                    byte[] body = farm.query.vgirpc.http.auth.Crypto.chacha20Poly1305Seal(
+                            SecretOptionsKey.derive(key), secretIpc, secretAad(uuid));
+                    byte[] sealed = new byte[1 + body.length];
+                    sealed[0] = SECRET_VERSION;
+                    System.arraycopy(body, 0, sealed, 1, body.length);
                     metadata = Map.of(SECRET_OPTIONS_KEY, java.util.Base64.getEncoder().encodeToString(sealed));
                 }
             }
@@ -220,7 +227,7 @@ public final class AttachOptionsAttachId {
      * in {@code attachId}; caller closes the root.
      *
      * @param attachId the encoded attach id
-     * @param key      the 32-byte key it was encrypted with
+     * @param key      the root key it was encrypted with (the AEAD key is derived from it)
      * @param alloc    allocator for the returned root
      * @return the one-row secret batch, or {@code null} when the attach id carries none
      * @throws IllegalArgumentException when the batch does not open under {@code key}
@@ -231,7 +238,9 @@ public final class AttachOptionsAttachId {
         byte[] uuid = java.util.Arrays.copyOf(attachId, UUID_BYTES);
         byte[] ipc;
         try {
-            ipc = farm.query.vgirpc.http.auth.Crypto.chacha20Poly1305Open(key, sealed, secretAad(uuid));
+            if (sealed.length < 1 || sealed[0] != SECRET_VERSION) throw new IllegalArgumentException("version");
+            ipc = farm.query.vgirpc.http.auth.Crypto.chacha20Poly1305Open(SecretOptionsKey.derive(key),
+                    java.util.Arrays.copyOfRange(sealed, 1, sealed.length), secretAad(uuid));
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("secret ATTACH options do not open under this worker's key");
         }

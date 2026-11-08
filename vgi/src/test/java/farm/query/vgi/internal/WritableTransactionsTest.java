@@ -274,20 +274,25 @@ class WritableTransactionsTest {
                 "the secret is never in plaintext in the attach value");
     }
 
+    /** A worker whose key does not open the blob refuses the attach uniformly, never "absent". */
     @Test
-    void aWorkerWithoutTheKeySeesSecretsAsUnavailable() {
+    void aWorkerWithoutTheKeyRefusesTheAttachUniformly() {
         Worker w = worker();
         VgiServiceImpl a = new VgiServiceImpl(w, w.scalars(), w.tables(), w.tableInOuts(), w.aggregates(),
                 false, null, KEY);
         byte[] attachId = a.catalog_attach(CatalogAttachRequest.of("wtx", options(TOKEN, true), "", ""), null)
                 .attach_opaque_data();
-        byte[] other = new byte[32];
         VgiServiceImpl b = new VgiServiceImpl(w, w.scalars(), w.tables(), w.tableInOuts(), w.aggregates(),
-                false, null, other);
-        AttachOptions seen = b.attachOptionsOf(attachId);
-        assertFalse(seen.secretsAvailable());
-        assertNull(seen.getString("token"));
-        assertTrue(seen.getBoolean("transactional", false), "non-secret options still read");
+                false, null, new byte[32]);
+        for (org.junit.jupiter.api.function.Executable call : List.<org.junit.jupiter.api.function.Executable>of(
+                () -> b.attachOptionsOf(attachId),
+                () -> b.bind(bind("probe", attachId, null, null), null),
+                () -> b.catalog_transaction_begin(attachId, null))) {
+            farm.query.vgirpc.errors.StatusError e = assertThrows(farm.query.vgirpc.errors.StatusError.class, call);
+            assertEquals("attach_opaque_data not recognized", e.getMessage());
+            assertEquals(OpaqueDataSealer.NOT_RECOGNIZED_KIND, e.errorKind());
+            assertEquals(farm.query.vgirpc.errors.Code.INVALID_ARGUMENT, e.errorCode());
+        }
         AttachOptions own = a.attachOptionsOf(attachId);
         assertTrue(own.secretsAvailable());
         assertEquals(TOKEN, own.getString("token"));
@@ -296,6 +301,34 @@ class WritableTransactionsTest {
         AttachOptions publicView = AttachOptions.fromAttachId(attachId);
         assertNull(publicView.getString("token"), "the public decode never sees secrets");
         assertFalse(publicView.secretsAvailable());
+        // An attach that supplied no secret value carries no blob and needs no key.
+        byte[] noSecret = a.catalog_attach(CatalogAttachRequest.of("wtx", options(null, true), "", ""), null)
+                .attach_opaque_data();
+        assertTrue(b.attachOptionsOf(noSecret).getBoolean("transactional", false));
+    }
+
+    /** A producer keeps only the attach id and re-opens the options while producing. */
+    @ParameterizedTest(name = "sealed={0}")
+    @ValueSource(booleans = {false, true})
+    void attachOptionsOpenReturnsTheSecretFromThePlainAttachId(boolean sealed) {
+        VgiServiceImpl svc = service(worker(), sealed);
+        byte[] wire = svc.catalog_attach(CatalogAttachRequest.of("wtx", options(TOKEN, true), "", ""), null)
+                .attach_opaque_data();
+        byte[] plain = sealed ? new OpaqueDataSealer(KEY).unsealAttach(wire, farm.query.vgirpc.AuthContext.ANONYMOUS)
+                : wire;
+        AttachOptions opened = AttachOptions.open(plain);
+        assertEquals(TOKEN, opened.getString("token"));
+        assertTrue(opened.getBoolean("transactional", false));
+    }
+
+    /** On HTTP the secret is absent from the opened (inner) attach bytes too, not only the wire. */
+    @Test
+    void theSecretIsAbsentFromTheInnerBytesOnHttp() {
+        byte[] wire = service(worker(), true).catalog_attach(
+                CatalogAttachRequest.of("wtx", options(TOKEN, true), "", ""), null).attach_opaque_data();
+        byte[] inner = new OpaqueDataSealer(KEY).unsealAttach(wire, farm.query.vgirpc.AuthContext.ANONYMOUS);
+        assertFalse(new String(inner, StandardCharsets.ISO_8859_1).contains(TOKEN));
+        assertFalse(new String(wire, StandardCharsets.ISO_8859_1).contains(TOKEN));
     }
 
     @Test

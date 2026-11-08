@@ -62,7 +62,8 @@ import java.util.Map;
  *     rollback hooks receive), or {@code null} outside a transaction-supporting attach. A
  *     producer that needs it while producing rows keeps it in a field of its state.
  * @param attachOptions the attach's ATTACH option values, secret ones included; never
- *     {@code null}
+ *     {@code null}. A producer that needs a secret while producing keeps {@link #attachId()} in
+ *     its state and calls {@link farm.query.vgi.AttachOptions#open}, never the secret itself.
  */
 public record TableInitParams(
         String functionName,

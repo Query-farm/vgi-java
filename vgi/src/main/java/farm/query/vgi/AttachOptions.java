@@ -28,12 +28,16 @@ import java.util.Set;
  *
  * <p>The values travel inside the attach's {@code attach_opaque_data}, so every worker
  * process sees them, including one that never served the {@code ATTACH} (a pooled or
- * load-balanced deployment). Secret values never travel in plaintext there: the framework
- * encrypts them with the worker's opaque-data key ({@link Worker#signingKey(byte[])} /
- * {@code VGI_SIGNING_KEY}; over HTTP the per-process sealing key when none is configured;
- * on stdio / unix sockets without a configured key, a per-user key file shared by the
- * host's worker processes, see {@code docs/writable-tables-and-transactions.md}). A process that cannot open
- * them sees secret options as absent ({@link #secretsAvailable()} is then false).
+ * load-balanced deployment). This is the standard way for a secret option to reach functions:
+ * catalog code never puts a secret into its own attach bytes or keeps it server-side. Secret
+ * values never travel in plaintext: the framework encrypts them (ChaCha20-Poly1305, bound to the
+ * attach) with a key derived by HKDF-SHA256 from the worker's root key
+ * ({@link Worker#signingKey(byte[])} / {@code VGI_SIGNING_KEY}; over HTTP the per-process sealing
+ * key when none is configured; on stdio / unix sockets without a configured key, a per-user key
+ * file shared by the host's worker processes, see {@code docs/writable-tables-and-transactions.md}).
+ * An attach whose secrets do not open under this worker's key (another deployment, a deleted or
+ * rotated key file) is refused with the uniform {@code attach_opaque_data not recognized} error,
+ * and the client re-ATTACHes.
  *
  * <p>Values are plain Java objects: {@code String} for VARCHAR, {@code Boolean},
  * {@code Long} for every integer type, {@code Double} for floating point, {@code byte[]}
@@ -80,8 +84,7 @@ public final class AttachOptions {
      *
      * @param values           option name to value (a {@code null} value is an option set to NULL)
      * @param secretNames      which of the names are secret (redacted by {@link #toString()})
-     * @param secretsAvailable false when the attach carries secret options this process could
-     *                         not open (they are then absent from {@code values})
+     * @param secretsAvailable false when {@code values} lacks secret options the attach carries
      * @return the option set
      */
     public static AttachOptions of(Map<String, ?> values, Set<String> secretNames, boolean secretsAvailable) {
@@ -104,6 +107,34 @@ public final class AttachOptions {
             return new AttachOptions(Collections.unmodifiableMap(valuesOf(root)), Set.of(),
                     !AttachOptionsAttachId.hasSecrets(attachId));
         }
+    }
+
+    private static volatile java.util.function.Function<byte[], AttachOptions> resolver;
+
+    /**
+     * Framework use: installs the process's resolver for {@link #open} (the worker's service
+     * does this when it starts).
+     *
+     * @param r opens a plain attach id with this worker's key
+     */
+    public static void installResolver(java.util.function.Function<byte[], AttachOptions> r) {
+        resolver = r;
+    }
+
+    /**
+     * Every option value of a plain attach id, secret ones included, opened with this worker's
+     * key: what a producer or exchange calls while producing rows, so its state keeps only the
+     * attach id ({@code params.attachId()}) and never a secret value. Same result as the
+     * parameters' {@code attachOptions()}.
+     *
+     * @param attachId the plain attach id from the function's parameters
+     * @return the options
+     * @throws farm.query.vgirpc.errors.StatusError {@code attach_opaque_data not recognized} when
+     *     the secret values do not open under this worker's key
+     */
+    public static AttachOptions open(byte[] attachId) {
+        var r = resolver;
+        return r == null ? fromAttachId(attachId) : r.apply(attachId);
     }
 
     /**
@@ -202,9 +233,9 @@ public final class AttachOptions {
     }
 
     /**
-     * Whether this process could open the attach's secret options. False only when the attach
-     * carries secret values this process has no key for (see the class documentation); the
-     * secret options are then absent from this set.
+     * Whether this view holds the attach's secret option values. Always true for the views the
+     * framework hands functions and hooks; false only for {@link #fromAttachId} of an attach that
+     * carries encrypted secret values (that decode cannot open them).
      *
      * @return true when every secret option of the attach is present
      */

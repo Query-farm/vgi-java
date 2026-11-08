@@ -20,7 +20,8 @@ import java.util.Set;
  * <p>Those transports are host-local by definition, but a pooled launcher or the subprocess
  * transport may route one attach's calls to several processes, so a per-process key would
  * leave the others unable to open the values. The key lives in
- * {@code $XDG_RUNTIME_DIR/vgi} (else {@code <java.io.tmpdir>/vgi-<user>}), a directory
+ * {@code $XDG_RUNTIME_DIR/vgi} (else {@code <per-user temp dir>/vgi-<user>}, the temp dir being
+ * {@code $TMPDIR} when set, else {@code java.io.tmpdir}), a directory
  * created {@code 0700}, in a file created {@code 0600}; both must be owned by the current
  * user. Created atomically (write a temporary file, then hard-link it into place), so
  * processes starting together agree on one key. {@code VGI_ATTACH_SECRET_KEY_FILE} names a
@@ -56,8 +57,14 @@ public final class HostLocalKey {
         String runtime = System.getenv("XDG_RUNTIME_DIR");
         Path dir = runtime != null && !runtime.isBlank() && Files.isDirectory(Path.of(runtime))
                 ? Path.of(runtime, "vgi")
-                : Path.of(System.getProperty("java.io.tmpdir"), "vgi-" + System.getProperty("user.name", "user"));
+                : Path.of(tempDir(), "vgi-" + System.getProperty("user.name", "user"));
         return dir.resolve("attach-secret-options.key");
+    }
+
+    /** The per-user temp dir: {@code $TMPDIR} (what other SDKs read), else {@code java.io.tmpdir}. */
+    static String tempDir() {
+        String t = System.getenv("TMPDIR");
+        return t != null && !t.isBlank() ? t : System.getProperty("java.io.tmpdir");
     }
 
     static byte[] load(Path file) {
@@ -104,7 +111,8 @@ public final class HostLocalKey {
             }
             byte[] key = Files.readAllBytes(file);
             if (key.length != 32) {
-                throw new IllegalStateException("attach secret key " + file + " must hold 32 bytes, has " + key.length);
+                throw new IllegalStateException("attach secret key " + file + " must hold exactly 32 bytes, has "
+                        + key.length + " (set VGI_SIGNING_KEY, or point " + KEY_FILE_ENV + " at a valid key file)");
             }
             return key;
         } catch (IOException e) {
@@ -117,12 +125,13 @@ public final class HostLocalKey {
         String me = System.getProperty("user.name");
         String owner = Files.getOwner(p, LinkOption.NOFOLLOW_LINKS).getName();
         if (me != null && !me.equals(owner)) {
-            throw new IllegalStateException(p + " is owned by " + owner + ", not " + me);
+            throw new IllegalStateException(p + " is owned by " + owner + ", not " + me
+                    + " (set VGI_SIGNING_KEY, or " + KEY_FILE_ENV + ")");
         }
         Set<PosixFilePermission> perms = Files.getPosixFilePermissions(p, LinkOption.NOFOLLOW_LINKS);
         for (PosixFilePermission f : forbidden) {
             if (perms.contains(f)) throw new IllegalStateException(p + " is accessible to other users ("
-                    + PosixFilePermissions.toString(perms) + ")");
+                    + PosixFilePermissions.toString(perms) + "; set VGI_SIGNING_KEY, or " + KEY_FILE_ENV + ")");
         }
     }
 }

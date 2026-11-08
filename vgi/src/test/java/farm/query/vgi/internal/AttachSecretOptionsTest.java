@@ -68,6 +68,38 @@ class AttachSecretOptionsTest {
         assertThrows(IllegalArgumentException.class, () -> AttachOptionsAttachId.openSecrets(moved, key, Allocators.root()));
     }
 
+    /** The AEAD key is HKDF-SHA256(root, info "vgi.attach_secret_options.v1"), never the root. */
+    @Test
+    void theBlobIsVersionedAndKeyedByTheHkdfSubkey() throws Exception {
+        byte[] root = new byte[32];
+        new SecureRandom().nextBytes(root);
+        byte[] id = AttachOptionsAttachId.encode(SPECS, userOptions("hunter2-secret"), new SecureRandom(), root);
+        String b64;
+        try (org.apache.arrow.vector.ipc.ArrowStreamReader r = new org.apache.arrow.vector.ipc.ArrowStreamReader(
+                new java.io.ByteArrayInputStream(id, 17, id.length - 17), Allocators.root())) {
+            b64 = r.getVectorSchemaRoot().getSchema().getCustomMetadata().get(AttachOptionsAttachId.SECRET_OPTIONS_KEY);
+        }
+        byte[] blob = java.util.Base64.getDecoder().decode(b64);
+        assertEquals(1, blob[0], "version byte");
+        byte[] body = java.util.Arrays.copyOfRange(blob, 1, blob.length);
+        byte[] aad = new byte[SecretOptionsKey.INFO.length() + 1 + 16];
+        System.arraycopy(SecretOptionsKey.INFO.getBytes(StandardCharsets.UTF_8), 0, aad, 0, SecretOptionsKey.INFO.length());
+        System.arraycopy(id, 0, aad, SecretOptionsKey.INFO.length() + 1, 16);
+        assertThrows(RuntimeException.class,
+                () -> farm.query.vgirpc.http.auth.Crypto.chacha20Poly1305Open(root, body, aad), "the root key does not open it");
+        byte[] ipc = farm.query.vgirpc.http.auth.Crypto.chacha20Poly1305Open(SecretOptionsKey.derive(root), body, aad);
+        try (VectorSchemaRoot r = BatchUtil.readSingleBatch(ipc, Allocators.root())) {
+            assertEquals("hunter2-secret", r.getVector("token").getObject(0).toString());
+        }
+        // RFC 5869 test case 3 (empty salt and info): the first 32 bytes of the OKM.
+        byte[] ikm = new byte[22];
+        java.util.Arrays.fill(ikm, (byte) 0x0b);
+        assertEquals("8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d",
+                java.util.HexFormat.of().formatHex(SecretOptionsKey.hkdf(ikm, new byte[0])));
+        assertEquals(32, SecretOptionsKey.derive(root).length);
+        assertFalse(java.util.Arrays.equals(root, SecretOptionsKey.derive(root)));
+    }
+
     @Test
     void withoutASecretValueTheFormatIsUnchangedAndNoKeyIsNeeded() {
         byte[] id = AttachOptionsAttachId.encode(SPECS, null, new SecureRandom(),
@@ -97,5 +129,37 @@ class AttachSecretOptionsTest {
             Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-r--r--"));
             assertThrows(IllegalStateException.class, () -> HostLocalKey.load(file), "a readable key is refused");
         }
+    }
+
+    @Test
+    void concurrentFirstStartsAgreeOnOneKey(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("race").resolve("k.key");
+        int n = 16;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(n);
+        try {
+            java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+            List<java.util.concurrent.Future<byte[]>> keys = new java.util.ArrayList<>();
+            for (int i = 0; i < n; i++) keys.add(pool.submit(() -> { go.await(); return HostLocalKey.load(file); }));
+            go.countDown();
+            byte[] first = keys.get(0).get();
+            for (var k : keys) assertArrayEquals(first, k.get());
+        } finally {
+            pool.shutdownNow();
+        }
+        try (var listing = Files.list(file.getParent())) {
+            assertEquals(List.of("k.key"), listing.map(p -> p.getFileName().toString()).toList(), "no temp files left");
+        }
+    }
+
+    @Test
+    void aKeyFileOfTheWrongSizeIsRefused(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("k.key");
+        Files.write(file, new byte[16]);
+        if (Files.getFileStore(file).supportsFileAttributeView("posix")) {
+            Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+            Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------"));
+        }
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> HostLocalKey.load(file));
+        assertTrue(e.getMessage().contains(file.toString()) && e.getMessage().contains("VGI_SIGNING_KEY"), e.getMessage());
     }
 }

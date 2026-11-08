@@ -22,22 +22,38 @@ attach's `attach_opaque_data`, so a process that never served the `ATTACH` (a po
 the subprocess transport, another HTTP replica) sees them too. Keep no per-attach state in
 process memory.
 
-**Secret options** (`AttachOptionSpec.asSecret()`) never appear in plaintext in that value
-(`vgi-opaque-data-sealing.md` rule 5). The framework encrypts them (ChaCha20-Poly1305, bound to
-the attach) with:
+**Secret options** (`AttachOptionSpec.asSecret()`) reach functions and hooks this way too; it
+is the standard mechanism, and catalog code never puts a secret into its own attach bytes or keeps
+it server-side. They never appear in plaintext in the attach value, on any transport and in the
+opened (inner) bytes on HTTP (`vgi-opaque-data-sealing.md` rule 5). The framework encrypts them:
 
-1. the configured key (`Worker.signingKey`, `Worker.opaqueDataKey` or `VGI_SIGNING_KEY`), else
-2. over HTTP, the per-process sealing key (multi-replica deployments configure a key anyway), else
-3. on stdio / unix sockets, a per-user key file shared by the host's worker processes:
-   `$XDG_RUNTIME_DIR/vgi/attach-secret-options.key`, else
-   `<java.io.tmpdir>/vgi-<user>/attach-secret-options.key` (directory `0700`, file `0600`,
-   both owned by the user; `VGI_ATTACH_SECRET_KEY_FILE` names another file). It is created on
-   the first attach that gives a secret option a value.
-
-A process holding a different key sees secret options as absent and
-`AttachOptions.secretsAvailable()` is false. `AttachOptions.fromAttachId(attachId)` decodes the
-non-secret options from a plain attach id without the framework (secrets are never visible
-that way). `AttachOptions.toString()` redacts secret values.
+- **AEAD:** ChaCha20-Poly1305, blob `version(0x01) || nonce || ciphertext || tag`, AAD
+  `"vgi.attach_secret_options.v1" 0x00 || attach uuid` (a blob moved into another attach does not
+  open).
+- **Key:** `HKDF-SHA256(ikm = root, salt = empty, info = "vgi.attach_secret_options.v1", L = 32)`;
+  the root itself is never the AEAD key. The root is, in order:
+  1. the configured key (`Worker.signingKey`, `Worker.opaqueDataKey` or `VGI_SIGNING_KEY`), else
+  2. over HTTP, the per-process sealing key (multi-replica deployments configure a key anyway), else
+  3. on stdio / unix sockets / launch pools, the **host-local key**, shared with the workers of
+     every VGI SDK on the host: `$VGI_ATTACH_SECRET_KEY_FILE` if set, else
+     `$XDG_RUNTIME_DIR/vgi/attach-secret-options.key` if that directory exists, else
+     `<per-user temp dir>/vgi-<user>/attach-secret-options.key` (`$TMPDIR`, else
+     `java.io.tmpdir`; on macOS the per-user `/var/folders/...`). 32 raw random bytes; directory
+     `0700`, file `0600`, both owned by the user, refused otherwise; created atomically (temp file,
+     then hard link) so concurrent first starts agree; never overwritten; read only when a secret
+     option actually has a value.
+- **Failure:** an attach whose blob does not open under this worker's key (another deployment, a
+  host key file deleted or rotated mid-session, a moved blob) is refused with the uniform
+  `attach_opaque_data not recognized` error (`INVALID_ARGUMENT`, `opaque_data_not_recognized`);
+  the client re-ATTACHes. A secret option given a value when no key can be obtained fails the
+  `ATTACH` with a message naming `VGI_SIGNING_KEY` / `VGI_ATTACH_SECRET_KEY_FILE`.
+- Secret values are never logged. `AttachOptions.toString()` redacts them, and
+  `AttachOptions.fromAttachId(attachId)` (a decode without the framework) never sees them
+  (`secretsAvailable()` is then false).
+- **Keep secrets out of function state.** A producer or exchange that needs a secret while
+  producing rows stores `params.attachId()` in its state and calls `AttachOptions.open(attachId)`
+  when it needs the values; it never stores the secret (state travels to the client, sealed, on
+  HTTP).
 
 ## Per-attach settings: `Worker.onAttach`
 
