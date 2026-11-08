@@ -187,8 +187,13 @@ public final class ColumnStatisticsSerializer {
         } else if (v instanceof BitVector b) {
             b.setSafe(row, ((Boolean) value) ? 1 : 0);
         } else {
-            throw new IllegalArgumentException(
-                    "ColumnStatisticsSerializer: unsupported stat type " + v.getClass().getSimpleName());
+            // DATE / TIMESTAMP / DECIMAL / narrower ints etc.: the shared scalar codec.
+            try {
+                VectorScalarCodec.write(v, row, value);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "ColumnStatisticsSerializer: unsupported stat type " + v.getClass().getSimpleName(), e);
+            }
         }
     }
 }

@@ -19,7 +19,7 @@ VGI lets [Haybarn](https://github.com/Query-farm-haybarn/haybarn) — Query Farm
 
 Wire-compatible with the [Python reference implementation](https://github.com/Query-farm/vgi-python) and the [Go port](https://github.com/Query-farm/vgi-go): all three serve the same integration suite against the same C++ extension.
 
-Version 0.46.0 uses VGI wire 3.1.0 under `vgi.v3` and requires a native VGI client speaking wire 3.1.x. Upgrade clients and workers together; `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+This source uses VGI wire 3.2.0 under `vgi.v3` and requires a native VGI client speaking wire 3.2.x (3.1 peers are rejected). Upgrade clients and workers together; `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md) and, for what 3.2 adds, [filtered scan planning](docs/scan-planning.md).
 
 ## What you can serve
 
@@ -30,6 +30,7 @@ Version 0.46.0 uses VGI wire 3.1.0 under `vgi.v3` and requires a native VGI clie
 - **Table buffering functions** — sink/source functions that buffer all input before emitting (distributed-aggregation style lifecycles: process → combine → finalize).
 - **Aggregate functions** — partial aggregation with cross-process state combine.
 - **Catalog versioning** — semver data/implementation version negotiation, release manifests, multi-branch tables, transactions, and attach options.
+- **Filtered scan planning** — a table that redirects its scan (`read_parquet`, a VGI function, another catalog's table) can see the query's predicates before choosing which files to return, and tag branches with statistics the client prunes by ([docs](docs/scan-planning.md)).
 - **Writable tables and transactions** — catalog tables with INSERT / UPDATE / DELETE functions and write result modes, per-attach `supports_transactions` with begin / commit / rollback hooks, the transaction id and ATTACH options (secret ones included) in every function ([docs](docs/writable-tables-and-transactions.md)).
 - **Attach tickets** — seal a user's ATTACH (secret options included) so a runner holding their grant can replay it later without seeing an option ([docs](docs/attach-tickets.md)).
 

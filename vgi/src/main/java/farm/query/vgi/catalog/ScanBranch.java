@@ -38,6 +38,15 @@ import java.util.Map;
  *                       reader's named arguments. Empty for the other kinds
  * @param schemaPath    function branch only — schema containing the named VGI
  *                       function; {@code null} for native/ambiguous functions
+ * @param rowCount      protocol 3.2 — estimated rows this branch produces before
+ *                       any predicate; cardinality estimation only, never trusted
+ *                       as exact. {@code null} = unknown
+ * @param columnStatistics protocol 3.2 — conservative per-column statistics for
+ *                       every row this branch produces, keyed by the table's
+ *                       declared column names (columns may be omitted). A client
+ *                       drops the branch when a query predicate is provably false
+ *                       against them, so wrong statistics silently lose rows:
+ *                       leave a column out rather than guess. {@code null} = none
  */
 public record ScanBranch(
         String functionName,
@@ -51,7 +60,30 @@ public record ScanBranch(
         String formatName,
         List<String> formatLocations,
         Map<String, Object> formatOptions,
-        List<String> schemaPath) {
+        List<String> schemaPath,
+        Long rowCount,
+        List<ColumnStatistics> columnStatistics) {
+
+    /**
+     * Source-compatible constructor for pre-3.2 callers: no branch statistics.
+     */
+    public ScanBranch(
+            String functionName,
+            List<Object> positional,
+            Map<String, Object> named,
+            String branchFilter,
+            boolean writable,
+            String sourceCatalog,
+            List<String> sourceSchemaPath,
+            String sourceTable,
+            String formatName,
+            List<String> formatLocations,
+            Map<String, Object> formatOptions,
+            List<String> schemaPath) {
+        this(functionName, positional, named, branchFilter, writable, sourceCatalog,
+                sourceSchemaPath, sourceTable, formatName, formatLocations, formatOptions,
+                schemaPath, null, null);
+    }
 
     /**
      * Source-compatible constructor for pre-1.5 callers. The worker resolves
@@ -96,7 +128,9 @@ public record ScanBranch(
      * same three-way discriminator on the wire.</p>
      *
      * @throws IllegalArgumentException if the branch names no kind, more than
-     *         one kind, or is a format branch with no locations
+     *         one kind, or is a format branch with no locations; or if
+     *         {@code rowCount} is negative or {@code columnStatistics} names a
+     *         column more than once
      */
     public ScanBranch {
         boolean function = functionName != null && !functionName.isEmpty();
@@ -124,6 +158,19 @@ public record ScanBranch(
         named = named == null ? Map.of() : Map.copyOf(named);
         formatLocations = formatLocations == null ? List.of() : List.copyOf(formatLocations);
         formatOptions = formatOptions == null ? Map.of() : Map.copyOf(formatOptions);
+        if (rowCount != null && rowCount < 0) {
+            throw new IllegalArgumentException("ScanBranch.rowCount must be >= 0, got " + rowCount);
+        }
+        if (columnStatistics != null) {
+            columnStatistics = List.copyOf(columnStatistics);
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            for (ColumnStatistics stat : columnStatistics) {
+                if (!seen.add(stat.columnName())) {
+                    throw new IllegalArgumentException(
+                            "ScanBranch.columnStatistics names column '" + stat.columnName() + "' more than once");
+                }
+            }
+        }
     }
 
     /**
@@ -200,6 +247,22 @@ public record ScanBranch(
     public ScanBranch withSchemaPath(List<String> schemaPath) {
         return new ScanBranch(functionName, positional, named, branchFilter, writable,
                 sourceCatalog, sourceSchemaPath, sourceTable, formatName, formatLocations,
-                formatOptions, schemaPath);
+                formatOptions, schemaPath, rowCount, columnStatistics);
+    }
+
+    /**
+     * Return this branch with protocol 3.2 statistics. The client uses
+     * {@code rowCount} for cardinality estimation and prunes the branch when a
+     * query predicate is provably false against {@code columnStatistics}.
+     *
+     * @param rowCount         estimated rows before any predicate, or {@code null}
+     * @param columnStatistics conservative per-column claims about every row of
+     *                         this branch, or {@code null}
+     * @return the branch with statistics
+     */
+    public ScanBranch withStatistics(Long rowCount, List<ColumnStatistics> columnStatistics) {
+        return new ScanBranch(functionName, positional, named, branchFilter, writable,
+                sourceCatalog, sourceSchemaPath, sourceTable, formatName, formatLocations,
+                formatOptions, schemaPath, rowCount, columnStatistics);
     }
 }

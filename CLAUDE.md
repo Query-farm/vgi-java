@@ -346,6 +346,23 @@ with several replies:
   `vgi-example-worker/.../tableinout/PagedStateTest`. Unit: `internal/ContinuedOutputTest`;
   pipe + HTTP round trips: `client/ContinuedOutputTransportTest`.
 
+## Protocol 3.2 filtered scan planning (2026-11-08, unreleased)
+
+Spec: vgi-python `docs/protocol/scan-planning.md`; user doc `docs/scan-planning.md`.
+`VgiService` (generated) is 3.2.0 and `catalog_table_scan_branches_get` gained a trailing
+`pushdown_filters`. `VgiServiceImpl` now always dispatches through a
+`catalog/ScanBranchesPlanner`: per-table via `Worker.registerPlannedTable(stub, ScanPlanning,
+planner)`, else `Worker.scanBranchesPlanner(..)` (default `DEFAULT` = the 3.1 answer via
+`Request.defaultResult()`). `ScanPlanningFilters.mayMatch` walks the v2 `FilterPredicateV2`
+expressions directly, NOT the `PushdownFilter` compatibility views (those keep the operator
+unflipped for `literal OP column`). `TableInfo` gained `scan_planning` (validated; empty
+`scan_function` bytes count as none, since `TableInfoSerializer` writes null as empty);
+`ScanBranch` gained `rowCount`/`columnStatistics`; client `ScanBranchesDecoder` is new.
+`ColumnStatisticsSerializer` now falls back to `VectorScalarCodec.write` (DATE stats).
+Example worker serves `data.planned_days{,_stats,_bf}` mirroring vgi-python's fixtures (one
+read_parquet branch per day: the Java argument encoder has no list values). Tests:
+`internal/ScanPlanningTest`, `catalog/ScanPlanningFiltersCompareTest`.
+
 ## Writable tables, transaction hooks, attach options (2026-11-08, 0.46.3)
 
 Found porting a Hue worker (an UPDATE-able `lights` table staged in DuckDB transactions); the

@@ -237,7 +237,7 @@ class WireRecordSchemaConformanceTest {
                         Map.of()),
                 new HandBuilt(TableInfo.class, "TableInfo",
                         r -> TableInfoSerializer.serialize((TableInfo) r),
-                        Map.of()),
+                        Map.of("scan_planning", "bind")),
                 new HandBuilt(CopyFromFormatInfo.class, "CopyFromFormatInfo",
                         r -> CopyFromFormatInfoSerializer.serialize((CopyFromFormatInfo) r),
                         Map.of()),

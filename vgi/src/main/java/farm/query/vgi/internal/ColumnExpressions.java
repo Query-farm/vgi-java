@@ -209,7 +209,7 @@ public final class ColumnExpressions {
             info.write_result_modes(), info.supports_column_statistics(), info.scan_function(),
             info.insert_function(), info.update_function(), info.delete_function(), info.cardinality_estimate(),
             info.cardinality_max(), info.column_statistics(), info.bind_result(), info.required_filters(),
-            info.options(), info.layout());
+            info.options(), info.layout(), info.scan_planning());
     }
 
     public static String generatedMetadata(String sql, List<String> owner) {

@@ -5,6 +5,7 @@ package farm.query.vgi.internal;
 import farm.query.vgi.catalog.ScanBranch;
 import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
@@ -28,7 +29,7 @@ import java.util.List;
  * {@code {branches: list<binary>, required_extensions: list<utf8>}}; each
  * branch entry is itself a 1-row IPC stream
  * {@code {function_name: utf8, arguments: binary, branch_filter: utf8?,
- *  writable: bool}}. Field order/nullability matches the C++
+ *  writable: bool, ..., row_count: int64?, column_statistics: binary?}}. Field order/nullability matches the C++
  * {@code ScanBranchSchema}/{@code ScanBranchesResultSchema}.
  */
 public final class ScanBranchesResultSerializer {
@@ -57,13 +58,28 @@ public final class ScanBranchesResultSerializer {
                     List.of(new Field("item", new FieldType(true, UTF8, null), null))),
             new Field("format_options", new FieldType(true, BINARY, null), null),
             new Field("schema_path", new FieldType(true, new ArrowType.List(), null),
-                    List.of(new Field("item", new FieldType(true, UTF8, null), null)))));
+                    List.of(new Field("item", new FieldType(true, UTF8, null), null))),
+            // Protocol 3.2 branch statistics; column_statistics is the same payload
+            // as TableInfo.column_statistics.
+            new Field("row_count", new FieldType(true, new ArrowType.Int(64, true), null), null),
+            new Field("column_statistics", new FieldType(true, BINARY, null), null)));
 
     private static final Schema RESULT_SCHEMA = new Schema(List.of(
             new Field("branches", new FieldType(false, new ArrowType.List(), null),
                     List.of(new Field("item", new FieldType(true, BINARY, null), null))),
             new Field("required_extensions", new FieldType(false, new ArrowType.List(), null),
                     List.of(new Field("item", new FieldType(true, UTF8, null), null)))));
+
+    /**
+     * Encode a scan-branches result for {@code catalog_table_scan_branches_get}.
+     * Zero branches is encoded as-is (legal for a filtered table).
+     *
+     * @param result the branches and required extensions
+     * @return the outer 1-row IPC stream bytes
+     */
+    public static byte[] serialize(farm.query.vgi.catalog.ScanBranchesResult result) {
+        return serialize(result.branches(), result.requiredExtensions());
+    }
 
     /**
      * Encode a multi-branch scan result for {@code catalog_table_scan_branches_get}.
@@ -130,6 +146,12 @@ public final class ScanBranchesResultSerializer {
                 fo.setSafe(0, ScanFunctionResultEncoder.encodeArguments(List.of(), b.formatOptions()));
             }
             writeStringList(root, "schema_path", b.schemaPath());
+            BigIntVector rc = (BigIntVector) root.getVector("row_count");
+            if (b.rowCount() == null) rc.setNull(0);
+            else rc.setSafe(0, b.rowCount());
+            VarBinaryVector cs = (VarBinaryVector) root.getVector("column_statistics");
+            if (b.columnStatistics() == null) cs.setNull(0);
+            else cs.setSafe(0, ColumnStatisticsSerializer.serialize(b.columnStatistics()));
             root.setRowCount(1);
             return writeStream(root);
         } catch (Exception e) {

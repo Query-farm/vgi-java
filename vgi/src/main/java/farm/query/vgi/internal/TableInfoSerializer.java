@@ -61,7 +61,8 @@ public final class TableInfoSerializer {
             nullable("bind_result", BINARY),
             listOfListOfListOfUtf8("required_filters"),
             nullable("options", BINARY),
-            nullable("layout", BINARY)));
+            nullable("layout", BINARY),
+            nonNull("scan_planning", UTF8)));
 
     /**
      * Serialise {@code info} as the 1-row IPC stream the C++ extension reads for a catalog table.
@@ -130,6 +131,7 @@ public final class TableInfoSerializer {
             writeListListListString(v.get("required_filters"), info.required_filters());
             writeNullableVarBinary(v.get("options"), info.options());
             writeNullableVarBinary(v.get("layout"), info.layout());
+            writeVarChar(v.get("scan_planning"), info.scan_planning());
         });
     }
 }

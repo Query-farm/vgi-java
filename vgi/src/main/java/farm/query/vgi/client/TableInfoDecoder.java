@@ -99,6 +99,17 @@ public final class TableInfoDecoder {
 
     private static TableInfo fromRow(Map<String, Object> row) {
         required(row.get("constraints"), "constraints");
+        // Protocol 3.2. A sender that omits the column predates it, which means bind-time planning.
+        String scanPlanning = row.containsKey("scan_planning")
+                ? required(str(row, "scan_planning"), "scan_planning") : TableInfo.SCAN_PLANNING_BIND;
+        try {
+            return construct(row, scanPlanning);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("invalid TableInfo: " + e.getMessage(), e);
+        }
+    }
+
+    private static TableInfo construct(Map<String, Object> row, String scanPlanning) {
         return new TableInfo(
                 str(row, "comment"),
                 stringMap(row, "tags"),
@@ -119,7 +130,8 @@ public final class TableInfoDecoder {
                 bytes(row, "bind_result"),
                 stringListList(row, "required_filters"),
                 bytes(row, "options"),
-                bytes(row, "layout"));
+                bytes(row, "layout"),
+                scanPlanning);
     }
 
     private static <T> T required(T value, String field) {

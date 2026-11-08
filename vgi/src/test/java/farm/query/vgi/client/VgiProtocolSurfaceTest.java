@@ -35,13 +35,13 @@ final class VgiProtocolSurfaceTest {
     /**
      * The canonical {@code vgi.v3} protocol hash of the reference (the combined contract, 85 methods).
      *
-     * <p>This changes only when {@code vgi.v3}'s protocol version (currently 3.1.0) changes. If
+     * <p>This changes only when {@code vgi.v3}'s protocol version (currently 3.2.0) changes. If
      * this test fails without such a change, a method or a params/result/header schema (field
      * name, order, nullability or type) has drifted from the reference: fix the drift, do not
      * update the constant.
      */
     static final String REFERENCE_VGI_V3_HASH =
-            "50e9404173bee3262e96b8939eb5c425463336abca2a17916812d68b6e0f6cad";
+            "171ac8263bf22ffdd5dd4ac2c3d3c4e1dc186a7ceba45d386f324af8c9c6fced";
 
     /** The reference methods this SDK registers but does not implement. */
     private static final Set<String> UNIMPLEMENTED = new TreeSet<>(List.of(

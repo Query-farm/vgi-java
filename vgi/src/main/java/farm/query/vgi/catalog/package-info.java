@@ -17,7 +17,12 @@
  *   <li>{@link farm.query.vgi.catalog.ColumnStatistics} — per-column min/max and
  *       null/distinct metadata used by the optimizer.</li>
  *   <li>{@link farm.query.vgi.catalog.ScanBranch} — one physical source backing a
- *       multi-branch table.</li>
+ *       multi-branch table, optionally with protocol 3.2 row-count and column
+ *       statistics.</li>
+ *   <li>{@link farm.query.vgi.catalog.ScanBranchesPlanner} /
+ *       {@link farm.query.vgi.catalog.ScanPlanningFilters} — protocol 3.2 filtered scan
+ *       planning: compute a table's branches per scan from the query's predicates
+ *       ({@link farm.query.vgi.catalog.ScanPlanning#FILTERED}).</li>
  * </ul>
  */
 package farm.query.vgi.catalog;

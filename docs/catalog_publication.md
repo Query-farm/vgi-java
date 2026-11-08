@@ -1,4 +1,4 @@
-# Catalog metadata and publication (wire 3.1)
+# Catalog metadata and publication (wire 3.2)
 
 `catalog_contents` returns six nullable Arrow IPC streams: `schemas`, `tables`, `views`, `functions`, `macros`, and `indexes`. A stream can contain multiple rows and record batches spanning multiple schemas. Empty categories are null. Functions and macros retain their subtype fields. Per-schema listing RPCs keep their existing item shapes, except `SchemaInfo` no longer carries attachment bytes; real attach request/result and function state remain intact.
 
@@ -17,7 +17,7 @@ The manager exposes startup warming, trusted manifest import, and conditional in
 
 Java: call `Worker.catalogSnapshot(policy)`. Use `policy.manager.warm`, `importPublication`, and `invalidate`. This implementation requires `farm.query:vgirpc:0.33.2`, including scalar dictionary annotations, its collection row codec and idempotent IPC stream termination.
 
-Version 0.46.0 requires native clients and workers on wire 3.1.x under `vgi.v3`; `vgi.v2` and wire 3.0 peers are incompatible. CI and release builds resolve RPC 0.33.2 from Maven Central.
+This source requires native clients and workers on wire 3.2.x under `vgi.v3`; `vgi.v2` and wire 3.0/3.1 peers are incompatible. CI and release builds resolve RPC 0.33.2 from Maven Central.
 
 RPC 0.33.2 includes the scalar `DICT_INT16_UTF8` record fix required by macro and
 constraint metadata. Release qualification disables the composite source override

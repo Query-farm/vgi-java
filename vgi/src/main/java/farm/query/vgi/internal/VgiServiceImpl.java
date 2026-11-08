@@ -2579,8 +2579,12 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     /**
-     * Resolve the scan branches for a table — declared branches for multi-branch
-     * tables, else a single-branch wrap of the regular scan function.
+     * Resolve the scan branches for a table through its
+     * {@link farm.query.vgi.catalog.ScanBranchesPlanner} (protocol 3.2). The
+     * planner receives {@code pushdown_filters} decoded lazily against the
+     * table's declared columns; the default planner ignores them and serves
+     * declared branches for multi-branch tables, else a single-branch wrap of
+     * the regular scan function.
      *
      * @param attach_opaque_data the attach token
      * @param schema_path the table's schema path
@@ -2588,6 +2592,7 @@ public final class VgiServiceImpl implements VgiService {
      * @param at_unit the time-travel unit, or {@code null}
      * @param at_value the time-travel value, or {@code null}
      * @param transaction_opaque_data the optional transaction token
+     * @param pushdown_filters the query's predicates (filter v2 snapshot), or {@code null}
      * @param ctx the per-call RPC context
      * @return serialised {@code ScanBranchesResult} bytes
      * @throws IllegalArgumentException if the table is unknown
@@ -2595,7 +2600,8 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public byte[] catalog_table_scan_branches_get(
             byte[] attach_opaque_data, List<String> schema_path, String name,
-            String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
+            String at_unit, String at_value, byte[] transaction_opaque_data, byte[] pushdown_filters,
+            CallContext ctx) {
         String schema_name = schemaLeaf(schema_path);
         if (hostedOf(attach_opaque_data, ctx) != null) {
             throw new IllegalArgumentException("scan_branches_get: table " + schema_name + "." + name
@@ -2603,31 +2609,76 @@ public final class VgiServiceImpl implements VgiService {
         }
         byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
         Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
-        if (extraCatalog != null) {
-            for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
-                if (t.name().equals(name) && t.scanFunctionName() != null) {
-                    farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
-                            t.scanFunctionName(),
-                            t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
-                            t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
-                            null, false, null, null, null, null, null, null,
-                            worker.resolveTableFunctionSchemaPath(
-                                    t.scanFunctionName(), schema_path, extraCatalog.name()));
-                    return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
-                }
-            }
-            throw new NotFoundException(
-                    "scan_branches_get: unknown table " + schema_name + "." + name);
+        String catalogName = extraCatalog == null ? null : extraCatalog.name();
+        List<CatalogTable> candidates = extraCatalog != null
+                ? extraCatalogTablesFor(attach_opaque_data_plain, schema_name)
+                : worker.catalogTables();
+        farm.query.vgi.catalog.ScanPlanningFilters filters = pushdown_filters == null ? null
+                : new farm.query.vgi.catalog.ScanPlanningFilters(pushdown_filters,
+                        () -> declaredColumns(candidates, schema_name, name, extraCatalog != null));
+        farm.query.vgi.catalog.ScanBranchesPlanner planner = extraCatalog != null
+                ? worker.scanBranchesPlanner()
+                : worker.scanBranchesPlanner(schema_name, name);
+        farm.query.vgi.catalog.ScanBranchesResult result = planner.plan(
+                new farm.query.vgi.catalog.ScanBranchesPlanner.Request(
+                        catalogName, schema_path, name, at_unit, at_value, filters,
+                        () -> extraCatalog != null
+                                ? defaultExtraCatalogScanBranches(extraCatalog, candidates, schema_path, name)
+                                : defaultScanBranches(attach_opaque_data_plain, schema_path, name,
+                                        at_unit, at_value)));
+        if (result == null) {
+            throw new IllegalStateException("scan_branches_get: planner returned null for table "
+                    + schema_name + "." + name);
         }
+        List<farm.query.vgi.catalog.ScanBranch> resolved = result.branches().stream()
+                .map(branch -> resolveBranchSchema(branch, schema_name, catalogName))
+                .toList();
+        return ScanBranchesResultSerializer.serialize(resolved, result.requiredExtensions());
+    }
+
+    /** The table's declared columns, which {@code pushdown_filters} column indexes refer to. */
+    private static org.apache.arrow.vector.types.pojo.Schema declaredColumns(
+            List<CatalogTable> tables, String schemaName, String name, boolean extra) {
+        for (CatalogTable t : tables) {
+            if ((extra || t.schema().equals(schemaName)) && t.name().equals(name)
+                    && t.columns() != null && t.columns().length > 0) {
+                return SchemaUtil.deserializeSchema(t.columns());
+            }
+        }
+        throw new NotFoundException("scan_branches_get: table " + schemaName + "." + name
+                + " declares no columns to decode pushdown_filters against");
+    }
+
+    private farm.query.vgi.catalog.ScanBranchesResult defaultExtraCatalogScanBranches(
+            Worker.ExtraCatalog extraCatalog, List<CatalogTable> tables, List<String> schema_path,
+            String name) {
+        for (CatalogTable t : tables) {
+            if (t.name().equals(name) && t.scanFunctionName() != null) {
+                farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
+                        t.scanFunctionName(),
+                        t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
+                        t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed(),
+                        null, false, null, null, null, null, null, null,
+                        worker.resolveTableFunctionSchemaPath(
+                                t.scanFunctionName(), schema_path, extraCatalog.name()));
+                return farm.query.vgi.catalog.ScanBranchesResult.of(List.of(one));
+            }
+        }
+        throw new NotFoundException(
+                "scan_branches_get: unknown table " + schemaLeaf(schema_path) + "." + name);
+    }
+
+    /** The 3.1 answer for a table of this worker's own catalog. */
+    private farm.query.vgi.catalog.ScanBranchesResult defaultScanBranches(
+            byte[] attach_opaque_data_plain, List<String> schema_path, String name,
+            String at_unit, String at_value) {
+        String schema_name = schemaLeaf(schema_path);
         // Explicitly declared multi-branch table — return its branches as-is
         // (an empty list deliberately reaches the C++ loud-fail path).
         List<farm.query.vgi.catalog.ScanBranch> branches =
                 worker.multiBranchTable(schema_name, name);
         if (branches != null) {
-            List<farm.query.vgi.catalog.ScanBranch> resolvedBranches = branches.stream()
-                    .map(branch -> resolveBranchSchema(branch, schema_name, null))
-                    .toList();
-            return ScanBranchesResultSerializer.serialize(resolvedBranches,
+            return new farm.query.vgi.catalog.ScanBranchesResult(branches,
                     worker.multiBranchRequiredExtensions(schema_name, name));
         }
         // Every other scannable table wraps its single scan function as one
@@ -2642,7 +2693,7 @@ public final class VgiServiceImpl implements VgiService {
                     List.of((Object) (long) resolveTtVersion(at.unit(), at.value())),
                     Map.of(), null, false, null, null, null, null, null, null,
                     worker.resolveTableFunctionSchemaPath("tt_pushdown_cols_scan", schema_path, null));
-            return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
+            return farm.query.vgi.catalog.ScanBranchesResult.of(List.of(one));
         }
         if ("data".equals(schema_name) && "cache_versioned".equals(name)) {
             farm.query.vgi.catalog.ScanBranch one = new farm.query.vgi.catalog.ScanBranch(
@@ -2650,7 +2701,7 @@ public final class VgiServiceImpl implements VgiService {
                     List.of((Object) (long) resolveCacheVersion(at.unit(), at.value())),
                     Map.of(), null, false, null, null, null, null, null, null,
                     worker.resolveTableFunctionSchemaPath("cache_versioned_scan", schema_path, null));
-            return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
+            return farm.query.vgi.catalog.ScanBranchesResult.of(List.of(one));
         }
         for (CatalogTable t : worker.catalogTables()) {
             if (t.schema().equals(schema_name) && t.name().equals(name)) {
@@ -2663,7 +2714,7 @@ public final class VgiServiceImpl implements VgiService {
                         null, false, null, null, null, null, null, null,
                         worker.resolveTableFunctionSchemaPath(
                                 resolved.scanFunctionName(), schema_path, null));
-                return ScanBranchesResultSerializer.serialize(List.of(one), List.of());
+                return farm.query.vgi.catalog.ScanBranchesResult.of(List.of(one));
             }
         }
         throw new NotFoundException(
@@ -3028,7 +3079,12 @@ public final class VgiServiceImpl implements VgiService {
                 t.inlineCardinality() ? t.cardinalityMax() : null,
                 inlineStats,
                 null,
-                t.requiredFilters() == null ? List.of() : t.requiredFilters());
+                t.requiredFilters() == null ? List.of() : t.requiredFilters(),
+                null,
+                null,
+                catalogName == null
+                        ? worker.scanPlanningOf(t.schema(), t.name()).wireValue()
+                        : farm.query.vgi.protocol.TableInfo.SCAN_PLANNING_BIND);
     }
 
     /**

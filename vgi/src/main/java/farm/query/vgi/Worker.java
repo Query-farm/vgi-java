@@ -233,6 +233,105 @@ public final class Worker {
         return multiBranchRequiredExtensions.getOrDefault(schema + "." + name, List.of());
     }
 
+    private final Map<String, farm.query.vgi.catalog.ScanBranchesPlanner> plannedTables =
+            new LinkedHashMap<>();
+    private final Map<String, farm.query.vgi.catalog.ScanPlanning> scanPlanningModes =
+            new LinkedHashMap<>();
+    private farm.query.vgi.catalog.ScanBranchesPlanner scanBranchesPlanner =
+            farm.query.vgi.catalog.ScanBranchesPlanner.DEFAULT;
+
+    /**
+     * Register a table whose scan branches a planner computes per call (protocol 3.2).
+     *
+     * <p>With {@link farm.query.vgi.catalog.ScanPlanning#FILTERED} the table advertises
+     * {@code scan_planning = "filtered"}: the client defers
+     * {@code catalog_table_scan_branches_get} until it has collected the query's
+     * predicates on the table and passes them as {@code pushdown_filters}, which
+     * the planner receives decoded against the stub's declared columns. The
+     * planner may then return fewer branches or files, or zero branches for "no
+     * rows". With {@link farm.query.vgi.catalog.ScanPlanning#BIND} the planner is
+     * called at bind time with no filters, like a multi-branch table whose
+     * branches are computed per call.</p>
+     *
+     * <p>The stub is enumerated normally; its inline scan function (if any) is
+     * dropped, since a filtered table may not inline one. See
+     * {@code docs/protocol/scan-planning.md} in vgi-python.</p>
+     *
+     * @param stub     the catalog table to enumerate; its {@code columns} are the
+     *                 schema the filters' column indexes refer to
+     * @param planning when the client resolves the scan
+     * @param planner  computes the branches for each call
+     * @return this builder
+     */
+    public Worker registerPlannedTable(CatalogTable stub, farm.query.vgi.catalog.ScanPlanning planning,
+            farm.query.vgi.catalog.ScanBranchesPlanner planner) {
+        java.util.Objects.requireNonNull(planning, "planning");
+        java.util.Objects.requireNonNull(planner, "planner");
+        catalogTables.add(stub.withRpcScanFunction());
+        String key = stub.schema() + "." + stub.name();
+        plannedTables.put(key, planner);
+        scanPlanningModes.put(key, planning);
+        return this;
+    }
+
+    /**
+     * Set the planner for every table that has none of its own (protocol 3.2).
+     * The worker calls it for each {@code catalog_table_scan_branches_get}; the
+     * default, {@link farm.query.vgi.catalog.ScanBranchesPlanner#DEFAULT}, ignores
+     * the predicates and serves the 3.1 branches.
+     *
+     * @param planner the fallback planner
+     * @return this builder
+     */
+    public Worker scanBranchesPlanner(farm.query.vgi.catalog.ScanBranchesPlanner planner) {
+        this.scanBranchesPlanner = java.util.Objects.requireNonNull(planner, "planner");
+        return this;
+    }
+
+    /**
+     * The planner that answers {@code catalog_table_scan_branches_get} for a
+     * table of this worker's own catalog: its registered planner, else the
+     * worker-wide one.
+     *
+     * @param schema the schema name
+     * @param name   the table name
+     * @return the planner, never {@code null}
+     */
+    public farm.query.vgi.catalog.ScanBranchesPlanner scanBranchesPlanner(String schema, String name) {
+        return plannedTables.getOrDefault(schema + "." + name, scanBranchesPlanner);
+    }
+
+    /**
+     * The worker-wide fallback planner.
+     *
+     * @return the planner set by {@link #scanBranchesPlanner(farm.query.vgi.catalog.ScanBranchesPlanner)}
+     */
+    public farm.query.vgi.catalog.ScanBranchesPlanner scanBranchesPlanner() {
+        return scanBranchesPlanner;
+    }
+
+    /**
+     * Whether a table of this worker's own catalog has a per-call planner.
+     *
+     * @param schema the schema name
+     * @param name   the table name
+     * @return {@code true} when registered via {@link #registerPlannedTable}
+     */
+    public boolean isPlannedTable(String schema, String name) {
+        return plannedTables.containsKey(schema + "." + name);
+    }
+
+    /**
+     * The {@code TableInfo.scan_planning} mode a table advertises.
+     *
+     * @param schema the schema name
+     * @param name   the table name
+     * @return the mode; {@link farm.query.vgi.catalog.ScanPlanning#BIND} unless registered otherwise
+     */
+    public farm.query.vgi.catalog.ScanPlanning scanPlanningOf(String schema, String name) {
+        return scanPlanningModes.getOrDefault(schema + "." + name, farm.query.vgi.catalog.ScanPlanning.BIND);
+    }
+
     /**
      * Every table registered via
      * {@link #registerMultiBranchTable(CatalogTable, List)}, used by the

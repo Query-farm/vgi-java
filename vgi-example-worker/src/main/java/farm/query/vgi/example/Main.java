@@ -93,6 +93,7 @@ import farm.query.vgi.example.tensor.UnnestTensorRowsFunction;
 import farm.query.vgi.example.tableinout.PagedFunctions;
 import farm.query.vgi.example.tableinout.RepeatInputsFunction;
 import farm.query.vgi.types.Schemas;
+import org.apache.arrow.vector.types.DateUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
@@ -1547,12 +1548,101 @@ public final class Main {
                         .comment("Multi-branch: empty branches list — used by multi_branch_empty_branches.test").build(),
                 List.of());
 
+        registerPlannedDays(w);
+
         // Two writable arms — C++ rejects (single-writable-catalog rule).
         w.registerMultiBranchTable(
                 CatalogTable.builder("data", "multi_branch_two_writable", colN)
                         .comment("Multi-branch with two writable=True arms — used by multi_branch_two_writable.test").build(),
                 List.of(ScanBranch.writable("sequence", 10L),
                         ScanBranch.writable("sequence", 10L)));
+    }
+
+    /**
+     * Protocol 3.2 filtered scan planning fixtures
+     * (test/sql/integration/catalog/scan_planning_*.test). Five days of data, one
+     * parquet file per day under {@code BRANCH_DIR/planned_days/}. The tests create
+     * the files for the first four days only: the 2026-10-05 file never exists, so a
+     * scan that fails to prune that day errors with "No files found". Mirrors
+     * vgi-python's {@code _planned_days_branches}.
+     */
+    private static void registerPlannedDays(Worker w) {
+        byte[] columns = cols(Schemas.nullable("event_date", new ArrowType.Date(DateUnit.DAY)),
+                Schemas.nullable("n", Schemas.INT64));
+        List<java.time.LocalDate> days = new ArrayList<>();
+        for (int d = 1; d <= 5; d++) days.add(java.time.LocalDate.of(2026, 10, d));
+        String dir = BRANCH_DIR + "/planned_days";
+
+        // Worker-side pruning: the planner keeps only the days whose event_date
+        // can satisfy the query's predicates.
+        w.registerPlannedTable(
+                CatalogTable.builder("data", "planned_days", columns)
+                        .comment("Protocol 3.2: worker-side pruning of per-day files"
+                                + " — scan_planning_filtered.test").build(),
+                farm.query.vgi.catalog.ScanPlanning.FILTERED,
+                request -> {
+                    var filters = request.pushdownFilters();
+                    List<java.time.LocalDate> kept = days.stream()
+                            .filter(day -> filters == null || filters.mayMatch(plannedDayStats(day)))
+                            .toList();
+                    recordPlannedDays(dir, filters != null, kept);
+                    return new farm.query.vgi.catalog.ScanBranchesResult(
+                            kept.stream()
+                                    .map(day -> ScanBranch.of("read_parquet", plannedDayFile(dir, day))
+                                            .withStatistics(10L, null))
+                                    .toList(),
+                            List.of("parquet"));
+                });
+
+        // Client-side pruning: one branch per day carrying event_date min/max.
+        w.registerPlannedTable(
+                CatalogTable.builder("data", "planned_days_stats", columns)
+                        .comment("Protocol 3.2: client-side pruning by ScanBranch statistics"
+                                + " — scan_planning_stats.test").build(),
+                farm.query.vgi.catalog.ScanPlanning.FILTERED,
+                request -> new farm.query.vgi.catalog.ScanBranchesResult(
+                        days.stream()
+                                .map(day -> ScanBranch.of("read_parquet", plannedDayFile(dir, day))
+                                        .withStatistics(10L, plannedDayStats(day)))
+                                .toList(),
+                        List.of("parquet")));
+
+        // branch_filter contradiction on a bind-time table.
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "planned_days_bf", columns)
+                        .comment("Protocol 3.2: pruning by branch_filter contradiction"
+                                + " — scan_planning_branch_filter.test").build(),
+                days.stream()
+                        .map(day -> ScanBranch.filtered("read_parquet",
+                                "event_date = DATE '" + day + "'", plannedDayFile(dir, day)))
+                        .toList(),
+                List.of("parquet"));
+    }
+
+    private static String plannedDayFile(String dir, java.time.LocalDate day) {
+        return dir + "/" + day + ".parquet";
+    }
+
+    private static List<farm.query.vgi.catalog.ColumnStatistics> plannedDayStats(java.time.LocalDate day) {
+        return List.of(new farm.query.vgi.catalog.ColumnStatistics("event_date",
+                new ArrowType.Date(DateUnit.DAY), day, day, false, true, null, null, null));
+    }
+
+    /** Record what the planner saw so tests can assert the predicates arrived. */
+    private static void recordPlannedDays(String dir, boolean receivedFilters, List<java.time.LocalDate> days) {
+        StringBuilder json = new StringBuilder("{\"received_filters\": ")
+                .append(receivedFilters).append(", \"days\": [");
+        for (int i = 0; i < days.size(); i++) {
+            if (i > 0) json.append(", ");
+            json.append('"').append(days.get(i)).append('"');
+        }
+        json.append("]}");
+        try {
+            java.nio.file.Files.createDirectories(java.nio.file.Path.of(dir));
+            java.nio.file.Files.writeString(java.nio.file.Path.of(dir, "last_plan.json"), json);
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
     }
 
     private static void registerMacros(Worker w) {
