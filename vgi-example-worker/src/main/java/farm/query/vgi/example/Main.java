@@ -1585,7 +1585,9 @@ public final class Main {
                     List<java.time.LocalDate> kept = days.stream()
                             .filter(day -> filters == null || filters.mayMatch(plannedDayStats(day)))
                             .toList();
-                    recordPlannedDays(dir, filters != null, kept);
+                    // Only filtered calls: an unfiltered bind-time fetch (vgi_table_branches())
+                    // would otherwise race scan_planning_filtered.test reading the record.
+                    if (filters != null) recordPlannedDays(dir, kept);
                     return new farm.query.vgi.catalog.ScanBranchesResult(
                             kept.stream()
                                     .map(day -> ScanBranch.of("read_parquet", plannedDayFile(dir, day))
@@ -1637,10 +1639,9 @@ public final class Main {
                 new ArrowType.Date(DateUnit.DAY), day, day, false, true, null, null, null));
     }
 
-    /** Record what the planner saw so tests can assert the predicates arrived. */
-    private static void recordPlannedDays(String dir, boolean receivedFilters, List<java.time.LocalDate> days) {
-        StringBuilder json = new StringBuilder("{\"received_filters\": ")
-                .append(receivedFilters).append(", \"days\": [");
+    /** Record what a filtered planning call kept so tests can assert the predicates arrived. */
+    private static void recordPlannedDays(String dir, List<java.time.LocalDate> days) {
+        StringBuilder json = new StringBuilder("{\"received_filters\": true, \"days\": [");
         for (int i = 0; i < days.size(); i++) {
             if (i > 0) json.append(", ");
             json.append('"').append(days.get(i)).append('"');
