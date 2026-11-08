@@ -52,9 +52,8 @@ final class VgiProtocolSurfaceTest {
             "catalog_table_column_comment_set", "catalog_table_column_default_drop",
             "catalog_table_column_default_set", "catalog_table_column_rename",
             "catalog_table_column_type_change", "catalog_table_comment_set",
-            "catalog_table_delete_function_get", "catalog_table_insert_function_get",
             "catalog_table_not_null_drop", "catalog_table_not_null_set", "catalog_table_rename",
-            "catalog_table_update_function_get", "catalog_view_rename"));
+            "catalog_view_rename"));
 
     private static Worker worker() {
         return Worker.builder().catalogName("surface_probe");

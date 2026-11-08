@@ -28,17 +28,25 @@ import java.util.Map;
  * missing values fall back to the default vector materialised at spec
  * registration.
  *
- * <p><b>Secret options are never encoded.</b> A spec declared {@code secret} is
- * left out of the merged batch on every transport: on stdio / AF_UNIX the
- * attach id travels unsealed, and a credential must not sit in plaintext in a
- * value the client stores and returns
- * ({@code docs/protocol/vgi-opaque-data-sealing.md} rule 5). A function that
- * needs a secret's effect must derive it at attach time instead.
+ * <p><b>Secret options never appear in plaintext.</b> A spec declared {@code secret} is
+ * left out of the merged batch on every transport: on stdio / AF_UNIX the attach id
+ * travels unsealed, and a credential must not sit in plaintext in a value the client
+ * stores and returns ({@code docs/protocol/vgi-opaque-data-sealing.md} rule 5). When the
+ * caller supplies a key ({@link #encode(List, byte[], SecureRandom, byte[])}), the secret
+ * options' values are instead AEAD-encrypted (ChaCha20-Poly1305, AAD-bound to this attach
+ * id's uuid) into the merged batch's schema metadata under {@link #SECRET_OPTIONS_KEY}, and
+ * {@link #openSecrets} recovers them with the same key. Readers that ignore schema metadata
+ * see exactly the non-secret batch they always did.
  */
 public final class AttachOptionsAttachId {
 
     private static final byte SEP = 0x00;
     private static final int UUID_BYTES = 16;
+
+    /** Schema-metadata key of the encrypted secret-option batch (base64). */
+    public static final String SECRET_OPTIONS_KEY = "vgi.secret_options";
+    private static final byte[] SECRET_AAD_PREFIX =
+            "vgi.attach_secret_options.v1\0".getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
     private AttachOptionsAttachId() {}
 
@@ -53,23 +61,46 @@ public final class AttachOptionsAttachId {
      */
     public static byte[] encode(List<AttachOptionSpec> declared, byte[] userOptionsIpc,
                                   SecureRandom rng) {
+        return encode(declared, userOptionsIpc, rng, (java.util.function.Supplier<byte[]>) null);
+    }
+
+    /**
+     * Encode the resolved option values, encrypting the secret ones with {@code secretKey}.
+     *
+     * @param declared       declared option specs (define column order and defaults)
+     * @param userOptionsIpc IPC batch of user-supplied option values, or {@code null}/empty
+     * @param rng            source of the 16-byte uniqueness prefix
+     * @param secretKey      32-byte key the secret values are encrypted with, or {@code null}
+     *                       to drop them
+     * @return the encoded {@code attach_id} bytes
+     */
+    public static byte[] encode(List<AttachOptionSpec> declared, byte[] userOptionsIpc,
+                                  SecureRandom rng, byte[] secretKey) {
+        return encode(declared, userOptionsIpc, rng, secretKey == null ? null : () -> secretKey);
+    }
+
+    /**
+     * Encode the resolved option values, encrypting the secret ones with the key
+     * {@code secretKey} supplies. The supplier is called only when a secret option has a
+     * value, so a worker whose secret options were not given never needs a key.
+     *
+     * @param declared       declared option specs (define column order and defaults)
+     * @param userOptionsIpc IPC batch of user-supplied option values, or {@code null}/empty
+     * @param rng            source of the 16-byte uniqueness prefix
+     * @param secretKey      supplies the 32-byte key, or {@code null} to drop secret values
+     * @return the encoded {@code attach_id} bytes
+     * @throws IllegalStateException when a secret option has a value and no key is available
+     */
+    public static byte[] encode(List<AttachOptionSpec> declared, byte[] userOptionsIpc,
+                                  SecureRandom rng, java.util.function.Supplier<byte[]> secretKey) {
         BufferAllocator alloc = Allocators.root();
         List<AttachOptionSpec> specs = new ArrayList<>(declared.size());
+        List<AttachOptionSpec> secretSpecs = new ArrayList<>();
         for (AttachOptionSpec spec : declared) {
             if (!spec.secret()) specs.add(spec);
+            else secretSpecs.add(spec);
         }
 
-        // Merged-batch schema: one column per spec, in declaration order.
-        // The Field's name comes from the spec (not the spec's "value" field).
-        List<Field> mergedFields = new ArrayList<>(specs.size());
-        for (AttachOptionSpec spec : specs) {
-            mergedFields.add(new Field(spec.name(),
-                    new FieldType(true, spec.type(), null),
-                    spec.children()));
-        }
-        Schema mergedSchema = new Schema(mergedFields);
-
-        // Index user-supplied columns by name.
         Map<String, FieldVector> userCols = new HashMap<>();
         VectorSchemaRoot userRoot = null;
         if (userOptionsIpc != null && userOptionsIpc.length > 0) {
@@ -80,6 +111,48 @@ public final class AttachOptionsAttachId {
                 }
             }
         }
+        try {
+            byte[] uuid = new byte[UUID_BYTES];
+            rng.nextBytes(uuid);
+            Map<String, String> metadata = null;
+            if (secretKey != null && !secretSpecs.isEmpty()) {
+                boolean anyValue = false;
+                for (AttachOptionSpec spec : secretSpecs) {
+                    if (pickSource(userCols.get(spec.name()), spec.defaultVector()) != null) anyValue = true;
+                }
+                if (anyValue) {
+                    byte[] key = secretKey.get();
+                    if (key == null || key.length != 32) {
+                        throw new IllegalStateException("secret ATTACH options were given but this worker"
+                                + " has no key to encrypt them with; set VGI_SIGNING_KEY");
+                    }
+                    byte[] secretIpc = mergedBatch(secretSpecs, userCols, alloc, null);
+                    byte[] sealed = farm.query.vgirpc.http.auth.Crypto.chacha20Poly1305Seal(
+                            key, secretIpc, secretAad(uuid));
+                    metadata = Map.of(SECRET_OPTIONS_KEY, java.util.Base64.getEncoder().encodeToString(sealed));
+                }
+            }
+            byte[] ipcBytes = mergedBatch(specs, userCols, alloc, metadata);
+            byte[] attachId = new byte[UUID_BYTES + 1 + ipcBytes.length];
+            System.arraycopy(uuid, 0, attachId, 0, UUID_BYTES);
+            attachId[UUID_BYTES] = SEP;
+            System.arraycopy(ipcBytes, 0, attachId, UUID_BYTES + 1, ipcBytes.length);
+            return attachId;
+        } finally {
+            if (userRoot != null) userRoot.close();
+        }
+    }
+
+    /** One row, one column per spec in declaration order: the user value, else the default. */
+    private static byte[] mergedBatch(List<AttachOptionSpec> specs, Map<String, FieldVector> userCols,
+                                      BufferAllocator alloc, Map<String, String> metadata) {
+        List<Field> mergedFields = new ArrayList<>(specs.size());
+        for (AttachOptionSpec spec : specs) {
+            mergedFields.add(new Field(spec.name(),
+                    new FieldType(true, spec.type(), null),
+                    spec.children()));
+        }
+        Schema mergedSchema = new Schema(mergedFields, metadata);
         try (VectorSchemaRoot mergedRoot = VectorSchemaRoot.create(mergedSchema, alloc)) {
             mergedRoot.allocateNew();
             for (int i = 0; i < specs.size(); i++) {
@@ -95,18 +168,74 @@ public final class AttachOptionsAttachId {
                 tp.copyValueSafe(0, 0);
             }
             mergedRoot.setRowCount(1);
-            byte[] ipcBytes = BatchUtil.writeSingleBatch(mergedRoot);
-
-            byte[] uuid = new byte[UUID_BYTES];
-            rng.nextBytes(uuid);
-            byte[] attachId = new byte[UUID_BYTES + 1 + ipcBytes.length];
-            System.arraycopy(uuid, 0, attachId, 0, UUID_BYTES);
-            attachId[UUID_BYTES] = SEP;
-            System.arraycopy(ipcBytes, 0, attachId, UUID_BYTES + 1, ipcBytes.length);
-            return attachId;
-        } finally {
-            if (userRoot != null) userRoot.close();
+            return BatchUtil.writeSingleBatch(mergedRoot);
         }
+    }
+
+    private static byte[] secretAad(byte[] uuid) {
+        byte[] aad = new byte[SECRET_AAD_PREFIX.length + UUID_BYTES];
+        System.arraycopy(SECRET_AAD_PREFIX, 0, aad, 0, SECRET_AAD_PREFIX.length);
+        System.arraycopy(uuid, 0, aad, SECRET_AAD_PREFIX.length, UUID_BYTES);
+        return aad;
+    }
+
+    /**
+     * Whether {@code attachId} has the options layout ({@code uuid || 0x00 || ipc}).
+     *
+     * @param attachId a plain attach id, or {@code null}
+     * @return true when it carries an options batch
+     */
+    public static boolean carriesOptions(byte[] attachId) {
+        return attachId != null && attachId.length > UUID_BYTES + 1 && attachId[UUID_BYTES] == SEP
+                && attachId.length >= UUID_BYTES + 1 + 8
+                && (attachId[UUID_BYTES + 1] & 0xFF) == 0xFF && (attachId[UUID_BYTES + 2] & 0xFF) == 0xFF
+                && (attachId[UUID_BYTES + 3] & 0xFF) == 0xFF && (attachId[UUID_BYTES + 4] & 0xFF) == 0xFF;
+    }
+
+    /**
+     * Whether {@code attachId} carries encrypted secret-option values.
+     *
+     * @param attachId a plain attach id, or {@code null}
+     * @return true when its options batch carries {@link #SECRET_OPTIONS_KEY}
+     */
+    public static boolean hasSecrets(byte[] attachId) {
+        return sealedSecrets(attachId) != null;
+    }
+
+    private static byte[] sealedSecrets(byte[] attachId) {
+        if (!carriesOptions(attachId)) return null;
+        try (org.apache.arrow.vector.ipc.ArrowStreamReader reader = new org.apache.arrow.vector.ipc.ArrowStreamReader(
+                new java.io.ByteArrayInputStream(attachId, UUID_BYTES + 1, attachId.length - UUID_BYTES - 1),
+                Allocators.root())) {
+            Map<String, String> md = reader.getVectorSchemaRoot().getSchema().getCustomMetadata();
+            String b64 = md == null ? null : md.get(SECRET_OPTIONS_KEY);
+            return b64 == null ? null : java.util.Base64.getDecoder().decode(b64);
+        } catch (java.io.IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Decrypt the secret-option batch {@link #encode(List, byte[], SecureRandom, byte[])} put
+     * in {@code attachId}; caller closes the root.
+     *
+     * @param attachId the encoded attach id
+     * @param key      the 32-byte key it was encrypted with
+     * @param alloc    allocator for the returned root
+     * @return the one-row secret batch, or {@code null} when the attach id carries none
+     * @throws IllegalArgumentException when the batch does not open under {@code key}
+     */
+    public static VectorSchemaRoot openSecrets(byte[] attachId, byte[] key, BufferAllocator alloc) {
+        byte[] sealed = sealedSecrets(attachId);
+        if (sealed == null) return null;
+        byte[] uuid = java.util.Arrays.copyOf(attachId, UUID_BYTES);
+        byte[] ipc;
+        try {
+            ipc = farm.query.vgirpc.http.auth.Crypto.chacha20Poly1305Open(key, sealed, secretAad(uuid));
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("secret ATTACH options do not open under this worker's key");
+        }
+        return BatchUtil.readSingleBatch(ipc, alloc);
     }
 
     private static FieldVector pickSource(FieldVector userVec, FieldVector defaultVec) {

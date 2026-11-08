@@ -33,6 +33,17 @@ import java.util.Map;
  *     findable when an HTTP load balancer spreads that substream's requests
  *     across backends. {@code null} for the serial path or an old client.
  *     Mirrors vgi-python's {@code ProcessParams.substream_id}.
+ * @param attachId the attach's plain identifier bytes (what {@link TableInOutBindParams#attachOpaqueData()}
+ *     carried at bind), or {@code null} without an attach
+ * @param bindOpaqueData the {@code BindResponse.opaque_data} the function's {@code onBind}
+ *     returned (bind-time state handed to the exchange); empty when it returned none
+ * @param transactionId the plaintext id of the DuckDB transaction this call runs in (the
+ *     bytes {@link farm.query.vgi.TransactionHooks#begin} returned and the commit / rollback
+ *     hooks receive), or {@code null} outside a transaction-supporting attach. An exchange
+ *     that needs it while processing input keeps it in a field of its state (exchange state
+ *     fields survive HTTP turns).
+ * @param attachOptions the attach's ATTACH option values, secret ones included; never
+ *     {@code null}
  */
 public record TableInOutInitParams(
         String functionName,
@@ -43,7 +54,39 @@ public record TableInOutInitParams(
         BufferAllocator allocator,
         farm.query.vgi.storage.BoundStorage storage,
         byte[] secrets,
-        byte[] substreamId) {
+        byte[] substreamId,
+        byte[] attachId,
+        byte[] bindOpaqueData,
+        byte[] transactionId,
+        farm.query.vgi.AttachOptions attachOptions) {
+
+    /** Normalizes a missing option set to the non-secret options the attach id carries. */
+    public TableInOutInitParams {
+        if (bindOpaqueData == null) bindOpaqueData = new byte[0];
+        if (attachOptions == null) attachOptions = farm.query.vgi.AttachOptions.fromAttachId(attachId);
+    }
+
+    /**
+     * Compatibility constructor of releases before attach ids, transaction ids and attach
+     * options reached table-in-out init.
+     *
+     * @param functionName the bound function's name as invoked in SQL.
+     * @param arguments the resolved positional/named arguments.
+     * @param inputSchema the Arrow schema of the input stream.
+     * @param outputSchema the (possibly projection-narrowed) output schema.
+     * @param settings the session settings in effect for this execution.
+     * @param allocator the allocator the exchange must use for output vectors.
+     * @param storage the per-execution shared-state facade.
+     * @param secrets the resolved-secrets IPC blob, or {@code null}.
+     * @param substreamId the substream id, or {@code null}.
+     */
+    public TableInOutInitParams(
+            String functionName, Arguments arguments, Schema inputSchema, Schema outputSchema,
+            Map<String, Object> settings, BufferAllocator allocator,
+            farm.query.vgi.storage.BoundStorage storage, byte[] secrets, byte[] substreamId) {
+        this(functionName, arguments, inputSchema, outputSchema, settings, allocator,
+                storage, secrets, substreamId, null, null, null, null);
+    }
 
     /**
      * Compatibility constructor without a substream id (serial path).

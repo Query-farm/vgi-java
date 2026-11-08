@@ -98,7 +98,11 @@ public final class CatalogRegistry {
 
     private static final byte[] ATTACH_HEADER = new byte[]{'V','G','I','A','T','T',2,0};
 
-    /** Put routing metadata inside the authenticated attach envelope, preserving author bytes. */
+    /**
+     * Put routing metadata inside the authenticated attach envelope, preserving author bytes.
+     * Used for auxiliary catalogs (the routing name) and for the main catalog when it resolved
+     * a data version: {@link #restoreAttach} re-records both on whichever process opens it.
+     */
     public byte[] recoverableAttach(byte[] authorState, String dataVersion, String catalogName) {
         try {
             var bytes = new java.io.ByteArrayOutputStream();
@@ -118,7 +122,8 @@ public final class CatalogRegistry {
             var input = new java.io.DataInputStream(new java.io.ByteArrayInputStream(authenticatedState, ATTACH_HEADER.length, authenticatedState.length - ATTACH_HEADER.length));
             String name = input.readUTF(); String version = input.readBoolean() ? input.readUTF() : null;
             int length = input.readInt();
-            if (length < 16 || length != input.available() || !worker.extraCatalogs().containsKey(name)) throw new java.io.IOException("invalid catalog route");
+            if (length < 16 || length != input.available()
+                    || !(worker.extraCatalogs().containsKey(name) || name.equals(worker.catalogName()))) throw new java.io.IOException("invalid catalog route");
             byte[] authorState = input.readNBytes(length);
             recordAttach(authorState, version, name);
             return authorState;
@@ -265,6 +270,7 @@ public final class CatalogRegistry {
                 null, null, false, true,
                 List.of(), List.of(), List.of(), List.of(),
                 stats == null ? List.of() : stats, filters == null ? List.of() : filters,
-                ConstraintContract.reown(vt.constraints(), vt.name(), t.name()), vt.definitionRevision());
+                ConstraintContract.reown(vt.constraints(), vt.name(), t.name()), vt.definitionRevision(),
+                t.insertFunctionName(), t.updateFunctionName(), t.deleteFunctionName(), t.writeResultModes());
     }
 }

@@ -302,6 +302,21 @@ public record FunctionMetadata(
      * @param cats category names.
      * @return a copy with the given categories.
      */
+    /**
+     * Returns a copy with the given stability, e.g. {@code FunctionMetadata.describe("...")
+     * .withStability(Stability.VOLATILE)} for a function whose result may change between calls.
+     *
+     * @param s the stability; not {@code null}
+     * @return a new metadata with {@code stability} replaced
+     */
+    public FunctionMetadata withStability(Stability s) {
+        return new FunctionMetadata(description, java.util.Objects.requireNonNull(s, "stability"), nullHandling,
+                autoApplyFilters, projectionPushdown, filterPushdown, samplingPushdown, categories, orderPreservation,
+                supportsBatchIndex, partitionKind, lateMaterialization, filterSemanticProfiles,
+                additionalFilterFunctions, runtimeFilterAlgorithms, filterEvaluationContexts, examples, tags,
+                supportsSplits, filtersExactlyApplied, supportsPositions, splitTokenTtlSeconds);
+    }
+
     public FunctionMetadata withCategories(String... cats) {
         return new FunctionMetadata(description, stability, nullHandling, autoApplyFilters,
                 projectionPushdown, filterPushdown, samplingPushdown, List.of(cats), orderPreservation,

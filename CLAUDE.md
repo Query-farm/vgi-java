@@ -346,6 +346,34 @@ with several replies:
   `vgi-example-worker/.../tableinout/PagedStateTest`. Unit: `internal/ContinuedOutputTest`;
   pipe + HTTP round trips: `client/ContinuedOutputTransportTest`.
 
+## Writable tables, transaction hooks, attach options (2026-11-08, 0.46.3)
+
+Found porting a Hue worker (an UPDATE-able `lights` table staged in DuckDB transactions); the
+contract is vgi `docs/writable_tx_fixtures.md`, served by `example/txfix/TxFixWorker`
+(`ci/wrappers/vgi-worker-txfix`, `VGI_WRITABLE_TX_FIXTURES` / `VGI_WRITABLE_TX_WORKER` on every
+lane). User docs: `docs/writable-tables-and-transactions.md`.
+
+- `CatalogTable.Builder#insertFunction/updateFunction/deleteFunction/writeResultMode`;
+  `toTableInfo` inlines them and `catalog_table_{insert,update,delete}_function_get` answer
+  (resolved over the catalog's table in-out functions). `farm.query.vgi.write` holds
+  `WriteOptions` / `WriteResults` (TS `write-results.ts` port).
+- `ConstraintContract.profilesFor` adds `vgi.constraint.enforce.v1` for a writable constrained
+  table; `merge` re-selects over the whole advertisement, so a provider advertising enforce
+  without records-read is no longer dropped by `CatalogProfiles.select`.
+- `Worker.onAttach(AttachHook)` -> `AttachSettings` (per-attach `supports_transactions` /
+  `supports_time_travel`; worker-wide defaults stay `true`). `Worker.transactionHooks` runs at
+  begin/commit/rollback with the PLAINTEXT id (begin mints it; sealed on HTTP by the framework);
+  commit throwing fails COMMIT. `CatalogInterface` has the same four hooks for hosted catalogs.
+- Functions get `transactionId()` and `attachOptions()` on Table{Bind,Init}Params and
+  TableInOut{Bind,Init}Params; TableInOutInitParams also `attachId()` / `bindOpaqueData()`.
+- Secret ATTACH options are ChaCha20-Poly1305-encrypted into the attach id's IPC schema
+  metadata (`vgi.secret_options`, AAD = uuid). Key: configured signing key, else the HTTP
+  sealing key, else `internal/HostLocalKey` (per-user 0600 file, shared by pooled/stdio
+  processes). Old 3-arg `AttachOptionsAttachId.encode` still drops them.
+- The main catalog's resolved data version now rides inside the attach envelope
+  (`CatalogRegistry.recoverableAttach`, only when the ATTACH name equals the catalog name), so
+  a process that never saw the ATTACH no longer loses it.
+
 ## Attach tickets (2026-10-07)
 
 > **Protocol 2.0.0 (2026-10-17):** `AttachTicket.expires_at` is a nullable

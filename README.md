@@ -30,6 +30,7 @@ Version 0.46.0 uses VGI wire 3.1.0 under `vgi.v3` and requires a native VGI clie
 - **Table buffering functions** — sink/source functions that buffer all input before emitting (distributed-aggregation style lifecycles: process → combine → finalize).
 - **Aggregate functions** — partial aggregation with cross-process state combine.
 - **Catalog versioning** — semver data/implementation version negotiation, release manifests, multi-branch tables, transactions, and attach options.
+- **Writable tables and transactions** — catalog tables with INSERT / UPDATE / DELETE functions and write result modes, per-attach `supports_transactions` with begin / commit / rollback hooks, the transaction id and ATTACH options (secret ones included) in every function ([docs](docs/writable-tables-and-transactions.md)).
 - **Attach tickets** — seal a user's ATTACH (secret options included) so a runner holding their grant can replay it later without seeing an option ([docs](docs/attach-tickets.md)).
 
 ## Start a new worker

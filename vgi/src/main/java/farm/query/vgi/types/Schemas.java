@@ -107,6 +107,17 @@ public final class Schemas {
     }
 
     /**
+     * The IPC byte encoding of a schema: what {@code BindResponse.forSchema} and
+     * {@code CatalogTable.builder} take.
+     *
+     * @param schema the schema
+     * @return the IPC-encoded schema
+     */
+    public static byte[] serialize(Schema schema) {
+        return SchemaUtil.serializeSchema(schema);
+    }
+
+    /**
      * IPC byte encoding of {@link #singleResult(ArrowType)}.
      *
      * @param t the result column's Arrow type

@@ -57,6 +57,12 @@ import java.util.Map;
  *        null means the client did not plan, empty is a claim of no work.
  *     COPY-FROM scan (see {@link farm.query.vgi.table.CopyFromFunction}); {@code null}
  *     for every ordinary table-function init
+ * @param transactionId the plaintext id of the DuckDB transaction this scan runs in (the
+ *     same bytes {@link farm.query.vgi.TransactionHooks#begin} returned and the commit /
+ *     rollback hooks receive), or {@code null} outside a transaction-supporting attach. A
+ *     producer that needs it while producing rows keeps it in a field of its state.
+ * @param attachOptions the attach's ATTACH option values, secret ones included; never
+ *     {@code null}
  */
 public record TableInitParams(
         String functionName,
@@ -83,7 +89,59 @@ public record TableInitParams(
         String atValue,
         farm.query.vgi.storage.BoundStorage storage,
         farm.query.vgi.protocol.CopyFromContext copyFrom,
-        List<byte[]> splitPayloads) {
+        List<byte[]> splitPayloads,
+        byte[] transactionId,
+        farm.query.vgi.AttachOptions attachOptions) {
+
+    /** Normalizes a missing option set to the non-secret options the attach id carries. */
+    public TableInitParams {
+        if (attachOptions == null) attachOptions = farm.query.vgi.AttachOptions.fromAttachId(attachId);
+    }
+
+    /**
+     * Compatibility constructor of releases before transaction ids and attach options.
+     *
+     * @param functionName the invoked table function's name
+     * @param arguments the positional and named call arguments
+     * @param outputSchema the schema to emit
+     * @param bindOutputSchema the unprojected bind output schema
+     * @param settings session settings in effect for this call
+     * @param allocator the allocator producers must use
+     * @param pushdownFilters the encoded pushdown-filter bytes
+     * @param projectionIds the requested column indices
+     * @param joinKeys the encoded join-filter key bytes
+     * @param filterCapabilities the filter capabilities
+     * @param tablesamplePercentage the TABLESAMPLE percentage, or {@code null}
+     * @param tablesampleSeed the TABLESAMPLE seed, or {@code null}
+     * @param orderByColumnName the ORDER BY column, or {@code null}
+     * @param orderByDirection the ORDER BY direction, or {@code null}
+     * @param orderByNullOrder the ORDER BY null ordering, or {@code null}
+     * @param orderByLimit the ORDER BY limit, or {@code null}
+     * @param executionId the per-execution identifier
+     * @param secrets the resolved secret bytes, or {@code null}
+     * @param attachId the attach's plain identifier bytes
+     * @param bindOpaqueData the bind's opaque data
+     * @param atUnit the AT clause unit, or {@code null}
+     * @param atValue the AT clause value, or {@code null}
+     * @param storage the per-execution storage facade
+     * @param copyFrom the COPY-FROM context, or {@code null}
+     * @param splitPayloads the verified split payloads, or {@code null}
+     */
+    public TableInitParams(String functionName, Arguments arguments, Schema outputSchema,
+            Schema bindOutputSchema, Map<String, Object> settings, BufferAllocator allocator,
+            byte[] pushdownFilters, List<Integer> projectionIds, List<byte[]> joinKeys,
+            PushdownFiltersDecoder.Capabilities filterCapabilities, Double tablesamplePercentage,
+            Long tablesampleSeed, String orderByColumnName, String orderByDirection,
+            String orderByNullOrder, Long orderByLimit, byte[] executionId, byte[] secrets,
+            byte[] attachId, byte[] bindOpaqueData, String atUnit, String atValue,
+            farm.query.vgi.storage.BoundStorage storage, farm.query.vgi.protocol.CopyFromContext copyFrom,
+            List<byte[]> splitPayloads) {
+        this(functionName, arguments, outputSchema, bindOutputSchema, settings, allocator,
+                pushdownFilters, projectionIds, joinKeys, filterCapabilities, tablesamplePercentage,
+                tablesampleSeed, orderByColumnName, orderByDirection, orderByNullOrder, orderByLimit,
+                executionId, secrets, attachId, bindOpaqueData, atUnit, atValue, storage, copyFrom,
+                splitPayloads, null, null);
+    }
 
     /**
      * Wrap the raw {@link #pushdownFilters} / {@link #joinKeys} bytes into a

@@ -133,6 +133,51 @@ public final class VgiServiceImpl implements VgiService {
      */
     private final OpaqueDataSealer sealer;
 
+    /** Configured key for secret ATTACH option values; see {@link #secretKey()}. */
+    private final byte[] secretOptionKey;
+
+    /**
+     * The key secret ATTACH option values are encrypted with inside the attach id: the
+     * configured key, else the sealing key (HTTP), else the per-user host key.
+     */
+    private byte[] secretKey() {
+        if (secretOptionKey != null) return secretOptionKey;
+        if (sealer.signingKey() != null) return sealer.signingKey();
+        return HostLocalKey.get();
+    }
+
+    private final java.util.Map<String, farm.query.vgi.AttachOptions> attachOptionsCache = BoundedMap.create(1024);
+
+    /**
+     * The ATTACH option values a plain attach id carries, secret ones decrypted. An attach id
+     * without the options layout has none.
+     */
+    farm.query.vgi.AttachOptions attachOptionsOf(byte[] attachPlain) {
+        if (!AttachOptionsAttachId.carriesOptions(attachPlain)) return farm.query.vgi.AttachOptions.empty();
+        String key = bytesKey(attachPlain);
+        farm.query.vgi.AttachOptions cached = attachOptionsCache.get(key);
+        if (cached != null) return cached;
+        farm.query.vgi.AttachOptions opened;
+        try (org.apache.arrow.vector.VectorSchemaRoot plain = AttachOptionsAttachId.decode(attachPlain, Allocators.root())) {
+            Map<String, Object> values = farm.query.vgi.AttachOptions.valuesOf(plain);
+            java.util.Set<String> secretNames = new java.util.LinkedHashSet<>();
+            boolean available = true;
+            if (AttachOptionsAttachId.hasSecrets(attachPlain)) {
+                try (org.apache.arrow.vector.VectorSchemaRoot secrets =
+                             AttachOptionsAttachId.openSecrets(attachPlain, secretKey(), Allocators.root())) {
+                    Map<String, Object> s = farm.query.vgi.AttachOptions.valuesOf(secrets);
+                    values.putAll(s);
+                    secretNames.addAll(s.keySet());
+                } catch (RuntimeException e) {
+                    available = false;
+                }
+            }
+            opened = farm.query.vgi.AttachOptions.of(values, secretNames, available);
+        }
+        if (opened.secretsAvailable()) attachOptionsCache.put(key, opened);
+        return opened;
+    }
+
     private static AuthContext authOf(CallContext ctx) {
         return ctx == null ? AuthContext.ANONYMOUS : ctx.auth();
     }
@@ -161,13 +206,14 @@ public final class VgiServiceImpl implements VgiService {
                                byte[] secrets, byte[] attachId, byte[] bindOpaqueData,
                                String atUnit, String atValue,
                                farm.query.vgi.protocol.CopyFromContext copyFrom,
-                               List<String> argumentNames)
+                               List<String> argumentNames, byte[] transactionId)
             implements BoundEntry {}
 
     private record BoundTableInOut(TableInOutFunction fn, Arguments args, Schema inputSchema,
                                     Schema outputSchema, Map<String, Object> settings,
                                     byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
-                                    byte[] secrets, byte[] attachId, List<String> argumentNames)
+                                    byte[] secrets, byte[] attachId, List<String> argumentNames,
+                                    byte[] bindOpaqueData, byte[] transactionId)
             implements BoundEntry {}
 
     private record BoundBuffering(farm.query.vgi.buffering.TableBufferingFunction fn, Arguments args,
@@ -226,6 +272,27 @@ public final class VgiServiceImpl implements VgiService {
     public VgiServiceImpl(Worker worker, List<ScalarFunction> scalars, List<TableFunction> tables,
                            List<TableInOutFunction> tableInOuts, List<AggregateFunction<?>> aggregates,
                            boolean sealOpaqueData, byte[] opaqueDataKey) {
+        this(worker, scalars, tables, tableInOuts, aggregates, sealOpaqueData, opaqueDataKey, opaqueDataKey);
+    }
+
+    /**
+     * Full form: also names the key secret ATTACH options are encrypted with inside the
+     * attach id ({@link AttachOptionsAttachId}).
+     *
+     * @param worker the owning worker
+     * @param scalars registered scalar functions
+     * @param tables registered table functions
+     * @param tableInOuts registered table-in-out functions
+     * @param aggregates registered aggregate functions
+     * @param sealOpaqueData {@code true} to AEAD-seal attach / transaction opaque data
+     * @param opaqueDataKey exactly 32 bytes of shared key material for cross-replica sealing, or {@code null}
+     * @param secretOptionKey 32-byte key for secret ATTACH option values, or {@code null} to use
+     *     the sealing key (HTTP) or the per-user host key ({@link HostLocalKey}, other transports)
+     */
+    public VgiServiceImpl(Worker worker, List<ScalarFunction> scalars, List<TableFunction> tables,
+                           List<TableInOutFunction> tableInOuts, List<AggregateFunction<?>> aggregates,
+                           boolean sealOpaqueData, byte[] opaqueDataKey, byte[] secretOptionKey) {
+        this.secretOptionKey = secretOptionKey == null ? null : secretOptionKey.clone();
         this.sealer = (sealOpaqueData && opaqueDataKey != null)
                 ? new OpaqueDataSealer(opaqueDataKey)
                 : new OpaqueDataSealer(sealOpaqueData);
@@ -458,10 +525,12 @@ public final class VgiServiceImpl implements VgiService {
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         AuthContext auth = authOf(ctx);
         byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(request.attach_opaque_data(), auth));
+        byte[] txnPlain = sealer.unsealTransaction(
+                request.transaction_opaque_data(), request.attach_opaque_data(), auth);
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(),
                 attachPlain, attachScopedStorage(attachPlain), request.copy_to(),
-                request.argument_names()));
+                request.argument_names(), txnPlain, attachOptionsOf(attachPlain)));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
@@ -504,7 +573,7 @@ public final class VgiServiceImpl implements VgiService {
         TableBindParams bindParams = new TableBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(), attachPlain,
                 transactionStore.view(txnPlain, attachPlain), attachScopedStorage(attachPlain),
-                request.copy_from(), request.argument_names());
+                request.copy_from(), request.argument_names(), txnPlain, attachOptionsOf(attachPlain));
         BindResponse upstream = fn.onBind(bindParams);
         ProjectionExpressions.validateOffer(upstream.projection_expression_profiles());
         Schema outputSchema = upstream.output_schema() == null
@@ -518,7 +587,7 @@ public final class VgiServiceImpl implements VgiService {
         pendingBinds.put(bytesKey(wireState), new BoundTable(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
                 request.secrets(), attachPlain, bindOpaque, request.at_unit(), request.at_value(),
-                request.copy_from(), request.argument_names()));
+                request.copy_from(), request.argument_names(), txnPlain));
         return new BindResponse(upstream.output_schema(), wireState,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names(), upstream.projection_expression_profiles(), upstream.repeatability());
     }
@@ -563,14 +632,18 @@ public final class VgiServiceImpl implements VgiService {
         TableInOutFunction fn = OverloadResolver.pick(candidates, argCount, args, inputSchema);
         ConstraintEnforcer.enforce(args, fn.argumentSpecs());
         byte[] attachPlain = openAttach(request.attach_opaque_data(), ctx);
+        byte[] txnPlain = sealer.unsealTransaction(
+                request.transaction_opaque_data(), request.attach_opaque_data(), authOf(ctx));
         BindResponse upstream = fn.onBind(new TableInOutBindParams(name, args, inputSchema, settings,
                 request.secrets(), request.resolved_secrets_provided(),
-                attachPlain, attachScopedStorage(attachPlain), null, request.argument_names()));
+                attachPlain, attachScopedStorage(attachPlain), null, request.argument_names(),
+                txnPlain, attachOptionsOf(attachPlain)));
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         pendingBinds.put(bytesKey(token), new BoundTableInOut(fn, args, inputSchema, outputSchema, settings,
                 request.arguments(), request.settings(), upstream.output_schema(),
-                request.secrets(), attachPlain, request.argument_names()));
+                request.secrets(), attachPlain, request.argument_names(),
+                upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data(), txnPlain));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names(),
                 upstream.projection_expression_profiles(), upstream.repeatability());
@@ -622,7 +695,7 @@ public final class VgiServiceImpl implements VgiService {
             if (!(bound instanceof BoundTable table)) throw new IllegalArgumentException("Projection init requires ordinary table");
             if (!SchemaUtil.deserializeSchema(acceptedProjection.output_schema()).equals(SchemaUtil.deserializeSchema(request.output_schema())))
                 throw new IllegalArgumentException("Projection init schema differs from accepted bind");
-            bound = new BoundTable(table.fn(), table.args(), table.inputSchema(), SchemaUtil.deserializeSchema(acceptedProjection.output_schema()), table.settings(), table.argumentsIpc(), table.settingsIpc(), acceptedProjection.output_schema(), table.secrets(), table.attachId(), acceptedProjection.opaque_data(), table.atUnit(), table.atValue(), table.copyFrom(), table.argumentNames());
+            bound = new BoundTable(table.fn(), table.args(), table.inputSchema(), SchemaUtil.deserializeSchema(acceptedProjection.output_schema()), table.settings(), table.argumentsIpc(), table.settingsIpc(), acceptedProjection.output_schema(), table.secrets(), table.attachId(), acceptedProjection.opaque_data(), table.atUnit(), table.atValue(), table.copyFrom(), table.argumentNames(), table.transactionId());
         }
         Schema realOutputSchema = SchemaUtil.deserializeSchema(request.output_schema());
         byte[] execId = request.execution_id() != null ? request.execution_id() : newExecutionId();
@@ -761,7 +834,9 @@ public final class VgiServiceImpl implements VgiService {
                 bt.atValue(),
                 new farm.query.vgi.storage.BoundStorage(this.storage, execId, bt.attachId()),
                 bt.copyFrom(),
-                splitPayloads);
+                splitPayloads,
+                bt.transactionId(),
+                attachOptionsOf(bt.attachId()));
         // Hand the VERIFIED payloads to the redemption hook BEFORE the producer
         // is built, so an author can refuse a claim (or set up for it) before any
         // row is produced.
@@ -799,7 +874,8 @@ public final class VgiServiceImpl implements VgiService {
                 bio.fn().name(), bio.args(), inputSchema, fnOutputSchema,
                 bio.settings(), Allocators.root(),
                 new farm.query.vgi.storage.BoundStorage(this.storage, execId, bio.attachId()),
-                bio.secrets(), request.substream_id());
+                bio.secrets(), request.substream_id(), bio.attachId(), bio.bindOpaqueData(),
+                bio.transactionId(), attachOptionsOf(bio.attachId()));
         if ("FINALIZE".equalsIgnoreCase(request.phase())) {
             // Per-substream streaming FINALIZE: a producer-mode init issued on
             // the substream's connection after input EOS, carrying the SAME
@@ -854,7 +930,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.order_by_column_name(), request.order_by_direction(),
                 request.order_by_null_order(), request.order_by_limit(),
                 execId, bb.secrets(), bb.attachId(), bb.bindOpaqueData(), null, null, storage, null,
-                null);
+                null, null, attachOptionsOf(bb.attachId()));
         farm.query.vgi.buffering.TableBufferingFinalizeParams fparams =
                 new farm.query.vgi.buffering.TableBufferingFinalizeParams(
                         execId, request.finalize_state_id(), bb.attachId(), storage, initParams);
@@ -1415,7 +1491,9 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     /**
-     * Begin a transaction: mint a fresh id, mark it active, and return its sealed token.
+     * Begin a transaction: mint its id (the worker's {@link farm.query.vgi.TransactionHooks#begin},
+     * a hosted catalog's {@link farm.query.vgi.CatalogInterface#transactionBegin}, else 16 random
+     * bytes), mark it active, and return it sealed.
      *
      * @param attach_opaque_data the attach token (sealed into the transaction AAD)
      * @param ctx the per-call RPC context
@@ -1424,16 +1502,27 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.TransactionBeginResponse catalog_transaction_begin(
             byte[] attach_opaque_data, CallContext ctx) {
-        byte[] txnId = new byte[16];
-        rng.nextBytes(txnId);
         AuthContext auth = authOf(ctx);
-        transactionStore.begin(txnId, catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth)));
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth));
+        Hosted hosted = hostedFor(attachPlain);
+        byte[] txnId;
+        if (hosted != null) {
+            txnId = hosted.catalog().transactionBegin(attachPlain);
+        } else if (worker.transactionHooks() != null && extraCatalogOf(attachPlain) == null) {
+            txnId = worker.transactionHooks().begin(attachContext(attachPlain));
+        } else {
+            txnId = new byte[16];
+            rng.nextBytes(txnId);
+        }
+        if (txnId == null) return new farm.query.vgi.protocol.TransactionBeginResponse(null);
+        transactionStore.begin(txnId, attachPlain);
         return new farm.query.vgi.protocol.TransactionBeginResponse(
                 sealer.sealTransaction(txnId, attach_opaque_data, auth));
     }
 
     /**
-     * Commit a transaction (clears its marker and cached state).
+     * Commit a transaction: run the commit hook with the plaintext id (an exception fails the
+     * client's COMMIT), then clear its marker and cached state.
      *
      * @param attach_opaque_data the attach token
      * @param transaction_opaque_data the transaction token to commit
@@ -1442,15 +1531,12 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public void catalog_transaction_commit(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                              CallContext ctx) {
-        AuthContext auth = authOf(ctx);
-        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth));
-        transactionStore.end(
-                sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
-                attachPlain);
+        endTransaction(attach_opaque_data, transaction_opaque_data, ctx, true);
     }
 
     /**
-     * Roll back a transaction (clears its marker and cached state — same effect as commit here).
+     * Roll back a transaction: run the rollback hook with the plaintext id, then clear its
+     * marker and cached state.
      *
      * @param attach_opaque_data the attach token
      * @param transaction_opaque_data the transaction token to roll back
@@ -1459,11 +1545,35 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public void catalog_transaction_rollback(byte[] attach_opaque_data, byte[] transaction_opaque_data,
                                                CallContext ctx) {
+        endTransaction(attach_opaque_data, transaction_opaque_data, ctx, false);
+    }
+
+    private void endTransaction(byte[] attachOpaqueData, byte[] transactionOpaqueData, CallContext ctx,
+                                boolean commit) {
         AuthContext auth = authOf(ctx);
-        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(attach_opaque_data, auth));
-        transactionStore.end(
-                sealer.unsealTransaction(transaction_opaque_data, attach_opaque_data, auth),
-                attachPlain);
+        byte[] attachPlain = catalogRegistry.restoreAttach(sealer.unsealAttach(attachOpaqueData, auth));
+        byte[] txnId = sealer.unsealTransaction(transactionOpaqueData, attachOpaqueData, auth);
+        try {
+            if (txnId == null) return;
+            Hosted hosted = hostedFor(attachPlain);
+            if (hosted != null) {
+                if (commit) hosted.catalog().transactionCommit(attachPlain, txnId);
+                else hosted.catalog().transactionRollback(attachPlain, txnId);
+            } else if (worker.transactionHooks() != null && extraCatalogOf(attachPlain) == null) {
+                farm.query.vgi.AttachContext attach = attachContext(attachPlain);
+                if (commit) worker.transactionHooks().commit(attach, txnId);
+                else worker.transactionHooks().rollback(attach, txnId);
+            }
+        } finally {
+            transactionStore.end(txnId, attachPlain);
+        }
+    }
+
+    /** The context a main-catalog hook sees for a plain attach id. */
+    private farm.query.vgi.AttachContext attachContext(byte[] attachPlain) {
+        String name = catalogRegistry.catalogName(attachPlain);
+        return new farm.query.vgi.AttachContext(name == null ? worker.catalogName() : name,
+                attachPlain == null ? null : attachPlain.clone(), attachOptionsOf(attachPlain));
     }
 
     private final CatalogRegistry catalogRegistry;
@@ -1514,7 +1624,7 @@ public final class VgiServiceImpl implements VgiService {
             }
             catalogRegistry.recordAttach(extraAttachId, extra.dataVersion(), request.name());
             var extraCapabilities = ConstraintContract.merge(extra.selectCapabilities(request),
-                    ConstraintContract.readProfilesFor(worker.extraCatalogTables().get(extra.name())),
+                    ConstraintContract.profilesFor(worker.extraCatalogTables().get(extra.name())),
                     request.client_capabilities());
             return new CatalogAttachResult(
                     sealer.sealAttach(catalogRegistry.recoverableAttach(extraAttachId, extra.dataVersion(), request.name()), authOf(ctx)),
@@ -1545,8 +1655,11 @@ public final class VgiServiceImpl implements VgiService {
             // {defaults + user options} batch directly into attach_opaque_data so the
             // echo function is stateless under pool reuse / HTTP transport.
             // attach_opaque_data = uuid(16) || 0x00 || ipc(mergedBatch).
+            // Secret options are encrypted into it (never plaintext), so every function of the
+            // attach -- on any process -- can read them back through attachOptionsOf().
             attachId = AttachOptionsAttachId.encode(
-                    worker.attachOptionSpecs(), request.options(), rng);
+                    worker.attachOptionSpecs(), request.options(), rng,
+                    (java.util.function.Supplier<byte[]>) this::secretKey);
         } else {
             attachId = new byte[16];
             rng.nextBytes(attachId);
@@ -1570,6 +1683,22 @@ public final class VgiServiceImpl implements VgiService {
         String resolvedImpl = resolveImplementationVersion(request.implementation_version());
         String resolvedData = resolveDataVersion(request.data_version_spec());
         catalogRegistry.recordAttach(attachId, resolvedData, request.name());
+        farm.query.vgi.AttachSettings attachSettings = null;
+        if (worker.attachHook() != null) {
+            attachSettings = worker.attachHook().onAttach(new farm.query.vgi.AttachContext(request.name(),
+                    attachId.clone(), attachOptionsOf(attachId)), request);
+        }
+        boolean supportsTransactions = attachSettings != null && attachSettings.supportsTransactions() != null
+                ? attachSettings.supportsTransactions() : worker.supportsTransactions();
+        boolean supportsTimeTravel = attachSettings != null && attachSettings.supportsTimeTravel() != null
+                ? attachSettings.supportsTimeTravel() : worker.supportsTimeTravel();
+        // The resolved data version is attach-time state every later call needs (it defaults
+        // AT for un-clocked scans): keep it inside the attach envelope, so a process that never
+        // served this ATTACH (pooled launcher, subprocess transport, HTTP replica) recovers it
+        // instead of silently scanning the default version.
+        byte[] attachPlainOut = resolvedData != null && request.name() != null
+                && request.name().equals(worker.catalogName())
+                ? catalogRegistry.recoverableAttach(attachId, resolvedData, request.name()) : attachId;
         Map<String, String> tags = new java.util.LinkedHashMap<>(worker.catalogTags() == null ? Map.of() : worker.catalogTags());
         if (resolvedImpl != null) tags.put("vgi_resolved_implementation_version", resolvedImpl);
         if (resolvedData != null) tags.put("vgi_resolved_data_version", resolvedData);
@@ -1584,10 +1713,10 @@ public final class VgiServiceImpl implements VgiService {
         // Tables carrying canonical records are readable only under the negotiated read
         // profile; select it from the request whatever the provider decided itself.
         var capabilitySelection = ConstraintContract.merge(worker.selectCatalogCapabilities(request),
-                ConstraintContract.readProfilesFor(worker.catalogTables()), request.client_capabilities());
+                ConstraintContract.profilesFor(worker.catalogTables()), request.client_capabilities());
         return new CatalogAttachResult(
-                sealer.sealAttach(attachId, authOf(ctx)),
-                true, true, false,  // supports_transactions, supports_time_travel, catalog_version_frozen
+                sealer.sealAttach(attachPlainOut, authOf(ctx)),
+                supportsTransactions, supportsTimeTravel, false,  // catalog_version_frozen
                 1L,
                 false,
                 worker.defaultSchema(),
@@ -1719,8 +1848,12 @@ public final class VgiServiceImpl implements VgiService {
      */
     private Hosted hostedOf(byte[] attachOpaqueData, CallContext ctx) {
         if (attachOpaqueData == null) return null;
-        byte[] plain = openAttach(attachOpaqueData, ctx);
-        if (worker.catalogInterfaces().isEmpty()) return null;
+        return hostedFor(openAttach(attachOpaqueData, ctx));
+    }
+
+    /** The code-implemented catalog an already-opened attach id belongs to, or {@code null}. */
+    private Hosted hostedFor(byte[] plain) {
+        if (plain == null || worker.catalogInterfaces().isEmpty()) return null;
         String name = catalogRegistry.catalogName(plain);
         farm.query.vgi.CatalogInterface catalog = name == null ? null : worker.catalogInterfaces().get(name);
         return catalog == null ? null : new Hosted(catalog, plain);
@@ -1748,7 +1881,7 @@ public final class VgiServiceImpl implements VgiService {
                 farm.query.vgi.CatalogProfiles.decode(capabilities.selected()));
         return new CatalogAttachResult(
                 sealer.sealAttach(attachId, authOf(ctx)),
-                false, false, info.versionFrozen(),
+                catalog.supportsTransactions(attachId), false, info.versionFrozen(),
                 version,
                 true,  // attach_opaque_data_required: the state is keyed on it
                 info.defaultSchema(),
@@ -2741,6 +2874,112 @@ public final class VgiServiceImpl implements VgiService {
         return new byte[0];
     }
 
+    /**
+     * The {@code ScanFunctionResult} IPC naming {@code t}'s write function for {@code op}, or
+     * {@code null} when the table does not accept it. The function is a table in-out function
+     * declared in the table's catalog, preferably in the table's own schema.
+     */
+    private byte[] writeFunctionBytes(CatalogTable t, farm.query.vgi.write.WriteOperation op, String catalogName) {
+        String fn = t.writeFunctionName(op);
+        if (fn == null) return null;
+        return ScanFunctionResultEncoder.encode(fn, List.of(), Map.of(), List.of(),
+                resolveTableInOutSchemaPath(fn, List.of(t.schema()), catalogName));
+    }
+
+    private List<String> resolveTableInOutSchemaPath(String functionName, List<String> tableSchemaPath,
+                                                     String catalogName) {
+        java.util.LinkedHashSet<List<String>> homes = new java.util.LinkedHashSet<>();
+        for (TableInOutFunction fn : tableInOuts.getOrDefault(functionName, List.of())) {
+            if (!java.util.Objects.equals(worker.catalogOf(fn), catalogName)) continue;
+            List<String> schema = worker.schemaPathOf(fn);
+            if (schemaPathEquals(schema, tableSchemaPath)) return schema;
+            homes.add(schema);
+        }
+        if (homes.size() == 1) return homes.iterator().next();
+        throw new IllegalStateException("write function '" + functionName + "' is not registered as a"
+                + " table in-out function in catalog '" + (catalogName == null ? worker.catalogName() : catalogName)
+                + "'" + (homes.isEmpty() ? "" : " schema " + tableSchemaPath + " (found in " + homes + ")"));
+    }
+
+    /** The table of the attach's catalog named by {@code schemaPath}/{@code name}, or {@code null}. */
+    private CatalogTable writableTableFor(byte[] attachOpaqueData, List<String> schemaPath, String name,
+                                          CallContext ctx, String rpc) {
+        String schemaName = schemaLeaf(schemaPath);
+        if (hostedOf(attachOpaqueData, ctx) != null) {
+            throw new farm.query.vgirpc.MethodNotImplementedError(rpc + ": table " + schemaName + "." + name
+                    + " holds metadata only and cannot be written");
+        }
+        byte[] plain = openAttach(attachOpaqueData, ctx);
+        Worker.ExtraCatalog extra = extraCatalogOf(plain);
+        List<CatalogTable> candidates = extra != null ? extraCatalogTablesFor(plain, schemaName) : worker.catalogTables();
+        for (CatalogTable t : candidates) {
+            if (t.schema().equals(schemaName) && t.name().equals(name)) return t;
+        }
+        throw new NotFoundException(rpc + ": unknown table " + schemaName + "." + name);
+    }
+
+    private byte[] writeFunctionGet(byte[] attachOpaqueData, List<String> schemaPath, String name,
+                                    farm.query.vgi.write.WriteOperation op, CallContext ctx) {
+        String rpc = "catalog_table_" + op.wireName() + "_function_get";
+        CatalogTable t = writableTableFor(attachOpaqueData, schemaPath, name, ctx, rpc);
+        Worker.ExtraCatalog extra = extraCatalogOf(openAttach(attachOpaqueData, ctx));
+        byte[] fn = writeFunctionBytes(t, op, extra == null ? null : extra.name());
+        if (fn == null) {
+            throw new farm.query.vgirpc.MethodNotImplementedError("Table '" + t.schema() + "." + t.name()
+                    + "' does not support " + op.name());
+        }
+        return fn;
+    }
+
+    /**
+     * The insert function of a writable catalog table ({@link CatalogTable.Builder#insertFunction}).
+     *
+     * @param attach_opaque_data the attach token
+     * @param schema_path the table's schema path
+     * @param name the table name
+     * @param transaction_opaque_data the optional transaction token
+     * @param writable_branch_function_name the writable arm of a multi-branch table, or {@code null}
+     * @param ctx the per-call RPC context
+     * @return the {@code ScanFunctionResult} IPC naming the function
+     */
+    @Override
+    public byte[] catalog_table_insert_function_get(byte[] attach_opaque_data, List<String> schema_path, String name,
+            byte[] transaction_opaque_data, String writable_branch_function_name, CallContext ctx) {
+        return writeFunctionGet(attach_opaque_data, schema_path, name, farm.query.vgi.write.WriteOperation.INSERT, ctx);
+    }
+
+    /**
+     * The update function of a writable catalog table ({@link CatalogTable.Builder#updateFunction}).
+     *
+     * @param attach_opaque_data the attach token
+     * @param schema_path the table's schema path
+     * @param name the table name
+     * @param transaction_opaque_data the optional transaction token
+     * @param ctx the per-call RPC context
+     * @return the {@code ScanFunctionResult} IPC naming the function
+     */
+    @Override
+    public byte[] catalog_table_update_function_get(byte[] attach_opaque_data, List<String> schema_path, String name,
+            byte[] transaction_opaque_data, CallContext ctx) {
+        return writeFunctionGet(attach_opaque_data, schema_path, name, farm.query.vgi.write.WriteOperation.UPDATE, ctx);
+    }
+
+    /**
+     * The delete function of a writable catalog table ({@link CatalogTable.Builder#deleteFunction}).
+     *
+     * @param attach_opaque_data the attach token
+     * @param schema_path the table's schema path
+     * @param name the table name
+     * @param transaction_opaque_data the optional transaction token
+     * @param ctx the per-call RPC context
+     * @return the {@code ScanFunctionResult} IPC naming the function
+     */
+    @Override
+    public byte[] catalog_table_delete_function_get(byte[] attach_opaque_data, List<String> schema_path, String name,
+            byte[] transaction_opaque_data, CallContext ctx) {
+        return writeFunctionGet(attach_opaque_data, schema_path, name, farm.query.vgi.write.WriteOperation.DELETE, ctx);
+    }
+
     private farm.query.vgi.protocol.TableInfo toTableInfo(CatalogTable t, String catalogName) {
         byte[] scanFn = null;
         if (t.scanFunctionName() != null && t.inlineScanFunction()) {
@@ -2772,12 +3011,12 @@ public final class VgiServiceImpl implements VgiService {
                 t.columns() == null ? new byte[0] : t.columns(),
                 t.constraints() == null ? List.of() : t.constraints(),
                 t.definitionRevision(),
-                Map.of(),
+                t.wireWriteResultModes(),
                 hasStats,
                 scanFn,
-                null,
-                null,
-                null,
+                writeFunctionBytes(t, farm.query.vgi.write.WriteOperation.INSERT, catalogName),
+                writeFunctionBytes(t, farm.query.vgi.write.WriteOperation.UPDATE, catalogName),
+                writeFunctionBytes(t, farm.query.vgi.write.WriteOperation.DELETE, catalogName),
                 t.inlineCardinality() ? t.cardinalityEstimate() : null,
                 t.inlineCardinality() ? t.cardinalityMax() : null,
                 inlineStats,

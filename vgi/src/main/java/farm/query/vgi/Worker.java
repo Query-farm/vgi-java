@@ -262,7 +262,9 @@ public final class Worker {
      * <p>Not needed to serve constraint records: every catalog (main, auxiliary and
      * {@link #registerCatalog hosted}) whose tables carry
      * {@link farm.query.vgi.catalog.ConstraintRecord}s advertises the constraint read profiles
-     * and selects those the client offers automatically, merged into this decision.
+     * and selects those the client offers automatically, merged into this decision; a catalog
+     * with a writable constrained table also advertises and selects
+     * {@link CatalogProfiles#CONSTRAINT_ENFORCE}.
      *
      * @param selector the per-attach decision
      * @return this builder
@@ -1661,6 +1663,97 @@ public final class Worker {
      */
     public List<AttachOptionSpec> attachOptionSpecs() { return List.copyOf(attachOptions); }
 
+    private AttachHook attachHook;
+    private TransactionHooks transactionHooks;
+    private boolean supportsTransactions = true;
+    private boolean supportsTimeTravel = true;
+
+    /**
+     * Registers the main catalog's attach hook: called on every {@code ATTACH} with every
+     * option value (secret ones included), it decides per-attach settings such as
+     * {@code supports_transactions}. See {@link AttachHook}.
+     *
+     * @param hook the hook
+     * @return this builder
+     */
+    public Worker onAttach(AttachHook hook) {
+        this.attachHook = java.util.Objects.requireNonNull(hook, "hook");
+        return this;
+    }
+
+    /**
+     * The main catalog's attach hook.
+     *
+     * @return the hook, or {@code null} when none is registered
+     */
+    public AttachHook attachHook() { return attachHook; }
+
+    /**
+     * Registers the main catalog's transaction hooks: run at {@code catalog_transaction_begin},
+     * {@code _commit} and {@code _rollback} of every attach that supports transactions. The
+     * begin hook mints the plaintext transaction id every function of the transaction and the
+     * commit / rollback hooks receive; a commit hook that throws fails the client's
+     * {@code COMMIT}. See {@link TransactionHooks}.
+     *
+     * @param hooks the hooks
+     * @return this builder
+     */
+    public Worker transactionHooks(TransactionHooks hooks) {
+        this.transactionHooks = java.util.Objects.requireNonNull(hooks, "hooks");
+        return this;
+    }
+
+    /**
+     * The main catalog's transaction hooks.
+     *
+     * @return the hooks, or {@code null} when none are registered (the framework then mints
+     *     random ids and commits unconditionally)
+     */
+    public TransactionHooks transactionHooks() { return transactionHooks; }
+
+    /**
+     * Whether the main catalog's attach results advertise {@code supports_transactions},
+     * unless an {@link AttachHook} decides per attach. Default {@code true} (the behaviour of
+     * earlier releases). Set {@code false} for a catalog with no transactional semantics, so
+     * DuckDB does not call begin / commit / rollback at all.
+     *
+     * @param supported the worker-wide default
+     * @return this builder
+     */
+    public Worker supportsTransactions(boolean supported) {
+        this.supportsTransactions = supported;
+        return this;
+    }
+
+    /**
+     * The worker-wide {@code supports_transactions} default of the main catalog.
+     *
+     * @return the default
+     */
+    public boolean supportsTransactions() { return supportsTransactions; }
+
+    /**
+     * Whether the main catalog's attach results advertise {@code supports_time_travel}
+     * (DuckDB then accepts {@code AT (VERSION => ...)} / {@code AT (TIMESTAMP => ...)} on its
+     * tables and passes the clause to the scan), unless an {@link AttachHook} decides per
+     * attach. Default {@code true} (the behaviour of earlier releases); set {@code false} when
+     * no table of the catalog resolves {@code AT}.
+     *
+     * @param supported the worker-wide default
+     * @return this builder
+     */
+    public Worker supportsTimeTravel(boolean supported) {
+        this.supportsTimeTravel = supported;
+        return this;
+    }
+
+    /**
+     * The worker-wide {@code supports_time_travel} default of the main catalog.
+     *
+     * @return the default
+     */
+    public boolean supportsTimeTravel() { return supportsTimeTravel; }
+
     /**
      * Register a view, enumerated through {@code catalog_schema_contents_views};
      * its SQL text is expanded by DuckDB at query time.
@@ -1802,10 +1895,12 @@ public final class Worker {
      */
     RpcServer buildServer(Transport transport) {
         boolean http = transport == Transport.HTTP;
-        byte[] signingKey = http ? configuredSigningKey() : null;
+        byte[] configured = configuredSigningKey();
+        byte[] signingKey = http ? configured : null;
+        // A configured key also encrypts secret ATTACH options on the unsealed transports.
         RpcServer server = new RpcServer(VgiService.class,
                 new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates,
-                        http, signingKey));
+                        http, signingKey, configured));
         server.setProtocolVersion(advertisedProtocolVersion());
         hostExtraProtocols(server);
         // Identity -- sealed grants included -- is HTTP-only: its allowlist and freshness rules

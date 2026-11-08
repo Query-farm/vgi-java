@@ -7,12 +7,22 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import farm.query.vgi.write.WriteOperation;
+import farm.query.vgi.write.WriteResultMode;
+
 /**
  * A catalog table. {@code columns} is the table's Arrow schema serialized
  * as IPC bytes. {@code scanFunctionName} (with {@code scanFunctionArgs})
  * inlines the scan function so the C++ extension can skip
  * {@code catalog_table_scan_function_get}; if {@code null}, the worker
  * must implement that RPC manually.
+ *
+ * <p>A table is read-only unless it names write functions
+ * ({@link Builder#insertFunction}, {@link Builder#updateFunction}, {@link Builder#deleteFunction}):
+ * the framework then advertises them and their result modes in {@code TableInfo}, answers
+ * {@code catalog_table_{insert,update,delete}_function_get}, and, when the table also carries
+ * constraint records, negotiates {@code vgi.constraint.enforce.v1} (the write functions must
+ * then keep those constraints). See {@link farm.query.vgi.write}.
  *
  * @param schema                    owning schema name
  * @param name                      table name
@@ -42,6 +52,15 @@ import java.util.Map;
  *                                  column paths); a group is satisfied when any
  *                                  one of its paths is filtered. Empty = no
  *                                  enforcement
+ * @param insertFunctionName        the table in-out function backing {@code INSERT}, or
+ *                                  {@code null} when the table accepts no INSERT
+ * @param updateFunctionName        the table in-out function backing {@code UPDATE}, or
+ *                                  {@code null}
+ * @param deleteFunctionName        the table in-out function backing {@code DELETE}, or
+ *                                  {@code null}
+ * @param writeResultModes          per operation, the richest result mode its write function
+ *                                  produces; an operation with a function but no entry
+ *                                  defaults to {@link WriteResultMode#COUNT}
  */
 public record CatalogTable(
         String schema,
@@ -63,7 +82,133 @@ public record CatalogTable(
         List<ColumnStatistics> statistics,
         List<List<List<String>>> requiredFilters,
         List<byte[]> constraints,
-        byte[] definitionRevision) {
+        byte[] definitionRevision,
+        String insertFunctionName,
+        String updateFunctionName,
+        String deleteFunctionName,
+        Map<WriteOperation, WriteResultMode> writeResultModes) {
+
+    /** Validates the write declaration (see {@link #validateWrites}). */
+    public CatalogTable {
+        writeResultModes = writeResultModes == null ? Map.of() : Map.copyOf(writeResultModes);
+        validateWrites(name, scanFunctionName, insertFunctionName, updateFunctionName, deleteFunctionName,
+                writeResultModes);
+    }
+
+    /**
+     * Compatibility constructor of releases before writable tables: a read-only table.
+     *
+     * @param schema                 owning schema name
+     * @param name                   table name
+     * @param columns                Arrow schema as IPC bytes
+     * @param comment                table comment
+     * @param tags                   table metadata tags
+     * @param scanFunctionName       backing scan function name
+     * @param scanFunctionPositional positional scan-function arguments
+     * @param scanFunctionNamed      named scan-function arguments
+     * @param cardinalityEstimate    estimated row count, or {@code null}
+     * @param cardinalityMax         upper-bound row count, or {@code null}
+     * @param inlineCardinality      whether cardinality is sent inline
+     * @param inlineScanFunction     whether the scan function is sent inline
+     * @param primaryKey             legacy primary-key groups
+     * @param uniqueConstraints      legacy UNIQUE groups
+     * @param checkConstraints       legacy CHECK expressions
+     * @param foreignKeys            legacy foreign keys
+     * @param statistics             per-column statistics
+     * @param requiredFilters        required filter groups
+     * @param constraints            canonical constraint records
+     * @param definitionRevision     provider-owned definition revision, or {@code null}
+     */
+    public CatalogTable(String schema, String name, byte[] columns, String comment,
+            Map<String, String> tags, String scanFunctionName, List<Object> scanFunctionPositional,
+            Map<String, Object> scanFunctionNamed, Long cardinalityEstimate, Long cardinalityMax,
+            boolean inlineCardinality, boolean inlineScanFunction, List<List<Integer>> primaryKey,
+            List<List<Integer>> uniqueConstraints, List<String> checkConstraints, List<ForeignKey> foreignKeys,
+            List<ColumnStatistics> statistics, List<List<List<String>>> requiredFilters,
+            List<byte[]> constraints, byte[] definitionRevision) {
+        this(schema, name, columns, comment, tags, scanFunctionName, scanFunctionPositional,
+                scanFunctionNamed, cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics, requiredFilters,
+                constraints, definitionRevision, null, null, null, Map.of());
+    }
+
+    /**
+     * Rejects a write declaration vgi-python's {@code Table.__post_init__} would: a result mode
+     * for an operation with no function, or UPDATE / DELETE without a scan function to supply
+     * row ids.
+     */
+    private static void validateWrites(String name, String scan, String insert, String update, String delete,
+                                       Map<WriteOperation, WriteResultMode> modes) {
+        for (WriteOperation op : modes.keySet()) {
+            String fn = switch (op) { case INSERT -> insert; case UPDATE -> update; case DELETE -> delete; };
+            if (fn == null) {
+                throw new IllegalArgumentException("Table '" + name + "': writeResultModes declares '"
+                        + op.wireName() + "' without a corresponding " + op.wireName() + " function");
+            }
+        }
+        if ((update != null || delete != null) && scan == null) {
+            throw new IllegalArgumentException("Table '" + name + "': update and delete functions require"
+                    + " a scan function (to provide row ids)");
+        }
+    }
+
+    /**
+     * The function backing {@code op}.
+     *
+     * @param op the operation
+     * @return the write function's name, or {@code null} when the table does not accept {@code op}
+     */
+    public String writeFunctionName(WriteOperation op) {
+        return switch (op) {
+            case INSERT -> insertFunctionName;
+            case UPDATE -> updateFunctionName;
+            case DELETE -> deleteFunctionName;
+        };
+    }
+
+    /**
+     * Whether the table accepts any write.
+     *
+     * @return true when it declares an insert, update or delete function
+     */
+    public boolean writable() {
+        return insertFunctionName != null || updateFunctionName != null || deleteFunctionName != null;
+    }
+
+    /**
+     * {@code TableInfo.write_result_modes}: each declared operation's maximum mode
+     * ({@link WriteResultMode#COUNT} unless declared otherwise).
+     *
+     * @return wire operation name to wire mode name
+     */
+    public Map<String, String> wireWriteResultModes() {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (WriteOperation op : WriteOperation.values()) {
+            if (writeFunctionName(op) != null) {
+                out.put(op.wireName(), writeResultModes.getOrDefault(op, WriteResultMode.COUNT).wireName());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Returns a copy whose writes are backed by the given functions (each {@code null} for an
+     * operation the table does not accept) with the given maximum result modes.
+     *
+     * @param insert the insert function, or {@code null}
+     * @param update the update function, or {@code null}
+     * @param delete the delete function, or {@code null}
+     * @param modes  per operation, the richest result mode its function produces
+     * @return a new table with the writes declared
+     */
+    public CatalogTable withWriteFunctions(String insert, String update, String delete,
+                                           Map<WriteOperation, WriteResultMode> modes) {
+        return new CatalogTable(schema, name, columns, comment, tags,
+                scanFunctionName, scanFunctionPositional, scanFunctionNamed,
+                cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
+                requiredFilters, constraints, definitionRevision, insert, update, delete, modes);
+    }
 
     /** Compatibility constructor; legacy constraints are rejected at the wire boundary. */
     public CatalogTable(String schema, String name, byte[] columns, String comment,
@@ -253,6 +398,11 @@ public record CatalogTable(
         private List<List<List<String>>> requiredFilters = List.of();
         private List<byte[]> constraints = List.of();
         private byte[] definitionRevision;
+        private String insertFunctionName;
+        private String updateFunctionName;
+        private String deleteFunctionName;
+        private final Map<WriteOperation, WriteResultMode> writeResultModes =
+                new java.util.EnumMap<>(WriteOperation.class);
 
         Builder(String schema, String name, byte[] columns) {
             this.schema = schema;
@@ -460,6 +610,61 @@ public record CatalogTable(
         }
 
         /**
+         * Makes {@code INSERT} write through {@code fnName}: a table in-out function registered
+         * in this table's catalog that receives the rows to insert and emits one result batch
+         * per input batch ({@link farm.query.vgi.write.WriteResults}).
+         *
+         * @param fnName the insert function's name
+         * @return this builder
+         */
+        public Builder insertFunction(String fnName) {
+            this.insertFunctionName = fnName;
+            return this;
+        }
+
+        /**
+         * Makes {@code UPDATE} write through {@code fnName}: a table in-out function registered
+         * in this table's catalog. DuckDB sends it each matched row's {@code SET} columns (every
+         * column with {@code RETURNING}) plus the row-id column, so the scan function must emit a
+         * row id ({@link farm.query.vgi.write.WriteResults#rowIdField()}) through projection
+         * pushdown.
+         *
+         * @param fnName the update function's name
+         * @return this builder
+         */
+        public Builder updateFunction(String fnName) {
+            this.updateFunctionName = fnName;
+            return this;
+        }
+
+        /**
+         * Makes {@code DELETE} write through {@code fnName}: a table in-out function registered
+         * in this table's catalog that receives the row ids of the rows to delete.
+         *
+         * @param fnName the delete function's name
+         * @return this builder
+         */
+        public Builder deleteFunction(String fnName) {
+            this.deleteFunctionName = fnName;
+            return this;
+        }
+
+        /**
+         * Declares the richest result mode {@code op}'s write function produces (default
+         * {@link WriteResultMode#COUNT}): {@link WriteResultMode#ROWS} to support
+         * {@code RETURNING}, {@link WriteResultMode#CHANGES} for old/new images. A table that
+         * supports one mode supports every lower one.
+         *
+         * @param op   the operation
+         * @param mode its maximum mode
+         * @return this builder
+         */
+        public Builder writeResultMode(WriteOperation op, WriteResultMode mode) {
+            this.writeResultModes.put(op, mode);
+            return this;
+        }
+
+        /**
          * Builds the immutable {@link CatalogTable}.
          *
          * @return the configured table
@@ -469,7 +674,8 @@ public record CatalogTable(
                     scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                     cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                     primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                    requiredFilters, constraints, definitionRevision);
+                    requiredFilters, constraints, definitionRevision,
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
         }
     }
 
@@ -485,7 +691,8 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 estimate, max, true, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                requiredFilters, constraints, definitionRevision);
+                requiredFilters, constraints, definitionRevision,
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
     }
 
     /**
@@ -500,7 +707,8 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, false,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                requiredFilters, constraints, definitionRevision);
+                requiredFilters, constraints, definitionRevision,
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
     }
 
     /**
@@ -527,7 +735,8 @@ public record CatalogTable(
                 check == null ? List.of() : check,
                 fks == null ? List.of() : fks,
                 statistics,
-                requiredFilters, constraints, definitionRevision);
+                requiredFilters, constraints, definitionRevision,
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
     }
 
     /**
@@ -553,7 +762,8 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                requiredFilters, List.copyOf(records), revision);
+                requiredFilters, List.copyOf(records), revision,
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
     }
 
     /**
@@ -569,7 +779,8 @@ public record CatalogTable(
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys,
                 stats == null ? List.of() : stats,
-                requiredFilters, constraints, definitionRevision);
+                requiredFilters, constraints, definitionRevision,
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
     }
 
     /**
@@ -588,6 +799,7 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                normalizeRequiredFilters(groups), constraints, definitionRevision);
+                normalizeRequiredFilters(groups), constraints, definitionRevision,
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
     }
 }

@@ -145,6 +145,45 @@ public interface CatalogInterface {
     default void detach(byte[] attachId) {}
 
     /**
+     * Whether this attach's result advertises {@code supports_transactions}. When true, DuckDB
+     * calls {@link #transactionBegin} / {@link #transactionCommit} / {@link #transactionRollback}
+     * for every transaction on the attach (autocommit statements included). Default false.
+     *
+     * @param attachId the attach id
+     * @return whether the attach supports transactions
+     */
+    default boolean supportsTransactions(byte[] attachId) { return false; }
+
+    /**
+     * Mint a transaction's plaintext id ({@code catalog_transaction_begin}); the framework seals
+     * it on HTTP and hands the commit / rollback hooks the same bytes. Default: 16 random bytes.
+     *
+     * @param attachId the attach id
+     * @return the transaction id, or {@code null} for none
+     */
+    default byte[] transactionBegin(byte[] attachId) {
+        byte[] id = new byte[16];
+        new java.security.SecureRandom().nextBytes(id);
+        return id;
+    }
+
+    /**
+     * Commit a transaction. An exception fails the client's {@code COMMIT}. Default: nothing.
+     *
+     * @param attachId      the attach id
+     * @param transactionId the id {@link #transactionBegin} returned
+     */
+    default void transactionCommit(byte[] attachId, byte[] transactionId) {}
+
+    /**
+     * Roll a transaction back. Default: nothing.
+     *
+     * @param attachId      the attach id
+     * @param transactionId the id {@link #transactionBegin} returned
+     */
+    default void transactionRollback(byte[] attachId, byte[] transactionId) {}
+
+    /**
      * The catalog version for this attach. {@code 0} means "unknown": the client
      * then reloads the catalog at every transaction start.
      *

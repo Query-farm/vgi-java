@@ -6,13 +6,22 @@ package farm.query.vgi.table;
  * Per-transaction key/value store handed to a table function's {@link
  * TableFunction#onBind} via {@link TableBindParams#transactionStorage()}.
  *
- * <p>Scoped to a single {@code transaction_opaque_data} — the C++ extension
- * populates {@code BindRequest.transaction_opaque_data} only when the SQL
- * statement runs inside an explicit {@code BEGIN}/{@code COMMIT} block. Outside
- * a transaction the storage handle is {@code null} and no caching is possible.
+ * <p>Scoped to one DuckDB transaction on an attach whose result advertised
+ * {@code supports_transactions}: the extension then calls
+ * {@code catalog_transaction_begin} for every transaction, <em>including</em> the
+ * implicit one DuckDB wraps around each autocommit statement, and sends the
+ * transaction's {@code transaction_opaque_data} on every call inside it. So the
+ * store exists for an autocommit statement too (it lives for that one statement),
+ * not only inside an explicit {@code BEGIN}/{@code COMMIT} block. It is
+ * {@code null} when the attach does not support transactions
+ * ({@link farm.query.vgi.AttachSettings#supportsTransactions}), and when the
+ * transaction was begun on a process whose shared storage this process cannot see
+ * (the default {@code :memory:} tier is per process; see
+ * {@code VGI_WORKER_SHARED_STORAGE}).
  *
- * <p>Mirrors vgi-python's {@code BindParams.transaction_storage}. The backing
- * map is cleared by {@code catalog_transaction_commit} / {@code _rollback}.
+ * <p>The transaction's plaintext id itself is {@link TableBindParams#transactionId()}.
+ * Mirrors vgi-python's {@code BindParams.transaction_storage}. The backing map is
+ * cleared by {@code catalog_transaction_commit} / {@code _rollback}.
  */
 public interface TransactionStorage {
 

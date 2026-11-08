@@ -28,6 +28,13 @@ import java.util.List;
  * @param copyFrom the {@code COPY ... FROM} context, set only when this bind opens a
  *     COPY-FROM scan (see {@link farm.query.vgi.table.CopyFromFunction}); {@code null}
  *     for every ordinary table-function bind
+ * @param argumentNames the call's argument names, or {@code null}
+ * @param transactionId the plaintext id of the DuckDB transaction this call runs in, exactly
+ *     as {@link farm.query.vgi.TransactionHooks#begin} returned it (the framework opens the
+ *     sealed wire value on HTTP), or {@code null} when the attach does not support
+ *     transactions; see {@link farm.query.vgi.TransactionHooks}
+ * @param attachOptions the attach's ATTACH option values, secret ones included; never
+ *     {@code null} ({@link farm.query.vgi.AttachOptions#empty()} without options)
  */
 public record TableBindParams(
         String functionName,
@@ -40,7 +47,40 @@ public record TableBindParams(
         TransactionStorage transactionStorage,
         farm.query.vgi.storage.BoundStorage attachStorage,
         farm.query.vgi.protocol.CopyFromContext copyFrom,
-        List<String> argumentNames) {
+        List<String> argumentNames,
+        byte[] transactionId,
+        farm.query.vgi.AttachOptions attachOptions) {
+
+    /** Normalizes a missing option set to the non-secret options the attach id carries. */
+    public TableBindParams {
+        if (attachOptions == null) attachOptions = farm.query.vgi.AttachOptions.fromAttachId(attachId);
+    }
+
+    /**
+     * Compatibility constructor of releases before transaction ids and attach options.
+     *
+     * @param functionName the invoked table function's name
+     * @param arguments the positional and named call arguments
+     * @param inputSchema the schema of any table-valued input
+     * @param settings session settings in effect for this call
+     * @param secrets the resolved secret bytes, or {@code null}
+     * @param resolvedSecretsProvided whether the client supplied resolved secrets
+     * @param attachId the catalog attach's opaque identifier bytes
+     * @param transactionStorage per-transaction storage, or {@code null}
+     * @param attachStorage attach-scoped storage, or {@code null}
+     * @param copyFrom the COPY-FROM context, or {@code null}
+     * @param argumentNames the call's argument names, or {@code null}
+     */
+    public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
+                           Map<String, Object> settings, byte[] secrets,
+                           boolean resolvedSecretsProvided, byte[] attachId,
+                           TransactionStorage transactionStorage,
+                           farm.query.vgi.storage.BoundStorage attachStorage,
+                           farm.query.vgi.protocol.CopyFromContext copyFrom,
+                           List<String> argumentNames) {
+        this(functionName, arguments, inputSchema, settings, secrets, resolvedSecretsProvided,
+                attachId, transactionStorage, attachStorage, copyFrom, argumentNames, null, null);
+    }
 
     public TableBindParams(String functionName, Arguments arguments, Schema inputSchema,
                            Map<String, Object> settings, byte[] secrets,

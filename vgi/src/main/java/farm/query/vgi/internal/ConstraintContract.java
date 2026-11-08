@@ -88,6 +88,29 @@ public final class ConstraintContract {
     }
 
     /**
+     * The profiles a catalog serving {@code tables} must advertise: the constraint read
+     * profiles when any table carries records ({@link #readProfilesFor}), plus
+     * {@code vgi.constraint.enforce.v1} when a table carrying records is also writable. DuckDB
+     * only writes to a constrained table when the provider promises to keep its ENFORCED
+     * constraints, so such a table's write functions must reject rows that would violate them.
+     * Matches vgi-typescript's {@code catalogWriteProfiles}.
+     *
+     * @param tables the catalog's tables
+     * @return the required profiles (empty lists when none)
+     */
+    public static CatalogCapabilities profilesFor(List<CatalogTable> tables) {
+        List<String> read = readProfilesFor(tables);
+        boolean writableConstrained = false;
+        if (tables != null) {
+            for (CatalogTable t : tables) {
+                if (t.constraints() != null && !t.constraints().isEmpty() && t.writable()) writableConstrained = true;
+            }
+        }
+        return new CatalogCapabilities(read, List.of(),
+                writableConstrained ? List.of(CatalogProfiles.CONSTRAINT_ENFORCE) : List.of(), List.of());
+    }
+
+    /**
      * Merges the profiles a catalog's tables require into a provider's own advertisement and
      * selection. With no required profiles the provider's decision is returned unchanged.
      *
@@ -98,12 +121,31 @@ public final class ConstraintContract {
      */
     public static Worker.CatalogCapabilitySelection merge(Worker.CatalogCapabilitySelection explicit,
                                                           List<String> required, byte[] clientCapabilities) {
+        return merge(explicit, new CatalogCapabilities(required, List.of(), List.of(), List.of()), clientCapabilities);
+    }
+
+    /**
+     * Merges the profiles a catalog's tables require ({@link #profilesFor}) into a provider's own
+     * advertisement and selection. With no required profiles the provider's decision is returned
+     * unchanged. Otherwise the selection is re-made canonically over the whole advertisement
+     * (the provider's plus the required), unioned with the provider's own selection: a profile the
+     * provider advertised whose prerequisite only the framework supplies (for example
+     * {@code vgi.constraint.enforce.v1}, which needs {@code vgi.constraint.records.read.v1}) is
+     * then selected, rather than dropped by the provider's {@link CatalogProfiles#select}.
+     *
+     * @param explicit           the provider's own decision (either side may be null)
+     * @param required           profiles the served tables require
+     * @param clientCapabilities the request's {@code ClientCapabilities} IPC bytes, or null
+     * @return the advertisement and selection to put on the attach result
+     */
+    public static Worker.CatalogCapabilitySelection merge(Worker.CatalogCapabilitySelection explicit,
+                                                          CatalogCapabilities required, byte[] clientCapabilities) {
         if (explicit == null) explicit = new Worker.CatalogCapabilitySelection(null, null);
-        if (required.isEmpty()) return explicit;
-        CatalogCapabilities need = new CatalogCapabilities(required, List.of(), List.of(), List.of());
-        CatalogCapabilities advertised = CatalogProfiles.union(CatalogProfiles.decode(explicit.advertised()), need);
+        if (required.read().isEmpty() && required.ddl().isEmpty() && required.write().isEmpty()
+                && required.transaction().isEmpty()) return explicit;
+        CatalogCapabilities advertised = CatalogProfiles.union(CatalogProfiles.decode(explicit.advertised()), required);
         CatalogCapabilities selected = CatalogProfiles.union(CatalogProfiles.decode(explicit.selected()),
-                CatalogProfiles.select(need, clientCapabilities));
+                CatalogProfiles.select(advertised, clientCapabilities));
         return new Worker.CatalogCapabilitySelection(CatalogProfiles.encode(advertised),
                 CatalogProfiles.encode(selected));
     }

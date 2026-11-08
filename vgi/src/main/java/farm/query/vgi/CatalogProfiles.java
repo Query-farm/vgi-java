@@ -18,7 +18,12 @@ import java.util.TreeSet;
  * canonical selection the attach result carries.
  *
  * <p>The framework already negotiates the constraint read profiles for every catalog whose
- * tables carry {@link ConstraintRecord}s. Use this class to build an explicit decision
+ * tables carry {@link ConstraintRecord}s, and {@link #CONSTRAINT_ENFORCE} when such a table is
+ * also writable ({@link farm.query.vgi.catalog.CatalogTable.Builder#updateFunction} and
+ * friends). A provider's own decision is merged with those: a profile it advertises whose
+ * prerequisite only the framework supplies (e.g. {@link #CONSTRAINT_ENFORCE} without
+ * {@link #CONSTRAINT_RECORDS_READ}) is selected in the merged result even though
+ * {@link #select} alone drops it. Use this class to build an explicit decision
  * ({@link Worker#catalogCapabilities}, {@link Worker.ExtraCatalog#withCapabilities},
  * {@link CatalogInterface#catalogCapabilities}) — for example a catalog that accepts
  * {@code CREATE TABLE ... NOT NULL} selects {@link #CONSTRAINT_CREATE} and
