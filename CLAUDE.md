@@ -359,7 +359,7 @@ unflipped for `literal OP column`). `TableInfo` gained `scan_planning` (validate
 `scan_function` bytes count as none, since `TableInfoSerializer` writes null as empty);
 `ScanBranch` gained `rowCount`/`columnStatistics`; client `ScanBranchesDecoder` is new.
 `ColumnStatisticsSerializer` now falls back to `VectorScalarCodec.write` (DATE stats).
-Example worker serves `data.planned_days{,_stats,_bf}` mirroring vgi-python's fixtures (one
+Example worker serves `data.planned_days{,_stats,_bf}` + `data.multi_branch_comma_filter` mirroring vgi-python 9b3d871 (flat `BRANCH_DIR/planned_days_<day>.parquet`, `planned_days_last_plan.json`; one
 read_parquet branch per day: the Java argument encoder has no list values). Tests:
 `internal/ScanPlanningTest`, `catalog/ScanPlanningFiltersCompareTest`.
 

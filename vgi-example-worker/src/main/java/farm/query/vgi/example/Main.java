@@ -1561,7 +1561,7 @@ public final class Main {
     /**
      * Protocol 3.2 filtered scan planning fixtures
      * (test/sql/integration/catalog/scan_planning_*.test). Five days of data, one
-     * parquet file per day under {@code BRANCH_DIR/planned_days/}. The tests create
+     * parquet file per day: {@code BRANCH_DIR/planned_days_<day>.parquet}. The tests create
      * the files for the first four days only: the 2026-10-05 file never exists, so a
      * scan that fails to prune that day errors with "No files found". Mirrors
      * vgi-python's {@code _planned_days_branches}.
@@ -1571,14 +1571,14 @@ public final class Main {
                 Schemas.nullable("n", Schemas.INT64));
         List<java.time.LocalDate> days = new ArrayList<>();
         for (int d = 1; d <= 5; d++) days.add(java.time.LocalDate.of(2026, 10, d));
-        String dir = BRANCH_DIR + "/planned_days";
+        String dir = BRANCH_DIR;
 
         // Worker-side pruning: the planner keeps only the days whose event_date
         // can satisfy the query's predicates.
         w.registerPlannedTable(
                 CatalogTable.builder("data", "planned_days", columns)
-                        .comment("Protocol 3.2: worker-side pruning of per-day files"
-                                + " — scan_planning_filtered.test").build(),
+                        .comment("Protocol 3.2: worker-side pruning of per-day files — scan_planning_filtered.test")
+                        .build(),
                 farm.query.vgi.catalog.ScanPlanning.FILTERED,
                 request -> {
                     var filters = request.pushdownFilters();
@@ -1597,8 +1597,8 @@ public final class Main {
         // Client-side pruning: one branch per day carrying event_date min/max.
         w.registerPlannedTable(
                 CatalogTable.builder("data", "planned_days_stats", columns)
-                        .comment("Protocol 3.2: client-side pruning by ScanBranch statistics"
-                                + " — scan_planning_stats.test").build(),
+                        .comment("Protocol 3.2: client-side pruning by ScanBranch statistics — scan_planning_stats.test")
+                        .build(),
                 farm.query.vgi.catalog.ScanPlanning.FILTERED,
                 request -> new farm.query.vgi.catalog.ScanBranchesResult(
                         days.stream()
@@ -1610,17 +1610,26 @@ public final class Main {
         // branch_filter contradiction on a bind-time table.
         w.registerMultiBranchTable(
                 CatalogTable.builder("data", "planned_days_bf", columns)
-                        .comment("Protocol 3.2: pruning by branch_filter contradiction"
-                                + " — scan_planning_branch_filter.test").build(),
+                        .comment("Protocol 3.2: pruning by branch_filter contradiction — scan_planning_branch_filter.test")
+                        .build(),
                 days.stream()
                         .map(day -> ScanBranch.filtered("read_parquet",
                                 "event_date = DATE '" + day + "'", plannedDayFile(dir, day)))
                         .toList(),
                 List.of("parquet"));
+
+        // branch_filter must be ONE expression: "n < 5, n > 2" parses as two, and the
+        // extension rejects it (3.1 clients silently kept the first).
+        w.registerMultiBranchTable(
+                CatalogTable.builder("data", "multi_branch_comma_filter",
+                                cols(Schemas.nullable("n", Schemas.INT64)))
+                        .comment("Protocol 3.2: multi-expression branch_filter is rejected").build(),
+                List.of(ScanBranch.filtered("sequence", "n < 5, n > 2", 10L)
+                        .withSchemaPath(List.of("main"))));
     }
 
     private static String plannedDayFile(String dir, java.time.LocalDate day) {
-        return dir + "/" + day + ".parquet";
+        return dir + "/planned_days_" + day + ".parquet";
     }
 
     private static List<farm.query.vgi.catalog.ColumnStatistics> plannedDayStats(java.time.LocalDate day) {
@@ -1638,8 +1647,7 @@ public final class Main {
         }
         json.append("]}");
         try {
-            java.nio.file.Files.createDirectories(java.nio.file.Path.of(dir));
-            java.nio.file.Files.writeString(java.nio.file.Path.of(dir, "last_plan.json"), json);
+            java.nio.file.Files.writeString(java.nio.file.Path.of(dir, "planned_days_last_plan.json"), json);
         } catch (java.io.IOException e) {
             throw new java.io.UncheckedIOException(e);
         }
