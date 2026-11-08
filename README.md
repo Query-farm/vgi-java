@@ -19,7 +19,7 @@ VGI lets [Haybarn](https://github.com/Query-farm-haybarn/haybarn) — Query Farm
 
 Wire-compatible with the [Python reference implementation](https://github.com/Query-farm/vgi-python) and the [Go port](https://github.com/Query-farm/vgi-go): all three serve the same integration suite against the same C++ extension.
 
-This source uses VGI wire 3.2.0 under `vgi.v3` and requires a native VGI client speaking wire 3.2.x (3.1 peers are rejected). Upgrade clients and workers together; `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md) and, for what 3.2 adds, [filtered scan planning](docs/scan-planning.md).
+Version 0.47.0 uses VGI wire 3.2.0 under `vgi.v3` and requires a native VGI client speaking wire 3.2.x (3.1 peers are rejected). Upgrade clients and workers together; `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md) and, for what 3.2 adds, [filtered scan planning](docs/scan-planning.md).
 
 ## What you can serve
 
