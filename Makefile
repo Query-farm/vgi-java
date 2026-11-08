@@ -70,9 +70,16 @@ WRITABLE_TX_LOCATION      := $(LAUNCHER_PREFIX)$(WRAPPERS)/vgi-worker-txfix
 #   standalone — 7 files skipped depending on how you invoked the same target.
 VGI_TEST_BRANCH_DIR ?= $(shell python3 -c 'import tempfile;print(tempfile.gettempdir())')
 
+#   VGI_RPC_FIXTURE_SCOPE puts the branch dir into the launcher's worker identity.
+#   The launcher shares one worker per (argv, cwd, VGI_RPC_* env) tuple, and
+#   VGI_TEST_BRANCH_DIR is not VGI_RPC_*: two lanes on one host using this same
+#   worker binary with different branch dirs shared a JVM that had read the OTHER
+#   lane's dir at startup, so scan_planning_filtered.test read a plan record the
+#   worker had written elsewhere. The worker ignores the variable itself.
 FIXTURE_ENV := \
 	VGI_WORKER_BIN=$(EXAMPLE_WORKER) \
 	VGI_TEST_BRANCH_DIR=$(VGI_TEST_BRANCH_DIR) \
+	VGI_RPC_FIXTURE_SCOPE=$(VGI_TEST_BRANCH_DIR) \
 	VGI_TEST_WORKER=$(EXAMPLE_LOCATION) \
 	VGI_VERSIONED_WORKER=$(VERSIONED_LOCATION) \
 	VGI_VERSIONED_TABLES_WORKER=$(VERSIONED_TABLES_LOCATION) \
@@ -84,7 +91,7 @@ FIXTURE_ENV := \
 	VGI_WRITABLE_TX_WORKER=$(WRITABLE_TX_LOCATION) \
 	VGI_REQUIRE_LAUNCHER_TRANSPORT=1
 
-.PHONY: build smoke test test-http test-single clean
+.PHONY: build smoke test test-http test-single clean print-engine-skips
 
 ## Build all worker dist images.
 build:
@@ -149,6 +156,21 @@ JAVA_MIN_EXECUTED ?= 295
 # shared launcher JVM, not a java-worker race. Those tests now live in vgi's
 # test_deferred/crash_recovery/ and no longer run here.
 JAVA_JOBS ?= 6
+
+# Engine-gated native tests (VGI_DIR/CLAUDE.md, "Gate only the cases that need
+# the feature"). The native Makefile decides which engine features the built
+# DuckDB has (VGI_ENGINE_TEST_VARS: on Haybarn each is 1, on upstream unset) and
+# the skip reasons that gating produces (VGI_ENGINE_EXPECTED_SKIPS). Take both
+# from VGI_DIR instead of restating them, so a new engine gate needs no change
+# here. The skip list is read with `--eval` (GNU make >= 4); an older make falls
+# back to `require-env-not VAR` for each variable engine_test_env reports set.
+VGI_ENGINE_TEST_ENV := $(shell $(MAKE) -s --no-print-directory -C $(VGI_DIR) engine_test_env 2>/dev/null)
+VGI_ENGINE_EXPECTED_SKIPS := $(strip $(shell $(MAKE) -s --no-print-directory -C $(VGI_DIR) \
+	--eval 'vgi_java_print_engine_skips: ; $$(info $$(VGI_ENGINE_EXPECTED_SKIPS))@:' vgi_java_print_engine_skips 2>/dev/null))
+ifeq ($(VGI_ENGINE_EXPECTED_SKIPS),)
+VGI_ENGINE_EXPECTED_SKIPS := $(foreach kv,$(VGI_ENGINE_TEST_ENV),--allow-skip 'require-env-not $(firstword $(subst =, ,$(kv)))')
+endif
+
 COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 	--allow-skip 'require spatial' \
 	--allow-skip 'require-env VGI_DOCKER_IMAGE' \
@@ -175,11 +197,12 @@ COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_DATABASE_PYTHON_WORKER' \
 	--allow-skip 'require-env VGI_DATABASE_RUST_WORKER' \
 	--allow-skip 'require-env VGI_MALFORMED_BATCH_WORKER' \
-	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER'
+	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER' \
+	$(VGI_ENGINE_EXPECTED_SKIPS)
 
 test: build
-	@cd $(VGI_DIR) && $(FIXTURE_ENV) \
-	    python3 scripts/run_tests.py -j $(JAVA_JOBS) --test-config $(TEST_CONFIG) $(COVERAGE_GATE) \
+	@cd $(VGI_DIR) && set -a && eval "$$($(MAKE) -s --no-print-directory engine_test_env 2>/dev/null)" && set +a && \
+	    $(FIXTURE_ENV) python3 scripts/run_tests.py -j $(JAVA_JOBS) --test-config $(TEST_CONFIG) $(COVERAGE_GATE) \
 	        "test/sql/integration/*" "~test/sql/integration/simple_writable/*"
 
 ## The whole suite over the HTTP transport, exactly as CI's `integration (http)`
@@ -198,7 +221,11 @@ test-http: build
 ## Run a single sqllogictest by file name.
 test-single: build
 	@if [ -z "$(TEST)" ]; then echo "usage: make test-single TEST=test/sql/integration/scalar/add_values.test"; exit 1; fi
-	@cd $(VGI_DIR) && $(FIXTURE_ENV) $(abspath $(UNITTEST)) --test-config $(TEST_CONFIG) --test-dir $(abspath $(VGI_DIR)) "$(TEST)"
+	@cd $(VGI_DIR) && set -a && eval "$$($(MAKE) -s --no-print-directory engine_test_env 2>/dev/null)" && set +a && $(FIXTURE_ENV) $(abspath $(UNITTEST)) --test-config $(TEST_CONFIG) --test-dir $(abspath $(VGI_DIR)) "$(TEST)"
 
 clean:
 	./gradlew clean
+
+## Show the engine-gated skip reasons and variables taken from VGI_DIR.
+print-engine-skips:
+	@$(info engine env: $(VGI_ENGINE_TEST_ENV))$(info engine skips: $(VGI_ENGINE_EXPECTED_SKIPS)):
