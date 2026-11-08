@@ -188,16 +188,6 @@ case "$TRANSPORT" in
   launch)
     # The three wrappers route the one binary into the versioned /
     # versioned_tables / attach_options catalogs.
-    #
-    # NB: VGI_TEST_DEDICATED_WORKER stays UNSET here, for the same reason it is
-    # unset on the http lane below. It used to be exported as the bare binary
-    # path, on the theory that it named a private worker for the crash tests —
-    # but table_buffering_{worker_crash,pool_recovery}.test ATTACH
-    # ${VGI_TEST_WORKER}, not the dedicated path, so setting the var merely
-    # un-skipped a fixture (crash_on_process) that SIGKILLs the ONE shared
-    # launcher JVM serving the whole run. Serially that only cost the launcher a
-    # respawn; run the suite with any parallelism and it takes every concurrent
-    # DuckDB process down with it.
     export VGI_TEST_WORKER="launch:${VGI_WORKER_BIN}"
     export VGI_VERSIONED_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned"
     export VGI_VERSIONED_TABLES_WORKER="launch:${HERE}/wrappers/vgi-worker-versioned-tables"
@@ -258,11 +248,6 @@ case "$TRANSPORT" in
     boot_http_worker "${HERE}/wrappers/vgi-worker-txfix"; tx_port="$BOOTED_PORT"
     export VGI_WRITABLE_TX_WORKER="http://localhost:${tx_port}"
     echo "txfix http worker on ${VGI_WRITABLE_TX_WORKER}"
-    # NB: VGI_TEST_DEDICATED_WORKER stays UNSET here. The buffering crash /
-    # pool-recovery tests SIGKILL their worker mid-process, which is only safe on
-    # a subprocess (bare-path) transport — over http it would tear down the single
-    # shared server for the whole suite. Those tests are designed to skip on any
-    # shared-worker transport (see table_buffering_worker_crash.test's header).
     ;;
   *)
     echo "::error::unknown TRANSPORT=$TRANSPORT (expected launch|http)"; exit 1 ;;
@@ -302,14 +287,6 @@ EXPECTED_SKIP_REASONS=(
   'require-env VGI_DATABASE_BUN_WORKER'          # Bun package fixture belongs to its SDK lane
   'require-env VGI_DATABASE_PYTHON_WORKER'       # Python package fixture belongs to its SDK lane
   'require-env VGI_DATABASE_RUST_WORKER'         # Rust package fixture belongs to its SDK lane
-  # table_buffering_{worker_crash,pool_recovery}: their crash_on_process fixture
-  # SIGKILLs the worker serving it, and both files ATTACH ${VGI_TEST_WORKER} —
-  # a SHARED worker on every lane here (launch/shm share one launcher JVM, http
-  # one server), so running them would kill the process every concurrent test is
-  # using. Expected on ALL lanes, and NOT a coverage loss: the launch lane runs
-  # those two in their own step over the subprocess transport, where each DuckDB
-  # process owns a worker it can watch die.
-  'require-env VGI_TEST_DEDICATED_WORKER'
   'require-env VGI_MALFORMED_BATCH_WORKER'       # hostile malformed-Arrow fixture (vgi test/support only)
   'require-env VGI_ROWID_CONSTRAINT_WORKER'      # hostile rowid-constraint fixture (vgi test/support only)
 )
@@ -474,21 +451,15 @@ if [ "$TRANSPORT" = "launch" ]; then
     run_unittest "test/sql/integration/http/gzip_fallback.test" )
 fi
 
-# The two buffering crash files skip on every shared-worker transport (their
-# crash_on_process fixture SIGKILLs whatever worker serves it). They are only
-# meaningful over the SUBPROCESS transport, where VGI_TEST_WORKER is a bare path
-# and each DuckDB process forks a private worker child it can watch die — so
-# they get their own invocation with the bare binary, exactly like gzip_fallback
-# above gets its own http worker. Same subshell isolation: MAIN_EXECUTED and the
-# floor below are the main suite's, not this run's.
+# shm_pool_metadata.test checks function-to-catalog pool ownership, which only
+# the SUBPROCESS transport has (the main launch/shm suite uses socket sessions
+# instead of this pool), so it gets its own invocation with the bare binary, just
+# as gzip_fallback above gets its own http worker. Same subshell isolation:
+# MAIN_EXECUTED and the floor below are the main suite's, not this run's.
 if [ "$TRANSPORT" = "launch" ]; then
-  echo "Running the buffering crash files (subprocess transport, private worker) ..."
-  ( export VGI_TEST_WORKER="$VGI_WORKER_BIN" VGI_TEST_DEDICATED_WORKER="$VGI_WORKER_BIN"
-    # Also exercise function-to-catalog pool ownership on a private process;
-    # the main launch/shm suite uses socket sessions instead of this pool.
-    run_unittest "test/sql/integration/table_in_out/shm_pool_metadata.test"
-    run_unittest "test/sql/integration/table_in_out/table_buffering_worker_crash.test"
-    run_unittest "test/sql/integration/table_in_out/table_buffering_pool_recovery.test" )
+  echo "Running shm_pool_metadata.test (subprocess transport, private worker) ..."
+  ( export VGI_TEST_WORKER="$VGI_WORKER_BIN"
+    run_unittest "test/sql/integration/table_in_out/shm_pool_metadata.test" )
 fi
 
 # Executed-case floor on the main suite — the collapse-detector. Reached only if

@@ -59,7 +59,7 @@ guards in `summarize_run`:
 
 - **Skip allowlist.** Every skip reason the runner prints must appear in
   `EXPECTED_SKIP_REASONS` (a base list plus, on the http lane, the bad-enum /
-  dedicated-crash / launcher reasons that gate off there but *run* on launch). An
+  launcher reasons that gate off there but *run* on launch). An
   unlisted reason — the signature of a whole file silently gated off, like
   `require httpfs: 227` — fails the lane. A genuinely new, legitimate skip is
   added to the list *with the reason why*.

@@ -58,19 +58,6 @@ WRITABLE_TX_LOCATION      := $(LAUNCHER_PREFIX)$(WRAPPERS)/vgi-worker-txfix
 # Every fixture-worker variable the shared suite reads, in one place so `test`
 # and `test-single` cannot drift apart.
 #
-#   VGI_TEST_DEDICATED_WORKER is deliberately NOT set here, and setting it is a
-#   bug. It gates table_buffering_{worker_crash,pool_recovery}.test, whose
-#   `crash_on_process` fixture SIGKILLs the worker serving it — but both files
-#   ATTACH the VGI_TEST_WORKER location, NOT the dedicated binary, so on this lane the
-#   victim is the ONE shared launcher JVM. Serially that is survivable (the next
-#   ATTACH respawns it); under -j it tears the worker out from under every
-#   concurrent DuckDB process, which is exactly the 8-file "table_buffering fails
-#   at -j 6" symptom this lane was pinned serial for. run_tests.py already
-#   leaves the var unset for shared-worker transports (launch:/unix:///http://) —
-#   see its `env.setdefault` guard — and setting it here defeated that. The two
-#   files self-skip instead (allow-listed in COVERAGE_GATE below); vgi-go and
-#   vgi-typescript do the same on their launcher lanes.
-#
 #   VGI_ATTACH_OPTIONS_REQUIRED_WORKER is the same wrapper as
 #   VGI_ATTACH_OPTIONS_WORKER: that worker serves the `attach_options_required`
 #   catalog too, and upstream split those assertions into their own file behind
@@ -97,7 +84,7 @@ FIXTURE_ENV := \
 	VGI_WRITABLE_TX_WORKER=$(WRITABLE_TX_LOCATION) \
 	VGI_REQUIRE_LAUNCHER_TRANSPORT=1
 
-.PHONY: build smoke test test-crash test-http test-single clean
+.PHONY: build smoke test test-http test-single clean
 
 ## Build all worker dist images.
 build:
@@ -157,14 +144,10 @@ smoke: build
 # which now run against this worker's own contents_* fixture catalogs).
 JAVA_MIN_EXECUTED ?= 295
 
-# Parallel. This lane was pinned serial because raising it to -j 6 failed 8
-# table_buffering files reproducibly, which read as a java-worker concurrency
-# bug. It was not: FIXTURE_ENV set VGI_TEST_DEDICATED_WORKER, which un-skipped
-# table_buffering_{worker_crash,pool_recovery}.test, whose crash_on_process
-# fixture SIGKILLs the ONE shared launcher JVM every concurrent DuckDB process
-# is talking to. The survivors reported "RPC response stream EOF" / "Broken
-# pipe" — i.e. the collateral damage, not a race of their own. See the
-# VGI_TEST_DEDICATED_WORKER note above.
+# Parallel. This lane was once pinned serial because -j 6 failed 8
+# table_buffering files; the cause was the crash-recovery tests SIGKILLing the
+# shared launcher JVM, not a java-worker race. Those tests now live in vgi's
+# test_deferred/crash_recovery/ and no longer run here.
 JAVA_JOBS ?= 6
 COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 	--allow-skip 'require spatial' \
@@ -174,7 +157,6 @@ COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_TEST_ICEBERG' \
 	--allow-skip 'require-env VGI_TEST_COMPANION_TARGET' \
 	--allow-skip 'require-env VGI_TEST_BEARER_TOKEN' \
-	--allow-skip 'require-env VGI_TEST_DEDICATED_WORKER' \
 	--allow-skip 'require-env VGI_TEST_BRANCH_DIR' \
 	--allow-skip 'require-env VGI_HTTP_TRANSPORT' \
 	--allow-skip 'require-env VGI_HTTP_DISABLE_ZSTD' \
@@ -199,21 +181,6 @@ test: build
 	@cd $(VGI_DIR) && $(FIXTURE_ENV) \
 	    python3 scripts/run_tests.py -j $(JAVA_JOBS) --test-config $(TEST_CONFIG) $(COVERAGE_GATE) \
 	        "test/sql/integration/*" "~test/sql/integration/simple_writable/*"
-	@$(MAKE) --no-print-directory test-crash
-
-## The two crash files the main lane necessarily skips, run the only way they
-## are meaningful: over the SUBPROCESS transport, where VGI_TEST_WORKER is a
-## bare path and every DuckDB process forks its own private worker child. Both
-## ATTACH ${VGI_TEST_WORKER} and then have the worker SIGKILL itself, so on the
-## launcher transport the victim is the shared JVM (see the note above) — the
-## main lane leaves VGI_TEST_DEDICATED_WORKER unset so they self-skip there, and
-## this target is what actually exercises them. run_tests.py derives
-## VGI_TEST_DEDICATED_WORKER itself from the bare path, so it is not set here.
-test-crash: build
-	@cd $(VGI_DIR) && VGI_TEST_WORKER=$(EXAMPLE_WORKER) \
-	    python3 scripts/run_tests.py -j 2 --test-config $(TEST_CONFIG) --min-executed 2 \
-	        "test/sql/integration/table_in_out/table_buffering_worker_crash.test" \
-	        "test/sql/integration/table_in_out/table_buffering_pool_recovery.test"
 
 ## The whole suite over the HTTP transport, exactly as CI's `integration (http)`
 ## lane runs it: ci/run-integration.sh boots the example worker (and the
