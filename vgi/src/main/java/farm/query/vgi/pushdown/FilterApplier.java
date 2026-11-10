@@ -164,9 +164,9 @@ public final class FilterApplier {
 
     /**
      * The rendered SQL predicates of any pushed expression filters (spatial
-     * {@code &&}, {@code list_contains}, ...). {@link #apply} only handles
-     * column filters; expression filters are pass-through there and must be
-     * applied separately via the worker's expression evaluator.
+     * {@code &&}, {@code list_contains}, ...). {@link #apply} already evaluates
+     * every v2 predicate, these included; see
+     * {@link PushdownFilters#expressionPredicates()} before re-applying them elsewhere.
      *
      * @return the expression-filter SQL predicates, in order; empty when none
      */

@@ -30,6 +30,10 @@ import org.apache.arrow.vector.ipc.ArrowStreamWriter;
  * for the process. A batch is bridged into the engine via the Arrow C Data
  * interface, the combined predicate is evaluated to a per-row boolean mask, and
  * the batch is compacted via {@link FilterApplier#compact}.
+ *
+ * <p>Not used for {@code duckdb.spatial/intersects_extent@1}: {@link FilterApplier#apply}
+ * evaluates it with DuckDB core's {@code &&} semantics, which the spatial extension's
+ * {@code st_intersects_extent} does not match on NaN coordinates.
  */
 public final class ExpressionFilterEvaluator {
 
