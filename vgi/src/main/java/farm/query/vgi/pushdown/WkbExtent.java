@@ -19,11 +19,16 @@ import java.nio.ByteOrder;
  *   <li>Z and M are read past and ignored.</li>
  * </ul>
  *
- * <p>Anything that is not well-formed ISO WKB (unknown byte order or type, EWKB flags such as
- * the SRID flag, truncation, trailing bytes) is rejected with a {@link FilterV2Exception}.
+ * <p>Both ISO WKB (Z/M as 1000/2000/3000 type offsets) and EWKB (Z/M/SRID high-bit flags, with
+ * the SRID skipped) are accepted, in either byte order, per (sub-)geometry, as DuckDB core does.
+ * Anything else (unknown byte order or type, both Z/M conventions on one type, truncation,
+ * trailing bytes) is rejected with a {@link FilterV2Exception}.
  */
 final class WkbExtent {
     private static final int MAX_DEPTH = 128;
+    private static final int EWKB_Z = 0x80000000;
+    private static final int EWKB_M = 0x40000000;
+    private static final int EWKB_SRID = 0x20000000;
 
     private double minX = Double.POSITIVE_INFINITY;
     private double maxX = Double.NEGATIVE_INFINITY;
@@ -69,14 +74,20 @@ final class WkbExtent {
         if (order == 0) buffer.order(ByteOrder.BIG_ENDIAN);
         else if (order == 1) buffer.order(ByteOrder.LITTLE_ENDIAN);
         else throw new FilterV2Exception("invalid WKB byte order " + order);
-        long type = Integer.toUnsignedLong(buffer.getInt());
-        long base = type % 1000;
-        long dimensions = type / 1000;
-        if (base < 1 || base > 7 || dimensions > 3) {
-            throw new FilterV2Exception("unsupported WKB geometry type " + type);
+        int raw = buffer.getInt();
+        boolean ewkbZ = (raw & EWKB_Z) != 0;
+        boolean ewkbM = (raw & EWKB_M) != 0;
+        int type = raw & ~(EWKB_Z | EWKB_M | EWKB_SRID);
+        int base = type % 1000;
+        int dimensions = type / 1000;
+        if (base < 1 || base > 7 || dimensions > 3 || ((ewkbZ || ewkbM) && dimensions != 0)) {
+            throw new FilterV2Exception("unsupported WKB geometry type " + Integer.toUnsignedString(raw));
         }
-        int width = 2 + (dimensions == 0 ? 0 : dimensions == 3 ? 2 : 1);
-        switch ((int) base) {
+        if ((raw & EWKB_SRID) != 0) buffer.getInt();  // the SRID does not affect the extent
+        boolean hasZ = ewkbZ || dimensions == 1 || dimensions == 3;
+        boolean hasM = ewkbM || dimensions == 2 || dimensions == 3;
+        int width = 2 + (hasZ ? 1 : 0) + (hasM ? 1 : 0);
+        switch (base) {
             case 1 -> point(buffer, width);
             case 2 -> vertices(buffer, count(buffer, 8L * width), width);
             case 3 -> {
