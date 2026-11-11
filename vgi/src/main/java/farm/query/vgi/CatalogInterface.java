@@ -303,7 +303,7 @@ public interface CatalogInterface {
             throw new IllegalArgumentException("functionInfoFor: visibility must be 'public' or 'table_only', not '"
                     + visibility + "'");
         }
-        return farm.query.vgi.internal.VgiServiceImpl.describeFunction(fn, schemaPath).withVisibility(visibility);
+        return FunctionInfoBuilder.describe(fn, schemaPath).withVisibility(visibility);
     }
 
     /**
