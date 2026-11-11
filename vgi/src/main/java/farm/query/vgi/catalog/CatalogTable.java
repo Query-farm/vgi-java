@@ -14,8 +14,8 @@ import farm.query.vgi.write.WriteResultMode;
  * A catalog table. {@code columns} is the table's Arrow schema serialized
  * as IPC bytes. {@code scanFunctionName} (with {@code scanFunctionArgs})
  * inlines the scan function so the C++ extension can skip
- * {@code catalog_table_scan_function_get}; if {@code null}, the worker
- * must implement that RPC manually.
+ * {@code catalog_table_scan_branches_get}; otherwise the framework answers that
+ * RPC with the table's scan as one branch (or the table's declared branches).
  *
  * <p>A table is read-only unless it names write functions
  * ({@link Builder#insertFunction}, {@link Builder#updateFunction}, {@link Builder#deleteFunction}):
@@ -30,8 +30,9 @@ import farm.query.vgi.write.WriteResultMode;
  * @param comment                   free-text table comment ({@code ""} if none)
  * @param tags                      arbitrary key/value table metadata
  * @param scanFunctionName          name of the function that produces the table's
- *                                  rows, or {@code null} to require the
- *                                  {@code catalog_table_scan_function_get} RPC
+ *                                  rows, or {@code null} when a
+ *                                  {@link farm.query.vgi.catalog.ScanBranchesPlanner} answers
+ *                                  {@code catalog_table_scan_branches_get}
  * @param scanFunctionPositional    positional arguments bound to the scan function
  * @param scanFunctionNamed         named arguments bound to the scan function
  * @param cardinalityEstimate       estimated row count, or {@code null} if unknown
@@ -39,7 +40,7 @@ import farm.query.vgi.write.WriteResultMode;
  * @param inlineCardinality         whether the cardinality is sent inline in
  *                                  {@code TableInfo} rather than via RPC
  * @param inlineScanFunction        whether the scan function is sent inline so the
- *                                  extension skips {@code catalog_table_scan_function_get}
+ *                                  extension skips {@code catalog_table_scan_branches_get}
  * @param primaryKey                primary-key column indices (grouped for composite keys)
  * @param uniqueConstraints         UNIQUE constraint column-index groups
  * @param checkConstraints          CHECK constraint SQL expressions
@@ -502,7 +503,7 @@ public record CatalogTable(
 
         /**
          * Keeps the same backing function but skips the {@code TableInfo.scan_function}
-         * inline so the C++ extension fires {@code catalog_table_scan_function_get}.
+         * inline so the C++ extension fires {@code catalog_table_scan_branches_get}.
          *
          * @return this builder
          */
@@ -760,7 +761,7 @@ public record CatalogTable(
     /**
      * Returns a copy that keeps the same backing function but skips the
      * {@code TableInfo.scan_function} inline so the C++ extension fires
-     * {@code catalog_table_scan_function_get}.
+     * {@code catalog_table_scan_branches_get}.
      *
      * @return a new table requiring the scan-function RPC
      */

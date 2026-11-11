@@ -27,7 +27,7 @@ import java.util.Map;
  * Encodes a {@code ScanFunctionResult} (function_name + nested args batch +
  * required_extensions) as a 1-row IPC stream. The C++ extension reads this
  * from {@code TableInfo.scan_function} and skips the per-bind
- * {@code catalog_table_scan_function_get} RPC.
+ * {@code catalog_table_scan_branches_get} RPC.
  */
 public final class ScanFunctionResultEncoder {
 
@@ -103,7 +103,7 @@ public final class ScanFunctionResultEncoder {
 
     /**
      * Encode only the scan arguments as a 1-row IPC stream (one column per arg).
-     * Public entry point used by {@code catalog_table_scan_function_get}.
+     * Public entry point for scan-function arguments (inline {@code TableInfo.scan_function}).
      *
      * @param positional positional arguments, encoded as columns {@code arg_0..arg_n} (may be {@code null})
      * @param named named arguments, encoded as columns by name (may be {@code null})

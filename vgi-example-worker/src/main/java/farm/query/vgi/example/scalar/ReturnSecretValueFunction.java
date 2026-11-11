@@ -4,6 +4,7 @@ package farm.query.vgi.example.scalar;
 
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.BindResponse;
+import farm.query.vgi.protocol.FunctionRequiredSecret;
 import farm.query.vgi.scalar.ScalarBindParams;
 import farm.query.vgi.scalar.ScalarFunction;
 import farm.query.vgi.scalar.ScalarProcessParams;
@@ -24,7 +25,7 @@ import java.util.TreeMap;
 /**
  * {@code return_secret_value()} — returns a JSON-shaped VARCHAR encoding of
  * the resolved {@code vgi_example} secret's user-supplied fields, or NULL if
- * no secret is in scope.
+ * no secret is in scope. Declares {@code vgi_example} as a required secret.
  */
 public final class ReturnSecretValueFunction implements ScalarFunction {
 
@@ -37,6 +38,16 @@ public final class ReturnSecretValueFunction implements ScalarFunction {
             .build();
 
     @Override public FunctionSpec spec() { return SPEC; }
+
+    /**
+     * Declared statically, like vgi-python's {@code Secret("vgi_example")} parameter: the
+     * extension resolves the secret before the first bind, and {@code vgi_secret_types()} lists
+     * this function in the type's {@code required_by}. The bind-time lookup below stays for
+     * clients that do not pre-resolve.
+     */
+    @Override public List<FunctionRequiredSecret> requiredSecrets() {
+        return List.of(FunctionRequiredSecret.ofType("vgi_example"));
+    }
 
     @Override public BindResponse onBind(ScalarBindParams p) {
         if (!p.resolvedSecretsProvided()) {

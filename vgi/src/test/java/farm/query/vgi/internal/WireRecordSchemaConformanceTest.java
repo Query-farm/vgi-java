@@ -391,6 +391,7 @@ class WireRecordSchemaConformanceTest {
         m.put(TableBufferingProcessResponse.class, new Codec("TableBufferingProcessResult", ORDERED));
         m.put(TableFunctionPlanRequest.class, new Codec("TableFunctionPlanRequest", BY_NAME));
         m.put(farm.query.vgi.protocol.TableCreateRequest.class, new Codec("TableCreateRequest", BY_NAME));
+        m.put(farm.query.vgi.protocol.TableCreateResponse.class, new Codec("CatalogTableCreateResult", ORDERED));
         m.put(TableScanFunctionGetResponse.class, new Codec("ScanFunctionResult", ORDERED));
         m.put(TransactionBeginResponse.class, new Codec("CatalogTransactionBeginResult", ORDERED));
         m.put(ViewInfo.class, new Codec("ViewInfo", ORDERED));

@@ -864,8 +864,8 @@ worker advertising `vgi.cache.*` on its **first emitted batch**. 35 new
   103 → 121, i.e. +18 functions for 19 fixtures; that one is the difference.)
 - **14 cache data tables** in `Main.registerCatalogTable`, plus `cache_versioned`
   (columns-based, AT → `cache_versioned_scan(version)` via a `resolveCacheVersion`
-  special-case in **both** `catalog_table_scan_function_get` and
-  `_scan_branches_get`, and a pass-through in `CatalogRegistry.resolveVersion`) —
+  special-case in `catalog_table_scan_branches_get` (the only scan-discovery
+  RPC since protocol 3.3), and a pass-through in `CatalogRegistry.resolveVersion`) —
   the `tt_pushdown_cols` precedent exactly.
 - **`table/positional_args.test` (new) needed no framework fix.** Java's
   `CatalogTable` already threads `scanFunctionPositional` into the scan RPC, so the
@@ -959,8 +959,7 @@ fixes, then ported the worker side:
   `Worker.registerExtraCatalogTable(catalog, CatalogTable)` +
   `extraCatalogTables()`; `VgiServiceImpl` gained `extraCatalogTablesFor(...)`
   and an early extra-catalog branch in `catalog_schema_contents_tables` /
-  `catalog_table_get` / `catalog_table_scan_function_get` /
-  `catalog_table_scan_branches_get`, plus a `table` count in `extraSchemaCounts`.
+  `catalog_table_get` / `catalog_table_scan_branches_get`, plus a `table` count in `extraSchemaCounts`.
   The two scan functions carry the `narrow_bind_` prefix so the catalog owns them
   (hidden from the example catalog, so example fn counts are unchanged). Gated to
   `catalogName=="example"` in `Main.registerNarrowBind` (like accumulate).
@@ -1348,7 +1347,7 @@ function-backed table now reads AT at init via the bind request embedded in
 
 - **time_travel_pushdown** — `tt_pushdown_fn` (function-backed, reads AT at init
   via `TableInitParams.atUnit/atValue`) + `tt_pushdown_cols` (columns-based; AT →
-  version resolved in `catalog_table_scan_function_get`/`_scan_branches_get`).
+  version resolved in `catalog_table_scan_branches_get`).
   Both in `TimeTravelPushdownFunctions` (`tt_pushdown_scan`/`tt_pushdown_cols_scan`,
   echo `seen_version` + `pushed_filters`). `CatalogRegistry.resolveVersion` now
   **passes through** (rather than rejecting) these two names; a `resolveTtVersion`
@@ -1365,7 +1364,7 @@ function-backed table now reads AT at init via the bind request embedded in
   after vgi `2c67929`).
 - **required_field_filter_paths_native** — `rff_parquet`/`rff_hive`/
   `rff_hive_mixed` columns-based tables delegate to native `read_parquet` via
-  `catalog_table_scan_function_get` (`scanFunction("read_parquet", [path], …)` +
+  `catalog_table_scan_branches_get` (`scanFunction("read_parquet", [path], …)` +
   `rpcScanFunction()`); the test `COPY`s the parquet/Hive-glob fixtures itself.
 - **required_field_filter_paths_rowid** — `RffRowidScanFunction` (`rff_rowid_scan`,
   real generator: 10 rows, FLOAT32 `bbox` struct built directly with

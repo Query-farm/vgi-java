@@ -8,6 +8,7 @@ import farm.query.vgi.AttachOptions;
 import farm.query.vgi.AttachSettings;
 import farm.query.vgi.TransactionHooks;
 import farm.query.vgi.Worker;
+import farm.query.vgi.catalog.CatalogColumns;
 import farm.query.vgi.catalog.CatalogTable;
 import farm.query.vgi.catalog.ConstraintRecord;
 import farm.query.vgi.function.FunctionMetadata;
@@ -42,10 +43,12 @@ import org.apache.arrow.vector.util.Text;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -57,12 +60,14 @@ import java.util.TreeMap;
  *       (VARCHAR, secret). An {@link farm.query.vgi.AttachHook} turns
  *       {@code supports_transactions} on per attach from {@code transactional}; every function
  *       and hook reads {@code token} from its {@link AttachOptions}.</li>
- *   <li>{@code items} (id, name, qty + rowid) is writable through the {@code items_update}
- *       table in-out function declared on its descriptor; {@code labels} is read-only. Both
- *       carry constraint records, so the framework negotiates {@code vgi.constraint.enforce.v1}.
- *       Protocol 3.3 visibility: {@code items_scan} and {@code items_update} are listed
- *       {@code table_only} (hidden from {@code duckdb_functions()}); {@code labels} sets
- *       {@code exposeScan}, so {@code labels_scan} is public and callable.</li>
+ *   <li>{@code items} (id, name, qty BIGINT DEFAULT 0, + rowid) is writable through the
+ *       {@code items_insert}, {@code items_update} and {@code items_delete} table in-out
+ *       functions declared on its descriptor, each with a finalize ({@code has_finalize}) that
+ *       {@code writes()} reports; {@code labels} is read-only. Both carry constraint records, so
+ *       the framework negotiates {@code vgi.constraint.enforce.v1}. Protocol 3.3 visibility:
+ *       {@code items_scan} and the write functions are listed {@code table_only} (hidden from
+ *       {@code duckdb_functions()}); {@code labels} sets {@code exposeScan}, so
+ *       {@code labels_scan} is public and callable.</li>
  *   <li>{@link TransactionHooks}: begin mints the id, commit applies the staged changes (or
  *       refuses a negative qty, failing COMMIT), rollback discards them.</li>
  * </ul>
@@ -79,6 +84,11 @@ public final class TxFixWorker {
             Schemas.nonNull("name", Schemas.UTF8),
             Schemas.nullable("qty", Schemas.INT64)));
     static final Schema ITEMS_SCAN = withRowId(ITEMS_USER);
+    /** The declared columns: {@link #ITEMS_SCAN} with {@code qty DEFAULT 0}. */
+    static final Schema ITEMS_TABLE = new Schema(List.of(
+            ITEMS_SCAN.getFields().get(0), ITEMS_SCAN.getFields().get(1),
+            CatalogColumns.withDefault(ITEMS_SCAN.getFields().get(2), "0", "main"),
+            ITEMS_SCAN.getFields().get(3)));
     static final Schema LABELS = new Schema(List.of(
             Schemas.nonNull("id", Schemas.INT32),
             Schemas.nullable("label", Schemas.UTF8)));
@@ -166,13 +176,20 @@ public final class TxFixWorker {
                 .registerTable("main", new Events())
                 .registerTable("main", new ItemsScan())
                 .registerTable("main", new LabelsScan())
+                .registerTable("main", new Writes())
+                .registerTableInOut("main", new ItemsInsert())
                 .registerTableInOut("main", new ItemsUpdate())
+                .registerTableInOut("main", new ItemsDelete())
                 .registerTableInOut("main", new TagTx())
-                .registerCatalogTable(CatalogTable.builder("main", "items", Schemas.serialize(ITEMS_SCAN))
-                        .comment("Writable through items_update")
+                .registerCatalogTable(CatalogTable.builder("main", "items", Schemas.serialize(ITEMS_TABLE))
+                        .comment("Writable through items_insert, items_update and items_delete")
                         .scanFunction(ItemsScan.NAME)
+                        .insertFunction(ItemsInsert.NAME)
                         .updateFunction(ItemsUpdate.NAME)
+                        .deleteFunction(ItemsDelete.NAME)
+                        .writeResultMode(WriteOperation.INSERT, WriteResultMode.CHANGES)
                         .writeResultMode(WriteOperation.UPDATE, WriteResultMode.CHANGES)
+                        .writeResultMode(WriteOperation.DELETE, WriteResultMode.CHANGES)
                         .constraints(constraints("items", true), REVISION)
                         .build())
                 .registerCatalogTable(CatalogTable.builder("main", "labels", Schemas.serialize(LABELS))
@@ -215,12 +232,12 @@ public final class TxFixWorker {
                 TreeMap<Integer, TxFixState.Row> staged = p.staged.remove(tx);
                 if (staged != null) {
                     for (TxFixState.Row r : staged.values()) {
-                        if (r.qty() != null && r.qty() < 0) {
+                        if (r != null && r.qty() != null && r.qty() < 0) {
                             p.event("commit", tx, false);
                             return "txfix: commit refused: qty " + r.qty() + " for id " + r.id();
                         }
                     }
-                    p.committed.putAll(staged);
+                    p.apply(staged);
                 }
                 p.event("commit", tx, true);
                 return null;
@@ -419,6 +436,46 @@ public final class TxFixWorker {
         }
     }
 
+    static final class Writes extends RowsFunction {
+        @Override String name0() { return "writes"; }
+        @Override Schema schema() {
+            return new Schema(List.of(Schemas.nullable("seq", Schemas.INT64),
+                    Schemas.nullable("op", Schemas.UTF8), Schemas.nullable("tx_id", Schemas.UTF8),
+                    Schemas.nullable("rows", Schemas.INT64), Schemas.nullable("finalized", Schemas.BOOL)));
+        }
+        @Override String description() { return "The token's write calls: one row per call, in order"; }
+
+        @Override
+        public TableProducerState createProducer(TableInitParams params) {
+            WritesState s = new WritesState();
+            s.outputSchema = params.outputSchema();
+            s.partition = partition(params.attachOptions());
+            return s;
+        }
+    }
+
+    /** {@code writes()} producer. */
+    public static final class WritesState extends OnceState {
+        public String partition;
+
+        @Override
+        List<Map<String, Object>> rows() {
+            return TxFixState.withPartition(partition, p -> {
+                List<Map<String, Object>> out = new ArrayList<>();
+                for (TxFixState.Write w : p.writes) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("seq", w.seq());
+                    row.put("op", w.op());
+                    row.put("tx_id", w.txId());
+                    row.put("rows", w.rows());
+                    row.put("finalized", w.finalized());
+                    out.add(row);
+                }
+                return out;
+            });
+        }
+    }
+
     static final class ItemsScan extends RowsFunction {
         static final String NAME = "items_scan";
         @Override String name0() { return NAME; }
@@ -436,7 +493,12 @@ public final class TxFixWorker {
         }
     }
 
-    /** {@code items_scan()} producer: committed rows overlaid with the transaction's staged ones. */
+    /**
+     * {@code items_scan()} producer: committed rows overlaid with the transaction's staged ones.
+     * The rows are read once, under the partition lock, and emitted as one batch, so a scan is a
+     * snapshot of the state at its start: {@code INSERT INTO items SELECT ... FROM items} never
+     * reads the rows it inserts.
+     */
     public static final class ItemsState extends OnceState {
         public String partition;
         public String txId;
@@ -494,85 +556,219 @@ public final class TxFixWorker {
         return o instanceof Text t ? t.toString() : o;
     }
 
-    static final class ItemsUpdate implements TableInOutFunction {
-        static final String NAME = "items_update";
+    /**
+     * The three write functions of {@code items}. Each binds the result schema of the requested
+     * mode and a fresh call id (its bind opaque data), records one {@code writes()} row per call
+     * when the call starts, counts the rows each batch writes, and marks the row finalized in its
+     * finalize ({@code has_finalize}). A statement that fails never reaches the finalize.
+     */
+    abstract static class WriteFunction implements TableInOutFunction {
+        abstract String name0();
+
+        abstract String op();
+
+        abstract WriteState newState();
 
         @Override
         public FunctionSpec spec() {
-            return FunctionSpec.builder(NAME).metadata(volatileMeta("Backs UPDATE txfix.main.items"))
+            return FunctionSpec.builder(name0())
+                    .metadata(volatileMeta("Backs " + op().toUpperCase(java.util.Locale.ROOT) + " txfix.main.items"))
                     .table("data").build();
+        }
+
+        @Override
+        public boolean hasFinalize() {
+            return true;
         }
 
         @Override
         public BindResponse onBind(TableInOutBindParams params) {
             WriteResultMode mode = WriteOptions.from(params.arguments()).resultMode();
-            return BindResponse.forSchema(Schemas.serialize(WriteResults.resultSchema(mode, ITEMS_USER)));
+            byte[] callId = new byte[16];
+            RNG.nextBytes(callId);
+            return new BindResponse(Schemas.serialize(WriteResults.resultSchema(mode, ITEMS_USER)), callId,
+                    List.of(), List.of(), List.of());
         }
 
         @Override
         public TableInOutExchangeState createExchange(TableInOutInitParams params) {
-            UpdateState s = new UpdateState();
+            WriteState s = newState();
             s.partition = partition(params.attachOptions());
             s.transactional = params.attachOptions().getBoolean("transactional", false);
             s.txId = stagingTx(params.attachOptions(), params.transactionId());
             s.mode = WriteOptions.from(params.arguments()).resultMode().wireName();
+            s.callId = callId(params);
+            String op = op();
+            String tx = hex(params.transactionId());
+            TxFixState.withPartition(s.partition, p -> {
+                p.writeStarted(op, tx, s.callId);
+                return null;
+            });
             return s;
+        }
+
+        @Override
+        public List<VectorSchemaRoot> finish(TableInOutInitParams params) {
+            String callId = callId(params);
+            TxFixState.withPartition(partition(params.attachOptions()), p -> {
+                p.finalized(callId);
+                return null;
+            });
+            return List.of();
+        }
+
+        private static String callId(TableInOutInitParams params) {
+            byte[] id = params.bindOpaqueData();
+            return id == null || id.length == 0 ? "-" : hex(id);
         }
     }
 
-    /** {@code items_update} exchange: validates every row, then applies or stages them. */
-    public static final class UpdateState extends TableInOutExchangeState {
+    /**
+     * A write call's exchange: decodes and validates the whole batch against the state the call
+     * sees (committed rows overlaid with the transaction's staged changes), then applies it
+     * (plain attach) or stages it (transactional attach) and answers in the requested mode.
+     */
+    public abstract static class WriteState extends TableInOutExchangeState {
         public String partition;
         public boolean transactional;
         public String txId;
         public String mode;
+        public String callId;
+
+        /** One row the batch writes: the before image (null for an insert), the after image (null for a delete). */
+        record Change(int id, TxFixState.Row before, TxFixState.Row after) {}
+
+        /** Validate the batch against {@code current} and return its changes; throw to fail the statement. */
+        abstract List<Change> plan(VectorSchemaRoot batch, TreeMap<Integer, TxFixState.Row> current);
 
         @Override
         public void onInputBatch(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
             VectorSchemaRoot batch = input.root();
-            FieldVector rowids = batch.getVector("rowid");
-            if (rowids == null) throw new IllegalArgumentException("txfix: UPDATE input carries no rowid");
             List<Map<String, Object>> before = new ArrayList<>();
             List<Map<String, Object>> after = new ArrayList<>();
             TxFixState.withPartition(partition, p -> {
-                TreeMap<Integer, TxFixState.Row> current = p.view(txId);
-                List<TxFixState.Row> updated = new ArrayList<>();
-                for (int i = 0; i < batch.getRowCount(); i++) {
-                    int id = ((Number) cell(rowids, i)).intValue();
-                    TxFixState.Row old = current.get(id);
-                    if (old == null) throw new IllegalArgumentException("txfix: no row with id " + id);
-                    String name = old.name();
-                    Long qty = old.qty();
-                    for (FieldVector v : batch.getFieldVectors()) {
-                        Object value = cell(v, i);
-                        switch (v.getName()) {
-                            case "id" -> {
-                                if (value == null || ((Number) value).intValue() != id) {
-                                    throw new IllegalArgumentException("txfix: id is not updatable");
-                                }
-                            }
-                            case "name" -> name = (String) value;
-                            case "qty" -> qty = value == null ? null : ((Number) value).longValue();
-                            default -> { }
-                        }
-                    }
-                    if (name == null) throw new IllegalArgumentException("txfix: name must not be NULL");
-                    if (!transactional && qty != null && qty < 0) {
-                        throw new IllegalArgumentException("txfix: qty must be >= 0");
-                    }
-                    before.add(old.asMap());
-                    TxFixState.Row row = new TxFixState.Row(id, name, qty);
-                    updated.add(row);
-                    after.add(row.asMap());
+                List<Change> changes = plan(batch, p.view(txId));
+                for (Change c : changes) {
+                    p.put(txId, c.id(), c.after());
+                    before.add(c.before() == null ? null : c.before().asMap());
+                    after.add(c.after() == null ? null : c.after().asMap());
                 }
-                for (TxFixState.Row row : updated) {
-                    if (txId != null) p.staged.computeIfAbsent(txId, k -> new TreeMap<>()).put(row.id(), row);
-                    else p.committed.put(row.id(), row);
-                }
+                p.wrote(callId, changes.size());
                 return null;
             });
             out.emit(WriteResults.resultBatch(WriteResultMode.fromWire(mode), ITEMS_USER, before, after,
                     Allocators.root()));
+        }
+
+        /** The qty rule of every write: refused at write time on the plain attach, at COMMIT on ttx. */
+        void checkQty(Long qty) {
+            if (!transactional && qty != null && qty < 0) {
+                throw new IllegalArgumentException("txfix: qty must be >= 0");
+            }
+        }
+    }
+
+    static final class ItemsInsert extends WriteFunction {
+        static final String NAME = "items_insert";
+        @Override String name0() { return NAME; }
+        @Override String op() { return "insert"; }
+        @Override WriteState newState() { return new InsertState(); }
+    }
+
+    /** {@code items_insert} exchange: every input row is a new row; ids must be new. */
+    public static final class InsertState extends WriteState {
+        @Override
+        List<Change> plan(VectorSchemaRoot batch, TreeMap<Integer, TxFixState.Row> current) {
+            FieldVector ids = batch.getVector("id");
+            FieldVector names = batch.getVector("name");
+            FieldVector qtys = batch.getVector("qty");
+            if (ids == null) throw new IllegalArgumentException("txfix: INSERT input carries no id");
+            List<Change> out = new ArrayList<>();
+            Set<Integer> seen = new HashSet<>();
+            for (int i = 0; i < batch.getRowCount(); i++) {
+                Object idValue = cell(ids, i);
+                if (idValue == null) throw new IllegalArgumentException("txfix: id required");
+                int id = ((Number) idValue).intValue();
+                if (current.containsKey(id) || !seen.add(id)) {
+                    throw new IllegalArgumentException("txfix: duplicate id " + id);
+                }
+                String name = names == null ? null : (String) cell(names, i);
+                if (name == null) throw new IllegalArgumentException("txfix: name required");
+                Object q = qtys == null ? null : cell(qtys, i);
+                Long qty = q == null ? null : ((Number) q).longValue();
+                checkQty(qty);
+                out.add(new Change(id, null, new TxFixState.Row(id, name, qty)));
+            }
+            return out;
+        }
+    }
+
+    static final class ItemsUpdate extends WriteFunction {
+        static final String NAME = "items_update";
+        @Override String name0() { return NAME; }
+        @Override String op() { return "update"; }
+        @Override WriteState newState() { return new UpdateState(); }
+    }
+
+    /** {@code items_update} exchange: SET columns plus rowid; a column equal to its current value is no change. */
+    public static final class UpdateState extends WriteState {
+        @Override
+        List<Change> plan(VectorSchemaRoot batch, TreeMap<Integer, TxFixState.Row> current) {
+            FieldVector rowids = batch.getVector("rowid");
+            if (rowids == null) throw new IllegalArgumentException("txfix: UPDATE input carries no rowid");
+            List<Change> out = new ArrayList<>();
+            for (int i = 0; i < batch.getRowCount(); i++) {
+                int id = ((Number) cell(rowids, i)).intValue();
+                TxFixState.Row old = current.get(id);
+                if (old == null) throw new IllegalArgumentException("txfix: no row with id " + id);
+                String name = old.name();
+                Long qty = old.qty();
+                for (FieldVector v : batch.getFieldVectors()) {
+                    Object value = cell(v, i);
+                    switch (v.getName()) {
+                        case "id" -> {
+                            if (value == null || ((Number) value).intValue() != id) {
+                                throw new IllegalArgumentException("txfix: id is not updatable");
+                            }
+                        }
+                        case "name" -> name = (String) value;
+                        case "qty" -> qty = value == null ? null : ((Number) value).longValue();
+                        default -> { }
+                    }
+                }
+                if (name == null) throw new IllegalArgumentException("txfix: name must not be NULL");
+                checkQty(qty);
+                TxFixState.Row row = new TxFixState.Row(id, name, qty);
+                out.add(new Change(id, old, row));
+                // A later input row for the same id sees this one's result.
+                current.put(id, row);
+            }
+            return out;
+        }
+    }
+
+    static final class ItemsDelete extends WriteFunction {
+        static final String NAME = "items_delete";
+        @Override String name0() { return NAME; }
+        @Override String op() { return "delete"; }
+        @Override WriteState newState() { return new DeleteState(); }
+    }
+
+    /** {@code items_delete} exchange: rowid = id; a missing (or repeated) id is a no-op, not counted. */
+    public static final class DeleteState extends WriteState {
+        @Override
+        List<Change> plan(VectorSchemaRoot batch, TreeMap<Integer, TxFixState.Row> current) {
+            FieldVector rowids = batch.getVector("rowid");
+            if (rowids == null) throw new IllegalArgumentException("txfix: DELETE input carries no rowid");
+            List<Change> out = new ArrayList<>();
+            for (int i = 0; i < batch.getRowCount(); i++) {
+                Object value = cell(rowids, i);
+                if (value == null) continue;
+                int id = ((Number) value).intValue();
+                TxFixState.Row old = current.remove(id);
+                if (old != null) out.add(new Change(id, old, null));
+            }
+            return out;
         }
     }
 

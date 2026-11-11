@@ -205,7 +205,7 @@ public final class CatalogRegistry {
             // Tables that resolve AT themselves rather than via a name-swapped
             // variant: tt_pushdown_fn is function-backed (the function reads AT
             // at init via the bind request); tt_pushdown_cols is columns-based
-            // (catalog_table_scan_function_get bakes the resolved version into a
+            // (catalog_table_scan_branches_get bakes the resolved version into a
             // scan-function argument). Pass them through unchanged instead of
             // rejecting the AT clause.
             if ("tt_pushdown_fn".equals(t.name()) || "tt_pushdown_cols".equals(t.name())

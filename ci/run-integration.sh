@@ -273,6 +273,7 @@ esac
 EXPECTED_SKIP_REASONS=(
   'require-env VGI_BAD_PROTOCOL_WORKER'          # incompatible-protocol fixture, not wired here
   'require-env VGI_VISIBILITY_WORKER'            # extension-only protocol-3.3 visibility fixture (visfix, vgi test/support)
+  'require-env VGI_WRITE_CONTRACT_WORKER'        # extension-only protocol-3.3 write-path fixture (vgi test/support)
   'require-env VGI_RULES_WORKER'                 # vgi-rust multibatch-repro fixture
   'require-env VGI_SCHEMA_RECONCILE_DB'          # schema-reconcile sqlite fixture, not set here
   'require-env VGI_WORKER_SUPPORTS_DYNAMIC_CODE' # dynamic-code registration, not implemented

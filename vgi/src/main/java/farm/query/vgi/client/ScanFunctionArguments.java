@@ -18,10 +18,12 @@ import java.util.Map;
 
 /**
  * Read the bound arguments a worker returns for a catalog table's scan
- * function, and re-encode them as {@code BindRequest.arguments}.
+ * function (a {@code catalog_table_scan_branches_get} function branch), and
+ * re-encode them as {@code BindRequest.arguments}.
  *
  * <p>The two are <em>not</em> the same encoding, which is the whole reason this
- * class exists. {@code TableScanFunctionGetResponse.arguments} is a flat
+ * class exists. A scan branch's {@code arguments} ({@link ScanBranchesDecoder.Branch#arguments()},
+ * or the inline {@code TableInfo.scan_function}'s) is a flat
  * one-row batch whose columns are {@code arg_0}, {@code arg_1}, … for the
  * positional arguments plus one column per named argument. Bind arguments are a
  * one-row batch holding a single {@code args} <em>struct</em> whose children are
@@ -32,10 +34,10 @@ import java.util.Map;
  * consumer has to do the same.
  *
  * <pre>{@code
- * TableScanFunctionGetResponse scan =
- *         vgi.catalog_table_scan_function_get(handle, "data", "numbers", null, null, null, null);
+ * ScanBranchesDecoder.Branch scan = ScanBranchesDecoder.decode(vgi.catalog_table_scan_branches_get(
+ *         handle, List.of("data"), "numbers", null, null, null, null, null)).branches().get(0);
  * BindRequest bind = new BindRequest(
- *         scan.function_name(),
+ *         scan.functionName(),
  *         ScanFunctionArguments.toBindArguments(scan.arguments()),
  *         "TABLE", ...);
  * }</pre>
@@ -68,7 +70,7 @@ public final class ScanFunctionArguments {
     /**
      * Decode a scan function's bound arguments.
      *
-     * @param arguments the {@code TableScanFunctionGetResponse.arguments} bytes;
+     * @param arguments a scan branch's {@code arguments} bytes;
      *                  {@code null} or empty means "no arguments"
      * @return the decoded arguments
      * @throws IllegalStateException if the bytes are malformed, a positional
@@ -105,7 +107,7 @@ public final class ScanFunctionArguments {
      * Decode a scan function's bound arguments and re-encode them as bind
      * arguments.
      *
-     * @param arguments the {@code TableScanFunctionGetResponse.arguments} bytes
+     * @param arguments a scan branch's {@code arguments} bytes
      * @return IPC bytes for {@code BindRequest.arguments}
      */
     public static byte[] toBindArguments(byte[] arguments) {

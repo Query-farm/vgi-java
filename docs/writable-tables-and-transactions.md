@@ -107,11 +107,19 @@ Name the write functions on the table descriptor:
 ```java
 CatalogTable.builder("main", "items", Schemas.serialize(schemaWithRowId))
         .scanFunction("items_scan")                 // emits rowid, declares projection pushdown
-        .updateFunction("items_update")             // a TableInOutFunction in this catalog
+        .insertFunction("items_insert")             // TableInOutFunctions in this catalog
+        .updateFunction("items_update")
+        .deleteFunction("items_delete")
+        .writeResultMode(WriteOperation.INSERT, WriteResultMode.ROWS)
         .writeResultMode(WriteOperation.UPDATE, WriteResultMode.ROWS)
+        .writeResultMode(WriteOperation.DELETE, WriteResultMode.ROWS)
         .constraints(records, revision)
         .build();
 ```
+
+A column default is declared on the column: `CatalogColumns.withDefault(field, "0", "main")`
+(canonical `vgi.column.default.v1` metadata). DuckDB fills it into an INSERT that omits the
+column, so the insert function always receives every user column.
 
 The framework then advertises `write_result_modes` and the inline write functions in
 `TableInfo` and answers `catalog_table_{insert,update,delete}_function_get`; a table without
@@ -133,6 +141,19 @@ always has their capabilities (projection / filter pushdown, required secrets, `
   longer needed for a scan a table names, which is `table_only` by default);
 - every other function is `public`.
 
+A function registered with `registerTable` / `registerTableInOut` that some table names as its
+scan therefore stops being SQL-callable unless that table sets `exposeScan(true)` (or the
+function is not named by any table).
+
+**Code-implemented catalogs** (`Worker.registerCatalog`) list their functions themselves:
+`CatalogInterface.functions(attachId, path)` returns the schema's listing, each entry built with
+`CatalogInterface.functionInfoFor(fn, path, visibility)` (the same capabilities the worker's own
+listing advertises). List a table's write functions, and its scan unless SQL should call it,
+as `FunctionInfo.VISIBILITY_TABLE_ONLY`. Register the implementations into that catalog
+(`registerExtraCatalogTableFunction(catalog.name(), ...)`, `registerExtraCatalogTableInOut`,
+`registerExtraCatalogScalar`, `registerExtraCatalogAggregate`) so binds on its attach reach them,
+and give the schema's `SchemaInfo` non-zero function counts (`table_function`, ...).
+
 A write function is an ordinary `TableInOutFunction`. DuckDB passes `write_options`:
 
 ```java
@@ -144,8 +165,32 @@ out.emit(WriteResults.resultBatch(mode, userColumns, oldRows, newRows, Allocator
 ```
 
 `COUNT` is a plain statement, `ROWS` is `RETURNING`; `CHANGES` (old / new images) is a maximum
-that satisfies both. UPDATE receives the `SET` columns (every column with `RETURNING`) plus the
-row id.
+that satisfies both. INSERT receives every user column (no row id); UPDATE the `SET` columns
+(every column with `RETURNING`) plus the row id; DELETE the row id only. Protocol 3.3 dropped
+`on_conflict` / `on_conflict_columns` from `write_options` (the deprecated `WriteOptions`
+accessors return `"throw"` / empty).
+
+**One write call per statement action.** Each INSERT, UPDATE or DELETE statement is one write
+call: one bind, one init, then one exchange per input batch (several for an
+`INSERT ... SELECT` over more than 2048 rows). A function with `hasFinalize()` gets its
+`finish(params)` once per call, after the last batch, and never for a statement that failed;
+`params.bindOpaqueData()` carries what its bind returned, which ties the finalize (a separate
+init, possibly in another process) to its call. On a non-transactional attach, batches already
+applied stay applied when a later batch fails: validate a whole batch before applying any of it,
+and use the transactional attach for statement atomicity.
+
+**MERGE and INSERT ... ON CONFLICT.** DuckDB rewrites `INSERT ... ON CONFLICT` and
+`INSERT OR REPLACE` into a `MERGE` before a catalog sees them, and the extension runs a MERGE as
+one ordinary write call per action (an insert call for `WHEN NOT MATCHED THEN INSERT`, an update
+call for `WHEN MATCHED THEN UPDATE`, ...). They need a row id on the table, and they are atomic
+only on a transactional attach. A worker needs nothing beyond its insert / update / delete
+functions for them.
+
+**`CREATE TABLE` in a code-implemented catalog.** `catalog_table_create` answers `created`
+(protocol 3.3), from `CatalogInterface.tableCreateReportingCreated`: `false` when
+`IF NOT EXISTS` found an existing table, so `CREATE TABLE IF NOT EXISTS t AS SELECT ...` leaves
+that table unchanged. Catalogs that override only the older `void tableCreate` keep working (the
+default derives `created` from `table(...)`).
 
 **Constraint enforcement.** A catalog with a table that carries constraint records *and* a write
 function advertises and selects `vgi.constraint.enforce.v1` automatically (the write functions

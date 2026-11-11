@@ -389,6 +389,105 @@ final class HostedCatalogTest {
     }
 
     @Test
+    void aHostedCatalogListsItsTablesFunctionsWithVisibility() {
+        // Protocol 3.3: a code-implemented catalog lists the functions its tables name, through
+        // CatalogInterface#functions built with functionInfoFor; a bind on its attach reaches the
+        // implementation registered into it.
+        Probe probe = new Probe();
+        Worker w = Worker.builder().catalogName("main_catalog")
+                .registerExtraCatalogScalar("fns", "main", probe)
+                .registerCatalog(new InMemoryCatalog("fns") {
+                    @Override
+                    public List<farm.query.vgi.protocol.FunctionInfo> functions(byte[] attachId, List<String> path) {
+                        return List.of(farm.query.vgi.CatalogInterface.functionInfoFor(probe, path,
+                                farm.query.vgi.protocol.FunctionInfo.VISIBILITY_TABLE_ONLY));
+                    }
+                });
+        VgiServiceImpl svc = service(w);
+        byte[] a = attach(svc, "fns");
+        var listed = svc.catalog_schema_contents_functions(a, MAIN, null, null, null).items().stream()
+                .map(b -> RecordCodec.deserializeFromBytes(b, farm.query.vgi.protocol.FunctionInfo.class)).toList();
+        assertEquals(1, listed.size());
+        assertEquals("probe", listed.get(0).name());
+        assertEquals(MAIN, listed.get(0).schema_path());
+        assertEquals("SCALAR", listed.get(0).function_type());
+        assertEquals(farm.query.vgi.protocol.FunctionInfo.VISIBILITY_TABLE_ONLY, listed.get(0).visibility());
+        // The type filter applies to hosted listings too.
+        assertEquals(1, svc.catalog_schema_contents_functions(a, MAIN, "scalar", null, null).items().size());
+        assertEquals(0, svc.catalog_schema_contents_functions(a, MAIN, "table", null, null).items().size());
+        // The main catalog does not list the hosted catalog's function.
+        byte[] main = attach(svc, "main_catalog");
+        assertEquals(0, svc.catalog_schema_contents_functions(main, MAIN, null, null, null).items().size());
+        // A bind on the hosted attach resolves the function registered into it.
+        BindRequest bind = new BindRequest("probe", null, "SCALAR", null, null, null,
+                a, null, false, null, null, null, null, "main");
+        assertTrue(svc.bind(bind, null) != null);
+        // A visibility string the extension would refuse fails the listing, naming the function.
+        Worker bad = Worker.builder().catalogName("main_catalog")
+                .registerCatalog(new InMemoryCatalog("bad") {
+                    @Override
+                    public List<farm.query.vgi.protocol.FunctionInfo> functions(byte[] attachId, List<String> path) {
+                        return List.of(farm.query.vgi.CatalogInterface.functionInfoFor(probe, path, null)
+                                .withVisibility("hidden"));
+                    }
+                });
+        VgiServiceImpl badSvc = service(bad);
+        byte[] b = attach(badSvc, "bad");
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> badSvc.catalog_schema_contents_functions(b, MAIN, null, null, null));
+        assertTrue(e.getMessage().contains("probe"), e.getMessage());
+        assertThrows(IllegalArgumentException.class,
+                () -> farm.query.vgi.CatalogInterface.functionInfoFor(probe, MAIN, "hidden"));
+        assertEquals(List.of("a", "b"),
+                farm.query.vgi.CatalogInterface.functionInfoFor(probe, List.of("a", "b"), null).schema_path());
+    }
+
+    @Test
+    void tableCreateReportsWhetherItCreated() {
+        InMemoryCatalog mem = new InMemoryCatalog("mem");
+        byte[] id = new byte[16];
+        mem.attach(id, CatalogAttachRequest.of("mem", null, null, null));
+        TableCreateRequest create = RecordCodec.deserializeFromBytes(tableCreate(id, "t", "ERROR"), TableCreateRequest.class);
+        TableCreateRequest ifNotExists = RecordCodec.deserializeFromBytes(tableCreate(id, "t", "IGNORE"), TableCreateRequest.class);
+        TableCreateRequest replace = RecordCodec.deserializeFromBytes(tableCreate(id, "t", "REPLACE"), TableCreateRequest.class);
+        assertTrue(mem.tableCreateReportingCreated(id, create));
+        assertFalse(mem.tableCreateReportingCreated(id, ifNotExists));
+        assertTrue(mem.tableCreateReportingCreated(id, replace));
+        assertThrows(IllegalArgumentException.class, () -> mem.tableCreateReportingCreated(id, create));
+
+        // A catalog that overrides only the pre-3.3 void tableCreate: the default derives created
+        // from table() and does not call tableCreate for an existing IF NOT EXISTS target.
+        LegacyCreate legacy = new LegacyCreate();
+        assertTrue(legacy.tableCreateReportingCreated(id, create));
+        assertFalse(legacy.tableCreateReportingCreated(id, ifNotExists));
+        assertTrue(legacy.tableCreateReportingCreated(id, replace));
+        assertEquals(List.of("ERROR", "REPLACE"), legacy.calls);
+    }
+
+    /** A pre-3.3 code-implemented catalog: overrides only the void {@code tableCreate}. */
+    private static final class LegacyCreate implements farm.query.vgi.CatalogInterface {
+        final List<String> calls = new java.util.ArrayList<>();
+        final List<farm.query.vgi.protocol.TableInfo> tables = new java.util.ArrayList<>();
+
+        @Override public String name() { return "legacy"; }
+        @Override public AttachInfo attach(byte[] attachId, CatalogAttachRequest request) {
+            return new AttachInfo("main", null, Map.of(), false, false);
+        }
+        @Override public long version(byte[] attachId) { return 1; }
+        @Override public List<SchemaInfo> schemas(byte[] attachId) { return List.of(); }
+        @Override public List<farm.query.vgi.protocol.TableInfo> tables(byte[] attachId, List<String> path) {
+            return tables;
+        }
+        @Override public void tableCreate(byte[] attachId, TableCreateRequest request) {
+            calls.add(request.on_conflict());
+            tables.removeIf(t -> t.name().equals(request.name()));
+            tables.add(new farm.query.vgi.protocol.TableInfo(null, Map.of(), request.name(), request.schema_path(),
+                    request.columns(), List.of(), null, Map.of(), false,
+                    null, null, null, null, null, null, null, null, List.of()));
+        }
+    }
+
+    @Test
     void onConflictParsesTheWireValue() {
         assertEquals(OnConflict.ERROR, OnConflict.fromWire(null));
         assertEquals(OnConflict.IGNORE, OnConflict.fromWire("ignore"));

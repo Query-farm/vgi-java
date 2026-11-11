@@ -4,7 +4,9 @@ package farm.query.vgi;
 
 import farm.query.vgi.catalog.MacroType;
 import farm.query.vgi.catalog.OnConflict;
+import farm.query.vgi.function.FunctionDescriptor;
 import farm.query.vgi.protocol.CatalogAttachRequest;
+import farm.query.vgi.protocol.FunctionInfo;
 import farm.query.vgi.protocol.MacroInfo;
 import farm.query.vgi.protocol.SchemaInfo;
 import farm.query.vgi.protocol.TableCreateRequest;
@@ -31,8 +33,12 @@ import java.util.Optional;
  * State that must be private to one ATTACH is therefore keyed by
  * {@code attachId}.</p>
  *
- * <p>Only the catalog plane is routed here. The catalog declares no functions
- * of its own, so a function bind on one of its attaches is refused.</p>
+ * <p>Only the catalog plane is routed here. A function bind on one of its
+ * attaches reaches only functions registered on the worker into this catalog
+ * ({@code Worker#registerExtraCatalog*} with {@link #name()}), and the catalog
+ * lists them itself through {@link #functions} (protocol 3.3: every function a
+ * table names must be listed; see there). By default it lists none, and every
+ * bind is refused.</p>
  *
  * <p>Every DDL method defaults to refusing ("read-only"). A DDL-capable catalog
  * overrides them and bumps its {@link #version} on every change, so the client
@@ -246,6 +252,61 @@ public interface CatalogInterface {
     default List<MacroInfo> macros(byte[] attachId, List<String> path, MacroType type) { return List.of(); }
 
     /**
+     * The functions a schema lists ({@code catalog_schema_contents_functions}). Default: none.
+     *
+     * <p>Protocol 3.3: the extension takes a table's scan and write capabilities (projection and
+     * filter pushdown, required secrets, {@code has_finalize}, ...) only from the function
+     * listing, and refuses a table whose scan or write function no listing carries (DuckDB
+     * built-ins such as {@code read_parquet} excepted). A catalog whose {@link TableInfo}s name
+     * functions of this worker therefore lists each of them here, built with
+     * {@link #functionInfoFor}:
+     * <ul>
+     *   <li>a table's insert / update / delete function with
+     *       {@link FunctionInfo#VISIBILITY_TABLE_ONLY};</li>
+     *   <li>a table's scan with {@link FunctionInfo#VISIBILITY_TABLE_ONLY}, unless SQL should be
+     *       able to call it directly ({@link FunctionInfo#VISIBILITY_PUBLIC});</li>
+     *   <li>any other function with {@link FunctionInfo#VISIBILITY_PUBLIC}.</li>
+     * </ul>
+     * A {@code table_only} function is absent from {@code duckdb_functions()} and not callable from
+     * SQL; the extension uses it only to resolve the tables that name it.
+     *
+     * <p>Register the implementations on the worker into this catalog, so a bind on this
+     * catalog's attach reaches them: {@link Worker#registerExtraCatalogTableFunction},
+     * {@link Worker#registerExtraCatalogTableInOut}, {@link Worker#registerExtraCatalogScalar} or
+     * {@link Worker#registerExtraCatalogAggregate} with {@link #name()} as the catalog. Report the
+     * counts in the schema's {@link SchemaInfo} ({@code estimated_object_count}: {@code scalar_function},
+     * {@code table_function}, {@code aggregate_function}): a zero count makes the
+     * client skip this listing.
+     *
+     * @param attachId the attach id
+     * @param path     the schema path
+     * @return the functions listed in the schema
+     */
+    default List<FunctionInfo> functions(byte[] attachId, List<String> path) { return List.of(); }
+
+    /**
+     * The listing entry the framework would send for {@code fn} in {@code schemaPath}, with the
+     * given visibility: the same capabilities (pushdown flags, required secrets,
+     * {@code has_finalize}, arguments, output schema, ...) a function registered on the worker's
+     * own catalog advertises. For {@link #functions}.
+     *
+     * @param fn         a scalar, table, table in-out, table-buffering or aggregate function
+     * @param schemaPath the schema it is listed in
+     * @param visibility {@link FunctionInfo#VISIBILITY_PUBLIC}, {@link FunctionInfo#VISIBILITY_TABLE_ONLY},
+     *                   or {@code null} (public)
+     * @return the entry
+     * @throws IllegalArgumentException for an unknown visibility or function kind
+     */
+    static FunctionInfo functionInfoFor(FunctionDescriptor fn, List<String> schemaPath, @Nullable String visibility) {
+        if (visibility != null && !FunctionInfo.VISIBILITY_PUBLIC.equals(visibility)
+                && !FunctionInfo.VISIBILITY_TABLE_ONLY.equals(visibility)) {
+            throw new IllegalArgumentException("functionInfoFor: visibility must be 'public' or 'table_only', not '"
+                    + visibility + "'");
+        }
+        return farm.query.vgi.internal.VgiServiceImpl.describeFunction(fn, schemaPath).withVisibility(visibility);
+    }
+
+    /**
      * One table by name. Default: searched in {@link #tables}.
      *
      * @param attachId the attach id
@@ -317,11 +378,45 @@ public interface CatalogInterface {
     /**
      * {@code CREATE TABLE}. Default: read-only.
      *
+     * <p>Protocol 3.3 answers {@code catalog_table_create} with {@code created}, which the
+     * framework takes from {@link #tableCreateReportingCreated}. A catalog that overrides only this
+     * method keeps working: that default derives {@code created} from {@link #table} before
+     * calling it. Override {@link #tableCreateReportingCreated} instead when the existence check
+     * and the create must be one atomic step.
+     *
      * @param attachId the attach id
      * @param request  the create request (columns, constraints, on_conflict)
      */
     default void tableCreate(byte[] attachId, TableCreateRequest request) {
         throw readOnly("catalog_table_create");
+    }
+
+    /**
+     * {@code CREATE TABLE}, reporting whether this call created the table: the protocol 3.3
+     * {@code catalog_table_create} result {@code created}.
+     *
+     * <p>Return {@code true} when this call created the table (for {@code OR REPLACE}, also when
+     * it replaced an existing one), {@code false} when {@code IF NOT EXISTS}
+     * ({@code on_conflict = "ignore"}) found an existing table and left it alone. The extension
+     * relies on it: {@code CREATE TABLE IF NOT EXISTS t AS SELECT ...} inserts the query's rows
+     * only when {@code created} is true, and drops the table again if a non-transactional CTAS
+     * that created it then fails.
+     *
+     * <p>Default: for {@code IF NOT EXISTS}, {@code false} when {@link #table} already finds the
+     * table (without calling {@link #tableCreate}); otherwise {@link #tableCreate} and
+     * {@code true}.
+     *
+     * @param attachId the attach id
+     * @param request  the create request (columns, constraints, on_conflict)
+     * @return whether this call created the table
+     */
+    default boolean tableCreateReportingCreated(byte[] attachId, TableCreateRequest request) {
+        if (OnConflict.fromWire(request.on_conflict()) == OnConflict.IGNORE
+                && table(attachId, request.schema_path(), request.name()).isPresent()) {
+            return false;
+        }
+        tableCreate(attachId, request);
+        return true;
     }
 
     /**

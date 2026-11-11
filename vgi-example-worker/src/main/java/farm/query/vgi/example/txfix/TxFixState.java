@@ -43,34 +43,109 @@ final class TxFixState {
     /** One event-log entry. */
     record Event(long seq, String kind, String txId, boolean ok) {}
 
+    /**
+     * One write call ({@code writes()}): which operation, under which transaction, how many rows
+     * it wrote, and whether its finalize ran. {@code callId} ties the call's finalize (a separate
+     * init, possibly in another process) back to it.
+     */
+    record Write(long seq, String op, String txId, long rows, boolean finalized, String callId) {
+        Write plus(long n) {
+            return new Write(seq, op, txId, rows + n, finalized, callId);
+        }
+
+        Write finalizedNow() {
+            return new Write(seq, op, txId, rows, true, callId);
+        }
+    }
+
     static final List<Row> INITIAL = List.of(new Row(1, "a", 10L), new Row(2, "b", 20L), new Row(3, "c", 30L));
 
     private static final ReentrantLock IN_PROCESS = new ReentrantLock();
 
-    /** One token's state, loaded for the duration of {@link #withPartition}. */
+    /**
+     * One token's state, loaded for the duration of {@link #withPartition}.
+     *
+     * <p>{@link #staged} holds each transaction's changes keyed by id: a row is an insert or an
+     * update (its new image), a {@code null} value a delete. Inserting, updating or deleting a row
+     * the same transaction staged edits that staged entry.
+     */
     static final class Partition {
         final TreeMap<Integer, Row> committed = new TreeMap<>();
         final Map<String, TreeMap<Integer, Row>> staged = new LinkedHashMap<>();
         final List<Event> events = new ArrayList<>();
+        final List<Write> writes = new ArrayList<>();
         long seq;
+        long writeSeq;
 
         void reset() {
             committed.clear();
             for (Row r : INITIAL) committed.put(r.id(), r);
             staged.clear();
             events.clear();
+            writes.clear();
             seq = 0;
+            writeSeq = 0;
         }
 
         /** The rows a scan in {@code txId} sees: committed, overlaid with its staged changes. */
         TreeMap<Integer, Row> view(String txId) {
             TreeMap<Integer, Row> out = new TreeMap<>(committed);
-            if (txId != null && staged.containsKey(txId)) out.putAll(staged.get(txId));
+            TreeMap<Integer, Row> changes = txId == null ? null : staged.get(txId);
+            if (changes != null) {
+                for (Map.Entry<Integer, Row> e : changes.entrySet()) {
+                    if (e.getValue() == null) out.remove(e.getKey());
+                    else out.put(e.getKey(), e.getValue());
+                }
+            }
             return out;
+        }
+
+        /** Write {@code row} (or delete {@code id} when {@code row} is null): committed, or staged under {@code txId}. */
+        void put(String txId, int id, Row row) {
+            if (txId != null) {
+                staged.computeIfAbsent(txId, k -> new TreeMap<>()).put(id, row);
+            } else if (row == null) {
+                committed.remove(id);
+            } else {
+                committed.put(id, row);
+            }
+        }
+
+        /** Apply a transaction's staged changes to the committed rows. */
+        void apply(TreeMap<Integer, Row> changes) {
+            for (Map.Entry<Integer, Row> e : changes.entrySet()) {
+                if (e.getValue() == null) committed.remove(e.getKey());
+                else committed.put(e.getKey(), e.getValue());
+            }
         }
 
         void event(String kind, String txId, boolean ok) {
             events.add(new Event(++seq, kind, txId, ok));
+        }
+
+        /** Record the start of a write call. */
+        void writeStarted(String op, String txId, String callId) {
+            writes.add(new Write(++writeSeq, op, txId, 0, false, callId));
+        }
+
+        /** Count {@code n} more rows written by the call {@code callId}. */
+        void wrote(String callId, long n) {
+            for (int i = writes.size() - 1; i >= 0; i--) {
+                if (writes.get(i).callId().equals(callId)) {
+                    writes.set(i, writes.get(i).plus(n));
+                    return;
+                }
+            }
+        }
+
+        /** Mark the call {@code callId} finalized. */
+        void finalized(String callId) {
+            for (int i = writes.size() - 1; i >= 0; i--) {
+                if (writes.get(i).callId().equals(callId)) {
+                    writes.set(i, writes.get(i).finalizedNow());
+                    return;
+                }
+            }
         }
     }
 
@@ -141,13 +216,25 @@ final class TxFixState {
             out.add("row\t" + r.id() + "\t" + enc(r.name()) + "\t" + (r.qty() == null ? "\\N" : r.qty()));
         }
         for (Map.Entry<String, TreeMap<Integer, Row>> e : p.staged.entrySet()) {
-            for (Row r : e.getValue().values()) {
-                out.add("staged\t" + e.getKey() + "\t" + r.id() + "\t" + enc(r.name()) + "\t"
-                        + (r.qty() == null ? "\\N" : r.qty()));
+            // An empty map still records that the transaction staged something (then undid it).
+            if (e.getValue().isEmpty()) out.add("tx\t" + e.getKey());
+            for (Map.Entry<Integer, Row> c : e.getValue().entrySet()) {
+                Row r = c.getValue();
+                if (r == null) {
+                    out.add("deleted\t" + e.getKey() + "\t" + c.getKey());
+                } else {
+                    out.add("staged\t" + e.getKey() + "\t" + r.id() + "\t" + enc(r.name()) + "\t"
+                            + (r.qty() == null ? "\\N" : r.qty()));
+                }
             }
         }
         for (Event ev : p.events) {
             out.add("event\t" + ev.seq() + "\t" + ev.kind() + "\t" + enc(ev.txId()) + "\t" + ev.ok());
+        }
+        out.add("wseq\t" + p.writeSeq);
+        for (Write w : p.writes) {
+            out.add("write\t" + w.seq() + "\t" + w.op() + "\t" + enc(w.txId()) + "\t" + w.rows() + "\t"
+                    + w.finalized() + "\t" + w.callId());
         }
         return out;
     }
@@ -161,8 +248,14 @@ final class TxFixState {
                         new Row(Integer.parseInt(f[1]), dec(f[2]), decLong(f[3])));
                 case "staged" -> p.staged.computeIfAbsent(f[1], k -> new TreeMap<>()).put(Integer.parseInt(f[2]),
                         new Row(Integer.parseInt(f[2]), dec(f[3]), decLong(f[4])));
+                case "deleted" -> p.staged.computeIfAbsent(f[1], k -> new TreeMap<>())
+                        .put(Integer.parseInt(f[2]), null);
+                case "tx" -> p.staged.computeIfAbsent(f[1], k -> new TreeMap<>());
                 case "event" -> p.events.add(new Event(Long.parseLong(f[1]), f[2], dec(f[3]),
                         Boolean.parseBoolean(f[4])));
+                case "wseq" -> p.writeSeq = Long.parseLong(f[1]);
+                case "write" -> p.writes.add(new Write(Long.parseLong(f[1]), f[2], dec(f[3]),
+                        Long.parseLong(f[4]), Boolean.parseBoolean(f[5]), f[6]));
                 default -> { }
             }
         }

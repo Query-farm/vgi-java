@@ -28,7 +28,6 @@ import farm.query.vgi.protocol.InitRequest;
 import farm.query.vgi.protocol.ItemsResponse;
 import farm.query.vgi.protocol.SchemaInfo;
 import farm.query.vgi.protocol.TableInfo;
-import farm.query.vgi.protocol.TableScanFunctionGetResponse;
 import farm.query.vgirpc.AnnotatedBatch;
 import farm.query.vgirpc.RpcError;
 import farm.query.vgirpc.RpcStream;
@@ -93,7 +92,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  * <h2>What it covers</h2>
  *
  * <p>Attach, schema/function/table discovery, the catalog-table read path
- * ({@code catalog_table_get} → {@code catalog_table_scan_function_get} → scan),
+ * ({@code catalog_table_get} → {@code catalog_table_scan_branches_get} → scan),
  * bind/init/producer drain on decoded values, projection pushdown, filter
  * pushdown proven by row reduction, scalar exchange, the optimiser RPCs
  * (cardinality + statistics), and error propagation.
@@ -280,7 +279,7 @@ abstract class AbstractVgiHttpConformanceTest {
 
     // ------------------------------------------------------------------
     // 4. catalog_schema_contents_tables + catalog_table_get
-    //    + catalog_table_scan_function_get, then actually read the table
+    //    + catalog_table_scan_branches_get, then actually read the table
     // ------------------------------------------------------------------
 
     @Test
@@ -320,9 +319,13 @@ abstract class AbstractVgiHttpConformanceTest {
         // arg_N encoding, NOT the struct one a bind takes, so they have to be
         // transcoded — feeding them straight to bind is the plausible-looking
         // mistake ScanFunctionArguments exists to prevent.
-        TableScanFunctionGetResponse scan =
-                vgi.catalog_table_scan_function_get(handle, List.of("data"), "numbers", null, null, null, null);
-        assertEquals("sequence", scan.function_name(), where("numbers scan function"));
+        // Protocol 3.3: catalog_table_scan_branches_get is the only scan-discovery
+        // RPC; a single-source table answers with exactly one function branch.
+        farm.query.vgi.client.ScanBranchesDecoder.Result branches = farm.query.vgi.client.ScanBranchesDecoder.decode(
+                vgi.catalog_table_scan_branches_get(handle, List.of("data"), "numbers", null, null, null, null, null));
+        assertEquals(1, branches.branches().size(), where("numbers scans through one branch"));
+        farm.query.vgi.client.ScanBranchesDecoder.Branch scan = branches.branches().get(0);
+        assertEquals("sequence", scan.functionName(), where("numbers scan function"));
         assertNotNull(scan.arguments(), where("numbers scan arguments"));
         assertTrue(scan.arguments().length > 0, where("numbers scan arguments must be non-empty"));
 

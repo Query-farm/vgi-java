@@ -245,6 +245,11 @@ public class InMemoryCatalog implements CatalogInterface {
 
     @Override
     public void tableCreate(byte[] attachId, TableCreateRequest request) {
+        tableCreateReportingCreated(attachId, request);
+    }
+
+    @Override
+    public boolean tableCreateReportingCreated(byte[] attachId, TableCreateRequest request) {
         // Metadata-only tables: nothing here stores rows or enforces a constraint, so no
         // constraint profile is negotiated and constrained or logical-typed columns are refused.
         if (!request.constraint_definitions().isEmpty())
@@ -258,7 +263,7 @@ public class InMemoryCatalog implements CatalogInterface {
             SchemaState schema = requireSchema(s, request.schema_path());
             if (schema.tables.containsKey(request.name())
                     && !replace("Table", request.name(), OnConflict.fromWire(request.on_conflict()))) {
-                return;
+                return false;
             }
             schema.tables.put(request.name(), new TableInfo(
                     null, Map.of(), request.name(), schema.path,
@@ -266,6 +271,7 @@ public class InMemoryCatalog implements CatalogInterface {
                     List.of(), null, Map.of(), false,
                     null, null, null, null, null, null, null, null, List.of()));
             s.version++;
+            return true;
         }
     }
 

@@ -26,6 +26,8 @@ import org.apache.arrow.vector.types.pojo.Schema;
 public final class ColumnExpressions {
     public static final String GENERATED = "vgi.column.generated.v1";
     public static final String GENERATION = "vgi.column.generation.v1";
+    /** Canonical column-default metadata key: base64 of one {@code SqlExpression} IPC record. */
+    public static final String DEFAULT = "vgi.column.default.v1";
     private static final String PROFILE = "vgi.expression.duckdb.scalar.v1";
     private static final int MAXIMUM = 8 * 1024 * 1024;
     private ColumnExpressions() {}
@@ -210,6 +212,20 @@ public final class ColumnExpressions {
             info.insert_function(), info.update_function(), info.delete_function(), info.cardinality_estimate(),
             info.cardinality_max(), info.column_statistics(), info.bind_result(), info.required_filters(),
             info.options(), info.layout(), info.scan_planning());
+    }
+
+    /**
+     * The canonical metadata for a column default: a constant DuckDB expression the extension
+     * binds once and fills into INSERTs that omit the column.
+     *
+     * @param sql   the DuckDB constant expression, e.g. {@code "0"}
+     * @param owner the owning table's schema path
+     * @return the {@code vgi.column.default.v1} entry
+     */
+    public static Map<String, String> defaultMetadata(String sql, List<String> owner) {
+        if (sql == null || sql.isBlank())
+            throw new IllegalArgumentException("Invalid column default: empty expression");
+        return Map.of(DEFAULT, generatedMetadata(sql, owner));
     }
 
     public static String generatedMetadata(String sql, List<String> owner) {

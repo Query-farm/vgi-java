@@ -1239,7 +1239,7 @@ public final class Main {
                         .build())
                 // Time travel + filter pushdown together. tt_pushdown_fn is
                 // function-backed (reads AT at init); tt_pushdown_cols is
-                // columns-based (AT -> version arg via table_scan_function_get).
+                // columns-based (AT -> version arg via catalog_table_scan_branches_get).
                 .registerCatalogTable(CatalogTable.functionBacked("data", "tt_pushdown_fn",
                         cols(col("id", Schemas.INT64, true),
                                 col("val", Schemas.INT64, true),

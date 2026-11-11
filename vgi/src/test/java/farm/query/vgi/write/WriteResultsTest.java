@@ -100,8 +100,20 @@ class WriteResultsTest {
         assertThrows(IllegalArgumentException.class, () -> WriteResultMode.fromWire("all"));
     }
 
-    /** The batch the extension's BuildWriteOptions sends. */
-    static byte[] writeOptions(String mode, String onConflict, List<String> columns) {
+    /** The batch the 3.3 extension's BuildWriteOptions sends: {@code result_mode} only. */
+    static byte[] writeOptions(String mode) {
+        Schema schema = new Schema(List.of(
+                new Field("result_mode", FieldType.notNullable(new ArrowType.Utf8()), null)));
+        try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, Allocators.root())) {
+            root.allocateNew();
+            ((VarCharVector) root.getVector(0)).setSafe(0, mode.getBytes(StandardCharsets.UTF_8));
+            root.setRowCount(1);
+            return BatchUtil.writeSingleBatch(root);
+        }
+    }
+
+    /** A pre-3.3 batch, still carrying {@code on_conflict} / {@code on_conflict_columns}. */
+    static byte[] legacyWriteOptions(String mode, String onConflict, List<String> columns) {
         Schema schema = new Schema(List.of(
                 new Field("result_mode", FieldType.notNullable(new ArrowType.Utf8()), null),
                 new Field("on_conflict", FieldType.nullable(new ArrowType.Utf8()), null),
@@ -130,13 +142,29 @@ class WriteResultsTest {
     @Test
     void writeOptionsDecode() {
         Map<String, Object> named = new HashMap<>();
-        named.put(WriteOptions.ARGUMENT_NAME, writeOptions("rows", "nothing", List.of("id")));
+        named.put(WriteOptions.ARGUMENT_NAME, writeOptions("rows"));
         WriteOptions o = WriteOptions.from(new Arguments(List.of(), named));
-        assertEquals(WriteResultMode.ROWS, o.resultMode());
-        assertEquals("nothing", o.onConflict());
-        assertEquals(List.of("id"), o.onConflictColumns());
+        assertEquals(new WriteOptions(WriteResultMode.ROWS), o);
         assertEquals(WriteOptions.defaults(), WriteOptions.from(new Arguments(List.of(), Map.of())));
         assertEquals(WriteOptions.defaults(), WriteOptions.from(null));
+        assertEquals(WriteResultMode.COUNT, WriteOptions.defaults().resultMode());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void writeOptionsIgnoreTheRemovedConflictFields() {
+        // Protocol 3.3 dropped on_conflict / on_conflict_columns. A batch that still carries them
+        // decodes to its result mode alone, and the deprecated accessors report the only value
+        // DuckDB ever sent for them.
+        Map<String, Object> named = new HashMap<>();
+        named.put(WriteOptions.ARGUMENT_NAME, legacyWriteOptions("rows", "nothing", List.of("id")));
+        WriteOptions o = WriteOptions.from(new Arguments(List.of(), named));
+        assertEquals(WriteResultMode.ROWS, o.resultMode());
+        assertEquals("throw", o.onConflict());
+        assertEquals(List.of(), o.onConflictColumns());
+        assertEquals(new WriteOptions(WriteResultMode.ROWS),
+                new WriteOptions(WriteResultMode.ROWS, "nothing", List.of("id")));
+        assertEquals(WriteResultMode.COUNT, new WriteOptions(null).resultMode());
     }
 
     @Test

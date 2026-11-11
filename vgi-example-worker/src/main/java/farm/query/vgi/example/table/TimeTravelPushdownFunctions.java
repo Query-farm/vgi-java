@@ -36,7 +36,7 @@ import java.util.List;
  *       ({@link TableInitParams#atUnit}). Backs {@code example.data.tt_pushdown_fn}.</li>
  *   <li>{@link TtPushdownCols} ({@code tt_pushdown_cols_scan}) — columns-based.
  *       Receives the resolved version as a scan-function argument (the worker's
- *       {@code catalog_table_scan_function_get} resolves AT -> version). Backs
+ *       {@code catalog_table_scan_branches_get} resolves AT -> version). Backs
  *       {@code example.data.tt_pushdown_cols}.</li>
  * </ul>
  *

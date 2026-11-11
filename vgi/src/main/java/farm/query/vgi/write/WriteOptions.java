@@ -9,31 +9,77 @@ import farm.query.vgirpc.wire.Allocators;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
  * What DuckDB asked a write function for: the {@code write_options} named argument of its bind
  * (a serialized one-row batch), decoded.
  *
- * @param resultMode        the result shape to produce (and bind as the output schema,
- *                          {@link WriteResults#resultSchema})
- * @param onConflict        {@code throw} (the default), or the {@code INSERT ... ON CONFLICT}
- *                          action requested
- * @param onConflictColumns the conflict target columns, empty when none
+ * <p>Protocol 3.3 carries only {@code result_mode: utf8 not null} in that batch. The
+ * {@code on_conflict} / {@code on_conflict_columns} fields of earlier revisions are gone: DuckDB's
+ * binder rewrites every {@code INSERT ... ON CONFLICT} and {@code INSERT OR REPLACE} into a
+ * {@code MERGE} before a catalog sees it, so they were always {@code "throw"} / empty. The
+ * extension emulates those statements with one ordinary write call per MERGE action. The
+ * {@link #onConflict()} / {@link #onConflictColumns()} accessors remain, deprecated, for source
+ * compatibility.
+ *
+ * @param resultMode the result shape to produce (and bind as the output schema,
+ *                   {@link WriteResults#resultSchema})
  */
-public record WriteOptions(WriteResultMode resultMode, String onConflict, List<String> onConflictColumns) {
+public record WriteOptions(WriteResultMode resultMode) {
 
     /** Name of the named argument DuckDB passes to every write function. */
     public static final String ARGUMENT_NAME = "write_options";
 
+    /** A null mode reads as {@link WriteResultMode#COUNT}. */
+    public WriteOptions {
+        resultMode = resultMode == null ? WriteResultMode.COUNT : resultMode;
+    }
+
     /**
-     * A plain {@code count} write with no conflict handling: what a missing argument means.
+     * Compatibility constructor of protocol 3.2 and earlier. The conflict arguments are ignored:
+     * the write options no longer carry them.
+     *
+     * @param resultMode        the result mode
+     * @param onConflict        ignored
+     * @param onConflictColumns ignored
+     * @deprecated protocol 3.3 removed {@code on_conflict}; use {@link #WriteOptions(WriteResultMode)}
+     */
+    @Deprecated
+    public WriteOptions(WriteResultMode resultMode, String onConflict, List<String> onConflictColumns) {
+        this(resultMode);
+    }
+
+    /**
+     * Always {@code "throw"}: the conflict action is no longer part of the write options.
+     *
+     * @return {@code "throw"}
+     * @deprecated protocol 3.3 removed {@code on_conflict}; {@code INSERT ... ON CONFLICT} reaches
+     *     the worker as the ordinary insert / update calls of a MERGE
+     */
+    @Deprecated
+    public String onConflict() {
+        return "throw";
+    }
+
+    /**
+     * Always empty: the conflict target is no longer part of the write options.
+     *
+     * @return an empty list
+     * @deprecated protocol 3.3 removed {@code on_conflict_columns}
+     */
+    @Deprecated
+    public List<String> onConflictColumns() {
+        return List.of();
+    }
+
+    /**
+     * A plain {@code count} write: what a missing argument means.
      *
      * @return the default options
      */
     public static WriteOptions defaults() {
-        return new WriteOptions(WriteResultMode.COUNT, "throw", List.of());
+        return new WriteOptions(WriteResultMode.COUNT);
     }
 
     /**
@@ -48,23 +94,13 @@ public record WriteOptions(WriteResultMode resultMode, String onConflict, List<S
         if (!(raw instanceof byte[] bytes) || bytes.length == 0) return defaults();
         try (VectorSchemaRoot root = BatchUtil.readSingleBatch(bytes, Allocators.root())) {
             if (root == null || root.getRowCount() == 0) return defaults();
-            WriteResultMode mode = WriteResultMode.COUNT;
-            String onConflict = "throw";
-            List<String> columns = List.of();
             FieldVector m = root.getVector("result_mode");
-            if (m != null && !m.isNull(0)) mode = WriteResultMode.fromWire(String.valueOf(VectorScalarCodec.read(m, 0)));
-            FieldVector c = root.getVector("on_conflict");
-            if (c != null && !c.isNull(0)) onConflict = String.valueOf(VectorScalarCodec.read(c, 0));
-            FieldVector cc = root.getVector("on_conflict_columns");
-            if (cc != null && !cc.isNull(0) && VectorScalarCodec.read(cc, 0) instanceof List<?> list) {
-                List<String> out = new ArrayList<>(list.size());
-                for (Object o : list) out.add(String.valueOf(o));
-                columns = List.copyOf(out);
-            }
-            return new WriteOptions(mode, onConflict, columns);
+            if (m == null || m.isNull(0)) return defaults();
+            return new WriteOptions(WriteResultMode.fromWire(String.valueOf(VectorScalarCodec.read(m, 0))));
         } catch (RuntimeException e) {
             if (e instanceof IllegalArgumentException iae) throw iae;
             throw new IllegalArgumentException("cannot decode write_options: " + e.getMessage(), e);
         }
     }
+
 }

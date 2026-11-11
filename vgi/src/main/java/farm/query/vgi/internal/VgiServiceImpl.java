@@ -1928,7 +1928,7 @@ public final class VgiServiceImpl implements VgiService {
     }
 
     @Override
-    public void catalog_table_create(byte[] request, CallContext ctx) {
+    public farm.query.vgi.protocol.TableCreateResponse catalog_table_create(byte[] request, CallContext ctx) {
         farm.query.vgi.protocol.TableCreateRequest req =
                 RecordCodec.deserializeFromBytes(request, farm.query.vgi.protocol.TableCreateRequest.class);
         Hosted h = requireHosted(req.attach_opaque_data(), ctx, "catalog_table_create");
@@ -1949,7 +1949,10 @@ public final class VgiServiceImpl implements VgiService {
                     + " layout on CREATE TABLE have no negotiable vgi.v3 profile");
         ColumnMetadata.validateIpc(req.columns());
         ColumnExpressions.validateIpc(req.columns(), req.schema_path(), true);
-        h.catalog().tableCreate(h.attachId(), req);
+        // Protocol 3.3: report whether this call created the table, so the extension's
+        // CREATE TABLE IF NOT EXISTS ... AS SELECT does not append into an existing one.
+        return new farm.query.vgi.protocol.TableCreateResponse(
+                h.catalog().tableCreateReportingCreated(h.attachId(), req));
     }
 
     @Override
@@ -2500,79 +2503,6 @@ public final class VgiServiceImpl implements VgiService {
             items.add(TableInfoSerializer.serialize(toTableInfo(resolved, null), mainLookup(dv)));
         }
         return new ItemsResponse(items);
-    }
-
-    /**
-     * Resolve the scan function (name + arguments) for a table, honouring an {@code AT} time-travel clause.
-     *
-     * @param attach_opaque_data the attach token
-     * @param schema_path the table's schema path
-     * @param name the table name
-     * @param at_unit the time-travel unit (e.g. {@code version}), or {@code null}
-     * @param at_value the time-travel value, or {@code null}
-     * @param transaction_opaque_data the optional transaction token
-     * @param ctx the per-call RPC context
-     * @return the scan-function response (function name + encoded arguments)
-     * @throws IllegalArgumentException if the table is unknown
-     */
-    @Override
-    public farm.query.vgi.protocol.TableScanFunctionGetResponse catalog_table_scan_function_get(
-            byte[] attach_opaque_data, List<String> schema_path, String name,
-            String at_unit, String at_value, byte[] transaction_opaque_data, CallContext ctx) {
-        String schema_name = schemaLeaf(schema_path);
-        if (hostedOf(attach_opaque_data, ctx) != null) {
-            throw new IllegalArgumentException("scan_function_get: table " + schema_name + "." + name
-                    + " holds metadata only and cannot be scanned");
-        }
-        byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
-        Worker.ExtraCatalog extraCatalog = extraCatalogOf(attach_opaque_data_plain);
-        if (extraCatalog != null) {
-            for (CatalogTable t : extraCatalogTablesFor(attach_opaque_data_plain, schema_name)) {
-                if (t.name().equals(name) && t.scanFunctionName() != null) {
-                    byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
-                            t.scanFunctionPositional() == null ? List.of() : t.scanFunctionPositional(),
-                            t.scanFunctionNamed() == null ? Map.of() : t.scanFunctionNamed());
-                    return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
-                            t.scanFunctionName(), argsBytes, List.of(),
-                            worker.resolveTableFunctionSchemaPath(
-                                    t.scanFunctionName(), List.of(schema_name), extraCatalog.name()));
-                }
-            }
-            throw new NotFoundException("scan_function_get: unknown table " + schema_name + "." + name);
-        }
-        var at = catalogRegistry.effectiveAt(attach_opaque_data_plain, at_unit, at_value);
-        // Columns-based time-travel + pushdown: resolve AT -> version and pass it
-        // as a scan-function argument (the native columns-based AT mechanism).
-        if ("data".equals(schema_name) && "tt_pushdown_cols".equals(name)) {
-            byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
-                    List.of((Object) (long) resolveTtVersion(at.unit(), at.value())), Map.of());
-            return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
-                    "tt_pushdown_cols_scan", argsBytes, List.of(),
-                    worker.resolveTableFunctionSchemaPath("tt_pushdown_cols_scan", List.of(schema_name), null));
-        }
-        // cache_versioned: AT -> version arg, like versioned_data, but the scan
-        // function advertises cache metadata (for the AT cache-isolation test).
-        if ("data".equals(schema_name) && "cache_versioned".equals(name)) {
-            byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
-                    List.of((Object) (long) resolveCacheVersion(at.unit(), at.value())), Map.of());
-            return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
-                    "cache_versioned_scan", argsBytes, List.of(),
-                    worker.resolveTableFunctionSchemaPath("cache_versioned_scan", List.of(schema_name), null));
-        }
-        for (CatalogTable t : worker.catalogTables()) {
-            if (t.schema().equals(schema_name) && t.name().equals(name)) {
-                CatalogTable resolved = catalogRegistry.resolveVersion(t, at.unit(), at.value());
-                if (resolved.scanFunctionName() == null) break;
-                byte[] argsBytes = ScanFunctionResultEncoder.encodeArguments(
-                        resolved.scanFunctionPositional() == null ? List.of() : resolved.scanFunctionPositional(),
-                        resolved.scanFunctionNamed() == null ? Map.of() : resolved.scanFunctionNamed());
-                return new farm.query.vgi.protocol.TableScanFunctionGetResponse(
-                        resolved.scanFunctionName(), argsBytes, List.of(),
-                        worker.resolveTableFunctionSchemaPath(
-                                resolved.scanFunctionName(), List.of(schema_name), null));
-            }
-        }
-        throw new NotFoundException("scan_function_get: unknown table " + schema_name + "." + name);
     }
 
     /**
@@ -3279,8 +3209,9 @@ public final class VgiServiceImpl implements VgiService {
             byte[] attach_opaque_data, List<String> path, String type, byte[] transaction_opaque_data,
             CallContext ctx) {
         String name = schemaLeaf(path);
-        // A code-implemented catalog declares no functions.
-        if (hostedOf(attach_opaque_data, ctx) != null) return ItemsResponse.empty();
+        // A code-implemented catalog lists what its CatalogInterface#functions returns.
+        Hosted hosted = hostedOf(attach_opaque_data, ctx);
+        if (hosted != null) return hostedFunctionListing(hosted, path, type);
         byte[] attach_opaque_data_plain = openAttach(attach_opaque_data, ctx);
         boolean wantScalar = type == null
                 || type.equalsIgnoreCase("scalar")
@@ -3350,6 +3281,45 @@ public final class VgiServiceImpl implements VgiService {
                                        java.util.function.Supplier<FunctionInfo> info) {
         return encodedFunctionInfos.computeIfAbsent(new FunctionItemKey(fn, schema),
                 ignored -> FunctionInfoSerializer.serialize(info.get()));
+    }
+
+    /**
+     * {@code catalog_schema_contents_functions} for a code-implemented catalog: the
+     * {@link farm.query.vgi.CatalogInterface#functions} of that schema, narrowed to the
+     * requested function type. A visibility other than {@code public} / {@code table_only}
+     * fails the listing here, naming the function, rather than at the client.
+     */
+    private static ItemsResponse hostedFunctionListing(Hosted hosted, List<String> path, String type) {
+        List<FunctionInfo> declared = hosted.catalog().functions(hosted.attachId(), path);
+        if (declared == null || declared.isEmpty()) return ItemsResponse.empty();
+        List<byte[]> items = new ArrayList<>();
+        for (FunctionInfo info : declared) {
+            if (info == null) {
+                throw new IllegalStateException("catalog " + hosted.catalog().name() + ": functions("
+                        + String.join(".", path) + ") returned a null entry");
+            }
+            String v = info.visibility();
+            if (v != null && !FunctionInfo.VISIBILITY_PUBLIC.equals(v) && !FunctionInfo.VISIBILITY_TABLE_ONLY.equals(v)) {
+                throw new IllegalStateException("catalog " + hosted.catalog().name() + ": function "
+                        + info.name() + " has visibility '" + v + "'; expected 'public' or 'table_only'");
+            }
+            if (!listedForType(info.function_type(), type)) continue;
+            items.add(FunctionInfoSerializer.serialize(info));
+        }
+        return new ItemsResponse(items);
+    }
+
+    /** Whether a function of {@code functionType} answers a listing request for {@code type}. */
+    private static boolean listedForType(String functionType, String type) {
+        if (type == null) return true;
+        String t = type.toUpperCase(java.util.Locale.ROOT);
+        String f = functionType == null ? "" : functionType.toUpperCase(java.util.Locale.ROOT);
+        return switch (t) {
+            case "SCALAR", "SCALAR_FUNCTION" -> f.equals("SCALAR");
+            case "TABLE", "TABLE_FUNCTION" -> f.equals("TABLE") || f.equals("TABLE_BUFFERING");
+            case "AGGREGATE", "AGGREGATE_FUNCTION" -> f.equals("AGGREGATE");
+            default -> false;
+        };
     }
 
     private List<byte[]> buildFunctionListing(FunctionListingKey key) {
@@ -3638,7 +3608,54 @@ public final class VgiServiceImpl implements VgiService {
                 base.required_settings(), base.required_secrets()), fn.requiredSecrets());
     }
 
+    /**
+     * The {@code FunctionInfo} this worker's own listing sends for {@code fn} in a schema, before
+     * {@code visibility} is stamped: the builder behind
+     * {@link farm.query.vgi.CatalogInterface#functionInfoFor}.
+     *
+     * @param fn         a scalar, table, table in-out, table-buffering or aggregate function
+     * @param schemaPath the schema the function is listed in
+     * @return the wire {@link FunctionInfo}, with {@code visibility} unset
+     * @throws IllegalArgumentException for any other descriptor, or an empty schema path
+     */
+    public static FunctionInfo describeFunction(farm.query.vgi.function.FunctionDescriptor fn,
+                                                List<String> schemaPath) {
+        if (fn == null) throw new IllegalArgumentException("functionInfoFor: function is null");
+        if (schemaPath == null || schemaPath.isEmpty()) {
+            throw new IllegalArgumentException("functionInfoFor: " + fn.name() + " needs a schema path");
+        }
+        String schema = schemaPath.get(schemaPath.size() - 1);
+        FunctionInfo info;
+        if (fn instanceof ScalarFunction f) info = scalarFunctionInfo(f, schema);
+        else if (fn instanceof farm.query.vgi.buffering.TableBufferingFunction f) info = toBufferingFunctionInfo(f, schema);
+        else if (fn instanceof TableInOutFunction f) info = toTableInOutFunctionInfo(f, schema);
+        else if (fn instanceof TableFunction f) info = tableFunctionInfo(f, schema);
+        else if (fn instanceof AggregateFunction<?> f) info = aggregateFunctionInfo(f, schema);
+        else throw new IllegalArgumentException("functionInfoFor: " + fn.name() + " is a "
+                + fn.getClass().getName() + ", not a scalar, table, table in-out, table-buffering or"
+                + " aggregate function");
+        if (schemaPath.size() == 1) return info;
+        return new FunctionInfo(info.comment(), info.tags(), info.name(), List.copyOf(schemaPath),
+                info.function_type(), info.arguments(), info.output_schema(), info.parameter_default_values(),
+                info.stability(), info.null_handling(), info.argument_monotonicity(), info.description(),
+                info.examples(), info.categories(), info.projection_pushdown(), info.filter_pushdown(),
+                info.sampling_pushdown(), info.late_materialization(), info.filter_semantic_profiles(),
+                info.additional_filter_functions(), info.runtime_filter_algorithms(),
+                info.filter_evaluation_contexts(), info.order_preservation(), info.max_workers(),
+                info.supports_batch_index(), info.supports_splits(), info.filters_exactly_applied(),
+                info.supports_positions(), info.split_token_ttl_seconds(), info.partition_kind(),
+                info.order_dependent(), info.distinct_dependent(), info.supports_window(),
+                info.streaming_partitioned(), info.has_finalize(), info.source_order_dependent(),
+                info.sink_order_dependent(), info.requires_input_batch_index(), info.input_from_args(),
+                info.input_rows_per_call(), info.required_settings(), info.required_secrets(),
+                info.visibility());
+    }
+
     private FunctionInfo toAggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
+        return aggregateFunctionInfo(fn, schemaName);
+    }
+
+    static FunctionInfo aggregateFunctionInfo(AggregateFunction<?> fn, String schemaName) {
         // The C++ extension pre-resolves the declared secrets and delivers them
         // on AggregateBindRequest.secrets.
         return withRequiredSecrets(baseFunctionInfo(fn, schemaName, "AGGREGATE",

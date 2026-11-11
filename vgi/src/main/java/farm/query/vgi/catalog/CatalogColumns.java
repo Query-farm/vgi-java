@@ -52,4 +52,41 @@ public final class CatalogColumns {
     public static Field virtualGenerated(String name, ArrowType type, String sql, String schema) {
         return virtualGenerated(name, type, sql, List.of(schema));
     }
+
+    /**
+     * {@code field} with a column default: DuckDB fills it into an {@code INSERT} that omits the
+     * column (and into {@code DEFAULT VALUES}). The expression must be constant, e.g.
+     * {@code "0"}, {@code "'n/a'"} or {@code "CAST(0 AS BIGINT)"}; the extension binds it once,
+     * against the column's type. The column keeps its name, type, nullability, children and other
+     * metadata.
+     *
+     * @param field      the column
+     * @param sql        the DuckDB constant expression
+     * @param schemaPath the owning table's schema path
+     * @return the column, carrying canonical {@code vgi.column.default.v1} metadata
+     * @throws IllegalArgumentException if the expression is empty or the column is generated
+     */
+    public static Field withDefault(Field field, String sql, List<String> schemaPath) {
+        java.util.Map<String, String> metadata = new java.util.LinkedHashMap<>(field.getMetadata());
+        if (metadata.containsKey(ColumnExpressions.GENERATED)
+                || metadata.containsKey(ColumnExpressions.LEGACY_GENERATED)) {
+            throw new IllegalArgumentException("Column " + field.getName() + ": a generated column cannot have a default");
+        }
+        metadata.remove("default");
+        metadata.putAll(ColumnExpressions.defaultMetadata(sql, schemaPath));
+        return new Field(field.getName(), new FieldType(field.isNullable(), field.getType(), field.getDictionary(),
+                metadata), field.getChildren());
+    }
+
+    /**
+     * {@link #withDefault(Field, String, List)} for a one-component schema.
+     *
+     * @param field  the column
+     * @param sql    the DuckDB constant expression
+     * @param schema the owning table's schema
+     * @return the column, carrying canonical {@code vgi.column.default.v1} metadata
+     */
+    public static Field withDefault(Field field, String sql, String schema) {
+        return withDefault(field, sql, List.of(schema));
+    }
 }

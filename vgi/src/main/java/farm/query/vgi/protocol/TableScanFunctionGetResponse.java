@@ -8,7 +8,13 @@ import farm.query.vgirpc.schema.Nullable;
 import java.util.List;
 
 /**
- * Response describing the table function used to scan a catalog table.
+ * A {@code ScanFunctionResult}: the table function used to scan a catalog table, as
+ * {@code TableInfo.scan_function} inlines it.
+ *
+ * <p>Protocol 3.3 removed the {@code catalog_table_scan_function_get} RPC this record was named
+ * after; scans are discovered through {@code catalog_table_scan_branches_get}
+ * ({@link farm.query.vgi.client.ScanBranchesDecoder}). The record remains as the Java shape of
+ * the {@code ScanFunctionResult} wire schema.
  *
  * @param function_name       name of the scan function to invoke.
  * @param arguments           IPC-encoded bound arguments for the scan.

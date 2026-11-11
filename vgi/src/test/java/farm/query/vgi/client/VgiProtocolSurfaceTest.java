@@ -33,15 +33,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class VgiProtocolSurfaceTest {
 
     /**
-     * The canonical {@code vgi.v3} protocol hash of the reference (the combined contract, 85 methods).
+     * The canonical {@code vgi.v3} protocol hash of the reference (the combined contract, 84 methods).
      *
-     * <p>This changes only when {@code vgi.v3}'s protocol version (currently 3.3.0) changes. If
+     * <p>This changes only when {@code vgi.v3}'s protocol surface changes (protocol 3.3.0: the
+     * write-path revision removed {@code catalog_table_scan_function_get} and gave
+     * {@code catalog_table_create} its {@code created} result; recomputed from vgi-python 2bce3e0
+     * with {@code compute_protocol_hash(protocol_name(), rpc_methods(VgiProtocol))}). If
      * this test fails without such a change, a method or a params/result/header schema (field
      * name, order, nullability or type) has drifted from the reference: fix the drift, do not
      * update the constant.
      */
     static final String REFERENCE_VGI_V3_HASH =
-            "171ac8263bf22ffdd5dd4ac2c3d3c4e1dc186a7ceba45d386f324af8c9c6fced";
+            "ad10c6b137db8cd0054c8c3d80b0f50946382d52bbd549beaad209e00c180f08";
 
     /** The reference methods this SDK registers but does not implement. */
     private static final Set<String> UNIMPLEMENTED = new TreeSet<>(List.of(
