@@ -81,6 +81,14 @@ import java.util.Map;
  *                                     {@link farm.query.vgi.tableinout.RowTransformFunction#inputRowsPerCall()}.
  * @param required_settings            session settings that must be present.
  * @param required_secrets             secrets the function needs to resolve.
+ * @param visibility                   protocol 3.3: {@link #VISIBILITY_PUBLIC} (also what
+ *                                     {@code null} means) for an ordinary catalog function, or
+ *                                     {@link #VISIBILITY_TABLE_ONLY} for a function the extension
+ *                                     keeps only to resolve a table's scan or write function: it is
+ *                                     absent from {@code duckdb_functions()} and not callable from
+ *                                     SQL. A plain nullable utf8 column (not dictionary-encoded).
+ *                                     The worker framework stamps it; see
+ *                                     {@link farm.query.vgi.catalog.CatalogTable#exposeScan()}.
  */
 public record FunctionInfo(
         @Nullable String comment,
@@ -128,7 +136,66 @@ public record FunctionInfo(
         boolean input_from_args,
         @Nullable Long input_rows_per_call,
         List<String> required_settings,
-        List<FunctionRequiredSecret> required_secrets) implements ArrowSerializableRecord {
+        List<FunctionRequiredSecret> required_secrets,
+        @Nullable String visibility) implements ArrowSerializableRecord {
+
+    /** {@code visibility} of an ordinary, SQL-callable catalog function. */
+    public static final String VISIBILITY_PUBLIC = "public";
+
+    /** {@code visibility} of a function that only backs a table (its scan or a write function). */
+    public static final String VISIBILITY_TABLE_ONLY = "table_only";
+
+    /**
+     * Compatibility constructor of releases before protocol 3.3: {@code visibility} is
+     * {@code null}, which the extension reads as {@link #VISIBILITY_PUBLIC}. Parameters as
+     * for the canonical constructor.
+     */
+    public FunctionInfo(String comment, Map<String, String> tags, String name, List<String> schema_path,
+            String function_type, byte[] arguments, byte[] output_schema, byte[] parameter_default_values,
+            String stability, String null_handling, List<String> argument_monotonicity, String description,
+            List<FunctionExample> examples, List<String> categories, Boolean projection_pushdown,
+            Boolean filter_pushdown, Boolean sampling_pushdown, Boolean late_materialization,
+            List<String> filter_semantic_profiles, List<FilterFunctionCapability> additional_filter_functions,
+            List<RuntimeFilterAlgorithmCapability> runtime_filter_algorithms,
+            List<EvaluationContextCapability> filter_evaluation_contexts, String order_preservation,
+            Integer max_workers, boolean supports_batch_index, boolean supports_splits,
+            boolean filters_exactly_applied, boolean supports_positions, Long split_token_ttl_seconds,
+            String partition_kind, String order_dependent, String distinct_dependent, boolean supports_window,
+            boolean streaming_partitioned, boolean has_finalize, boolean source_order_dependent,
+            boolean sink_order_dependent, boolean requires_input_batch_index, boolean input_from_args,
+            Long input_rows_per_call, List<String> required_settings,
+            List<FunctionRequiredSecret> required_secrets) {
+        this(comment, tags, name, schema_path, function_type, arguments, output_schema,
+                parameter_default_values, stability, null_handling, argument_monotonicity, description,
+                examples, categories, projection_pushdown, filter_pushdown, sampling_pushdown,
+                late_materialization, filter_semantic_profiles, additional_filter_functions,
+                runtime_filter_algorithms, filter_evaluation_contexts, order_preservation, max_workers,
+                supports_batch_index, supports_splits, filters_exactly_applied, supports_positions,
+                split_token_ttl_seconds, partition_kind, order_dependent, distinct_dependent, supports_window,
+                streaming_partitioned, has_finalize, source_order_dependent, sink_order_dependent,
+                requires_input_batch_index, input_from_args, input_rows_per_call, required_settings,
+                required_secrets, null);
+    }
+
+    /**
+     * A copy with {@code visibility} replaced.
+     *
+     * @param v {@link #VISIBILITY_PUBLIC}, {@link #VISIBILITY_TABLE_ONLY}, or {@code null} (public)
+     * @return the copy
+     */
+    public FunctionInfo withVisibility(String v) {
+        return new FunctionInfo(comment, tags, name, schema_path, function_type, arguments, output_schema,
+                parameter_default_values, stability, null_handling, argument_monotonicity, description,
+                examples, categories, projection_pushdown, filter_pushdown, sampling_pushdown,
+                late_materialization, filter_semantic_profiles, additional_filter_functions,
+                runtime_filter_algorithms, filter_evaluation_contexts, order_preservation, max_workers,
+                supports_batch_index, supports_splits, filters_exactly_applied, supports_positions,
+                split_token_ttl_seconds, partition_kind, order_dependent, distinct_dependent, supports_window,
+                streaming_partitioned, has_finalize, source_order_dependent, sink_order_dependent,
+                requires_input_batch_index, input_from_args, input_rows_per_call, required_settings,
+                required_secrets, v);
+    }
+
     public String schema_name() {
         return schema_path.isEmpty() ? "" : schema_path.get(schema_path.size() - 1);
     }

@@ -271,6 +271,7 @@ public final class CatalogRegistry {
                 List.of(), List.of(), List.of(), List.of(),
                 stats == null ? List.of() : stats, filters == null ? List.of() : filters,
                 ConstraintContract.reown(vt.constraints(), vt.name(), t.name()), vt.definitionRevision(),
-                t.insertFunctionName(), t.updateFunctionName(), t.deleteFunctionName(), t.writeResultModes());
+                t.insertFunctionName(), t.updateFunctionName(), t.deleteFunctionName(), t.writeResultModes(),
+                vt.exposeScan());
     }
 }

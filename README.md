@@ -21,6 +21,8 @@ Wire-compatible with the [Python reference implementation](https://github.com/Qu
 
 Version 0.47.1 uses VGI wire 3.2.0 under `vgi.v3` and requires a native VGI client speaking wire 3.2.x (3.1 peers are rejected). Upgrade clients and workers together; `vgi.v2` clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md) and, for what 3.2 adds, [filtered scan planning](docs/scan-planning.md).
 
+Unreleased `main` moves to wire 3.3.0 (needs the matching native VGI client): every function a table names is listed with `FunctionInfo.visibility`, and table scan and write functions are `table_only` (hidden from `duckdb_functions()`, not callable) unless the table sets `exposeScan`. See [CHANGELOG.md](CHANGELOG.md) and [writable tables](docs/writable-tables-and-transactions.md).
+
 ## What you can serve
 
 - **Catalog tables** — named tables with inline schemas, comments, tags, constraints, foreign keys, and per-column statistics that feed the engine's optimizer.

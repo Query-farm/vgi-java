@@ -1422,12 +1422,19 @@ public final class Worker {
     }
 
     /**
-     * Register a table function that is dispatchable but <em>not</em> advertised
-     * in the catalog's function listing, so DuckDB never registers it as a
-     * callable table function. Use this for the scan function behind a
-     * function-backed {@link farm.query.vgi.catalog.CatalogTable} that should
-     * surface only as a table (mirrors vgi-python, where a {@code Table(function=F)}
-     * does not imply {@code F} is in the catalog's {@code functions} list).
+     * Register a table function that is dispatchable but not callable from SQL:
+     * since protocol 3.3 it is listed in {@code catalog_schema_contents_functions}
+     * with {@code visibility = "table_only"}, so the extension knows its
+     * capabilities (projection pushdown, required secrets, ...) but DuckDB does not
+     * show it in {@code duckdb_functions()} or let a query call it. Before 3.3 it was
+     * omitted from the listing altogether, so a table backed by it ran with every
+     * capability off.
+     *
+     * <p>Superseded for table scans: a function a {@link farm.query.vgi.catalog.CatalogTable}
+     * names as its scan is {@code table_only} by default when registered with
+     * {@link #registerTable(String, TableFunction)}; opt in to a callable scan with
+     * {@link farm.query.vgi.catalog.CatalogTable.Builder#exposeScan(boolean)}. A function
+     * registered here stays {@code table_only} even if a table exposes it.
      *
      * @param fn the table function to register for dispatch only
      * @return this builder
@@ -1439,8 +1446,8 @@ public final class Worker {
     }
 
     /**
-     * Names registered via {@link #registerUnlistedTable}: dispatchable, but
-     * omitted from {@code catalog_schema_contents_functions}.
+     * Names registered via {@link #registerUnlistedTable}: dispatchable, and listed
+     * in {@code catalog_schema_contents_functions} as {@code table_only}.
      *
      * @return the unlisted table-function names
      */

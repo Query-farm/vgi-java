@@ -105,6 +105,8 @@ public final class CatalogContentsFixtures {
                 .registerExtraCatalogTable(name, CatalogTable.builder("main", "ten", sequenceColumns)
                         .comment("Integers 0..9")
                         .scanFunction("sequence", List.of(10L), Map.of())
+                        // sequence is also an ordinary function of this catalog (listed public).
+                        .exposeScan(true)
                         .build())
                 .registerExtraCatalogTable(name, CatalogTable.builder("extra", "five", sequenceColumns)
                         .comment("Integers 0..4")

@@ -119,6 +119,20 @@ the function for an operation makes DuckDB refuse it ("does not support UPDATE")
 DELETE need a scan function emitting a row-id column (`WriteResults.rowIdField()`) through
 projection pushdown.
 
+**Function visibility (protocol 3.3).** The framework always lists every function a table
+names (scan, insert, update, delete) in `catalog_schema_contents_functions`, so the extension
+always has their capabilities (projection / filter pushdown, required secrets, `has_finalize`,
+...). Each listing entry carries `FunctionInfo.visibility`:
+
+- write functions are always `table_only`: absent from `duckdb_functions()`, not callable from
+  SQL, used only to run the table's INSERT / UPDATE / DELETE;
+- a table's scan function is `table_only` too unless the table opts in with
+  `CatalogTable.Builder.exposeScan(true)`, which makes it an ordinary public function
+  (`SELECT * FROM cat.main.items_scan()` then works);
+- `Worker.registerUnlistedTable` keeps working and now means "list as `table_only`" (it is no
+  longer needed for a scan a table names, which is `table_only` by default);
+- every other function is `public`.
+
 A write function is an ordinary `TableInOutFunction`. DuckDB passes `write_options`:
 
 ```java

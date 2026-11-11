@@ -61,6 +61,13 @@ import farm.query.vgi.write.WriteResultMode;
  * @param writeResultModes          per operation, the richest result mode its write function
  *                                  produces; an operation with a function but no entry
  *                                  defaults to {@link WriteResultMode#COUNT}
+ * @param exposeScan                whether the scan function is also an ordinary, SQL-callable
+ *                                  catalog function (default {@code false}). The framework always
+ *                                  lists every function a table names, so the extension knows its
+ *                                  capabilities; a scan is listed {@code table_only} (absent from
+ *                                  {@code duckdb_functions()}, not callable) unless this is set.
+ *                                  Write functions are always {@code table_only}. See
+ *                                  {@link Builder#exposeScan(boolean)}.
  */
 public record CatalogTable(
         String schema,
@@ -86,13 +93,34 @@ public record CatalogTable(
         String insertFunctionName,
         String updateFunctionName,
         String deleteFunctionName,
-        Map<WriteOperation, WriteResultMode> writeResultModes) {
+        Map<WriteOperation, WriteResultMode> writeResultModes,
+        boolean exposeScan) {
 
     /** Validates the write declaration (see {@link #validateWrites}). */
     public CatalogTable {
         writeResultModes = writeResultModes == null ? Map.of() : Map.copyOf(writeResultModes);
         validateWrites(name, scanFunctionName, insertFunctionName, updateFunctionName, deleteFunctionName,
                 writeResultModes);
+    }
+
+    /**
+     * Compatibility constructor of releases before {@code exposeScan}: the scan function is
+     * {@code table_only}. Parameters as for the canonical constructor.
+     */
+    public CatalogTable(String schema, String name, byte[] columns, String comment,
+            Map<String, String> tags, String scanFunctionName, List<Object> scanFunctionPositional,
+            Map<String, Object> scanFunctionNamed, Long cardinalityEstimate, Long cardinalityMax,
+            boolean inlineCardinality, boolean inlineScanFunction, List<List<Integer>> primaryKey,
+            List<List<Integer>> uniqueConstraints, List<String> checkConstraints, List<ForeignKey> foreignKeys,
+            List<ColumnStatistics> statistics, List<List<List<String>>> requiredFilters,
+            List<byte[]> constraints, byte[] definitionRevision, String insertFunctionName,
+            String updateFunctionName, String deleteFunctionName,
+            Map<WriteOperation, WriteResultMode> writeResultModes) {
+        this(schema, name, columns, comment, tags, scanFunctionName, scanFunctionPositional,
+                scanFunctionNamed, cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics, requiredFilters,
+                constraints, definitionRevision, insertFunctionName, updateFunctionName, deleteFunctionName,
+                writeResultModes, false);
     }
 
     /**
@@ -207,7 +235,7 @@ public record CatalogTable(
                 scanFunctionName, scanFunctionPositional, scanFunctionNamed,
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
-                requiredFilters, constraints, definitionRevision, insert, update, delete, modes);
+                requiredFilters, constraints, definitionRevision, insert, update, delete, modes, exposeScan);
     }
 
     /** Compatibility constructor; legacy constraints are rejected at the wire boundary. */
@@ -384,6 +412,7 @@ public record CatalogTable(
         private String comment = "";
         private Map<String, String> tags = Map.of();
         private String scanFunctionName;
+        private boolean exposeScan;
         private List<Object> scanFunctionPositional = List.of();
         private Map<String, Object> scanFunctionNamed = Map.of();
         private Long cardinalityEstimate;
@@ -665,6 +694,23 @@ public record CatalogTable(
         }
 
         /**
+         * Makes the scan function also an ordinary catalog function: listed in
+         * {@code duckdb_functions()} and callable from SQL (e.g. {@code SELECT * FROM
+         * cat.main.items_scan()}). Default {@code false}: the framework still lists the scan, so
+         * the extension knows its capabilities (projection / filter pushdown, required secrets,
+         * ...), but as {@code table_only}, reachable only through the table. Write functions are
+         * always {@code table_only}; this flag does not affect them. A function registered with
+         * {@link farm.query.vgi.Worker#registerUnlistedTable} stays {@code table_only} regardless.
+         *
+         * @param expose whether the scan is SQL-callable
+         * @return this builder
+         */
+        public Builder exposeScan(boolean expose) {
+            this.exposeScan = expose;
+            return this;
+        }
+
+        /**
          * Builds the immutable {@link CatalogTable}.
          *
          * @return the configured table
@@ -675,8 +721,24 @@ public record CatalogTable(
                     cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                     primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
                     requiredFilters, constraints, definitionRevision,
-                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes, exposeScan);
         }
+    }
+
+    /**
+     * Returns a copy whose scan function is (or is not) also an ordinary, SQL-callable
+     * catalog function; see {@link Builder#exposeScan(boolean)}.
+     *
+     * @param expose whether the scan is SQL-callable
+     * @return a new table with the flag applied
+     */
+    public CatalogTable withExposeScan(boolean expose) {
+        return new CatalogTable(schema, name, columns, comment, tags,
+                scanFunctionName, scanFunctionPositional, scanFunctionNamed,
+                cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
+                primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
+                requiredFilters, constraints, definitionRevision,
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes, expose);
     }
 
     /**
@@ -692,7 +754,7 @@ public record CatalogTable(
                 estimate, max, true, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
                 requiredFilters, constraints, definitionRevision,
-                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes, exposeScan);
     }
 
     /**
@@ -708,7 +770,7 @@ public record CatalogTable(
                 cardinalityEstimate, cardinalityMax, inlineCardinality, false,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
                 requiredFilters, constraints, definitionRevision,
-                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes, exposeScan);
     }
 
     /**
@@ -736,7 +798,7 @@ public record CatalogTable(
                 fks == null ? List.of() : fks,
                 statistics,
                 requiredFilters, constraints, definitionRevision,
-                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes, exposeScan);
     }
 
     /**
@@ -763,7 +825,7 @@ public record CatalogTable(
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
                 requiredFilters, List.copyOf(records), revision,
-                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes, exposeScan);
     }
 
     /**
@@ -780,7 +842,7 @@ public record CatalogTable(
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys,
                 stats == null ? List.of() : stats,
                 requiredFilters, constraints, definitionRevision,
-                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes, exposeScan);
     }
 
     /**
@@ -800,6 +862,6 @@ public record CatalogTable(
                 cardinalityEstimate, cardinalityMax, inlineCardinality, inlineScanFunction,
                 primaryKey, uniqueConstraints, checkConstraints, foreignKeys, statistics,
                 normalizeRequiredFilters(groups), constraints, definitionRevision,
-                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes);
+                insertFunctionName, updateFunctionName, deleteFunctionName, writeResultModes, exposeScan);
     }
 }

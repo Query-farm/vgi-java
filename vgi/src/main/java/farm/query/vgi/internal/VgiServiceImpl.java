@@ -2280,10 +2280,7 @@ public final class VgiServiceImpl implements VgiService {
             for (ScalarFunction fn : v) if (visibleIn(fn, schema, extra)) scalarCount++;
         }
         for (var v : tables.values()) {
-            for (TableFunction fn : v) {
-                if (worker.unlistedTables().contains(fn.name())) continue;
-                if (visibleIn(fn, schema, extra)) tableFnCount++;
-            }
+            for (TableFunction fn : v) if (visibleIn(fn, schema, extra)) tableFnCount++;
         }
         for (var v : tableInOuts.values()) {
             for (TableInOutFunction fn : v) if (visibleIn(fn, schema, extra)) tableFnCount++;
@@ -3368,7 +3365,8 @@ public final class VgiServiceImpl implements VgiService {
             for (List<ScalarFunction> variants : scalars.values()) {
                 for (ScalarFunction fn : variants) {
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(encodedFunctionInfo(fn, name, () -> toScalarFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name,
+                            () -> toScalarFunctionInfo(fn, name).withVisibility(functionVisibility(fn))));
                 }
             }
         }
@@ -3377,12 +3375,13 @@ public final class VgiServiceImpl implements VgiService {
                 for (TableFunction fn : variants) {
                     // proj_repro_* fixtures live in the example worker binary
                     // but only belong to the projection_repro catalog. Show
-                    // them only when that catalog was attached.
-                    if (worker.unlistedTables().contains(fn.name())) continue;
+                    // them only when that catalog was attached. A function registered
+                    // unlisted (or named by a table) is still listed, as table_only.
                     if (!isProjReproAttach && fn.name().startsWith("proj_repro_")) continue;
                     if (isProjReproAttach && !fn.name().startsWith("proj_repro_")) continue;
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(encodedFunctionInfo(fn, name, () -> toTableFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name,
+                            () -> toTableFunctionInfo(fn, name).withVisibility(functionVisibility(fn))));
                 }
             }
             // Table-in-out functions also register as function_type='table'
@@ -3392,7 +3391,8 @@ public final class VgiServiceImpl implements VgiService {
             for (List<TableInOutFunction> variants : tableInOuts.values()) {
                 for (TableInOutFunction fn : variants) {
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(encodedFunctionInfo(fn, name, () -> toTableInOutFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name,
+                            () -> toTableInOutFunctionInfo(fn, name).withVisibility(functionVisibility(fn))));
                 }
             }
             // Buffering (Sink+Source) functions also surface as table functions;
@@ -3401,7 +3401,8 @@ public final class VgiServiceImpl implements VgiService {
             for (var variants : bufferingFns.values()) {
                 for (var fn : variants) {
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(encodedFunctionInfo(fn, name, () -> toBufferingFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name,
+                            () -> toBufferingFunctionInfo(fn, name).withVisibility(functionVisibility(fn))));
                 }
             }
         }
@@ -3409,11 +3410,52 @@ public final class VgiServiceImpl implements VgiService {
             for (List<AggregateFunction<?>> variants : aggregates.values()) {
                 for (AggregateFunction<?> fn : variants) {
                     if (!visibleIn(fn, name, extraAttach)) continue;
-                    items.add(encodedFunctionInfo(fn, name, () -> toAggregateFunctionInfo(fn, name)));
+                    items.add(encodedFunctionInfo(fn, name,
+                            () -> toAggregateFunctionInfo(fn, name).withVisibility(functionVisibility(fn))));
                 }
             }
         }
         return List.copyOf(items);
+    }
+
+    /**
+     * {@code FunctionInfo.visibility} (protocol 3.3) for a registered function, from the
+     * tables of the catalog that owns it. Every function a table names is listed, so the
+     * extension always has its capabilities; the rule decides only whether SQL can see it:
+     * <ul>
+     *   <li>a table's insert / update / delete function: always {@code table_only};</li>
+     *   <li>a table's scan function: {@code table_only} unless some table naming it sets
+     *       {@link CatalogTable#exposeScan()};</li>
+     *   <li>a function registered with {@link Worker#registerUnlistedTable}: {@code table_only};</li>
+     *   <li>anything else: {@code public}.</li>
+     * </ul>
+     */
+    String functionVisibility(Object fn) {
+        String fnName = functionName(fn);
+        if (fnName == null) return FunctionInfo.VISIBILITY_PUBLIC;
+        if (fn instanceof TableFunction && worker.unlistedTables().contains(fnName)) {
+            return FunctionInfo.VISIBILITY_TABLE_ONLY;
+        }
+        String home = worker.catalogOf(fn);
+        List<CatalogTable> owned = home == null ? worker.catalogTables()
+                : worker.extraCatalogTables().getOrDefault(home, List.of());
+        boolean scan = false;
+        boolean exposed = false;
+        for (CatalogTable t : owned) {
+            if (fnName.equals(t.insertFunctionName()) || fnName.equals(t.updateFunctionName())
+                    || fnName.equals(t.deleteFunctionName())) {
+                return FunctionInfo.VISIBILITY_TABLE_ONLY;
+            }
+            if (fnName.equals(t.scanFunctionName())) {
+                scan = true;
+                exposed |= t.exposeScan();
+            }
+        }
+        return scan && !exposed ? FunctionInfo.VISIBILITY_TABLE_ONLY : FunctionInfo.VISIBILITY_PUBLIC;
+    }
+
+    private static String functionName(Object fn) {
+        return fn instanceof farm.query.vgi.function.FunctionDescriptor d ? d.name() : null;
     }
 
     /**

@@ -254,7 +254,9 @@ public final class Main {
                     schema, name, cols(fields), comment, Map.of(),
                     "_table_data", List.of((Object) name), Map.of(),
                     null, null, false, /*inlineScanFunction=*/true)
-                    .withCanonicalConstraints(FixtureConstraints.snapshot(name, fields), FixtureConstraints.REVISION);
+                    .withCanonicalConstraints(FixtureConstraints.snapshot(name, fields), FixtureConstraints.REVISION)
+                    // _table_data is in the portable function inventory too.
+                    .withExposeScan(true);
         }
         return new CatalogTable(
                 schema, name, cols(fields), comment, Map.of(),
@@ -798,11 +800,18 @@ public final class Main {
                                 col("pushed", Schemas.UTF8, true)))
                 .comment(comment)
                 .scanFunction("late_materialization", List.of((Object) 1000L), named)
+                .exposeScan(true)
                 .cardinality(1000L, 1000L)
                 .build();
     }
 
     private static void registerCatalogTables(Worker w) {
+        // Protocol 3.3: a table's scan function is table_only (hidden from
+        // duckdb_functions(), not callable) unless the table sets exposeScan.
+        // The portable fixture surface (vgi function_registration.test) also
+        // registers these scans as ordinary table functions, so the tables
+        // here expose them; projection_sequence stays hidden, and cache_multicol is
+        // registered unlisted (table_only).
         w.registerCatalogTable(CatalogTable.functionBacked("main", "projection_rows",
                 SchemaUtil.serializeSchema(farm.query.vgi.example.table.ProjectionSequenceFunction.OUTPUT),
                 "Optional scalar projection example", "projection_sequence"));
@@ -811,20 +820,20 @@ public final class Main {
                         SchemaUtil.serializeSchema(
                                 farm.query.vgi.example.table.SameNameTableFunctions.OUTPUT),
                         "Schema-disambiguation probe; the main-schema table",
-                        farm.query.vgi.example.table.SameNameTableFunctions.FUNCTION_NAME))
+                        farm.query.vgi.example.table.SameNameTableFunctions.FUNCTION_NAME).withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked(
                         "data", farm.query.vgi.example.table.SameNameTableFunctions.TABLE_NAME,
                         SchemaUtil.serializeSchema(
                                 farm.query.vgi.example.table.SameNameTableFunctions.OUTPUT),
                         "Schema-disambiguation probe; the data-schema table",
-                        farm.query.vgi.example.table.SameNameTableFunctions.FUNCTION_NAME))
+                        farm.query.vgi.example.table.SameNameTableFunctions.FUNCTION_NAME).withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked(
                         "data", "ten_thousand_table",
                         SchemaUtil.serializeSchema(
                 new Schema(List.of(
                 Schemas.nullable("n", Schemas.INT64)))),
                         "Function-backed table over the no-arg ten_thousand function",
-                        "ten_thousand"))
+                        "ten_thousand").withExposeScan(true))
                 // Function-backed table whose backing function (secret_demo)
                 // performs a two-phase secret lookup in onBind. inlineScanFunction
                 // is false so the C++ extension binds the scan function and
@@ -840,7 +849,9 @@ public final class Main {
                         "secret_demo",
                         List.of(),
                         Map.of(),
-                        null, null, false, /*inlineScanFunction=*/false))
+                        null, null, false, /*inlineScanFunction=*/false)
+                        // secret_demo() is also called directly (secret/*.test).
+                        .withExposeScan(true))
                 .registerCatalogTable(new CatalogTable(
                         "data", "numbers",
                         SchemaUtil.serializeSchema(
@@ -865,7 +876,9 @@ public final class Main {
                         "sequence",
                         List.of((Object) 1_000_000L),
                         Map.of(),
-                        1_000_000L, 1_000_000L, true, /*inlineScanFunction=*/true))
+                        1_000_000L, 1_000_000L, true, /*inlineScanFunction=*/true)
+                        // sequence() is also an ordinary table function across the suite.
+                        .withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked(
                 "data", "cardinality_inlined_table",
                 SchemaUtil.serializeSchema(
@@ -952,15 +965,17 @@ public final class Main {
                 false, 25L))))
                 // Result-cache fixtures, exposed as function-backed tables so the
                 // catalog-attached path (SELECT ... FROM ex.data.<name>) exercises
-                // the C++ result cache. See table/CacheFunctions.java.
+                // the C++ result cache. See table/CacheFunctions.java. The ones the
+                // suite also calls as functions set exposeScan (protocol 3.3: a
+                // table's scan is otherwise table_only).
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cacheable_numbers",
                         cols(col("n", Schemas.INT64, true)),
                         "Cacheable 10-row result advertising vgi.cache.ttl",
-                        "cacheable_numbers"))
+                        "cacheable_numbers").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_nonce",
                         cols(col("nonce", Schemas.INT64, true)),
                         "One-row cacheable result whose value changes per real invocation",
-                        "cache_nonce"))
+                        "cache_nonce").withExposeScan(true))
                 // Secret-dependent counterpart. vgi-python pre-binds this table
                 // (inline bind: no bind RPC, secrets resolved client-side); this SDK
                 // has no inline bind, so the scan binds over the RPC with the
@@ -968,41 +983,41 @@ public final class Main {
                 .registerCatalogTable(CatalogTable.functionBacked("data", "secret_cache_nonce",
                         cols(col("secret_string", Schemas.UTF8, true), col("nonce", Schemas.INT64, true)),
                         "One-row cacheable result keyed on the vgi_example secret",
-                        "secret_cache_nonce"))
+                        "secret_cache_nonce").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_multicol",
                         cols(col("a", Schemas.INT64, true), col("b", Schemas.INT64, true),
                                 col("c", Schemas.INT64, true)),
                         "Multi-column cacheable result (projection-coverage reuse)",
-                        "cache_multicol"))
+                        "cache_multicol").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_no_store",
                         cols(col("n", Schemas.INT64, true)),
                         "Advertises vgi.cache.no_store — must never be cached",
-                        "cache_no_store"))
+                        "cache_no_store").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_scoped_txn",
                         cols(col("n", Schemas.INT64, true), col("nonce", Schemas.INT64, true)),
                         "Advertises vgi.cache.scope=transaction",
-                        "cache_scoped_txn"))
+                        "cache_scoped_txn").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_filtered",
                         cols(col("n", Schemas.INT64, true)),
                         "Cacheable sequence with static filter pushdown (filter_bytes keying)",
-                        "cache_filtered"))
+                        "cache_filtered").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_big",
                         cols(col("n", Schemas.INT64, true)),
                         "Large multi-batch cacheable result (advertises vgi.cache.ttl)",
-                        "cache_big"))
+                        "cache_big").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_ordered",
                         cols(col("n", Schemas.INT64, true)),
                         "Multi-worker order-sensitive cacheable result (batch_index; "
                         + "parallel capture, ordered serve)",
-                        "cache_ordered"))
+                        "cache_ordered").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_revalidatable",
                         cols(col("nonce", Schemas.INT64, true)),
                         "Always-revalidate result (304 not_modified reuses stored bytes)",
-                        "cache_revalidatable"))
+                        "cache_revalidatable").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_whoami",
                         cols(col("who", Schemas.UTF8, true)),
                         "Cacheable result echoing the caller's auth principal (identity-scoped)",
-                        "cache_whoami"))
+                        "cache_whoami").withExposeScan(true))
                 // Time-travel + cacheable: AT (VERSION => n) is resolved to the
                 // cache_versioned_scan version arg in VgiServiceImpl.
                 .registerCatalogTable(CatalogTable.builder("data", "cache_versioned",
@@ -1014,15 +1029,15 @@ public final class Main {
                         cols(col("a", Schemas.INT64, true), col("b", Schemas.INT64, true),
                                 col("c", Schemas.INT64, true)),
                         "Projection-pushdown cacheable result (SELECT a vs b are distinct keys)",
-                        "cache_projection"))
+                        "cache_projection").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_poison",
                         cols(col("n", Schemas.INT64, true)),
                         "Cacheable first batch then a mid-stream error (never-partial check)",
-                        "cache_poison"))
+                        "cache_poison").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.functionBacked("data", "cache_external_fail",
                         cols(col("n", Schemas.INT64, true)),
                         "Cacheable first batch then an unresolvable external-location pointer",
-                        "cache_external_fail"))
+                        "cache_external_fail").withExposeScan(true))
                 // NB: cache_bench is intentionally NOT a data Table — it takes a
                 // required positional arg (rows) a function-backed Table can't supply
                 // at bind. Its tests call it as a table function on the attached
@@ -1047,6 +1062,8 @@ public final class Main {
                         .comment("Per-country sales, SINGLE_VALUE partition column declared last; "
                                 + "GROUP BY country must plan as PARTITIONED_AGGREGATE")
                         .scanFunction("trailing_partition_sales", List.of((Object) 100L), Map.of())
+                        // Also called directly (table/partition_columns.test).
+                        .exposeScan(true)
                         .build())
                 .registerCatalogTable(stubTable("data", "volatile_numbers",
                         "Numbers with volatile stats (TTL=0, always re-fetched)",
@@ -1156,6 +1173,7 @@ public final class Main {
                                 bboxCol("bbox"),
                                 col("other", Schemas.INT64, true)))
                         .scanFunction("rff_rowid_scan")
+                        .exposeScan(true)
                         .comment("rff_rowid — row_id virtual column + required bbox.* filters.")
                         .requiredFilters(List.of(
                                 List.of(List.of("bbox", "xmin")), List.of(List.of("bbox", "xmax")),
@@ -1216,6 +1234,7 @@ public final class Main {
                                 col("s", Schemas.UTF8, true),
                                 col("pushed_filters", Schemas.UTF8, true)))
                         .scanFunction("filter_echo_table_scan")
+                        .exposeScan(true)
                         .comment("Catalog table echoing pushed-down filters (filter-pushdown-through-view tests).")
                         .build())
                 // Time travel + filter pushdown together. tt_pushdown_fn is
@@ -1227,7 +1246,7 @@ public final class Main {
                                 col("seen_version", Schemas.INT64, true),
                                 col("pushed_filters", Schemas.UTF8, true)),
                         "Function-backed: prunes by filter AND time-travels (AT read at init).",
-                        "tt_pushdown_scan"))
+                        "tt_pushdown_scan").withExposeScan(true))
                 .registerCatalogTable(CatalogTable.builder("data", "tt_pushdown_cols",
                         cols(col("id", Schemas.INT64, true),
                                 col("val", Schemas.INT64, true),

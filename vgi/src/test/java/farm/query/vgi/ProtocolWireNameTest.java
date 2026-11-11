@@ -34,7 +34,7 @@ final class ProtocolWireNameTest {
     @Test
     void theWireNameIsVgiV3() {
         assertEquals("vgi.v3", VgiService.PROTOCOL_NAME);
-        assertEquals("3.2.0", VgiService.PROTOCOL_VERSION);
+        assertEquals("3.3.0", VgiService.PROTOCOL_VERSION);
     }
 
     @Test

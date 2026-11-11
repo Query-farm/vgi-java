@@ -59,7 +59,10 @@ import java.util.TreeMap;
  *       and hook reads {@code token} from its {@link AttachOptions}.</li>
  *   <li>{@code items} (id, name, qty + rowid) is writable through the {@code items_update}
  *       table in-out function declared on its descriptor; {@code labels} is read-only. Both
- *       carry constraint records, so the framework negotiates {@code vgi.constraint.enforce.v1}.</li>
+ *       carry constraint records, so the framework negotiates {@code vgi.constraint.enforce.v1}.
+ *       Protocol 3.3 visibility: {@code items_scan} and {@code items_update} are listed
+ *       {@code table_only} (hidden from {@code duckdb_functions()}); {@code labels} sets
+ *       {@code exposeScan}, so {@code labels_scan} is public and callable.</li>
  *   <li>{@link TransactionHooks}: begin mints the id, commit applies the staged changes (or
  *       refuses a negative qty, failing COMMIT), rollback discards them.</li>
  * </ul>
@@ -175,6 +178,9 @@ public final class TxFixWorker {
                 .registerCatalogTable(CatalogTable.builder("main", "labels", Schemas.serialize(LABELS))
                         .comment("Read-only")
                         .scanFunction(LabelsScan.NAME)
+                        // Fixture contract: labels_scan is SQL-callable; items_scan and
+                        // items_update stay table_only (the framework default).
+                        .exposeScan(true)
                         .constraints(constraints("labels", false), REVISION)
                         .build());
     }
