@@ -457,10 +457,12 @@ public final class PushdownFilters {
 
     /**
      * The rendered SQL predicates of the top-level expression filters (e.g.
-     * {@code ("geom" && ST_MakeEnvelope(...))}). These can't be evaluated
-     * row-at-a-time — {@link #evaluate} treats them as pass-through; the worker
-     * applies them via an embedded engine (see vgi-example-worker's
-     * {@code ExpressionFilterEvaluator}).
+     * {@code ("geom" && ST_MakeEnvelope(...))}), for workers that want to
+     * evaluate them in an embedded engine. {@link #evaluate} already evaluates
+     * every v2 predicate natively, {@code duckdb.spatial/intersects_extent@1}
+     * included (with DuckDB core's {@code &&} semantics), so re-applying these is
+     * redundant; an engine whose semantics differ (e.g. the spatial extension's
+     * {@code st_intersects_extent} on NaN coordinates) can drop rows DuckDB keeps.
      *
      * @return the SQL predicates of the expression filters, in order; empty when none
      */
@@ -830,7 +832,9 @@ public final class PushdownFilters {
         if (expression instanceof FilterExpression.Call call) {
             List<Object> args = call.arguments().stream().map(arg -> scalar(arg, root, row).value()).toList();
             if (!(call.function() instanceof FilterExpression.StandardFunction function)) {
-                return new Scalar(true, new Field("result",
+                // The decoder admits only duckdb.spatial/intersects_extent@1 here.
+                if (args.size() != 2) throw new FilterV2Exception("intersects_extent requires two arguments");
+                return new Scalar(WkbExtent.intersects(args.get(0), args.get(1)), new Field("result",
                         org.apache.arrow.vector.types.pojo.FieldType.nullable(new ArrowType.Bool()), null));
             }
             Object result = switch (function) {

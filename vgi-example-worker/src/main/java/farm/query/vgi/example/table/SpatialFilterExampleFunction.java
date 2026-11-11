@@ -40,7 +40,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * where {@code cols = ceil(sqrt(count))}. Declares {@code &&} and
  * {@code st_intersects_extent} as supported expression filters; the engine pushes
  * those predicates into the function (removing the FILTER node), and the worker
- * applies them via {@link ExpressionFilterEvaluator}.
+ * applies them via {@link FilterApplier}.
  */
 public final class SpatialFilterExampleFunction extends CountdownTableFunction {
 
@@ -49,7 +49,7 @@ public final class SpatialFilterExampleFunction extends CountdownTableFunction {
                     Map.of("ARROW:extension:name", "geoarrow.wkb", "ARROW:extension:metadata", "{}")),
             null);
 
-    private static final Schema OUTPUT_SCHEMA = Schemas.of(
+    static final Schema OUTPUT_SCHEMA = Schemas.of(
             Schemas.nullable("n", Schemas.INT64),
             Schemas.nullable("x", Schemas.FLOAT64),
             Schemas.nullable("y", Schemas.FLOAT64),
@@ -89,6 +89,28 @@ public final class SpatialFilterExampleFunction extends CountdownTableFunction {
         b.putDouble(x);
         b.putDouble(y);
         return b.array();
+    }
+
+    /**
+     * Apply the pushed filters to one emitted batch, exactly as {@link State#produceTick} does.
+     *
+     * @param work        the batch; ownership is transferred (closed when rows are dropped)
+     * @param filterBytes the pushdown-filter IPC bytes
+     * @param joinKeysIpc the {@code InitRequest.join_keys} IPC batches, or {@code null}
+     * @return the batch holding only the rows that pass
+     */
+    static VectorSchemaRoot applyFilters(VectorSchemaRoot work, byte[] filterBytes,
+                                         List<byte[]> joinKeysIpc) {
+        FilterApplier fa = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT_SCHEMA,
+                new PushdownFiltersDecoder.Capabilities(
+                        java.util.Set.of(new FilterIdentity(
+                                "duckdb.spatial", "intersects_extent", 1)),
+                        java.util.Set.of(), java.util.Map.of()));
+        // FilterApplier evaluates every v2 predicate natively, intersects_extent (&&) included,
+        // with DuckDB core's semantics. Re-running it through the embedded engine's
+        // spatial st_intersects_extent would drop rows core keeps (spatial treats a NaN
+        // coordinate as never intersecting; core makes that axis unbounded).
+        return fa.apply(work);
     }
 
     public static final class State extends TableProducerState {
@@ -132,15 +154,7 @@ public final class SpatialFilterExampleFunction extends CountdownTableFunction {
             }
             work.setRowCount(n);
 
-            if (filterBytes != null) {
-                FilterApplier fa = FilterApplier.from(filterBytes, joinKeysIpc, OUTPUT_SCHEMA,
-                        new PushdownFiltersDecoder.Capabilities(
-                                java.util.Set.of(new FilterIdentity(
-                                        "duckdb.spatial", "intersects_extent", 1)),
-                                java.util.Set.of(), java.util.Map.of()));
-                work = fa.apply(work);                                            // column filters (n < 50)
-                work = ExpressionFilterEvaluator.apply(work, fa.expressionPredicates()); // spatial && etc.
-            }
+            if (filterBytes != null) work = applyFilters(work, filterBytes, joinKeysIpc);
             out.emit(VectorProjector.project(work, outputSchema.get()));
             batch.advance(n);
         }
