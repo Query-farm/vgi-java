@@ -39,10 +39,10 @@ import java.util.Map;
  * {@code cache/secret_scope.test}; mirrors vgi-python's
  * {@code SecretCacheNonceFunction}.
  *
- * <p>The nonce is random rather than a counter like {@link CacheFunctions}'s:
- * a pooled worker may run several processes, and per-process counters repeat
- * across them. Equal nonces then prove a HIT and different ones a MISS on any
- * pool size.
+ * <p>The nonce is random: a pooled worker may run several processes, and a
+ * bare per-process counter would repeat across them ({@link CacheFunctions}
+ * folds the pid into its counter for the same reason). Equal nonces then
+ * prove a HIT and different ones a MISS on any pool size.
  */
 public final class SecretCacheNonceFunction extends SimpleTableFunction {
 

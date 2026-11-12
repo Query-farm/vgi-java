@@ -47,6 +47,28 @@ public final class CacheFunctions {
      */
     private static final AtomicLong NONCE = new AtomicLong();
 
+    /**
+     * Makes nonces unique <em>across</em> worker processes, not just within one.
+     * The client's worker pool holds several processes and hands a scan whichever
+     * it pops, so two MISSes can land in two different processes. With a bare
+     * per-process counter both could mint the same value and a MISS would read as
+     * a HIT ({@code cache/transaction_scope.test}: "t2 nonce &lt;&gt; t1a nonce").
+     * Folding the pid into the high 32 bits keeps the nonces of every live
+     * process disjoint, while the low 32 bits stay a plain per-process count
+     * ({@code pid = nonce >> 32}, which also makes a nonce self-describing when
+     * debugging the cache). Mirrors vgi-go fc71b1c.
+     */
+    private static final long NONCE_BASE = ProcessHandle.current().pid() << 32;
+
+    /**
+     * Mints the next nonce: this process's base plus a counter starting at 0.
+     *
+     * @return a nonce unique across every live process of a worker pool
+     */
+    static long nextNonce() {
+        return NONCE_BASE + NONCE.getAndIncrement();
+    }
+
     private static Schema single(String name) {
         return Schemas.of(Schemas.nullable(name, Schemas.INT64));
     }
@@ -127,7 +149,7 @@ public final class CacheFunctions {
         @Override protected Schema outputSchema() { return OUTPUT; }
 
         @Override public TableProducerState createProducer(TableInitParams p) {
-            return new State(NONCE.getAndIncrement());
+            return new State(nextNonce());
         }
 
         /** Carries the nonce minted for this invocation. */
@@ -222,7 +244,7 @@ public final class CacheFunctions {
 
         @Override public TableProducerState createProducer(TableInitParams p) {
             return new State(ParameterExtractor.of(p.arguments()).named("n").asLong().orElse(10L),
-                    NONCE.getAndIncrement());
+                    nextNonce());
         }
 
         /** Countdown state plus the per-invocation nonce. */
@@ -332,7 +354,7 @@ public final class CacheFunctions {
         @Override protected Schema outputSchema() { return OUTPUT; }
 
         @Override public TableProducerState createProducer(TableInitParams p) {
-            return new State(NONCE.getAndIncrement());
+            return new State(nextNonce());
         }
 
         /** Carries the nonce minted for this invocation. */
