@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.48.0 (2026-11-11)
+
 ### Changed
 
 - **Protocol 3.3 write path** (protocol version stays `3.3.0`; needs the matching VGI extension):
