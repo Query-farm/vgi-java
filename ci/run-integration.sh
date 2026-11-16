@@ -87,7 +87,8 @@ echo "Staging preprocessed tests into $STAGE (transport=$TRANSPORT) ..."
 mkdir -p "$STAGE/test/sql/integration"
 ( cd "$INTEGRATION"
   # writable/simple_writable are out of scope (read-only port);
-  # nested_type_combinations segfaults the upstream runner (documented in CLAUDE.md).
+  # nested_type_combinations segfaults the upstream runner (documented in CLAUDE.md);
+  # example_decimal_width needs Decimal32/Decimal64 columns, which arrow-java 19.0.0 lacks.
   #
   # bool_in_union.test used to be dropped here too. It no longer needs to be:
   # upstream disables the whole file centrally with `mode skip` (see its header,
@@ -98,6 +99,7 @@ mkdir -p "$STAGE/test/sql/integration"
   find . -name '*.test' \
        -not -path '*/writable/*' -not -path '*/simple_writable/*' \
        -not -name 'nested_type_combinations.test' \
+       -not -name 'example_decimal_width.test' \
        ${HTTP_SKIP[@]+"${HTTP_SKIP[@]}"} | while read -r f; do
     mkdir -p "$STAGE/test/sql/integration/$(dirname "$f")"
     if [ "$RUNNER_LINKS_EXTENSIONS" = "1" ]; then

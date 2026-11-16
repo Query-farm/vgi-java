@@ -127,6 +127,11 @@ smoke: build
 ##     where the client sends it nullable. Reproduced 2026-08-21. Fix the
 ##     validator, then delete this line — do NOT re-broaden the glob.
 ##
+##   write_contract/example_decimal_width.test — needs Arrow Decimal32 /
+##     Decimal64 columns (contract.amounts); arrow-java 19.0.0 has no 32- or
+##     64-bit decimal vectors, so the example worker does not declare that table.
+##     ci/run-integration.sh drops the same file.
+##
 ## Deliberately NOT excluded any more:
 ##   * bearer_auth/ — the worker has wired bearer auth since 40af24a
 ##     (2026-06-13, Main.java buildHttpConfig); the test self-skips on
@@ -206,7 +211,8 @@ COVERAGE_GATE := --min-executed $(JAVA_MIN_EXECUTED) \
 test: build
 	@cd $(VGI_DIR) && set -a && eval "$$($(MAKE) -s --no-print-directory engine_test_env 2>/dev/null)" && set +a && \
 	    $(FIXTURE_ENV) python3 scripts/run_tests.py -j $(JAVA_JOBS) --test-config $(TEST_CONFIG) $(COVERAGE_GATE) \
-	        "test/sql/integration/*" "~test/sql/integration/simple_writable/*"
+	        "test/sql/integration/*" "~test/sql/integration/simple_writable/*" \
+	        "~test/sql/integration/write_contract/example_decimal_width.test"
 
 ## The whole suite over the HTTP transport, exactly as CI's `integration (http)`
 ## lane runs it: ci/run-integration.sh boots the example worker (and the

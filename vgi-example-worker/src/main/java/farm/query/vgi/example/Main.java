@@ -400,6 +400,9 @@ public final class Main {
             registerCopyTo(w);
             // The six catalog_contents fixture catalogs (catalog/catalog_contents*.test).
             farm.query.vgi.example.catalogcontents.CatalogContentsFixtures.register(w);
+            // example.contract: the cross-SDK table_only / write-contract fixtures
+            // (visibility/example_table_only.test, write_contract/example_insert_finalize.test).
+            farm.query.vgi.example.contract.ContractFixtures.register(w);
         }
         registerViews(w);
         registerCatalogTables(w);

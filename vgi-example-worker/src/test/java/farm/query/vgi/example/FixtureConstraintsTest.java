@@ -25,11 +25,14 @@ class FixtureConstraintsTest {
             var selected = RecordCodec.deserializeFromBytes(result.selected_capabilities(), CatalogCapabilities.class);
             assertEquals(List.of(read, scalar), advertised.read());
             assertEquals(offered.contains(read) ? offered : List.of(), selected.read());
-            assertTrue(selected.write().isEmpty());
+            // contract.notes is writable and declares an ENFORCED NOT_NULL record, so the
+            // offered enforce profile is selected whenever its prerequisite read profile is.
+            assertEquals(offered.contains(read) ? List.of("vgi.constraint.enforce.v1") : List.of(),
+                    selected.write());
             assertTrue(selected.ddl().isEmpty());
             assertTrue(selected.transaction().isEmpty());
             // Every served table satisfies the extension's ATTACH-time constraint rules.
-            for (String schema : List.of("main", "data")) {
+            for (String schema : List.of("main", "data", "contract")) {
                 assertDoesNotThrow(() -> svc.catalog_schema_contents_tables(result.attach_opaque_data(), List.of(schema), null, null));
             }
         }
