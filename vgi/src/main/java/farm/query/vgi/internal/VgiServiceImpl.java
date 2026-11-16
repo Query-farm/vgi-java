@@ -2344,7 +2344,8 @@ public final class VgiServiceImpl implements VgiService {
 
     private static String extraSchemaComment(Worker.ExtraCatalog extra, String schema) {
         if ("main".equals(schema)) return extra.schemaComment();
-        return extra.schemaComments().getOrDefault(schema, "");
+        // An undeclared comment is NULL, not "": DuckDB reports "" as a comment.
+        return extra.schemaComments().get(schema);
     }
 
     /**
@@ -2388,7 +2389,8 @@ public final class VgiServiceImpl implements VgiService {
         for (var v : bufferingFns.values()) for (var fn : v) addFunctionSchema(fn, defaultSchema, extras);
         for (var v : aggregates.values()) for (var fn : v) addFunctionSchema(fn, defaultSchema, extras);
         for (String s : extras) {
-            result.add(new SchemaDesc(s, comments.getOrDefault(s, ""),
+            // An undeclared comment is NULL, not "": DuckDB reports "" as a comment.
+            result.add(new SchemaDesc(s, comments.get(s),
                     tags.getOrDefault(s, Map.of())));
         }
         return result;
