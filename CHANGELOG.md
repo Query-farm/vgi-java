@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.48.1 (2026-11-16)
+
+### Fixed
+
+- A schema with no declared comment is sent with comment NULL, not `""`. DuckDB counts `""` as a comment, so an
+  uncommented schema showed up under `comment IS NOT NULL`.
+
+### Added
+
+- The example worker serves the `contract` schema for the vgi extension's cross-SDK conformance files (no
+  `amounts` table: arrow-java has no Decimal32/Decimal64, so its lane excludes `example_decimal_width.test`).
+
 ## 0.48.0 (2026-11-11)
 
 ### Changed
