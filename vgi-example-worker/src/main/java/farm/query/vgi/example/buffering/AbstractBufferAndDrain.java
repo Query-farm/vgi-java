@@ -56,10 +56,19 @@ public abstract class AbstractBufferAndDrain implements TableBufferingFunction {
         return new LogDrainProducer(params, NS_BUF);
     }
 
-    /** Drains a {@code (ns, "")} state-log, one buffered batch per tick. */
+    /**
+     * Drains a {@code (ns, "")} state-log, one buffered batch per tick. The log
+     * is read {@value #PAGE} entries per storage call (one round trip on a
+     * remote backend serves several ticks); the page is process-local and
+     * transient, so after an HTTP state-token round trip the producer re-reads
+     * from {@code afterId}, the last entry it actually emitted.
+     */
     static final class LogDrainProducer extends BufferingFinalizeProducer {
+        static final int PAGE = 16;
         private byte[] ns;
         private long afterId = -1;
+        private transient java.util.ArrayDeque<FunctionStorage.LogEntry> page;
+        private transient boolean exhausted;
 
         LogDrainProducer() {}
 
@@ -69,12 +78,18 @@ public abstract class AbstractBufferAndDrain implements TableBufferingFunction {
         }
 
         @Override public void produceTick(OutputCollector out, CallContext ctx) {
-            List<FunctionStorage.LogEntry> rows = storage().stateLogScan(ns, KEY, afterId, 1);
-            if (rows.isEmpty()) {
+            if (page == null) page = new java.util.ArrayDeque<>();
+            if (page.isEmpty() && !exhausted) {
+                List<FunctionStorage.LogEntry> rows = storage().stateLogScan(ns, KEY, afterId, PAGE);
+                page.addAll(rows);
+                // A short page means the log is drained; skip the empty re-read.
+                exhausted = rows.size() < PAGE;
+            }
+            FunctionStorage.LogEntry e = page.poll();
+            if (e == null) {
                 out.finish();
                 return;
             }
-            FunctionStorage.LogEntry e = rows.get(0);
             VectorSchemaRoot full = BatchUtil.readSingleBatch(e.value(), Allocators.root());
             emitProjected(full, out);
             full.close();
