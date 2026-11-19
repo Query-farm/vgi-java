@@ -3,6 +3,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.aggregate.StateCodec;
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.types.Schemas;
@@ -17,7 +18,6 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -35,9 +35,22 @@ public final class StubAggregates {
 
     /** {@code vgi_streaming_sum(value BIGINT) -> BIGINT}. */
     public static final class StreamingSum implements AggregateFunction<StreamingSum.State> {
-        public static final class State implements Serializable {
-            private static final long serialVersionUID = 1L;
+        public static final class State {
             long sum;
+        }
+
+        @Override public byte[] serializeState(State s) {
+            return StateCodec.encode(out -> {
+                out.writeLong(s.sum);
+            });
+        }
+
+        @Override public State deserializeState(byte[] bytes) {
+            return StateCodec.decode(bytes, in -> {
+                State s = new State();
+                s.sum = in.readLong();
+                return s;
+            });
         }
         @Override public String name() { return "vgi_streaming_sum"; }
         @Override public FunctionMetadata metadata() {
@@ -68,11 +81,28 @@ public final class StubAggregates {
     }
     /** Window-flavoured stubs — registered to keep the function_registration count happy. */
     public abstract static class WindowStub implements AggregateFunction<WindowStub.State> {
-        public static final class State implements Serializable {
-            private static final long serialVersionUID = 1L;
+        public static final class State {
             long sum;
             ArrayList<Double> dvals = new ArrayList<>();
             ArrayList<String> svals = new ArrayList<>();
+        }
+
+        @Override public byte[] serializeState(State s) {
+            return StateCodec.encode(out -> {
+                out.writeLong(s.sum);
+                out.writeDoubleList(s.dvals);
+                out.writeStringList(s.svals);
+            });
+        }
+
+        @Override public State deserializeState(byte[] bytes) {
+            return StateCodec.decode(bytes, in -> {
+                State s = new State();
+                s.sum = in.readLong();
+                s.dvals = in.readDoubleList();
+                s.svals = in.readStringList();
+                return s;
+            });
         }
         private final String name;
         private final ArrowType outType;

@@ -3,6 +3,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.aggregate.StateCodec;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
@@ -11,7 +12,6 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -23,10 +23,25 @@ import java.util.Map;
  */
 public final class PercentileFunction implements AggregateFunction<PercentileFunction.State> {
 
-    public static final class State implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static final class State {
         ArrayList<Double> values = new ArrayList<>();
         double pct = 0.5;
+    }
+
+    @Override public byte[] serializeState(State s) {
+        return StateCodec.encode(out -> {
+            out.writeDoubleList(s.values);
+            out.writeDouble(s.pct);
+        });
+    }
+
+    @Override public State deserializeState(byte[] bytes) {
+        return StateCodec.decode(bytes, in -> {
+            State s = new State();
+            s.values = in.readDoubleList();
+            s.pct = in.readDouble();
+            return s;
+        });
     }
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(

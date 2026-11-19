@@ -3,6 +3,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.aggregate.StateCodec;
 import farm.query.vgi.function.ArgSpec;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.function.TypeBoundPredicate;
@@ -13,16 +14,28 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
 /** {@code vgi_sum_all(values...) -> DOUBLE} — variadic numeric aggregate. */
 public final class SumAllFunction implements AggregateFunction<SumAllFunction.State> {
 
-    public static final class State implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static final class State {
         double total;
+    }
+
+    @Override public byte[] serializeState(State s) {
+        return StateCodec.encode(out -> {
+            out.writeDouble(s.total);
+        });
+    }
+
+    @Override public State deserializeState(byte[] bytes) {
+        return StateCodec.decode(bytes, in -> {
+            State s = new State();
+            s.total = in.readDouble();
+            return s;
+        });
     }
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(

@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+### Security
+
+- **Breaking: aggregate state no longer defaults to Java serialization.** `AggregateFunction.serializeState` /
+  `deserializeState` used `ObjectOutputStream` / `ObjectInputStream`, and the bytes are read back from shared
+  storage (a SQLite file, or a Cloudflare Durable Object over the network) on every update, combine and
+  finalize: anyone able to write that storage could run code in the worker. The defaults now throw, and
+  `Worker.registerAggregate*` refuses an aggregate that does not override both. **Migration:** write the state's
+  fields explicitly; `farm.query.vgi.aggregate.StateCodec` is a typed, bounds-checked codec for it:
+
+  ```java
+  @Override public byte[] serializeState(State s) {
+      return StateCodec.encode(out -> { out.writeLong(s.total); out.writeLong(s.count); });
+  }
+  @Override public State deserializeState(byte[] bytes) {
+      return StateCodec.decode(bytes, in -> {
+          State s = new State(); s.total = in.readLong(); s.count = in.readLong(); return s;
+      });
+  }
+  ```
+
+  `Output`/`Input` also carry strings, byte arrays, string/double/long lists and tagged nested values
+  (`writeValue`). State still in storage from a previous release is not readable by the new codec; executions
+  are short-lived, so finish or cancel running queries before upgrading. All example aggregates are migrated.
+- **Framework payloads in storage are sealed** (sealed framework payload v1, the same format in every VGI SDK:
+  HKDF-SHA256 of the signing key, info `vgi.storage.payload.v1`, AES-256-GCM, AAD binding shard, execution,
+  namespace and key). The buffered-function init (it carries the resolved secrets) and aggregate constant
+  arguments were stored in plaintext. The key material is `VGI_SIGNING_KEY` / `Worker.signingKey` exactly as
+  configured, else the per-user host-local key file secret ATTACH options already use
+  (`VGI_ATTACH_SECRET_KEY_FILE`). A payload that fails to open is an error, never plaintext. Data a function
+  writes itself (buffering appends, aggregate group states, queues) is stored as written.
+- **The buffered-function init no longer stores the attach**, and `table_buffering_process` / `_combine` use the
+  request's authenticated attach instead of preferring the stored plaintext. A process or combine for an
+  execution that never ran init (or after its destructor) now fails with "unknown execution_id" instead of
+  running with empty arguments.
+
+### Fixed
+
+- **Aggregates work on the `cloudflare-do` storage tier.** Aggregate state went to the raw backend and sent
+  `shard_key: ""`, which the Durable Object rejects; every aggregate RPC is now sharded per attach like buffering.
+- The Durable Object client has connect (10 s) and request (30 s) timeouts and retries a transport error,
+  5xx or 429 (with backoff and jitter, `Retry-After` honoured) up to 4 attempts, sending the same `attempt_id` on
+  every retry of a call so the server replays rather than reapplies it. Other 4xx are not retried. Tune with
+  `CfdoStorage.Options` or `VGI_CF_DO_CONNECT_TIMEOUT_MS`, `VGI_CF_DO_REQUEST_TIMEOUT_MS`,
+  `VGI_CF_DO_MAX_ATTEMPTS`, `VGI_CF_DO_RETRY_BASE_MS`, `VGI_CF_DO_RETRY_MAX_MS`.
+
+### Changed
+
+- Fewer storage round trips: the buffered-function init and aggregate constant arguments are cached per
+  `(shard, execution)` in a bounded process-local LRU (evicted on destructor; storage stays authoritative). A
+  buffered process is 1 call per batch (was 2, plus 1 per combine) and an aggregate update 2 (was 3).
+- The example worker's buffering drain reads its log 16 entries per storage call instead of 1.
+
 ## 0.48.1 (2026-11-16)
 
 ### Fixed

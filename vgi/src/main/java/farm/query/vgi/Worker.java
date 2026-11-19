@@ -79,6 +79,10 @@ public final class Worker {
      *  opaque data. {@code null} ⇒ per-process random (single-replica only).
      *  See {@link #opaqueDataKey(byte[])}. */
     private byte[] opaqueDataKey;
+    /** The signing key exactly as configured (before normalization): the input keying
+     *  material for sealed framework storage payloads, so every SDK derives the same key
+     *  from the same {@code VGI_SIGNING_KEY}. {@code null} when none was set in code. */
+    private byte[] rawSigningKey;
     /** Supplies the protocols hosted beside {@code vgi.v3}; see {@link #hostedProtocols}. */
     private java.util.function.Supplier<? extends java.util.Collection<HostedProtocol>> hostedProtocolsHook;
     /** {@code vgi_rpc.Identity.v2} hooks; absent unless set. See {@link #resolveToken}. */
@@ -607,6 +611,7 @@ public final class Worker {
      */
     public Worker signingKey(byte[] key) {
         this.opaqueDataKey = key != null ? AttachTickets.normalizeKey(key) : null;
+        this.rawSigningKey = key != null ? key.clone() : null;
         return this;
     }
 
@@ -635,6 +640,7 @@ public final class Worker {
                     "opaqueDataKey must be 32 bytes (got " + key.length + ")");
         }
         this.opaqueDataKey = key != null ? key.clone() : null;
+        this.rawSigningKey = key != null ? key.clone() : null;
         return this;
     }
 
@@ -1265,6 +1271,7 @@ public final class Worker {
     }
 
     public Worker registerAggregate(List<String> schemaPath, AggregateFunction<?> fn) {
+        farm.query.vgi.internal.AggregateRunner.requireStateCodec(fn);
         aggregates.add(fn);
         return home(fn, null, schemaPath);
     }
@@ -1336,6 +1343,7 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerExtraCatalogAggregate(String catalogName, String schemaName, AggregateFunction<?> fn) {
+        farm.query.vgi.internal.AggregateRunner.requireStateCodec(fn);
         aggregates.add(fn);
         return home(fn, catalogName, List.of(schemaName));
     }
@@ -1380,6 +1388,7 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerAggregate(AggregateFunction<?> fn) {
+        farm.query.vgi.internal.AggregateRunner.requireStateCodec(fn);
         aggregates.add(fn);
         return this;
     }
@@ -1461,7 +1470,10 @@ public final class Worker {
      * @return this builder
      */
     public Worker registerAggregates(Iterable<? extends AggregateFunction<?>> fns) {
-        for (AggregateFunction<?> f : fns) aggregates.add(f);
+        for (AggregateFunction<?> f : fns) {
+            farm.query.vgi.internal.AggregateRunner.requireStateCodec(f);
+            aggregates.add(f);
+        }
         return this;
     }
 
@@ -2006,7 +2018,7 @@ public final class Worker {
         // A configured key also encrypts secret ATTACH options on the unsealed transports.
         RpcServer server = new RpcServer(VgiService.class,
                 new VgiServiceImpl(this, scalars, tables, tableInOuts, aggregates,
-                        http, signingKey, configured));
+                        http, signingKey, configured, storageSealKeyMaterial(), null));
         server.setProtocolVersion(advertisedProtocolVersion());
         hostExtraProtocols(server);
         // Identity -- sealed grants included -- is HTTP-only: its allowlist and freshness rules
@@ -2108,6 +2120,13 @@ public final class Worker {
      * is: {@link #signingKey(byte[])} / {@link #opaqueDataKey(byte[])} when set, else
      * {@code VGI_SIGNING_KEY} (the UTF-8 of its value).
      */
+    private byte[] storageSealKeyMaterial() {
+        if (rawSigningKey != null) return rawSigningKey.clone();
+        String env = System.getenv(SIGNING_KEY_ENV);
+        if (env == null || env.isEmpty()) return null;
+        return env.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     private byte[] configuredSigningKey() {
         if (opaqueDataKey != null) return opaqueDataKey.clone();
         String env = System.getenv(SIGNING_KEY_ENV);

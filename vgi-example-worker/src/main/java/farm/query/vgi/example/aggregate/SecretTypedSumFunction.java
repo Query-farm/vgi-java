@@ -4,6 +4,7 @@ package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.Secrets;
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.aggregate.StateCodec;
 import farm.query.vgi.function.Arguments;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.FunctionRequiredSecret;
@@ -19,7 +20,6 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
@@ -36,9 +36,22 @@ import java.util.Map;
  */
 public final class SecretTypedSumFunction implements AggregateFunction<SecretTypedSumFunction.State> {
 
-    public static final class State implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static final class State {
         long total;
+    }
+
+    @Override public byte[] serializeState(State s) {
+        return StateCodec.encode(out -> {
+            out.writeLong(s.total);
+        });
+    }
+
+    @Override public State deserializeState(byte[] bytes) {
+        return StateCodec.decode(bytes, in -> {
+            State s = new State();
+            s.total = in.readLong();
+            return s;
+        });
     }
 
     // Catalog-enumeration placeholder: Null-typed "result" tagged as ANY so

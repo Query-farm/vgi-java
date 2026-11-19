@@ -43,7 +43,51 @@ public final class AggregateRunner {
      * @param storage shared worker storage backing per-execution state
      */
     public AggregateRunner(farm.query.vgi.storage.FunctionStorage storage) {
-        this.store = new AggregateStateStore(storage);
+        this(storage, StoragePayloadSeal.forKey(null));
+    }
+
+    /**
+     * Creates a runner over the worker's shared storage, sealing framework
+     * payloads (bind arguments) with {@code seal}.
+     *
+     * @param storage shared worker storage backing per-execution state
+     * @param seal    the framework payload sealer
+     */
+    public AggregateRunner(farm.query.vgi.storage.FunctionStorage storage, StoragePayloadSeal seal) {
+        this.store = new AggregateStateStore(storage, seal);
+    }
+
+    /** The state store (tests). */
+    AggregateStateStore store() {
+        return store;
+    }
+
+    /**
+     * Refuse an aggregate whose state has no explicit codec. The interface's
+     * default {@code serializeState}/{@code deserializeState} throw (Java
+     * serialization of stored bytes would be remote code execution for anyone
+     * able to write the storage backend), so an aggregate that does not
+     * override both is rejected when it is registered rather than on its first
+     * query.
+     *
+     * @param fn the aggregate being registered
+     * @throws IllegalArgumentException if either codec method is not overridden
+     */
+    public static void requireStateCodec(AggregateFunction<?> fn) {
+        boolean ok;
+        try {
+            ok = fn.getClass().getMethod("serializeState", Object.class).getDeclaringClass()
+                            != AggregateFunction.class
+                    && fn.getClass().getMethod("deserializeState", byte[].class).getDeclaringClass()
+                            != AggregateFunction.class;
+        } catch (NoSuchMethodException e) {
+            ok = false;
+        }
+        if (!ok) {
+            throw new IllegalArgumentException("aggregate '" + fn.name() + "' (" + fn.getClass().getName()
+                    + ") must override serializeState and deserializeState with an explicit codec;"
+                    + " Java serialization is no longer the default (see farm.query.vgi.aggregate.StateCodec)");
+        }
     }
 
     /**
@@ -59,11 +103,23 @@ public final class AggregateRunner {
      */
     public AggregateBindResponse bind(AggregateFunction<?> fn, String functionName, byte[] inputSchemaIpc,
                                        byte[] argumentsIpc, byte[] secretsIpc) {
-        return bind(fn, functionName, inputSchemaIpc, argumentsIpc, secretsIpc, null);
+        return bind(fn, functionName, null, inputSchemaIpc, argumentsIpc, secretsIpc, null);
     }
 
-    public AggregateBindResponse bind(AggregateFunction<?> fn, String functionName, byte[] inputSchemaIpc,
-                                       byte[] argumentsIpc, byte[] secretsIpc,
+    /**
+     * Handle {@code aggregate_bind} with the request's authenticated attach.
+     *
+     * @param fn             the resolved aggregate
+     * @param functionName   the aggregate's registered name
+     * @param attachPlain    the request's unwrapped attach (shards storage), or {@code null}
+     * @param inputSchemaIpc IPC-encoded input schema, or {@code null}
+     * @param argumentsIpc   IPC-encoded bind arguments, or {@code null}/empty
+     * @param secretsIpc     IPC-encoded pre-resolved secret values, or {@code null}/empty
+     * @param argumentNames  the logical argument names, or {@code null}
+     * @return the bind response carrying the output schema and execution id
+     */
+    public AggregateBindResponse bind(AggregateFunction<?> fn, String functionName, byte[] attachPlain,
+                                       byte[] inputSchemaIpc, byte[] argumentsIpc, byte[] secretsIpc,
                                        java.util.List<String> argumentNames) {
         Schema inputSchema = inputSchemaIpc == null ? null : SchemaUtil.deserializeSchema(inputSchemaIpc);
         farm.query.vgi.function.Arguments bindArgs = (argumentsIpc == null || argumentsIpc.length == 0)
@@ -75,7 +131,7 @@ public final class AggregateRunner {
                 fn.bindOutputSchema(inputSchema, bindArgs, secrets, argumentNames));
         byte[] executionId = newExecutionId();
         if (argumentsIpc != null && argumentsIpc.length > 0) {
-            store.saveArgs(executionId, functionName, argumentsIpc);
+            store.saveArgs(store.bind(executionId, attachPlain), argumentsIpc);
         }
         return new AggregateBindResponse(outputSchemaIpc, executionId);
     }
@@ -87,12 +143,14 @@ public final class AggregateRunner {
      * @param resolved     the resolved aggregate
      * @param functionName the aggregate's registered name (state keys, diagnostics)
      * @param executionId  the execution scope from {@code bind}
+     * @param attachPlain  the request's authenticated, unwrapped attach (shards storage), or {@code null}
      * @param inputBatch   IPC batch of argument columns plus {@code __vgi_group_id}
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public void update(AggregateFunction<?> resolved, String functionName, byte[] executionId,
-                        byte[] inputBatch) {
+                        byte[] attachPlain, byte[] inputBatch) {
         AggregateFunction fn = resolved;
+        farm.query.vgi.storage.BoundStorage storage = store.bind(executionId, attachPlain);
         BufferAllocator alloc = Allocators.root();
         BatchUtil.withReadBatch(inputBatch, alloc, root -> {
             if (root == null || root.getRowCount() == 0) return null;
@@ -124,12 +182,12 @@ public final class AggregateRunner {
             }
             VectorSchemaRoot args = new VectorSchemaRoot(new Schema(argFields), argVectors, rows);
 
-            Map<Long, byte[]> raw = store.loadStates(executionId, functionName, uniqArr);
+            Map<Long, byte[]> raw = store.loadStates(storage, uniqArr);
             Map<Long, Object> states = new HashMap<>(raw.size());
             for (Map.Entry<Long, byte[]> e : raw.entrySet()) {
                 states.put(e.getKey(), fn.deserializeState(e.getValue()));
             }
-            byte[] argsIpc = store.loadArgs(executionId, functionName);
+            byte[] argsIpc = store.loadArgs(storage);
             farm.query.vgi.function.Arguments bindArgs = argsIpc == null
                     ? farm.query.vgi.function.Arguments.empty()
                     : ArgumentsParser.parse(argsIpc);
@@ -139,7 +197,7 @@ public final class AggregateRunner {
             for (Map.Entry<Long, Object> e : states.entrySet()) {
                 dirty.put(e.getKey(), fn.serializeState(e.getValue()));
             }
-            store.saveStates(executionId, functionName, dirty);
+            store.saveStates(storage, dirty);
             return null;
         });
     }
@@ -152,12 +210,14 @@ public final class AggregateRunner {
      * @param resolved     the resolved aggregate
      * @param functionName the aggregate's registered name (state keys, diagnostics)
      * @param executionId  the execution scope from {@code bind}
+     * @param attachPlain  the request's authenticated, unwrapped attach (shards storage), or {@code null}
      * @param mergeBatch   IPC batch with {@code source_group_id}/{@code target_group_id} columns
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public void combine(AggregateFunction<?> resolved, String functionName, byte[] executionId,
-                         byte[] mergeBatch) {
+                         byte[] attachPlain, byte[] mergeBatch) {
         AggregateFunction fn = resolved;
+        farm.query.vgi.storage.BoundStorage storage = store.bind(executionId, attachPlain);
         BufferAllocator alloc = Allocators.root();
         BatchUtil.withReadBatch(mergeBatch, alloc, root -> {
             if (root == null || root.getRowCount() == 0) return null;
@@ -186,7 +246,7 @@ public final class AggregateRunner {
             }
             long[] neededArr = needed.stream().mapToLong(Long::longValue).toArray();
 
-            Map<Long, byte[]> raw = store.loadStates(executionId, functionName, neededArr);
+            Map<Long, byte[]> raw = store.loadStates(storage, neededArr);
             Map<Long, Object> states = new HashMap<>();
             for (Map.Entry<Long, byte[]> e : raw.entrySet()) {
                 states.put(e.getKey(), fn.deserializeState(e.getValue()));
@@ -221,7 +281,7 @@ public final class AggregateRunner {
                 Object s = states.get(t);
                 if (s != null) dirty.put(t, fn.serializeState(s));
             }
-            store.saveStates(executionId, functionName, dirty);
+            store.saveStates(storage, dirty);
             return null;
         });
     }
@@ -233,20 +293,22 @@ public final class AggregateRunner {
      * @param resolved       the resolved aggregate
      * @param functionName   the aggregate's registered name (state keys, diagnostics)
      * @param executionId    the execution scope from {@code bind}
+     * @param attachPlain    the request's authenticated, unwrapped attach (shards storage), or {@code null}
      * @param groupIdsBatch  IPC batch with a {@code group_id} column listing groups to finalize
      * @param outputSchemaIpc IPC-encoded output schema (single result column)
      * @return the finalize response carrying the result batch
      */
     public AggregateFinalizeResponse finalizeRequest(
             AggregateFunction<?> resolved, String functionName, byte[] executionId,
-            byte[] groupIdsBatch, byte[] outputSchemaIpc) {
+            byte[] attachPlain, byte[] groupIdsBatch, byte[] outputSchemaIpc) {
         @SuppressWarnings({"unchecked", "rawtypes"})
         AggregateFunction fn = resolved;
         Schema outputSchema = SchemaUtil.deserializeSchema(outputSchemaIpc);
 
         long[] gids = readGroupIds(groupIdsBatch);
         BufferAllocator alloc = Allocators.root();
-        byte[] argsIpc = store.loadArgs(executionId, functionName);
+        farm.query.vgi.storage.BoundStorage storage = store.bind(executionId, attachPlain);
+        byte[] argsIpc = store.loadArgs(storage);
         farm.query.vgi.function.Arguments bindArgs = argsIpc == null
                 ? farm.query.vgi.function.Arguments.empty()
                 : ArgumentsParser.parse(argsIpc);
@@ -255,7 +317,7 @@ public final class AggregateRunner {
             // Aggregates produce exactly one output column — resolve it once
             // here so per-row finalize calls don't repeat the lookup/cast.
             org.apache.arrow.vector.FieldVector result = output.getFieldVectors().get(0);
-            Map<Long, byte[]> raw = store.loadStates(executionId, functionName, gids);
+            Map<Long, byte[]> raw = store.loadStates(storage, gids);
             for (int i = 0; i < gids.length; i++) {
                 byte[] bytes = raw.get(gids[i]);
                 if (bytes == null) {
@@ -278,13 +340,13 @@ public final class AggregateRunner {
      *     request named a function this worker actually declares)
      * @param functionName  the aggregate's registered name (state keys)
      * @param executionId   the execution scope from {@code bind}
+     * @param attachPlain   the request's authenticated, unwrapped attach (shards storage), or {@code null}
      * @param groupIdsBatch IPC batch with a {@code group_id} column
      */
     public void destructor(AggregateFunction<?> resolved, String functionName, byte[] executionId,
-                            byte[] groupIdsBatch) {
+                            byte[] attachPlain, byte[] groupIdsBatch) {
         long[] gids = readGroupIds(groupIdsBatch);
-        if (gids.length == 0) return;
-        store.deleteStates(executionId, functionName, gids);
+        store.deleteStates(store.bind(executionId, attachPlain), gids);
     }
 
     private static long[] readGroupIds(byte[] batch) {

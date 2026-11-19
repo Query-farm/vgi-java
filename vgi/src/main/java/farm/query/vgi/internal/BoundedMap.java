@@ -31,4 +31,22 @@ final class BoundedMap {
             }
         });
     }
+
+    /**
+     * A thread-safe, size-bounded map in access order: the least recently used
+     * entry is evicted first.
+     *
+     * @param maxEntries the entry cap
+     * @param <K> key type
+     * @param <V> value type
+     * @return the synchronized LRU map
+     */
+    static <K, V> Map<K, V> createLru(int maxEntries) {
+        return Collections.synchronizedMap(new LinkedHashMap<K, V>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+                return size() > maxEntries;
+            }
+        });
+    }
 }

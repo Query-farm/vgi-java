@@ -19,6 +19,7 @@ package farm.query.vgi.examples;
 
 import farm.query.vgi.Worker;
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.aggregate.StateCodec;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.BigIntVector;
@@ -26,7 +27,6 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
@@ -34,9 +34,22 @@ import java.util.Map;
 public final class AggregateExample implements AggregateFunction<AggregateExample.State> {
 
     /** Per-group accumulator. Serializable: partials may be merged across workers. */
-    public static final class State implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static final class State {
         long total;
+    }
+
+    @Override public byte[] serializeState(State s) {
+        return StateCodec.encode(out -> {
+            out.writeLong(s.total);
+        });
+    }
+
+    @Override public State deserializeState(byte[] bytes) {
+        return StateCodec.decode(bytes, in -> {
+            State s = new State();
+            s.total = in.readLong();
+            return s;
+        });
     }
 
     private static final Schema OUTPUT_SCHEMA =

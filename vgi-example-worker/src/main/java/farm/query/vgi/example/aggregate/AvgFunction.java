@@ -3,6 +3,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.aggregate.StateCodec;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.Schemas;
 import org.apache.arrow.vector.BigIntVector;
@@ -11,17 +12,31 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
 /** {@code vgi_avg(value: int64) -> double} — averages int64 values. */
 public final class AvgFunction implements AggregateFunction<AvgFunction.State> {
 
-    public static final class State implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static final class State {
         long total;
         long count;
+    }
+
+    @Override public byte[] serializeState(State s) {
+        return StateCodec.encode(out -> {
+            out.writeLong(s.total);
+            out.writeLong(s.count);
+        });
+    }
+
+    @Override public State deserializeState(byte[] bytes) {
+        return StateCodec.decode(bytes, in -> {
+            State s = new State();
+            s.total = in.readLong();
+            s.count = in.readLong();
+            return s;
+        });
     }
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(

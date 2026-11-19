@@ -105,13 +105,19 @@ public final class VgiServiceImpl implements VgiService {
      * file, or a Cloudflare Durable Object). Backs table-buffering logs,
      * transaction key/value state, and aggregate group state alike.
      */
-    private final farm.query.vgi.storage.FunctionStorage storage =
-            farm.query.vgi.storage.StorageResolver.fromEnv();
-    // Expose the backend process-wide so a buffering source producer can re-bind
-    // its storage after an HTTP state-token round-trip (see BufferingStorageHolder).
-    { farm.query.vgi.buffering.BufferingStorageHolder.register(storage); }
-    private final TransactionStore transactionStore = new TransactionStore(storage);
+    private final farm.query.vgi.storage.FunctionStorage storage;
+    private final TransactionStore transactionStore;
     private final AggregateRunner aggregateRunner;
+    /** Seals framework payloads (buffering init, aggregate arguments) written to {@link #storage}. */
+    private final StoragePayloadSeal payloadSeal;
+    /**
+     * Process-local cache of opened buffering-init payloads keyed by
+     * {@code (shard, execution_id)}: the init never changes for an execution, so
+     * process/combine read storage only on a miss (storage stays authoritative).
+     * The shard is derived from the request's authenticated attach, so an entry
+     * is only ever served to a request for the same attach and execution.
+     */
+    private final java.util.Map<String, BufferingInitState> bufferingInitCache = BoundedMap.createLru(1024);
     /**
      * Bind cache keyed by an opaque token returned to DuckDB as
      * {@link BindResponse#opaque_data} and echoed back via
@@ -298,6 +304,39 @@ public final class VgiServiceImpl implements VgiService {
     public VgiServiceImpl(Worker worker, List<ScalarFunction> scalars, List<TableFunction> tables,
                            List<TableInOutFunction> tableInOuts, List<AggregateFunction<?>> aggregates,
                            boolean sealOpaqueData, byte[] opaqueDataKey, byte[] secretOptionKey) {
+        this(worker, scalars, tables, tableInOuts, aggregates, sealOpaqueData, opaqueDataKey, secretOptionKey,
+                null, null);
+    }
+
+    /**
+     * Full form: also names the input keying material sealed framework storage
+     * payloads derive their key from ({@link StoragePayloadSeal}), and optionally
+     * the storage backend.
+     *
+     * @param worker the owning worker
+     * @param scalars registered scalar functions
+     * @param tables registered table functions
+     * @param tableInOuts registered table-in-out functions
+     * @param aggregates registered aggregate functions
+     * @param sealOpaqueData {@code true} to AEAD-seal attach / transaction opaque data
+     * @param opaqueDataKey exactly 32 bytes of shared key material for cross-replica sealing, or {@code null}
+     * @param secretOptionKey 32-byte key for secret ATTACH option values, or {@code null}
+     * @param storageSealIkm the signing key exactly as configured, or {@code null} to seal
+     *     storage payloads with the per-user host-local key ({@link HostLocalKey})
+     * @param storageOverride the shared-state backend, or {@code null} to select it from
+     *     {@code VGI_WORKER_SHARED_STORAGE}
+     */
+    public VgiServiceImpl(Worker worker, List<ScalarFunction> scalars, List<TableFunction> tables,
+                           List<TableInOutFunction> tableInOuts, List<AggregateFunction<?>> aggregates,
+                           boolean sealOpaqueData, byte[] opaqueDataKey, byte[] secretOptionKey,
+                           byte[] storageSealIkm, farm.query.vgi.storage.FunctionStorage storageOverride) {
+        this.storage = storageOverride != null ? storageOverride
+                : farm.query.vgi.storage.StorageResolver.fromEnv();
+        // Expose the backend process-wide so a buffering source producer can re-bind
+        // its storage after an HTTP state-token round-trip (see BufferingStorageHolder).
+        farm.query.vgi.buffering.BufferingStorageHolder.register(storage);
+        this.transactionStore = new TransactionStore(storage);
+        this.payloadSeal = StoragePayloadSeal.forKey(storageSealIkm);
         this.secretOptionKey = secretOptionKey == null ? null : secretOptionKey.clone();
         this.sealer = (sealOpaqueData && opaqueDataKey != null)
                 ? new OpaqueDataSealer(opaqueDataKey)
@@ -315,7 +354,7 @@ public final class VgiServiceImpl implements VgiService {
         // The runner resolves nothing by name: a name is unique only within a
         // schema, so every aggregate RPC handler resolves (catalog, schema,
         // name) here and hands the function in.
-        this.aggregateRunner = new AggregateRunner(storage);
+        this.aggregateRunner = new AggregateRunner(storage, payloadSeal);
         this.catalogRegistry = new CatalogRegistry(worker);
         ServiceLocator.setCurrent(new ServiceLocator(this.scalars));
         farm.query.vgi.AttachOptions.installResolver(this::attachOptionsOf);
@@ -906,13 +945,18 @@ public final class VgiServiceImpl implements VgiService {
             // Sink-side init (phase TABLE_BUFFERING): mints execution_id and
             // persists the init metadata so any pool worker can cold-load it
             // to serve the subsequent process/combine RPCs (Python parity).
-            new farm.query.vgi.storage.BoundStorage(this.storage, execId, bb.attachId())
-                    .statePut(farm.query.vgi.storage.FrameworkNs.BUFFERING_INIT,
-                            farm.query.vgi.storage.BoundStorage.packIntKey(-1),
-                            RecordCodec.serializeToBytes(new BufferingInitState(
-                                    bb.argumentsIpc(), bb.settingsIpc(),
-                                    bb.outputSchemaIpc(), bb.attachId(),
-                                    bb.inputSchemaIpc(), bb.copyTo(), bb.secrets())));
+            // Sealed (StoragePayloadSeal): it carries the resolved secret values. The
+            // attach is not stored at all: process/combine use the request's own,
+            // authenticated attach.
+            farm.query.vgi.storage.BoundStorage initStorage =
+                    new farm.query.vgi.storage.BoundStorage(this.storage, execId, bb.attachId());
+            BufferingInitState init = new BufferingInitState(
+                    bb.argumentsIpc(), bb.settingsIpc(), bb.outputSchemaIpc(),
+                    bb.inputSchemaIpc(), bb.copyTo(), bb.secrets());
+            initStorage.statePut(BUFFERING_INIT_NS, BUFFERING_INIT_KEY,
+                    payloadSeal.seal(RecordCodec.serializeToBytes(init), initStorage.shardKey(),
+                            execId, BUFFERING_INIT_NS.bytes(), BUFFERING_INIT_KEY));
+            bufferingInitCache.put(bufferingCacheKey(initStorage), init);
             // No data stream — emit the header then immediate EOS.
             return RpcStream.producer(realOutputSchema,
                     new FinalizeProducerState(List.of()), header);
@@ -1338,7 +1382,8 @@ public final class VgiServiceImpl implements VgiService {
         return aggregateRunner.bind(
                 resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data(), ctx),
-                request.function_name(), request.input_schema(), request.arguments(),
+                request.function_name(), openAttach(request.attach_opaque_data(), ctx),
+                request.input_schema(), request.arguments(),
                 request.secrets(), request.argument_names());
     }
 
@@ -1378,7 +1423,8 @@ public final class VgiServiceImpl implements VgiService {
         aggregateRunner.update(
                 resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data(), ctx),
-                request.function_name(), request.execution_id(), request.input_batch());
+                request.function_name(), request.execution_id(),
+                openAttach(request.attach_opaque_data(), ctx), request.input_batch());
         return new farm.query.vgi.protocol.AggregateUpdateResponse();
     }
 
@@ -1393,7 +1439,8 @@ public final class VgiServiceImpl implements VgiService {
         aggregateRunner.combine(
                 resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data(), ctx),
-                request.function_name(), request.execution_id(), request.merge_batch());
+                request.function_name(), request.execution_id(),
+                openAttach(request.attach_opaque_data(), ctx), request.merge_batch());
         return new farm.query.vgi.protocol.AggregateCombineResponse();
     }
 
@@ -1409,6 +1456,7 @@ public final class VgiServiceImpl implements VgiService {
                 resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data(), ctx),
                 request.function_name(), request.execution_id(),
+                openAttach(request.attach_opaque_data(), ctx),
                 request.group_ids_batch(), request.output_schema());
     }
 
@@ -1426,7 +1474,8 @@ public final class VgiServiceImpl implements VgiService {
         aggregateRunner.destructor(
                 resolveAggregate(request.function_name(), request.schema_path(),
                         request.attach_opaque_data(), ctx),
-                request.function_name(), request.execution_id(), request.group_ids_batch());
+                request.function_name(), request.execution_id(),
+                openAttach(request.attach_opaque_data(), ctx), request.group_ids_batch());
         return new farm.query.vgi.protocol.AggregateDestructorResponse();
     }
 
@@ -2700,10 +2749,39 @@ public final class VgiServiceImpl implements VgiService {
      * metadata (legacy execution) degrades to empty args / null schema.
      */
     private BufferingInitState bufferingInitState(farm.query.vgi.storage.BoundStorage storage) {
-        byte[] payload = storage.stateGet(farm.query.vgi.storage.FrameworkNs.BUFFERING_INIT,
-                farm.query.vgi.storage.BoundStorage.packIntKey(-1));
-        if (payload == null) return new BufferingInitState(null, null, null, null, null, null, null);
-        return RecordCodec.deserializeFromBytes(payload, BufferingInitState.class);
+        String cacheKey = bufferingCacheKey(storage);
+        BufferingInitState cached = bufferingInitCache.get(cacheKey);
+        if (cached != null) return cached;
+        byte[] sealed = storage.stateGet(BUFFERING_INIT_NS, BUFFERING_INIT_KEY);
+        if (sealed == null) {
+            throw new IllegalStateException("table_buffering: unknown execution_id "
+                    + java.util.HexFormat.of().formatHex(storage.executionId())
+                    + " (init never ran or destructor already fired)");
+        }
+        BufferingInitState init = RecordCodec.deserializeFromBytes(
+                payloadSeal.open(sealed, storage.shardKey(), storage.executionId(),
+                        BUFFERING_INIT_NS.bytes(), BUFFERING_INIT_KEY),
+                BufferingInitState.class);
+        bufferingInitCache.put(cacheKey, init);
+        return init;
+    }
+
+    private static final farm.query.vgi.storage.FrameworkNs BUFFERING_INIT_NS =
+            farm.query.vgi.storage.FrameworkNs.BUFFERING_INIT;
+    private static final byte[] BUFFERING_INIT_KEY = farm.query.vgi.storage.BoundStorage.packIntKey(-1);
+
+    private static String bufferingCacheKey(farm.query.vgi.storage.BoundStorage storage) {
+        return storage.shardKey() + "|" + java.util.HexFormat.of().formatHex(storage.executionId());
+    }
+
+    /** The aggregate state store (tests). */
+    AggregateStateStore aggregateStoreForTests() {
+        return aggregateRunner.store();
+    }
+
+    /** Cached buffering-init entries (tests). */
+    int bufferingInitCacheSize() {
+        return bufferingInitCache.size();
     }
 
     /**
@@ -2726,7 +2804,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.function_name(), request.execution_id(), storage, request.batch_index(), ctx,
                 ArgumentsParser.parse(init.arguments()),
                 init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
-                init.attach_plain() != null ? init.attach_plain() : attachPlain,
+                attachPlain,
                 init.input_schema() == null ? null : SchemaUtil.deserializeSchema(init.input_schema()),
                 init.copy_to(), init.secrets());
         byte[] stateId;
@@ -2757,7 +2835,7 @@ public final class VgiServiceImpl implements VgiService {
                 request.function_name(), request.execution_id(), storage, ctx,
                 ArgumentsParser.parse(init.arguments()),
                 init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
-                init.attach_plain() != null ? init.attach_plain() : attachPlain,
+                attachPlain,
                 init.input_schema() == null ? null : SchemaUtil.deserializeSchema(init.input_schema()),
                 init.copy_to(), init.secrets());
         List<byte[]> ids = fn.combine(
@@ -2775,9 +2853,10 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.TableBufferingDestructorResponse table_buffering_destructor(
             farm.query.vgi.protocol.TableBufferingDestructorRequest request, CallContext ctx) {
-        new farm.query.vgi.storage.BoundStorage(this.storage, request.execution_id(),
-                openAttach(request.attach_opaque_data(), ctx))
-                .executionClear();
+        farm.query.vgi.storage.BoundStorage storage = new farm.query.vgi.storage.BoundStorage(
+                this.storage, request.execution_id(), openAttach(request.attach_opaque_data(), ctx));
+        bufferingInitCache.remove(bufferingCacheKey(storage));
+        storage.executionClear();
         return new farm.query.vgi.protocol.TableBufferingDestructorResponse();
     }
 

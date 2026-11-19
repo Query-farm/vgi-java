@@ -33,6 +33,7 @@ public final class BoundStorage {
 
     private final FunctionStorage store;
     private final byte[] executionId;
+    private final String shardKey;
 
     /**
      * Binds a backend to one execution, resolving the shard from the attach.
@@ -49,19 +50,32 @@ public final class BoundStorage {
      */
     public BoundStorage(FunctionStorage backend, byte[] executionId, byte[] attachPlaintext) {
         if (attachPlaintext != null && attachPlaintext.length > 0) {
-            this.store = backend.forShard(ShardKey.derive(attachPlaintext));
+            this.shardKey = ShardKey.derive(attachPlaintext);
+            this.store = backend.forShard(shardKey);
         } else if (backend.requiresShardKey()) {
             throw new IllegalStateException(
                     "this storage backend shards per attach, but no attach identity is available here");
         } else {
+            this.shardKey = "";
             this.store = backend;
         }
         this.executionId = executionId;
     }
 
-    private BoundStorage(byte[] scopeId, FunctionStorage pinnedStore) {
+    private BoundStorage(byte[] scopeId, FunctionStorage pinnedStore, String shardKey) {
         this.store = pinnedStore;
         this.executionId = scopeId;
+        this.shardKey = shardKey;
+    }
+
+    /**
+     * The shard this view is pinned to: {@code att-<attach uuid hex>}, or {@code ""}
+     * when no attach identity was given (local tiers only).
+     *
+     * @return the shard key
+     */
+    public String shardKey() {
+        return shardKey;
     }
 
     /**
@@ -82,7 +96,7 @@ public final class BoundStorage {
      * @return a facade identical to this one except for the scope
      */
     public BoundStorage rescope(byte[] scopeId) {
-        return new BoundStorage(scopeId, store);
+        return new BoundStorage(scopeId, store, shardKey);
     }
 
     private static byte[] checkNs(byte[] ns) {

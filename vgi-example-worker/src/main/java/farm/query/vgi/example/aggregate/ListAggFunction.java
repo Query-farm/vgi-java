@@ -3,6 +3,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.aggregate.StateCodec;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.types.ScalarHelpers;
 import farm.query.vgi.types.Schemas;
@@ -12,7 +13,6 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,9 +20,22 @@ import java.util.Map;
 /** {@code vgi_listagg(value: utf8) -> utf8}: concatenate strings with comma separator. */
 public final class ListAggFunction implements AggregateFunction<ListAggFunction.State> {
 
-    public static final class State implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static final class State {
         ArrayList<String> items = new ArrayList<>();
+    }
+
+    @Override public byte[] serializeState(State s) {
+        return StateCodec.encode(out -> {
+            out.writeStringList(s.items);
+        });
+    }
+
+    @Override public State deserializeState(byte[] bytes) {
+        return StateCodec.decode(bytes, in -> {
+            State s = new State();
+            s.items = in.readStringList();
+            return s;
+        });
     }
 
     private static final Schema OUTPUT_SCHEMA = new Schema(List.of(

@@ -3,6 +3,7 @@
 package farm.query.vgi.example.aggregate;
 
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.aggregate.StateCodec;
 import farm.query.vgi.function.FunctionMetadata;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.protocol.FunctionExample;
@@ -14,7 +15,6 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
@@ -44,8 +44,7 @@ public final class SameNameAggFunctions {
     public static final String NAME = "test_same_name_agg";
 
     /** Running total for one group. */
-    public static final class State implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static final class State {
         long total;
     }
 
@@ -60,6 +59,18 @@ public final class SameNameAggFunctions {
         @Override public Schema outputSchema() { return OUTPUT_SCHEMA; }
 
         @Override public State newState() { return new State(); }
+
+        @Override public byte[] serializeState(State s) {
+            return StateCodec.encode(out -> out.writeLong(s.total));
+        }
+
+        @Override public State deserializeState(byte[] bytes) {
+            return StateCodec.decode(bytes, in -> {
+                State s = new State();
+                s.total = in.readLong();
+                return s;
+            });
+        }
 
         @Override
         public void update(Map<Long, State> states, long[] groupIds, VectorSchemaRoot input) {

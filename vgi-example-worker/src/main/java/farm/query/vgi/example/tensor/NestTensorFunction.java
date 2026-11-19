@@ -3,6 +3,7 @@
 package farm.query.vgi.example.tensor;
 
 import farm.query.vgi.aggregate.AggregateFunction;
+import farm.query.vgi.aggregate.StateCodec;
 import farm.query.vgi.function.FunctionSpec;
 import farm.query.vgi.internal.VectorScalarCodec;
 import org.apache.arrow.vector.FieldVector;
@@ -16,7 +17,6 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -42,11 +42,36 @@ import java.util.Map;
  */
 public final class NestTensorFunction implements AggregateFunction<NestTensorFunction.State> {
 
-    public static final class State implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static final class State {
         ArrayList<Object> values = new ArrayList<>();
         ArrayList<Object[]> coords = new ArrayList<>();
         ArrayList<String> axisNames;
+    }
+
+    @Override public byte[] serializeState(State s) {
+        return StateCodec.encode(out -> {
+            out.writeValue(s.values);
+            out.writeInt(s.coords.size());
+            for (Object[] c : s.coords) out.writeValue(c);
+            out.writeStringList(s.axisNames);
+        });
+    }
+
+    @Override @SuppressWarnings("unchecked") public State deserializeState(byte[] bytes) {
+        return StateCodec.decode(bytes, in -> {
+            State s = new State();
+            s.values = new ArrayList<>((java.util.List<Object>) in.readValue());
+            int n = in.readInt();
+            if (n < 0 || n > in.remaining()) throw new IllegalArgumentException("nest_tensor: bad state");
+            for (int i = 0; i < n; i++) {
+                if (!(in.readValue() instanceof Object[] c)) {
+                    throw new IllegalArgumentException("nest_tensor: bad coordinate state");
+                }
+                s.coords.add(c);
+            }
+            s.axisNames = in.readStringList();
+            return s;
+        });
     }
 
     private static final FunctionSpec SPEC = FunctionSpec.builder("nest_tensor")

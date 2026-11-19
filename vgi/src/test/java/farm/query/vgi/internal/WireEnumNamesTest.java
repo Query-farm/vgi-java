@@ -114,6 +114,12 @@ class WireEnumNamesTest {
         @Override public FunctionSpec spec() { return SPEC; }
         @Override public org.apache.arrow.vector.types.pojo.Schema outputSchema() { return OUT; }
         @Override public long[] newState() { return new long[1]; }
+        @Override public byte[] serializeState(long[] s) {
+            return farm.query.vgi.aggregate.StateCodec.encode(out -> out.writeLong(s[0]));
+        }
+        @Override public long[] deserializeState(byte[] b) {
+            return farm.query.vgi.aggregate.StateCodec.decode(b, in -> new long[] {in.readLong()});
+        }
         @Override public void update(Map<Long, long[]> states, long[] groupIds, VectorSchemaRoot input) {}
         @Override public void combine(long[] target, long[] source) {}
         @Override public void finalize(FieldVector result, int rowIndex, long[] state) {}

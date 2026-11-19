@@ -183,34 +183,52 @@ public interface AggregateFunction<S> extends FunctionDescriptor {
     }
 
     /**
-     * Encode state to bytes for the wire. Default: Java serialization.
+     * Encode state to bytes for shared storage. <strong>Every aggregate must
+     * override this and {@link #deserializeState}</strong>; registration
+     * refuses one that does not.
+     *
+     * <p>There is deliberately no generic default. Through 0.48 the default was
+     * Java serialization, and the bytes are read back from shared storage (a
+     * SQLite file, or a Durable Object over the network) on every update,
+     * combine and finalize: deserializing them with {@code ObjectInputStream}
+     * let anyone able to write that storage run code in the worker. Write the
+     * state's fields explicitly instead; {@link StateCodec} provides a compact,
+     * bounds-checked typed encoding:
+     *
+     * <pre>{@code
+     * @Override public byte[] serializeState(State s) {
+     *     return StateCodec.encode(out -> { out.writeLong(s.total); out.writeLong(s.count); });
+     * }
+     * @Override public State deserializeState(byte[] bytes) {
+     *     return StateCodec.decode(bytes, in -> {
+     *         State s = new State(); s.total = in.readLong(); s.count = in.readLong(); return s;
+     *     });
+     * }
+     * }</pre>
+     *
+     * <p>The bytes are the function's own data and are stored as written (not
+     * encrypted); keep secrets out of aggregate state.
      *
      * @param state the per-group state to encode
      * @return the serialized state bytes
+     * @throws UnsupportedOperationException always, unless overridden
      */
     default byte[] serializeState(S state) {
-        try (java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(baos)) {
-            oos.writeObject(state);
-            return baos.toByteArray();
-        } catch (Exception e) {
-            throw new RuntimeException("aggregate state serialize failed", e);
-        }
+        throw new UnsupportedOperationException(getClass().getName()
+                + " must override serializeState/deserializeState (see farm.query.vgi.aggregate.StateCodec)");
     }
 
     /**
-     * Decode state from bytes. Default: Java deserialization.
+     * Decode state from bytes written by {@link #serializeState}. Must be
+     * overridden; the bytes come back from shared storage and must be parsed
+     * defensively (never with {@code ObjectInputStream}).
      *
      * @param bytes the serialized state bytes
      * @return the reconstructed per-group state
+     * @throws UnsupportedOperationException always, unless overridden
      */
-    @SuppressWarnings("unchecked")
     default S deserializeState(byte[] bytes) {
-        try (java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(bytes);
-             java.io.ObjectInputStream ois = new java.io.ObjectInputStream(bais)) {
-            return (S) ois.readObject();
-        } catch (Exception e) {
-            throw new RuntimeException("aggregate state deserialize failed", e);
-        }
+        throw new UnsupportedOperationException(getClass().getName()
+                + " must override serializeState/deserializeState (see farm.query.vgi.aggregate.StateCodec)");
     }
 }
