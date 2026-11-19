@@ -66,6 +66,14 @@ final class MockDoServer implements com.sun.net.httpserver.HttpHandler, AutoClos
     int missingShard = 0;
     int missingAttempt = 0;
     int badDrainContinuation = 0;
+    // Fault injection: each entry answers one request before it is processed.
+    // A status code is returned as-is (429 carries Retry-After: 0); 0 drops the
+    // connection without a response (a transport error on the client).
+    final java.util.concurrent.ConcurrentLinkedDeque<Integer> faults = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    // Every request as "endpoint attempt_id" (attempt_id empty for reads), faults included.
+    final List<String> requestLog = new java.util.concurrent.CopyOnWriteArrayList<>();
+    // Every Authorization header seen.
+    final List<String> authHeaders = new java.util.concurrent.CopyOnWriteArrayList<>();
     private long seq = 0;
 
     MockDoServer() throws IOException {
@@ -109,6 +117,19 @@ final class MockDoServer implements com.sun.net.httpserver.HttpHandler, AutoClos
         String endpoint = ex.getRequestURI().getPath().substring(1);
         String reqBody = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         JsonObject b = JsonParser.parseString(reqBody).getAsJsonObject();
+        requestLog.add(endpoint + " " + s(b, "attempt_id"));
+        String auth = ex.getRequestHeaders().getFirst("Authorization");
+        if (auth != null) authHeaders.add(auth);
+        Integer fault = faults.poll();
+        if (fault != null) {
+            if (fault == 0) {
+                ex.close(); // no response: the client sees the connection drop
+                return;
+            }
+            if (fault == 429) ex.getResponseHeaders().set("Retry-After", "0");
+            respond(ex, fault, "{\"error\":\"injected\"}");
+            return;
+        }
 
         String sk = s(b, "shard_key");
         if (!SHARD_RE.matcher(sk).matches()) {

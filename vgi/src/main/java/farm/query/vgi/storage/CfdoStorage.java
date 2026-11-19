@@ -7,11 +7,13 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -31,6 +33,15 @@ import java.util.List;
  * cursor; a drain mints ONE attempt_id and reuses it on every page so the
  * server's snapshot-then-page semantics stay atomic and replay-safe. It is the
  * distributed tier of {@link FunctionStorage}.
+ *
+ * <p>Every request has a connect and a request timeout, and a logical call is
+ * retried with exponential backoff and jitter on a transport error (including
+ * a timeout), a 5xx or a 429 ({@code Retry-After} honoured, capped at the
+ * maximum backoff). Every retry of one logical call sends the identical body,
+ * so a destructive call reuses its {@code attempt_id} and the server replays
+ * the first attempt's outcome instead of applying it twice. Other 4xx
+ * responses are not retried. The bearer token is only ever sent as a header;
+ * it never appears in an exception message or log line.
  */
 public final class CfdoStorage implements FunctionStorage {
 
@@ -44,6 +55,79 @@ public final class CfdoStorage implements FunctionStorage {
     private final String token; // nullable
     private final String shardKey; // "" until pinned via forShard
     private final HttpClient client;
+    private final Options options;
+
+    /**
+     * Timeouts and retry policy.
+     *
+     * @param connectTimeout TCP/TLS connect timeout
+     * @param requestTimeout per-attempt request timeout (until the response headers arrive)
+     * @param maxAttempts    attempts per logical call (1 disables retries)
+     * @param baseBackoff    first retry delay ceiling; doubles per retry
+     * @param maxBackoff     delay ceiling (also caps {@code Retry-After})
+     */
+    public record Options(Duration connectTimeout, Duration requestTimeout, int maxAttempts,
+                          Duration baseBackoff, Duration maxBackoff) {
+
+        /** Validates the policy. */
+        public Options {
+            if (connectTimeout == null || connectTimeout.isNegative() || connectTimeout.isZero()) {
+                throw new IllegalArgumentException("connectTimeout must be positive");
+            }
+            if (requestTimeout == null || requestTimeout.isNegative() || requestTimeout.isZero()) {
+                throw new IllegalArgumentException("requestTimeout must be positive");
+            }
+            if (maxAttempts < 1) throw new IllegalArgumentException("maxAttempts must be >= 1");
+            if (baseBackoff == null || baseBackoff.isNegative()) {
+                throw new IllegalArgumentException("baseBackoff must be >= 0");
+            }
+            if (maxBackoff == null || maxBackoff.compareTo(baseBackoff) < 0) {
+                throw new IllegalArgumentException("maxBackoff must be >= baseBackoff");
+            }
+        }
+
+        /**
+         * The defaults: 10 s connect, 30 s request, 4 attempts, 100 ms doubling to 2 s.
+         *
+         * @return the default policy
+         */
+        public static Options defaults() {
+            return new Options(Duration.ofSeconds(10), Duration.ofSeconds(30), 4,
+                    Duration.ofMillis(100), Duration.ofSeconds(2));
+        }
+
+        /**
+         * The defaults overridden by {@code VGI_CF_DO_CONNECT_TIMEOUT_MS},
+         * {@code VGI_CF_DO_REQUEST_TIMEOUT_MS}, {@code VGI_CF_DO_MAX_ATTEMPTS},
+         * {@code VGI_CF_DO_RETRY_BASE_MS} and {@code VGI_CF_DO_RETRY_MAX_MS}.
+         *
+         * @return the configured policy
+         * @throws IllegalArgumentException if a variable is not a valid number
+         */
+        public static Options fromEnv() {
+            Options d = defaults();
+            return new Options(
+                    envMillis("VGI_CF_DO_CONNECT_TIMEOUT_MS", d.connectTimeout()),
+                    envMillis("VGI_CF_DO_REQUEST_TIMEOUT_MS", d.requestTimeout()),
+                    (int) envLong("VGI_CF_DO_MAX_ATTEMPTS", d.maxAttempts()),
+                    envMillis("VGI_CF_DO_RETRY_BASE_MS", d.baseBackoff()),
+                    envMillis("VGI_CF_DO_RETRY_MAX_MS", d.maxBackoff()));
+        }
+
+        private static Duration envMillis(String name, Duration dflt) {
+            return Duration.ofMillis(envLong(name, dflt.toMillis()));
+        }
+
+        private static long envLong(String name, long dflt) {
+            String v = System.getenv(name);
+            if (v == null || v.isBlank()) return dflt;
+            try {
+                return Long.parseLong(v.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(name + " must be an integer, got '" + v + "'", e);
+            }
+        }
+    }
 
     /** Thrown on a non-2xx response from the Worker, or a transport error. */
     public static final class CfdoException extends RuntimeException {
@@ -65,14 +149,27 @@ public final class CfdoStorage implements FunctionStorage {
      * @param token   the optional bearer token; {@code null} or empty to omit
      */
     public CfdoStorage(String baseUrl, String token) {
-        this(stripSlash(baseUrl), token, "", HttpClient.newHttpClient());
+        this(baseUrl, token, Options.defaults());
     }
 
-    CfdoStorage(String baseUrl, String token, String shardKey, HttpClient client) {
+    /**
+     * Creates an unpinned client with an explicit timeout / retry policy.
+     *
+     * @param baseUrl the Worker base URL (trailing slashes are stripped)
+     * @param token   the optional bearer token; {@code null} or empty to omit
+     * @param options timeouts and retry policy
+     */
+    public CfdoStorage(String baseUrl, String token, Options options) {
+        this(stripSlash(baseUrl), token, "",
+                HttpClient.newBuilder().connectTimeout(options.connectTimeout()).build(), options);
+    }
+
+    CfdoStorage(String baseUrl, String token, String shardKey, HttpClient client, Options options) {
         this.baseUrl = baseUrl;
         this.token = token;
         this.shardKey = shardKey == null ? "" : shardKey;
         this.client = client;
+        this.options = options;
     }
 
     /**
@@ -87,7 +184,7 @@ public final class CfdoStorage implements FunctionStorage {
             throw new IllegalStateException(
                     "VGI_CF_DO_URL is required when VGI_WORKER_SHARED_STORAGE=cloudflare-do");
         }
-        return new CfdoStorage(url, System.getenv("VGI_CF_DO_TOKEN"));
+        return new CfdoStorage(url, System.getenv("VGI_CF_DO_TOKEN"), Options.fromEnv());
     }
 
     /**
@@ -98,7 +195,7 @@ public final class CfdoStorage implements FunctionStorage {
      */
     @Override
     public CfdoStorage forShard(String shard) {
-        return new CfdoStorage(baseUrl, token, shard, client);
+        return new CfdoStorage(baseUrl, token, shard, client, options);
     }
 
     /**
@@ -377,32 +474,97 @@ public final class CfdoStorage implements FunctionStorage {
         // The Worker routes on shard_key (idFromName) and rejects requests
         // without one — always splice it in.
         body.addProperty("shard_key", shardKey);
+        // Serialized once: every retry of this logical call sends the same bytes,
+        // so a destructive call keeps its attempt_id across attempts.
         HttpRequest.Builder rb = HttpRequest.newBuilder(URI.create(baseUrl + "/" + endpoint))
+                .timeout(options.requestTimeout())
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body)));
         if (token != null && !token.isEmpty()) {
             rb.header("Authorization", "Bearer " + token);
         }
-        HttpResponse<String> resp;
-        try {
-            resp = client.send(rb.build(), HttpResponse.BodyHandlers.ofString());
-        } catch (Exception e) {
-            throw new CfdoException("cfdo: " + endpoint + " transport error: " + e.getMessage());
-        }
-        int sc = resp.statusCode();
-        JsonObject data;
-        try {
-            data = JsonParser.parseString(resp.body()).getAsJsonObject();
-        } catch (Exception parseErr) {
-            if (sc >= 200 && sc < 300) {
-                return new JsonObject();
+        HttpRequest request = rb.build();
+        String last = null;
+        long retryAfterMs = -1;
+        for (int attempt = 1; attempt <= options.maxAttempts(); attempt++) {
+            if (attempt > 1) {
+                pause(backoffMillis(attempt - 1, retryAfterMs), endpoint);
             }
-            throw new CfdoException("cfdo: " + endpoint + " error " + sc + ": <non-json body>");
+            retryAfterMs = -1;
+            HttpResponse<String> resp;
+            try {
+                resp = client.send(request, HttpResponse.BodyHandlers.ofString());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new CfdoException("cfdo: " + endpoint + " interrupted");
+            } catch (IOException e) {
+                // Connect failure, reset, timeout (HttpTimeoutException) — retryable.
+                last = "transport error: " + e.getClass().getSimpleName()
+                        + (e.getMessage() == null ? "" : ": " + e.getMessage());
+                continue;
+            }
+            int sc = resp.statusCode();
+            if (sc == 429 || (sc >= 500 && sc < 600)) {
+                last = "error " + sc + ": " + abbreviate(resp.body());
+                if (sc == 429) {
+                    retryAfterMs = resp.headers().firstValue("Retry-After")
+                            .map(CfdoStorage::parseRetryAfterMillis).orElse(-1L);
+                }
+                continue;
+            }
+            JsonObject data;
+            try {
+                data = JsonParser.parseString(resp.body()).getAsJsonObject();
+            } catch (Exception parseErr) {
+                if (sc >= 200 && sc < 300) {
+                    return new JsonObject();
+                }
+                throw new CfdoException("cfdo: " + endpoint + " error " + sc + ": <non-json body>");
+            }
+            if (sc < 200 || sc >= 300) {
+                // Other 4xx: the request itself is wrong; retrying cannot help.
+                throw new CfdoException("cfdo: " + endpoint + " error " + sc + ": " + data);
+            }
+            return data;
         }
-        if (sc < 200 || sc >= 300) {
-            throw new CfdoException("cfdo: " + endpoint + " error " + sc + ": " + data);
+        throw new CfdoException("cfdo: " + endpoint + " failed after " + options.maxAttempts()
+                + " attempt(s): " + last);
+    }
+
+    /** Exponential backoff with jitter: a uniform delay in [ceiling/2, ceiling]. */
+    private long backoffMillis(int retry, long retryAfterMs) {
+        long max = options.maxBackoff().toMillis();
+        if (retryAfterMs >= 0) return Math.min(retryAfterMs, max);
+        long ceiling = options.baseBackoff().toMillis();
+        for (int i = 1; i < retry && ceiling < max; i++) ceiling *= 2;
+        ceiling = Math.min(ceiling, max);
+        if (ceiling <= 0) return 0;
+        long half = ceiling / 2;
+        return half + RNG.nextLong(ceiling - half + 1);
+    }
+
+    private static void pause(long millis, String endpoint) {
+        if (millis <= 0) return;
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CfdoException("cfdo: " + endpoint + " interrupted");
         }
-        return data;
+    }
+
+    private static Long parseRetryAfterMillis(String v) {
+        try {
+            long secs = Long.parseLong(v.trim());
+            return secs < 0 ? -1L : secs * 1000L;
+        } catch (NumberFormatException e) {
+            return -1L; // HTTP-date form: fall back to the computed backoff
+        }
+    }
+
+    private static String abbreviate(String body) {
+        if (body == null) return "";
+        return body.length() <= 200 ? body : body.substring(0, 200) + "...";
     }
 
     private static String optString(JsonObject obj, String field) {
