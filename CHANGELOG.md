@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Blob-vendor externalization** (wire-compatible with vgi-python 0.54; contract: the vgi extension's
+  `docs/testing/blob-test-catalog.md`). Needs vgi-rpc-java's `farm.query.vgirpc.vendor` (built from source
+  until the next vgi-rpc-java release).
+  - `ExternalizingStorage` wraps any `FunctionStorage`: every value is enveloped (`0x00||raw`, or the
+    `0x01||u64be size||sha256||object_id` pointer to a vendor blob, byte-identical to vgi-python and checked
+    against `test/vectors/storage_envelope_v1.json`); values of at least `VGI_STORAGE_EXTERNALIZE_BYTES`
+    (default 512 KiB) go to the blob vendor (`VGI_BLOB_VENDOR_URL` + `VGI_BLOB_VENDOR_TOKEN`, purpose `fs`)
+    under the `q.<hex>` / `s.<hex>` scopes, verified by size and SHA-256 on read, and cleaned up in the
+    background. A blob that cannot be read fails with `storage blob <id> failed its integrity check: sha256
+    mismatch` / `... is missing: not found in the blob vendor ...` (`StorageBlobIntegrityException`,
+    `StorageBlobMissingException`). `StorageResolver` always wraps `cloudflare-do` (with its 1 MiB per-value
+    cap) and wraps the other backends with `VGI_STORAGE_EXTERNALIZE=1`. **Note:** the `cloudflare-do` stored
+    format therefore changes to the envelope; finish running queries before upgrading.
+  - The HTTP entry points (`Worker.runFromArgs` `--http`, `Worker.runHttp`) read `VGI_BLOB_VENDOR_URL`:
+    results of at least `VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES` (default 1 MiB) are uploaded to the vendor
+    (purpose `rpc`, pointer carries `vgi_rpc.location.sha256`), `__upload_url__/init` vends vendor upload URLs
+    (`VGI_RPC_MAX_UPLOAD_BYTES` advertised), and inbound pointers are fetched only from the vendor's hosts.
+    `VGI_RPC_MAX_REQUEST_BYTES` is advertised and enforced, vendor or not.
+  - The example worker serves the `blob_test` catalog (seven functions), and the integration workflow has a
+    `vendor` lane: the whole HTTP suite against vgi-rpc's fake blob vendor, then `test/sql/external_storage/*`.
+
 ## 0.49.0 (2026-11-19)
 
 ### Security

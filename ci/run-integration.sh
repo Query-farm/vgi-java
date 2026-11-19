@@ -12,6 +12,13 @@
 #                    (vgi-example-worker/build/install/.../bin/vgi-example-worker)
 # Optional:
 #   STAGE            scratch dir for the preprocessed test tree (default: mktemp)
+#   BLOB_VENDOR=1    the blob-vendor lane (TRANSPORT=http only): start vgi-rpc's
+#                    fake blob vendor with the vgi checkout's
+#                    test/start_fake_blob_vendor.sh, so the worker externalizes
+#                    results, vends upload URLs and keeps large storage values in
+#                    the vendor; run the whole suite that way, then
+#                    test/sql/external_storage/* (contract:
+#                    docs/testing/blob-test-catalog.md). Needs uvx on PATH.
 set -euo pipefail
 
 : "${VGI_SRC:?path to a Query-farm/vgi checkout}"
@@ -51,6 +58,10 @@ RUNNER_ARGS=(--test-config "$TEST_CONFIG" --test-dir "$STAGE")
 # staging because the http lane needs httpfs injected into every test and drops
 # a couple of files the prebuilt binary can't serve over http (see below).
 TRANSPORT="${TRANSPORT:-launch}"
+BLOB_VENDOR="${BLOB_VENDOR:-0}"
+if [ "$BLOB_VENDOR" = "1" ] && [ "$TRANSPORT" != "http" ]; then
+  echo "::error::BLOB_VENDOR=1 needs TRANSPORT=http (the vendor externalizes HTTP responses)"; exit 1
+fi
 
 # Per-transport staging knobs.
 #   AWK_HTTP=1   — the http lane: inject `LOAD httpfs` before each worker ATTACH
@@ -109,6 +120,20 @@ mkdir -p "$STAGE/test/sql/integration"
     fi
   done )
 
+# The blob-vendor lane also runs test/sql/external_storage/ (staged the same way).
+if [ "$BLOB_VENDOR" = "1" ]; then
+  EXTERNAL="$VGI_SRC/test/sql/external_storage"
+  [ -d "$EXTERNAL" ] || { echo "::error::no test/sql/external_storage under VGI_SRC=$VGI_SRC (needs vgi >= f9e5df3)"; exit 1; }
+  mkdir -p "$STAGE/test/sql/external_storage"
+  for f in "$EXTERNAL"/*.test; do
+    if [ "$RUNNER_LINKS_EXTENSIONS" = "1" ]; then
+      cp "$f" "$STAGE/test/sql/external_storage/"
+    else
+      awk -v http=1 -f "$HERE/preprocess-require.awk" "$f" > "$STAGE/test/sql/external_storage/$(basename "$f")"
+    fi
+  done
+fi
+
 # The database-worker tests package this executable through a path relative to
 # the staged unittest working directory. Staging only .test files leaves that
 # path unmatched, so preserve the fixture and its executable bit explicitly.
@@ -154,8 +179,20 @@ echo "txfix state dir: $VGI_TXFIX_STATE_DIR"
 
 # Background worker processes (http servers) are tracked here and killed on exit.
 BG_PIDS=()
-cleanup() { for p in "${BG_PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done; }
+cleanup() {
+  for p in "${BG_PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
+  if declare -F stop_fake_blob_vendor >/dev/null; then stop_fake_blob_vendor; fi
+}
 trap cleanup EXIT
+
+# Blob-vendor lane: start the fake vendor BEFORE any worker boots, so every
+# worker inherits VGI_BLOB_VENDOR_URL and the tiny thresholds the script exports
+# (4 KiB results / storage values, 32 KiB request cap) and modest test data
+# takes every externalization path.
+if [ "$BLOB_VENDOR" = "1" ]; then
+  # shellcheck source=/dev/null
+  source "$VGI_SRC/test/start_fake_blob_vendor.sh"
+fi
 
 # boot_http_worker <executable> — start it as an HTTP server on an ephemeral
 # port and set BOOTED_PORT to the port it reports (`PORT:<n>`, the same
@@ -287,6 +324,7 @@ EXPECTED_SKIP_REASONS=(
   'require-env VGI_TEST_ICEBERG'                 # iceberg fixture, not stood up here
   'require-env VGI_DOCKER_IMAGE'                 # containerised worker lane
   'require-env VGI_DOCKER_TCP_IMAGE'             # containerised worker over TCP
+  'require-env VGI_DOCKER_TX_IMAGE'              # containerised txfix worker (newer vgi suites)
   'require-env VGI_GITHUB_NETWORK_TESTS'         # hits github.com; opt-in only
   'require-env VGI_DATABASE_BUN_WORKER'          # Bun package fixture belongs to its SDK lane
   'require-env VGI_DATABASE_PYTHON_WORKER'       # Python package fixture belongs to its SDK lane
@@ -302,6 +340,12 @@ if [ "$TRANSPORT" = "http" ]; then
     'require-env VGI_BAD_ENUM_WORKER'
     'require-env VGI_REQUIRE_LAUNCHER_TRANSPORT'
   )
+fi
+# external_storage/fetch_*.test test the extension's own download client against
+# vgi's external_location_probe_worker.py, not the worker: they are outside the
+# blob_test contract and skip without VGI_EXTERNAL_PROBE_WORKER.
+if [ "$BLOB_VENDOR" = "1" ]; then
+  EXPECTED_SKIP_REASONS+=('require-env VGI_EXTERNAL_PROBE_WORKER')
 fi
 
 # Engine-gated files (vgi Makefile VGI_ENGINE_TEST_VARS). The native runner
@@ -439,6 +483,31 @@ run_unittest() {
 # fails the job. run_unittest returns non-zero on failure → `set -e` aborts.
 echo "Running suite (single invocation — native sqllogictest report) ..."
 run_unittest "test/sql/integration/*"
+
+# Blob-vendor lane: the external_storage files, one invocation against the same
+# long-lived HTTP worker (the runner executes files one at a time, which the
+# vendor's lane-wide counters and armed faults need). Every non-fetch file must
+# execute: 7 is the size of the blob_test contract's file set.
+if [ "$BLOB_VENDOR" = "1" ]; then
+  echo "Running test/sql/external_storage/* (blob vendor $VGI_BLOB_VENDOR_URL) ..."
+  ( run_unittest "test/sql/external_storage/*"
+    if [ "$MAIN_EXECUTED" -lt "${MIN_EXTERNAL_EXECUTED:-7}" ]; then
+      echo "::error::only $MAIN_EXECUTED external_storage test cases executed, floor ${MIN_EXTERNAL_EXECUTED:-7}"
+      exit 1
+    fi )
+  stats="$(python3 -c 'import sys, urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=10).read().decode().strip())' "$VGI_BLOB_VENDOR_URL/__stats__")"
+  echo "fake blob vendor counters: $stats"
+  # Evidence the lane externalized at all: results (puts), uploads (upload_urls)
+  # and storage values all reached the vendor.
+  python3 - "$stats" <<'PY'
+import json, sys
+s = json.loads(sys.argv[1])
+missing = [k for k in ("puts", "gets", "upload_urls", "storage_puts", "storage_gets") if not s.get(k)]
+if missing:
+    print(f"::error::the blob vendor saw no {', '.join(missing)}: the worker did not externalize")
+    sys.exit(1)
+PY
+fi
 
 # gzip_fallback.test needs VGI_TEST_WORKER itself to be a zstd-disabled HTTP
 # worker (it attaches it directly and asserts the gzip codec fallback). That

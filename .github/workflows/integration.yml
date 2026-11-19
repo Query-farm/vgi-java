@@ -22,8 +22,14 @@ env:
   # Match the test suite to the native runner built from this exact revision.
   VGI_REF: 9dae8d55c9692cbd8b69d021c28b20a09aeee438
   VGI_NATIVE_RUNNER_BRANCH: v2.0
-  # Disable local sibling substitution: validate the released Maven dependency.
-  VGI_RPC_JAVA_DIR: /nonexistent
+  # The blob-vendor lane needs test/sql/external_storage/ and
+  # test/start_fake_blob_vendor.sh (vgi >= f9e5df3); the other lanes keep VGI_REF.
+  VGI_VENDOR_REF: f9e5df356dcc8fd18f545a3a348ca364ae58fe0e
+  # TODO(release-wave): switch to the released vgi-rpc-java (farm.query:vgirpc)
+  # that carries farm.query.vgirpc.vendor, drop this pin and the checkout step,
+  # and restore VGI_RPC_JAVA_DIR: /nonexistent (validate the Maven dependency).
+  VGI_RPC_JAVA_REF: a4fd98d65e59b7ea2f4ab9e2605bef57c42ff5ec
+  VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
 jobs:
   build-worker:
@@ -32,6 +38,13 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
+
+      - name: Checkout vgi-rpc-java at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: ${{ env.VGI_RPC_JAVA_REF }}
+          path: vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -78,6 +91,11 @@ jobs:
           - { lane: launch }
           - { lane: shm, shm_bytes: '67108864' }
           - { lane: http, transport: http }
+          # vendor: the http lane with vgi-rpc's fake blob vendor (results over
+          # 4 KiB externalized, requests over 32 KiB uploaded through vendor
+          # URLs, storage values over 4 KiB kept in the vendor), then
+          # test/sql/external_storage/* (vgi docs/testing/blob-test-catalog.md).
+          - { lane: vendor, transport: http, blob_vendor: '1' }
     name: integration (${{ matrix.lane }})
     steps:
       - name: Checkout vgi-java
@@ -87,8 +105,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Query-farm/vgi
-          ref: ${{ env.VGI_REF }}
+          ref: ${{ matrix.blob_vendor == '1' && env.VGI_VENDOR_REF || env.VGI_REF }}
           path: vgi-upstream
+
+      # start_fake_blob_vendor.sh runs vgi-rpc-fake-vendor with uvx.
+      - name: Set up uv (blob-vendor lane)
+        if: matrix.blob_vendor == '1'
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -121,5 +146,7 @@ jobs:
           VGI_RPC_SHM_SIZE_BYTES: ${{ matrix.shm_bytes || '' }}
           # launch (default) unless the lane selects the http transport.
           TRANSPORT: ${{ matrix.transport || 'launch' }}
+          # 1 on the vendor lane: start the fake blob vendor, run external_storage/.
+          BLOB_VENDOR: ${{ matrix.blob_vendor || '0' }}
           # JDK 25 + native access for the worker JVM (FFM shm, haybarn_jdbc).
           JAVA_TOOL_OPTIONS: --enable-native-access=ALL-UNNAMED

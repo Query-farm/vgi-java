@@ -393,6 +393,9 @@ public final class Main {
             registerAccumulate(w);
             registerNarrowBind(w);
             registerTwinCatalogs(w);
+            // blob_test: the blob-vendor externalization fixtures (vgi
+            // docs/testing/blob-test-catalog.md; test/sql/external_storage/).
+            farm.query.vgi.example.blob.BlobTestFixtures.register(w);
             // ticket_probe: attach tickets (vgi.attach_tickets.v1) -- one plain and one secret
             // attach option whose effect a table reveals.
             farm.query.vgi.example.table.TicketProbeFixture.register(w);

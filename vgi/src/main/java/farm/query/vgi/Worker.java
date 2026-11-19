@@ -2324,7 +2324,39 @@ public final class Worker {
      * @throws Exception if the server fails to start or serve
      */
     public void runHttp(String host, int port) throws Exception {
-        runHttp(HttpServer.Config.builder().host(host).port(port).build());
+        runHttp(blobVendorHttp().applyTo(HttpServer.Config.builder().host(host).port(port)).build());
+    }
+
+    /** Blob-vendor HTTP settings, read from the environment once per worker. */
+    private farm.query.vgirpc.vendor.BlobVendorHttpSettings blobVendorHttp;
+
+    /**
+     * The blob-vendor HTTP settings from the environment, read once:
+     * {@code VGI_BLOB_VENDOR_URL} (+ {@code VGI_BLOB_VENDOR_TOKEN}) externalizes
+     * results of at least {@code VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES} to the
+     * vendor and vends upload URLs ({@code VGI_RPC_MAX_UPLOAD_BYTES} advertised);
+     * {@code VGI_RPC_MAX_REQUEST_BYTES} is advertised and enforced either way.
+     * The HTTP entry points ({@link #runFromArgs}, {@link #runHttp(String, int)})
+     * apply them to the config builder before the caller's customizer, and
+     * {@link #runHttp(HttpServer.Config)} wires the RPC side.
+     *
+     * @return the settings (every field {@code null} when nothing is configured)
+     * @throws IllegalArgumentException if a variable is malformed or the vendor
+     *     URL is set without a token
+     */
+    synchronized farm.query.vgirpc.vendor.BlobVendorHttpSettings blobVendorHttp() {
+        if (blobVendorHttp == null) {
+            blobVendorHttp = farm.query.vgirpc.vendor.BlobVendorHttpSettings.fromEnv(null);
+            if (blobVendorHttp.vendorEnabled()) {
+                System.err.println("Blob vendor enabled: "
+                        + farm.query.vgirpc.external.LocationResolver.redactUrl(
+                                System.getenv(farm.query.vgirpc.vendor.BlobVendor.ENV_URL))
+                        + " threshold=" + blobVendorHttp.externalLocation().thresholdBytes()
+                        + " max_request_bytes=" + blobVendorHttp.maxRequestBytes());
+                System.err.flush();
+            }
+        }
+        return blobVendorHttp;
     }
 
     /**
@@ -2452,7 +2484,8 @@ public final class Worker {
                         IrohBridgeOptions.fromArgs(
                                 irohIssuer, irohTrustedProxies, !irohObserve));
             } else if (http) {
-                HttpServer.Config.Builder b = HttpServer.Config.builder().host(host).port(port);
+                HttpServer.Config.Builder b = blobVendorHttp().applyTo(
+                        HttpServer.Config.builder().host(host).port(port));
                 if (httpCustomizer != null) b = httpCustomizer.apply(b);
                 if (irohIssuer != null) {
                     requireLoopback(host, "Iroh HTTP bridge upstream");
@@ -2505,7 +2538,11 @@ public final class Worker {
                 ? config
                 : config.withLandingInfo(farm.query.vgi.http.WorkerLandingInfo.of(this));
         effective = withStateTokenKey(effective, configuredSigningKey(), log);
-        HttpServer http = new HttpServer(buildServer(Transport.HTTP), effective);
+        RpcServer rpc = buildServer(Transport.HTTP);
+        // Results over VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES go to the blob vendor and
+        // client upload pointers are resolved from its hosts (no-op without a vendor).
+        blobVendorHttp().applyTo(rpc);
+        HttpServer http = new HttpServer(rpc, effective);
         http.start();
         System.out.println("PORT:" + http.port());
         System.out.flush();

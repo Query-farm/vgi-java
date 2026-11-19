@@ -33,6 +33,16 @@ The workflow runs a matrix over transports (`run-integration.sh` honours
 - **`shm`** — `launch` plus the POSIX shared-memory side channel
   (`VGI_RPC_SHM_SIZE_BYTES`); needs JDK 22+ (`--enable-native-access`).
 
+- **`vendor`** — the `http` lane with vgi-rpc's fake blob vendor (`BLOB_VENDOR=1`):
+  `run-integration.sh` sources the vgi checkout's `test/start_fake_blob_vendor.sh`
+  before any worker boots, so results over 4 KiB are externalized, requests over
+  32 KiB go up through vendor upload URLs and storage values over 4 KiB live in
+  the vendor. It runs the whole suite that way, then `test/sql/external_storage/*`
+  against the worker's `blob_test` catalog (contract:
+  `docs/testing/blob-test-catalog.md`). It checks out `VGI_VENDOR_REF` (the first
+  vgi revision with those files) and needs `uvx`. The extension-only
+  `fetch_*.test` files skip without `VGI_EXTERNAL_PROBE_WORKER`.
+
 All lanes also boot a **versioned_tables catalog worker over HTTP** and set
 `VGI_VERSIONED_TABLES_HTTP_WORKER`, so the four `attach/versioned_tables_*_http`
 tests run. The **`http`** lane runs the main worker through its stateless HTTP

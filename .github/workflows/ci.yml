@@ -5,7 +5,9 @@
 # ever compiles the example worker -- vgi/src/test carried 278 JUnit tests that
 # nothing in CI ran. This workflow is that gate.
 #
-# Resolve the same Maven Central RPC dependencies as published SDK consumers.
+# The RPC framework is built from source at VGI_RPC_JAVA_REF (a Gradle
+# composite build through VGI_RPC_JAVA_DIR) while the vgi-rpc-java release this
+# SDK needs is unpublished; see the TODO in the env block.
 name: CI
 
 on:
@@ -21,8 +23,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Disable local sibling substitution: validate the released Maven dependency.
-  VGI_RPC_JAVA_DIR: /nonexistent
+  # TODO(release-wave): switch to the released vgi-rpc-java (farm.query:vgirpc)
+  # that carries farm.query.vgirpc.vendor, drop this pin and the checkout steps,
+  # and restore VGI_RPC_JAVA_DIR: /nonexistent (validate the Maven dependency).
+  VGI_RPC_JAVA_REF: a4fd98d65e59b7ea2f4ab9e2605bef57c42ff5ec
+  VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
 jobs:
   test:
@@ -31,6 +36,13 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
+
+      - name: Checkout vgi-rpc-java at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: ${{ env.VGI_RPC_JAVA_REF }}
+          path: vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -49,6 +61,39 @@ jobs:
 
       - name: Unit tests
         run: ./gradlew --no-daemon :vgi:test
+
+      # The externalizing storage against vgi-rpc-python's fake blob vendor:
+      # threshold boundary, corrupt/missing faults, clean-up, and the storage
+      # conformance suite with every value in the vendor. Those tests skip
+      # without VGI_BLOB_VENDOR_URL, so this step sets it and then requires them
+      # to have run.
+      # No uv cache: its post-job prune would wait on the vendor's cache lock.
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Externalizing storage against the fake blob vendor
+        env:
+          VGI_RPC_FAKE_VENDOR_REF: af57e6bb395e5198b2a5336def976d73bfc87d8f
+        run: |
+          log="$RUNNER_TEMP/fake-vendor.log"
+          nohup uvx --from "git+https://github.com/Query-farm/vgi-rpc-python@${VGI_RPC_FAKE_VENDOR_REF}" \
+            vgi-rpc-fake-vendor --test-routes --token "test-token=tenant-a" > "$log" 2>&1 &
+          vendor_pid=$!
+          trap 'kill "$vendor_pid" 2>/dev/null || true' EXIT
+          url=""
+          for _ in $(seq 1 360); do
+            url="$(sed -n 's/^URL://p' "$log" | head -1)"
+            [ -n "$url" ] && break
+            sleep 0.5
+          done
+          [ -n "$url" ] || { echo "::error::fake vendor did not start"; cat "$log"; exit 1; }
+          VGI_BLOB_VENDOR_URL="$url" VGI_BLOB_VENDOR_TOKEN=test-token ./gradlew --no-daemon :vgi:test \
+            --tests 'farm.query.vgi.storage.Externalizing*' --tests 'farm.query.vgi.storage.StorageEnvelope*'
+          for t in ExternalizingStorageTest ExternalizingVendorConformanceTest; do
+            xml="vgi/build/test-results/test/TEST-farm.query.vgi.storage.$t.xml"
+            grep -q 'skipped="0"' "$xml" || { echo "::error::$t was skipped"; exit 1; }
+          done
 
       # The published artifact carries javadoc, so a doc comment that does not
       # build is a broken release, not a warning.
@@ -76,6 +121,13 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
+
+      - name: Checkout vgi-rpc-java at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: ${{ env.VGI_RPC_JAVA_REF }}
+          path: vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
