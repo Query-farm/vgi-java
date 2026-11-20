@@ -1653,6 +1653,57 @@ public final class Main {
                         .comment("Protocol 3.2: multi-expression branch_filter is rejected").build(),
                 List.of(ScanBranch.filtered("sequence", "n < 5, n > 2", 10L)
                         .withSchemaPath(List.of("main"))));
+
+        registerPlannedEvents(w, days, dir);
+    }
+
+    /**
+     * {@code data.planned_events}: protocol 3.2 filtered planning over a mixed-type
+     * table, the predicates a real catalog sees (string LIKE, functions, NULLs,
+     * timestamps, booleans), most of which the worker cannot use and DuckDB must
+     * still apply (scan_planning_predicates*.test). One file per day,
+     * {@code BRANCH_DIR/planned_events_<day>.parquet}, 10 rows each, written by the
+     * tests. Statistics cover {@code event_date} and {@code ts}, so predicates on
+     * either prune; every other column only reaches DuckDB.
+     *
+     * <p>Every planning call writes {@code planned_events_last_plan.json} with the
+     * planned days and the described filters ({@code null} when the client sent
+     * none), so a test can assert what reached the worker, including that a
+     * predicate it cannot use stayed with the client. Only the
+     * scan_planning_predicates*.test files query this table, in one serial group,
+     * so the record is never overwritten concurrently. Mirrors vgi-python's
+     * {@code _planned_events_branches}.</p>
+     */
+    private static void registerPlannedEvents(Worker w, List<java.time.LocalDate> days, String dir) {
+        byte[] columns = cols(Schemas.nullable("event_date", new ArrowType.Date(DateUnit.DAY)),
+                Schemas.nullable("ts", PLANNED_EVENTS_TS),
+                Schemas.nullable("series", Schemas.UTF8),
+                Schemas.nullable("ticker", Schemas.UTF8),
+                Schemas.nullable("n", Schemas.INT64),
+                Schemas.nullable("price", Schemas.FLOAT64),
+                Schemas.nullable("flag", Schemas.BOOL));
+        w.registerPlannedTable(
+                CatalogTable.builder("data", "planned_events", columns)
+                        .comment("Protocol 3.2: filtered planning, non-prunable predicates — scan_planning_predicates.test")
+                        .build(),
+                farm.query.vgi.catalog.ScanPlanning.FILTERED,
+                request -> {
+                    var filters = request.pushdownFilters();
+                    List<java.time.LocalDate> kept = days.stream()
+                            .filter(day -> filters == null || filters.mayMatch(plannedEventStats(day)))
+                            .toList();
+                    recordPlannedEvents(dir, kept, filters == null ? null : describeFilters(filters));
+                    // One read_parquet branch per planned day (vgi-python sends one branch
+                    // over the list of files; scan arguments here are scalars). Zero days
+                    // is zero branches: the scan produces no rows.
+                    return new farm.query.vgi.catalog.ScanBranchesResult(
+                            kept.stream()
+                                    .map(day -> ScanBranch.of("read_parquet",
+                                                    dir + "/planned_events_" + day + ".parquet")
+                                            .withStatistics(10L, null))
+                                    .toList(),
+                            List.of("parquet"));
+                });
     }
 
     private static String plannedDayFile(String dir, java.time.LocalDate day) {
@@ -1674,6 +1725,98 @@ public final class Main {
         json.append("]}");
         try {
             java.nio.file.Files.writeString(java.nio.file.Path.of(dir, "planned_days_last_plan.json"), json);
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    /** {@code planned_events.ts}: TIMESTAMPTZ, microseconds in UTC. */
+    private static final ArrowType PLANNED_EVENTS_TS =
+            new ArrowType.Timestamp(org.apache.arrow.vector.types.TimeUnit.MICROSECOND, "UTC");
+
+    /** {@code event_date} is the day; {@code ts} spans 00:00 to 09:00 UTC of it. */
+    private static List<farm.query.vgi.catalog.ColumnStatistics> plannedEventStats(java.time.LocalDate day) {
+        long start = day.toEpochDay() * 86_400L * 1_000_000L;
+        return List.of(
+                new farm.query.vgi.catalog.ColumnStatistics("event_date",
+                        new ArrowType.Date(DateUnit.DAY), day, day, false, true, null, null, null),
+                new farm.query.vgi.catalog.ColumnStatistics("ts", PLANNED_EVENTS_TS,
+                        start, start + 9L * 3_600L * 1_000_000L, false, true, null, null, null));
+    }
+
+    /**
+     * One stable line per pushed predicate, sorted, for test assertions: {@code "n LT"},
+     * {@code "And(event_date GE, event_date LE)"}, {@code "ticker IsNull"}, ... The same
+     * descriptions as vgi-python's fixture {@code _describe_filter}.
+     */
+    static List<String> describeFilters(farm.query.vgi.catalog.ScanPlanningFilters filters) {
+        return filters.decode().predicates().stream()
+                .map(p -> describeFilter(p.expression()))
+                .sorted()
+                .toList();
+    }
+
+    private static String describeFilter(farm.query.vgi.pushdown.FilterExpression e) {
+        return switch (e) {
+            case farm.query.vgi.pushdown.FilterExpression.BooleanExpression b ->
+                    (b.conjunction() ? "And(" : "Or(")
+                            + String.join(", ", b.children().stream().map(Main::describeFilter).toList()) + ")";
+            case farm.query.vgi.pushdown.FilterExpression.Comparison c -> {
+                // Name the column side; a literal-first comparison reads with its operator flipped.
+                if (!(c.left() instanceof farm.query.vgi.pushdown.FilterExpression.ColumnRef)
+                        && c.right() instanceof farm.query.vgi.pushdown.FilterExpression.ColumnRef r) {
+                    yield r.columnName() + " " + flipped(c.op()).name();
+                }
+                yield filterColumn(c.left()) + " " + c.op().name();
+            }
+            case farm.query.vgi.pushdown.FilterExpression.IsNull n ->
+                    filterColumn(n.expression()) + (n.negated() ? " IsNotNull" : " IsNull");
+            case farm.query.vgi.pushdown.FilterExpression.In in -> filterColumn(in.expression()) + " In";
+            default -> filterColumn(e) + " Expression";
+        };
+    }
+
+    private static farm.query.vgi.pushdown.ComparisonOperator flipped(farm.query.vgi.pushdown.ComparisonOperator op) {
+        return switch (op) {
+            case GT -> farm.query.vgi.pushdown.ComparisonOperator.LT;
+            case GE -> farm.query.vgi.pushdown.ComparisonOperator.LE;
+            case LT -> farm.query.vgi.pushdown.ComparisonOperator.GT;
+            case LE -> farm.query.vgi.pushdown.ComparisonOperator.GE;
+            default -> op;
+        };
+    }
+
+    /** The column an expression is on, or {@code ""} when it is not a plain column reference. */
+    private static String filterColumn(farm.query.vgi.pushdown.FilterExpression e) {
+        return e instanceof farm.query.vgi.pushdown.FilterExpression.ColumnRef col ? col.columnName() : "";
+    }
+
+    /** Write {@code {"days": [...], "filters": [...] | null}} atomically. */
+    private static void recordPlannedEvents(String dir, List<java.time.LocalDate> days, List<String> filters) {
+        StringBuilder json = new StringBuilder("{\"days\": [");
+        for (int i = 0; i < days.size(); i++) {
+            if (i > 0) json.append(", ");
+            json.append('"').append(days.get(i)).append('"');
+        }
+        json.append("], \"filters\": ");
+        if (filters == null) {
+            json.append("null");
+        } else {
+            json.append('[');
+            for (int i = 0; i < filters.size(); i++) {
+                if (i > 0) json.append(", ");
+                json.append('"').append(filters.get(i).replace("\\", "\\\\").replace("\"", "\\\"")).append('"');
+            }
+            json.append(']');
+        }
+        json.append('}');
+        try {
+            java.nio.file.Path target = java.nio.file.Path.of(dir, "planned_events_last_plan.json");
+            java.nio.file.Path tmp = java.nio.file.Path.of(dir,
+                    "planned_events_last_plan.json." + ProcessHandle.current().pid() + ".tmp");
+            java.nio.file.Files.writeString(tmp, json);
+            java.nio.file.Files.move(tmp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         } catch (java.io.IOException e) {
             throw new java.io.UncheckedIOException(e);
         }
