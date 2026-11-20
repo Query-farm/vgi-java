@@ -39,8 +39,8 @@ The workflow runs a matrix over transports (`run-integration.sh` honours
   32 KiB go up through vendor upload URLs and storage values over 4 KiB live in
   the vendor. It runs the whole suite that way, then `test/sql/external_storage/*`
   against the worker's `blob_test` catalog (contract:
-  `docs/testing/blob-test-catalog.md`). It checks out `VGI_VENDOR_REF` (the first
-  vgi revision with those files) and needs `uvx`. The extension-only
+  `docs/testing/blob-test-catalog.md`). It checks out the same `VGI_REF` as the
+  other lanes (vgi >= f9e5df3 has those files) and needs `uvx`. The extension-only
   `fetch_*.test` files skip without `VGI_EXTERNAL_PROBE_WORKER`.
 
 All lanes also boot a **versioned_tables catalog worker over HTTP** and set
