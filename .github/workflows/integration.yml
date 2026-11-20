@@ -20,15 +20,22 @@ concurrency:
 
 env:
   # Match the test suite to the native runner built from this exact revision.
-  VGI_REF: 9dae8d55c9692cbd8b69d021c28b20a09aeee438
-  VGI_NATIVE_RUNNER_BRANCH: v2.0
+  # TODO(release-wave): back to a v2.0 revision. Protocol 3.4 (upload-URL v2)
+  # lives on vgi's protocol-3.4 branch until the release wave; its suite adds
+  # external_storage/upload_integrity.test.
+  VGI_REF: 007edd820e32808d00116a3658349a69c0987354
+  VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
   # The blob-vendor lane needs test/sql/external_storage/ and
   # test/start_fake_blob_vendor.sh (vgi >= f9e5df3); the other lanes keep VGI_REF.
-  VGI_VENDOR_REF: f9e5df356dcc8fd18f545a3a348ca364ae58fe0e
+  VGI_VENDOR_REF: 007edd820e32808d00116a3658349a69c0987354
+  # The fake vendor whose sized PUTs verify like R2 and that has the
+  # purpose=upload corrupt fault (vgi-rpc-python protocol-3.4).
+  VGI_RPC_FAKE_VENDOR_REF: a07ccf2e1bf1c0832ae43757a55e8b4817674b2d
   # TODO(release-wave): switch to the released vgi-rpc-java (farm.query:vgirpc)
-  # that carries farm.query.vgirpc.vendor, drop this pin and the checkout step,
+  # that carries farm.query.vgirpc.vendor and upload-URL protocol v2 (branch
+  # protocol-3.4 until the release wave), drop this pin and the checkout step,
   # and restore VGI_RPC_JAVA_DIR: /nonexistent (validate the Maven dependency).
-  VGI_RPC_JAVA_REF: a4fd98d65e59b7ea2f4ab9e2605bef57c42ff5ec
+  VGI_RPC_JAVA_REF: 3265a6598a0d71fc7d21f4349a84343fd0ad1d78
   VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
 jobs:

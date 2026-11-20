@@ -24,9 +24,10 @@ concurrency:
 
 env:
   # TODO(release-wave): switch to the released vgi-rpc-java (farm.query:vgirpc)
-  # that carries farm.query.vgirpc.vendor, drop this pin and the checkout steps,
+  # that carries farm.query.vgirpc.vendor and upload-URL protocol v2 (branch
+  # protocol-3.4 until the release wave), drop this pin and the checkout steps,
   # and restore VGI_RPC_JAVA_DIR: /nonexistent (validate the Maven dependency).
-  VGI_RPC_JAVA_REF: a4fd98d65e59b7ea2f4ab9e2605bef57c42ff5ec
+  VGI_RPC_JAVA_REF: 3265a6598a0d71fc7d21f4349a84343fd0ad1d78
   VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
 jobs:
@@ -74,7 +75,7 @@ jobs:
 
       - name: Externalizing storage against the fake blob vendor
         env:
-          VGI_RPC_FAKE_VENDOR_REF: af57e6bb395e5198b2a5336def976d73bfc87d8f
+          VGI_RPC_FAKE_VENDOR_REF: a07ccf2e1bf1c0832ae43757a55e8b4817674b2d
         run: |
           log="$RUNNER_TEMP/fake-vendor.log"
           nohup uvx --from "git+https://github.com/Query-farm/vgi-rpc-python@${VGI_RPC_FAKE_VENDOR_REF}" \

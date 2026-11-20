@@ -487,22 +487,24 @@ run_unittest "test/sql/integration/*"
 # Blob-vendor lane: the external_storage files, one invocation against the same
 # long-lived HTTP worker (the runner executes files one at a time, which the
 # vendor's lane-wide counters and armed faults need). Every non-fetch file must
-# execute: 7 is the size of the blob_test contract's file set.
+# execute: 10 is the size of the blob_test contract's file set (protocol 3.4
+# adds upload_integrity.test; the three fetch_* files need a probe worker).
 if [ "$BLOB_VENDOR" = "1" ]; then
   echo "Running test/sql/external_storage/* (blob vendor $VGI_BLOB_VENDOR_URL) ..."
   ( run_unittest "test/sql/external_storage/*"
-    if [ "$MAIN_EXECUTED" -lt "${MIN_EXTERNAL_EXECUTED:-7}" ]; then
-      echo "::error::only $MAIN_EXECUTED external_storage test cases executed, floor ${MIN_EXTERNAL_EXECUTED:-7}"
+    if [ "$MAIN_EXECUTED" -lt "${MIN_EXTERNAL_EXECUTED:-10}" ]; then
+      echo "::error::only $MAIN_EXECUTED external_storage test cases executed, floor ${MIN_EXTERNAL_EXECUTED:-10}"
       exit 1
     fi )
   stats="$(python3 -c 'import sys, urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=10).read().decode().strip())' "$VGI_BLOB_VENDOR_URL/__stats__")"
   echo "fake blob vendor counters: $stats"
-  # Evidence the lane externalized at all: results (puts), uploads (upload_urls)
+  # Evidence the lane externalized at all: results and client uploads (both
+  # sized puts since upload-URL v2; the unsized upload_urls route is retired)
   # and storage values all reached the vendor.
   python3 - "$stats" <<'PY'
 import json, sys
 s = json.loads(sys.argv[1])
-missing = [k for k in ("puts", "gets", "upload_urls", "storage_puts", "storage_gets") if not s.get(k)]
+missing = [k for k in ("puts", "gets", "storage_puts", "storage_gets") if not s.get(k)]
 if missing:
     print(f"::error::the blob vendor saw no {', '.join(missing)}: the worker did not externalize")
     sys.exit(1)

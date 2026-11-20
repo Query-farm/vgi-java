@@ -7,7 +7,8 @@ dependencies {
     // farm.query is the published group (see ../build.gradle.kts allprojects).
     // RPC 0.33.2 preserves declared scalar dictionary fields in catalog records.
     // TODO(release-wave): switch to the vgi-rpc-java release that ships
-    // farm.query.vgirpc.vendor (blob vendor). Until then CI builds vgirpc from
+    // farm.query.vgirpc.vendor (blob vendor) and upload-URL protocol v2
+    // (VGI-Upload-URL-Support: 2, vgi protocol 3.4). Until then CI builds vgirpc from
     // source at VGI_RPC_JAVA_REF through the composite build (VGI_RPC_JAVA_DIR).
     api("farm.query:vgirpc:0.33.2")
     implementation("org.slf4j:slf4j-api:2.0.17")

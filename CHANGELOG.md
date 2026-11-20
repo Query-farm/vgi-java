@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- **Breaking: VGI wire 3.4.0.** `VgiService.PROTOCOL_VERSION` is `3.4.0`; a worker refuses 3.3 clients and a 3.3
+  extension refuses this worker (exact major+minor match). Nothing else in `vgi.v3` changes. 3.4 pairs with
+  vgi-rpc's upload-URL protocol v2, which the HTTP entry points now serve through vgi-rpc-java:
+  `VGI-Upload-URL-Support: 2`; `__upload_url__/init` takes one `(size, sha256)` entry per upload and answers
+  with sized vendor PUT URLs (the vendor's `POST /v1/blobs/put`, purpose `rpc`) plus the `upload_headers` the
+  PUT must carry, so storage refuses a body other than the one announced; and an inbound request pointer must
+  carry `vgi_rpc.location.sha256`, which is verified before the batch is decoded.
+
 ### Added
 
 - **Blob-vendor externalization** (wire-compatible with vgi-python 0.54; contract: the vgi extension's
