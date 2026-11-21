@@ -140,7 +140,8 @@ jobs:
         with:
           repository: Query-farm/vgi
           ref: ${{ env.VGI_HOSTED_HARNESS_REF }}
-          path: vgi
+          # Not "vgi": that is the SDK module directory in this checkout.
+          path: vgi-hosted-harness
           sparse-checkout: test/hosted
 
       - name: Set up JDK 25
@@ -168,7 +169,7 @@ jobs:
       - name: Run the hosted-mode harness
         env:
           JAVA_OPTS: -Dorg.slf4j.simpleLogger.defaultLogLevel=debug
-        run: ci/run-hosted-conformance.sh vgi/test/hosted/run_hosted_conformance.py
+        run: ci/run-hosted-conformance.sh vgi-hosted-harness/test/hosted/run_hosted_conformance.py
 
   # vgi-rpc's hosted-protocols group against the example worker on stdio, unix
   # and HTTP: conformance.Secondary.v1 hosted beside vgi.v3 through
