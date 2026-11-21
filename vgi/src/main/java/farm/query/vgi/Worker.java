@@ -12,6 +12,7 @@ import farm.query.vgi.scalar.ScalarFunction;
 import farm.query.vgi.table.TableFunction;
 import farm.query.vgi.tableinout.TableInOutFunction;
 import farm.query.vgirpc.RpcServer;
+import farm.query.vgirpc.http.Authenticator;
 import farm.query.vgirpc.http.HttpServer;
 import farm.query.vgirpc.transport.StdioTransport;
 import farm.query.vgirpc.transport.TcpSocketTransport;
@@ -2213,6 +2214,7 @@ public final class Worker {
 
     /** Block on stdin/stdout serving requests until the transport closes. */
     public void runStdio() {
+        if (OrchardHosted.enabled()) throw OrchardHosted.transportRefusal("stdin/stdout");
         try (StdioTransport t = new StdioTransport()) {
             buildServer(Transport.PIPE).serve(t);
         }
@@ -2232,6 +2234,7 @@ public final class Worker {
      * @throws IOException if the socket cannot be bound or served
      */
     public void runUnixSocket(Path socketPath, long idleTimeoutMs) throws IOException {
+        if (OrchardHosted.enabled()) throw OrchardHosted.transportRefusal("--unix");
         // idleTimeoutMs <= 0 → never time out (legacy behaviour). The
         // launcher passes --idle-timeout 300 by default; the watchdog inside
         // UnixSocketTransport.serveForever closes the listener when active
@@ -2256,6 +2259,7 @@ public final class Worker {
      * @throws IOException if the socket cannot be bound or served
      */
     public void runTcp(String host, int port, long idleTimeoutMs) throws IOException {
+        if (OrchardHosted.enabled()) throw OrchardHosted.transportRefusal("--tcp");
         TcpSocketTransport.serveForever(host, port, buildServer(Transport.TCP), idleTimeoutMs,
                 (boundHost, boundPort) -> {
                     System.out.println("TCP:" + boundHost + ":" + boundPort);
@@ -2276,6 +2280,7 @@ public final class Worker {
      */
     public void runIrohTcpUpstream(
             String host, int port, long idleTimeoutMs, IrohBridgeOptions bridge) throws IOException {
+        if (OrchardHosted.enabled()) throw OrchardHosted.transportRefusal("--iroh-raw-upstream");
         requireLoopback(host, "Iroh raw bridge upstream");
         if (bridge == null) throw new IllegalArgumentException("Iroh bridge options are required");
         TcpSocketTransport.serveForever(
@@ -2441,6 +2446,24 @@ public final class Worker {
                 default -> { System.err.println("unknown arg: " + args[i]); System.exit(2); }
             }
         }
+        // Orchard hosted mode: HTTP only, and no credential but a Pass. Checked before anything
+        // is built so a misconfigured deployment never serves.
+        try {
+            if (OrchardHosted.enabled()) {
+                if (unixSocket != null) throw OrchardHosted.transportRefusal("--unix");
+                if (tcpAddr != null) throw OrchardHosted.transportRefusal("--tcp");
+                if (irohRawUpstream != null) throw OrchardHosted.transportRefusal("--iroh-raw-upstream");
+                if (!http) throw OrchardHosted.transportRefusal("stdin/stdout");
+                if (!grantKeyArgs.isEmpty()) {
+                    throw OrchardHosted.refusal(
+                            "sealed-grant keys (--grant-key / VGI_RPC_GRANT_KEYS) are configured.");
+                }
+            }
+        } catch (OrchardHosted.RefusedException e) {
+            System.err.println(e.getMessage());
+            System.exit(1);
+            return;
+        }
         if (!grantKeyArgs.isEmpty()) {
             // --grant-key KEY, repeatable, first mints; audience and lifetime still come from
             // VGI_RPC_GRANT_AUDIENCE / VGI_RPC_GRANT_MAX_TTL_SECONDS. A malformed key stops here.
@@ -2496,6 +2519,9 @@ public final class Worker {
             } else {
                 runStdio();
             }
+        } catch (OrchardHosted.RefusedException e) {
+            System.err.println(e.getMessage());
+            System.exit(1);
         } catch (Exception e) {
             e.printStackTrace();
             System.exit(1);
@@ -2531,19 +2557,7 @@ public final class Worker {
      */
     public void runHttp(HttpServer.Config config) throws Exception {
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(Worker.class);
-        // Attach the standardized landing surface (the shared page plus the
-        // browser client build it reads the catalog with) unless the caller
-        // already supplied an identity.
-        HttpServer.Config effective = config.landingInfo() != null
-                ? config
-                : config.withLandingInfo(farm.query.vgi.http.WorkerLandingInfo.of(this));
-        effective = withStateTokenKey(effective, configuredSigningKey(), log);
-        RpcServer rpc = buildServer(Transport.HTTP);
-        // Results over VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES go to the blob vendor and
-        // client upload pointers are resolved from its hosts (no-op without a vendor).
-        blobVendorHttp().applyTo(rpc);
-        HttpServer http = new HttpServer(rpc, effective);
-        http.start();
+        HttpServer http = startHttp(config, System.getenv());
         System.out.println("PORT:" + http.port());
         System.out.flush();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -2558,6 +2572,88 @@ public final class Worker {
             }
         }, "vgi-http-shutdown"));
         http.join();
+    }
+
+    /**
+     * Build and start the HTTP server for {@code config} without blocking: the body of
+     * {@link #runHttp(HttpServer.Config)}, minus the {@code PORT:} line, the shutdown hook and the
+     * join. In Orchard hosted mode ({@code VGI_ORCHARD_HOSTED=1} in {@code env}) the configuration
+     * is checked and rewritten by {@link #orchardHosted} first.
+     *
+     * @param config the HTTP configuration
+     * @param env    the environment to read hosted-mode settings from
+     * @return the started server
+     * @throws OrchardHosted.RefusedException when hosted mode refuses the configuration
+     * @throws Exception if the server fails to start
+     */
+    HttpServer startHttp(HttpServer.Config config, Map<String, String> env) throws Exception {
+        org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(Worker.class);
+        HttpServer.Config effective = config;
+        if (OrchardHosted.enabled(env)) {
+            effective = orchardHosted(config, env);
+            OrchardHosted.quietWireLogging();
+        }
+        // Attach the standardized landing surface (the shared page plus the
+        // browser client build it reads the catalog with) unless the caller
+        // already supplied an identity.
+        if (effective.landingInfo() == null) {
+            effective = effective.withLandingInfo(farm.query.vgi.http.WorkerLandingInfo.of(this));
+        }
+        effective = withStateTokenKey(effective, configuredSigningKey(), log);
+        RpcServer rpc = buildServer(Transport.HTTP);
+        // Results over VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES go to the blob vendor and
+        // client upload pointers are resolved from its hosts (no-op without a vendor).
+        blobVendorHttp().applyTo(rpc);
+        HttpServer http = new HttpServer(rpc, effective);
+        http.start();
+        return http;
+    }
+
+    /**
+     * Orchard hosted mode: refuse every configuration that admits a non-Pass caller, then serve
+     * {@code config} with the Pass verifier as its only authenticator, every request but
+     * {@code HEAD /health} and CORS preflights authenticated, the hosted challenge on every 401,
+     * and open CORS (the only credential is the bearer Pass). See {@link OrchardHosted}.
+     *
+     * @param config the configuration the worker was asked to serve
+     * @param env    the environment
+     * @return the hosted configuration
+     * @throws OrchardHosted.RefusedException on the first conflict found
+     */
+    HttpServer.Config orchardHosted(HttpServer.Config config, Map<String, String> env) {
+        OrchardHosted.checkEnvironmentConflicts(env);
+        byte[] material = rawSigningKey != null ? rawSigningKey : opaqueDataKey;
+        boolean configured = material != null;
+        if (material == null) {
+            String value = env.get(SIGNING_KEY_ENV);
+            if (value != null && !value.isEmpty()) {
+                material = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                // A key a parent process minted for its children is not a configured one.
+                configured = !"1".equals(env.getOrDefault("VGI_SIGNING_KEY_MINTED", "").strip());
+            }
+        }
+        OrchardHosted.checkSigningKey(material, configured);
+        if (resolveTokenHook != null) {
+            throw OrchardHosted.refusal("this worker sets Worker.resolveToken() (resolve_token); "
+                    + "hosted workers accept Passes only.");
+        }
+        if (mintGrantHook != null) {
+            throw OrchardHosted.refusal("this worker sets Worker.mintGrant() (mint_grant / issue_grant); "
+                    + "hosted workers accept Passes only.");
+        }
+        if (grantKeys != null) {
+            throw OrchardHosted.refusal("sealed-grant keys (--grant-key / VGI_RPC_GRANT_KEYS) are configured.");
+        }
+        OrchardHosted.checkHttpConfig(config);
+        Authenticator pass = OrchardHosted.isPassAuthenticator(config.authenticator())
+                ? config.authenticator()
+                : OrchardHosted.passAuthenticator(OrchardHosted.resolveConfig(env));
+        Map<String, Object> overrides = new java.util.HashMap<>();
+        overrides.put("authenticator", pass);
+        overrides.put("strictAuth", true);
+        overrides.put("wwwAuthenticate", OrchardHosted.CHALLENGE);
+        overrides.put("corsOrigins", List.of("*"));
+        return copyConfig(config, overrides);
     }
 
     /** HKDF {@code info} label for the HTTP stream-state token key derived from the signing key. */
@@ -2592,7 +2688,7 @@ public final class Worker {
             }
             return config;
         }
-        return copyConfigWithTokenKey(config, deriveStateTokenKey(signingKey));
+        return copyConfig(config, Map.of("tokenKey", deriveStateTokenKey(signingKey)));
     }
 
     /**
@@ -2616,27 +2712,34 @@ public final class Worker {
         }
     }
 
-    /** Copy the {@code HttpServer.Config} record with {@code tokenKey} replaced, via its canonical
-     *  constructor, so this keeps working as vgi-rpc adds config components. */
-    private static HttpServer.Config copyConfigWithTokenKey(HttpServer.Config config, byte[] tokenKey) {
+    /** Copy the {@code HttpServer.Config} record with the named components replaced, via its
+     *  canonical constructor, so this keeps working as vgi-rpc adds config components. */
+    private static HttpServer.Config copyConfig(HttpServer.Config config, Map<String, Object> overrides) {
         try {
             java.lang.reflect.RecordComponent[] comps = HttpServer.Config.class.getRecordComponents();
             Object[] values = new Object[comps.length];
             Class<?>[] types = new Class<?>[comps.length];
-            boolean found = false;
+            java.util.Set<String> found = new java.util.HashSet<>();
             for (int i = 0; i < comps.length; i++) {
                 types[i] = comps[i].getType();
-                if ("tokenKey".equals(comps[i].getName())) {
-                    values[i] = tokenKey;
-                    found = true;
+                String name = comps[i].getName();
+                if (overrides.containsKey(name)) {
+                    values[i] = overrides.get(name);
+                    found.add(name);
                 } else {
                     values[i] = comps[i].getAccessor().invoke(config);
                 }
             }
-            if (!found) throw new IllegalStateException("HttpServer.Config has no tokenKey component");
+            if (!found.equals(overrides.keySet())) {
+                throw new IllegalStateException("HttpServer.Config has no component(s) "
+                        + new java.util.TreeSet<>(overrides.keySet()).stream().filter(n -> !found.contains(n)).toList());
+            }
             return HttpServer.Config.class.getDeclaredConstructor(types).newInstance(values);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException re) throw re;
+            throw new IllegalStateException("cannot copy the HTTP config", e);
         } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("cannot set the HTTP state-token key", e);
+            throw new IllegalStateException("cannot copy the HTTP config", e);
         }
     }
 

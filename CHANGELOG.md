@@ -14,6 +14,16 @@
 
 ### Added
 
+- **Orchard hosted mode** (`VGI_ORCHARD_HOSTED=1`; the Java port of vgi-python's `vgi.hosted`, see
+  [docs/orchard-hosted-mode.md](docs/orchard-hosted-mode.md)). `Worker.runFromArgs --http` / `Worker.runHttp`
+  serve with the Pass verifier (ES256 `at+jwt` RFC 9068 tokens against `VGI_JWT_ISSUER` / `VGI_JWT_AUDIENCE` /
+  `VGI_JWT_JWKS_URI`, single-valued, 60 s leeway, JWKS cached at most 10 minutes and failing closed with 503) as
+  the only authenticator; every request but `HEAD /health` and CORS preflights needs a Pass, and a 401 carries
+  `WWW-Authenticate: Bearer error="invalid_token"`. Startup refuses a missing or short `VGI_SIGNING_KEY`, static
+  bearers, grant keys, `resolveToken` / `mintGrant`, `VGI_OAUTH_RESOURCE`, proxy proof, peer identity, a custom
+  authenticator and every non-HTTP transport. New `OrchardHosted` class; `vgi` now depends on vgirpc-oauth
+  (nimbus-jose-jwt), built from source with vgirpc until the next vgi-rpc-java release. The example worker serves
+  `pass_claims` in hosted mode.
 - **Blob-vendor externalization** (wire-compatible with vgi-python 0.54; contract: the vgi extension's
   `docs/testing/blob-test-catalog.md`). Needs vgi-rpc-java's `farm.query.vgirpc.vendor` (built from source
   until the next vgi-rpc-java release).

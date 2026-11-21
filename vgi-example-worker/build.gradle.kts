@@ -22,6 +22,8 @@ dependencies {
     compileOnly("jakarta.servlet:jakarta.servlet-api:6.0.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
+    // OrchardHostedProcessTest mints Passes (ES256 at+jwt) and serves their JWKS.
+    testImplementation("com.nimbusds:nimbus-jose-jwt:10.0.1")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

@@ -334,6 +334,12 @@ public final class Main {
             return;
         }
         Worker worker = buildWorker(catalogName, implVer, dataSpec);
+        // Orchard hosted mode (VGI_ORCHARD_HOSTED=1): the SDK installs the Pass verifier and
+        // refuses any other credential, so the fixture adds no authenticator of its own and
+        // exposes pass_claims, which the hosted-mode tests read the verified claims through.
+        // Registered only here so the extension's function-count tests are unaffected.
+        hosted = orchardHostedOrExit();
+        if (hosted) worker.registerScalar(new farm.query.vgi.example.scalar.PassClaimsFunction());
         // Test-only: host vgi_rpc.Identity.v2 over HTTP with the vgi-rpc conformance policy and
         // its spoofable header authentication, for `vgi-rpc-test-hosted --url ... --identity`.
         // Off by default so the DuckDB integration runs see the same worker as before.
@@ -348,6 +354,20 @@ public final class Main {
 
     /** Set by {@code --identity}: HTTP authenticates callers with the conformance header. */
     private static boolean identityAuth;
+
+    /** {@code VGI_ORCHARD_HOSTED} is on: the SDK owns HTTP authentication. */
+    private static boolean hosted;
+
+    /** {@link farm.query.vgi.OrchardHosted#enabled()}, printing its refusal and exiting on a bad value. */
+    private static boolean orchardHostedOrExit() {
+        try {
+            return farm.query.vgi.OrchardHosted.enabled();
+        } catch (farm.query.vgi.OrchardHosted.RefusedException e) {
+            System.err.println(e.getMessage());
+            System.exit(1);
+            return false;
+        }
+    }
 
     private static boolean isTruthy(String v) {
         return v != null && (v.equals("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes"));
@@ -1913,6 +1933,8 @@ public final class Main {
      * HTTP-feature knobs ({@code VGI_HTTP_DISABLE_ZSTD}) are applied here too.
      */
     private static HttpServer.Config.Builder customizeHttpConfig(HttpServer.Config.Builder cb) {
+        // Hosted mode: the SDK installs the Pass verifier, and refuses any authenticator set here.
+        if (hosted) return cb;
         if (identityAuth) {
             cb.authenticator(farm.query.vgi.example.conformance.IdentityFixture.authenticator());
             return cb;

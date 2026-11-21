@@ -185,6 +185,9 @@ beside `vgi.v3`, or to answer token introspection for a reverse proxy, see
 [Hosting extra protocols, and token introspection](docs/hosted-protocols.md).
 To let a runner reattach a user's catalog later with only that user's grant and
 a sealed ticket (`vgi.attach_tickets.v1`), see [Attach tickets](docs/attach-tickets.md).
+To run as an Orchard hosted worker (`VGI_ORCHARD_HOSTED=1`: HTTP only, every
+request verified against an Orchard Pass, nothing else accepted), see
+[Orchard hosted mode](docs/orchard-hosted-mode.md).
 
 The [`vgi-example-worker`](vgi-example-worker/) module (not published) is a complete worker with 90+ functions — scalar, table, aggregate, table-in/out, buffering, partitioned, multi-branch, transactional — that serves the canonical VGI integration suite. It is the best place to look for working patterns of any feature.
 
