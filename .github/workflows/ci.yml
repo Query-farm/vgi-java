@@ -150,8 +150,9 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Clone vgi-rpc-python reference (main, deliberately unpinned)
-        run: git clone --depth 1 https://github.com/Query-farm/vgi-rpc-python.git "$RUNNER_TEMP/vgi-rpc-python"
+      - name: Clone vgi-rpc-python reference (protocol-3.4 branch)
+        # TODO(release-wave): back to main, deliberately unpinned, once protocol-3.4 is merged.
+        run: git clone --depth 1 --branch protocol-3.4 https://github.com/Query-farm/vgi-rpc-python.git "$RUNNER_TEMP/vgi-rpc-python"
 
       - name: Install the reference's conformance runner
         run: |

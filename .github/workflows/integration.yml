@@ -22,14 +22,14 @@ env:
   # Match the test suite to the native runner built from this exact revision.
   # TODO(release-wave): back to a v2.0 revision. Protocol 3.4 (upload-URL v2)
   # lives on vgi's protocol-3.4 branch until the release wave; its suite adds
-  # external_storage/upload_integrity.test, and 653b879 has external_storage/
+  # external_storage/upload_integrity.test, and 5b8b7a2 has external_storage/
   # assert the fake vendor's client-upload counters (puts_upload, client_uploads).
   # It contains 91f8d63 (scan_planning_predicates*.test, data.planned_events).
-  VGI_REF: 653b879c1131a18594918874e8f670d274a37ccb
+  VGI_REF: 5b8b7a2a7e4e587e15573ddd62cf1dbcdf6b357e
   VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
   # The fake vendor whose sized PUTs verify like R2, that counts client-upload
   # grants by their origin marker and aims the purpose=upload fault at them
-  # (vgi-rpc-python protocol-3.4 f0fb675; vgi 653b879 pins the same).
+  # (vgi-rpc-python protocol-3.4 f0fb675; vgi 5b8b7a2 pins the same).
   VGI_RPC_FAKE_VENDOR_REF: f0fb6754ae5b70900ba21629a1e2d48eb2182774
   # TODO(release-wave): switch to the released vgi-rpc-java (farm.query:vgirpc)
   # that carries farm.query.vgirpc.vendor and upload-URL protocol v2 (branch
