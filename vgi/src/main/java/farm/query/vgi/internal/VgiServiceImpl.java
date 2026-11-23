@@ -729,6 +729,10 @@ public final class VgiServiceImpl implements VgiService {
         // Decoded (and validated) once; never modified, so whatever is carried onward from it
         // carries an argument reference, never the resolved value.
         BindRequest embeddedCall = hasBindCall ? BindArguments.decode(request.bind_call()) : null;
+        // An argument reference is resolved at the turn's entry even when the bind is still
+        // cached in this process: a prepared statement whose argument object expired must fail
+        // with arguments_ref_missing, never run on a copy only this process still holds.
+        resolveAtEntry(request.bind_call(), ctx);
         if (bound == null && embeddedCall != null) {
             BindRequest embedded = embeddedCall;
             // bind() returns a fresh opaque_data token; look the new entry up
@@ -767,7 +771,7 @@ public final class VgiServiceImpl implements VgiService {
         if (bound instanceof BoundTable bt) {
             return initTable(request, bt, realOutputSchema, execId, splitPayloads, ctx);
         }
-        if (bound instanceof BoundTableInOut bio) return initTableInOut(request, bio, realOutputSchema, execId, header);
+        if (bound instanceof BoundTableInOut bio) return initTableInOut(request, bio, realOutputSchema, execId, header, ctx);
         if (bound instanceof BoundBuffering bb) return initBuffering(request, bb, realOutputSchema, execId, header, ctx);
         throw new IllegalStateException("Unexpected bound type: " + bound);
     }
@@ -923,7 +927,7 @@ public final class VgiServiceImpl implements VgiService {
 
     private RpcStream<? extends StreamState> initTableInOut(InitRequest request, BoundTableInOut bio,
                                                               Schema realOutputSchema, byte[] execId,
-                                                              GlobalInitResponse header) {
+                                                              GlobalInitResponse header, CallContext ctx) {
         Schema inputSchema = bio.inputSchema() != null ? bio.inputSchema() : new Schema(List.of());
         // Narrow the output schema to the columns DuckDB requested when the
         // function opts into projection pushdown — mirrors initTable. The
@@ -1065,6 +1069,16 @@ public final class VgiServiceImpl implements VgiService {
 
     private static String bytesKey(byte[] b) { return HexId.encode(b); }
 
+    /**
+     * Resolve a request's argument reference at the turn's entry, even when its bind is still
+     * cached in this process (an expired prepared-statement argument must fail, spec 5a).
+     */
+    private static void resolveAtEntry(farm.query.vgi.protocol.Nested<BindRequest> bindCall, CallContext ctx) {
+        if (bindCall == null || bindCall.size() == 0) return;
+        BindRequest call = BindArguments.decode(bindCall);
+        if (call.arguments_location() != null) BindArguments.resolveIpc(call, ctx);
+    }
+
     /** The init's projection ids as column indices (the wire carries int64). */
     private static List<Integer> projectionIds(InitRequest request) {
         List<Long> ids = request.projection_ids();
@@ -1110,6 +1124,7 @@ public final class VgiServiceImpl implements VgiService {
                 farm.query.vgi.protocol.TableFunctionStatisticsRequest.class);
         var bindCall = inner.bind_call();
         byte[] bindOpaque = inner.bind_opaque_data();
+        resolveAtEntry(bindCall, ctx);
         TableFunction fn = null;
         TableBindParams params = null;
         if (bindOpaque != null) {
@@ -1366,6 +1381,7 @@ public final class VgiServiceImpl implements VgiService {
 
     private long computeCardinality(farm.query.vgi.protocol.TableFunctionCardinalityRequest request,
                                     CallContext ctx) {
+        resolveAtEntry(request.bind_call(), ctx);
         if (request.bind_opaque_data() != null) {
             BoundEntry e = pendingBinds.get(bytesKey(request.bind_opaque_data()));
             if (e instanceof BoundTable bt) {
