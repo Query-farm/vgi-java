@@ -25,12 +25,13 @@ env:
   # external_storage/upload_integrity.test, and 5b8b7a2 has external_storage/
   # assert the fake vendor's client-upload counters (puts_upload, client_uploads).
   # It contains 91f8d63 (scan_planning_predicates*.test, data.planned_events).
-  VGI_REF: 5b8b7a2a7e4e587e15573ddd62cf1dbcdf6b357e
+  # e99683f adds the protocol 3.4 large-value files (external_storage/arguments_ref*.test).
+  VGI_REF: e99683f2af215c5a166697945e796c91d0cc66fe
   VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
-  # The fake vendor whose sized PUTs verify like R2, that counts client-upload
-  # grants by their origin marker and aims the purpose=upload fault at them
-  # (vgi-rpc-python protocol-3.4 f0fb675; vgi 5b8b7a2 pins the same).
-  VGI_RPC_FAKE_VENDOR_REF: f0fb6754ae5b70900ba21629a1e2d48eb2182774
+  # The fake vendor (vgi-rpc-python protocol-3.4 6a21ee3: sized PUTs verified like
+  # R2, client-upload/state_ref origin counters, the __admin__/delete route the
+  # arguments_ref_prepared test needs; vgi e99683f pins the same).
+  VGI_RPC_FAKE_VENDOR_REF: 6a21ee3b2fb21d9c348c9b615fd97dce8e0bb852
   # TODO(release-wave): switch to the released vgi-rpc-java (farm.query:vgirpc)
   # that carries farm.query.vgirpc.vendor and upload-URL protocol v2 (branch
   # protocol-3.4 until the release wave), drop this pin and the checkout step,
@@ -155,5 +156,11 @@ jobs:
           TRANSPORT: ${{ matrix.transport || 'launch' }}
           # 1 on the vendor lane: start the fake blob vendor, run external_storage/.
           BLOB_VENDOR: ${{ matrix.blob_vendor || '0' }}
+          # The vendor lane opts the protocol 3.4 argument-reference files in: this
+          # worker implements argument references, init: StateRef, and the fake
+          # vendor pin has the delete route (arguments_ref_prepared.test).
+          VGI_WORKER_ARGUMENTS_REF: ${{ matrix.blob_vendor == '1' && '1' || '' }}
+          VGI_WORKER_INIT_STATE_REF: ${{ matrix.blob_vendor == '1' && '1' || '' }}
+          VGI_FAKE_VENDOR_DELETE_ROUTE: ${{ matrix.blob_vendor == '1' && '1' || '' }}
           # JDK 25 + native access for the worker JVM (FFM shm, haybarn_jdbc).
           JAVA_TOOL_OPTIONS: --enable-native-access=ALL-UNNAMED

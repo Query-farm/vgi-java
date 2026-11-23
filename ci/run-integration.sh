@@ -204,13 +204,15 @@ fi
 # would leave the server running after the script exits.
 boot_http_worker() {
   local exe="$1" log pid port=""
+  shift
+  # Any further arguments are NAME=VALUE pairs for this worker's environment only.
   log="$(mktemp)"
   # Start the worker with its cwd set to $STAGE — the directory the unittest runs
   # from — so DuckDB's per-test temp dir (__TEST_DIR__ → duckdb_unittest_tempdir/
   # <pid>) and the worker resolve the SAME relative path. Without this the http
   # worker (a separate process started from the repo root) cannot create the
   # COPY ... TO destination the test hands it as a relative path.
-  ( cd "$STAGE" && VGI_WORKER_BIN="$VGI_WORKER_BIN" exec "$exe" --http --port 0 ) >"$log" 2>&1 &
+  ( cd "$STAGE" && exec env VGI_WORKER_BIN="$VGI_WORKER_BIN" "$@" "$exe" --http --port 0 ) >"$log" 2>&1 &
   pid=$!
   BG_PIDS+=("$pid")
   for _ in $(seq 1 60); do
@@ -489,11 +491,35 @@ run_unittest "test/sql/integration/*"
 # vendor's lane-wide counters and armed faults need). Every non-fetch file must
 # execute: 10 is the size of the blob_test contract's file set (protocol 3.4
 # adds upload_integrity.test; the three fetch_* files need a probe worker).
+#
+# A file that declares `# server-env: NAME=VALUE` in its head (the vgi runner's
+# per-file worker environment: a cold object cache, a lowered StateRef inline
+# limit, a worker that does not advertise argument references) runs on its own
+# worker booted with that environment, never on the shared one.
 if [ "$BLOB_VENDOR" = "1" ]; then
   echo "Running test/sql/external_storage/* (blob vendor $VGI_BLOB_VENDOR_URL) ..."
-  ( run_unittest "test/sql/external_storage/*"
-    if [ "$MAIN_EXECUTED" -lt "${MIN_EXTERNAL_EXECUTED:-10}" ]; then
-      echo "::error::only $MAIN_EXECUTED external_storage test cases executed, floor ${MIN_EXTERNAL_EXECUTED:-10}"
+  ( ENV_FILES=()
+    ENV_EXCLUDES=()
+    cd "$STAGE"
+    for f in test/sql/external_storage/*.test; do
+      if head -n 40 "$f" | grep -qE '^#[[:space:]]*server-env:'; then
+        ENV_FILES+=("$f")
+        ENV_EXCLUDES+=("~$f")
+      fi
+    done
+    cd - >/dev/null
+    run_unittest "test/sql/external_storage/*" ${ENV_EXCLUDES[@]+"${ENV_EXCLUDES[@]}"}
+    executed="$MAIN_EXECUTED"
+    for f in ${ENV_FILES[@]+"${ENV_FILES[@]}"}; do
+      mapfile -t kvs < <(head -n 40 "$STAGE/$f" | sed -n \
+        's/^#[[:space:]]*server-env:[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*\)[[:space:]]*$/\1/p')
+      echo "Running $f on its own worker (${kvs[*]}) ..."
+      boot_http_worker "$VGI_WORKER_BIN" "${kvs[@]}"
+      VGI_TEST_WORKER="http://localhost:${BOOTED_PORT}" run_unittest "$f"
+      executed=$(( executed + MAIN_EXECUTED ))
+    done
+    if [ "$executed" -lt "${MIN_EXTERNAL_EXECUTED:-10}" ]; then
+      echo "::error::only $executed external_storage test cases executed, floor ${MIN_EXTERNAL_EXECUTED:-10}"
       exit 1
     fi )
   stats="$(python3 -c 'import sys, urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=10).read().decode().strip())' "$VGI_BLOB_VENDOR_URL/__stats__")"
