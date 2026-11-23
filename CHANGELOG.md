@@ -12,8 +12,33 @@
   PUT must carry, so storage refuses a body other than the one announced; and an inbound request pointer must
   carry `vgi_rpc.location.sha256`, which is verified before the batch is decoded.
 
+### Security
+
+- The bind envelope a function offering projection profiles or a repeatability returns as `bind_opaque_data`
+  carried the whole bind request, resolved secrets included, unsealed on every transport (and
+  `bind_opaque_data` lands in serialized plans). It is now sealed (AES-256-GCM, sealed framework payload v1
+  under `VGI_SIGNING_KEY` or the host-local key) and bound to the calling principal.
+
 ### Added
 
+- **Protocol 3.4 large values** (vgi `docs/large-values-3.4.md`; reference: vgi-python 33099b4).
+  - `BindRequest`, `ArgumentsLocation`, `InitRequest` and the cardinality, statistics, dynamic-to-string, plan
+    and projection requests are generated records; a request's `bind_call` is a `Nested<BindRequest>` that
+    re-encodes as exactly the bytes received. **Breaking:** `InitRequest`'s components follow the wire column
+    order (`projection_ids` is `List<Long>`), `BindRequest.arguments` is nullable and `arguments_location` is
+    its last component, the compatibility constructors and `TableFunctionPlanRequest.of/with*` are gone, and the
+    hand-written `CardinalityRequest` is replaced by `TableFunctionCardinalityRequest`.
+  - Argument references: a bind call with `arguments_location` is resolved at each method's entry through
+    vgi-rpc's object cache; the reference, never the value, is carried onward. Exactly one of `arguments` /
+    `arguments_location` must be set (`invalid_bind_request`). An expired argument object answers
+    `arguments_ref_missing` "this prepared statement's large argument has expired; prepare it again". HTTP
+    serving advertises `VGI-Arguments-Ref-Bytes` (default 4 MiB, `VGI_ARGUMENTS_REF_BYTES`) whenever it vends
+    upload URLs over an `ObjectStore`.
+  - `init: StateRef`: a scalar stream's init pieces and a `FilterApplier`'s pushdown snapshot ride as one
+    vgi-rpc `StateRef` instead of cursor fields; HTTP serving uses `cursor_rule=error` (`VGI_CURSOR_RULE=warn`
+    to keep the warning) and the 21600 s token TTL.
+  - Example worker: `blob_param_batches`, `blob_param_streams`, `blob_param_scalar` and the `blob_param_table`
+    catalog table in `blob_test`.
 - **Orchard hosted mode** (`VGI_ORCHARD_HOSTED=1`; the Java port of vgi-python's `vgi.hosted`, see
   [docs/orchard-hosted-mode.md](docs/orchard-hosted-mode.md)). `Worker.runFromArgs --http` / `Worker.runHttp`
   serve with the Pass verifier (ES256 `at+jwt` RFC 9068 tokens against `VGI_JWT_ISSUER` / `VGI_JWT_AUDIENCE` /

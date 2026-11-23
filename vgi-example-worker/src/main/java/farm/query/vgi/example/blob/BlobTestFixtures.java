@@ -70,6 +70,7 @@ import java.util.UUID;
  *   <tr><td>{@code blob_buffer_echo(t)}</td><td>table-buffering</td><td>storage log values</td></tr>
  *   <tr><td>{@code blob_tio(t)}</td><td>table-in-out</td><td>storage state values</td></tr>
  *   <tr><td>{@code blob_store_values(t)}</td><td>table-in-out</td><td>exactly sized storage values</td></tr>
+ *   <tr><td>{@code blob_param_*}</td><td>(see {@link BlobParamFixtures})</td><td>protocol 3.4 argument references</td></tr>
  * </table>
  *
  * <p>The checksum columns are {@code payload_len} (UTF-8 byte length) and
@@ -94,13 +95,14 @@ public final class BlobTestFixtures {
     static final byte[] LOG_KEY = new byte[0];
 
     /**
-     * Register the {@code blob_test} catalog and its seven functions on {@code w}.
+     * Register the {@code blob_test} catalog, its seven functions and the protocol 3.4
+     * {@link BlobParamFixtures} on {@code w}.
      *
      * @param w the worker
      * @return {@code w}
      */
     public static Worker register(Worker w) {
-        return w.registerExtraCatalog(new Worker.ExtraCatalog(CATALOG_NAME, "vgi-fixture", "1.0.0",
+        return BlobParamFixtures.register(w.registerExtraCatalog(new Worker.ExtraCatalog(CATALOG_NAME, "vgi-fixture", "1.0.0",
                         "Externalization test functions", List.of(),
                         "Functions sized by their arguments, for blob externalization tests",
                         java.util.Map.of(), false, null, null, null))
@@ -110,7 +112,7 @@ public final class BlobTestFixtures {
                 .registerExtraCatalogTableFunction(CATALOG_NAME, SCHEMA, new BlobParamEcho())
                 .registerExtraCatalogTableBuffering(CATALOG_NAME, SCHEMA, new BlobBufferEcho())
                 .registerExtraCatalogTableInOut(CATALOG_NAME, SCHEMA, new BlobTio())
-                .registerExtraCatalogTableInOut(CATALOG_NAME, SCHEMA, new BlobStoreValues());
+                .registerExtraCatalogTableInOut(CATALOG_NAME, SCHEMA, new BlobStoreValues()));
     }
 
     // ---------------------------------------------------------------------
@@ -377,7 +379,13 @@ public final class BlobTestFixtures {
             /** No-arg constructor for state deserialization. */
             public State() {}
 
-            State(long length, String sha256) {
+            /**
+             * The one row for a parameter of this length and digest.
+             *
+             * @param length UTF-8 byte length
+             * @param sha256 lowercase hex SHA-256
+             */
+            public State(long length, String sha256) {
                 this.length = length;
                 this.sha256 = sha256;
             }
