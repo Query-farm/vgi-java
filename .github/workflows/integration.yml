@@ -157,10 +157,11 @@ jobs:
           # 1 on the vendor lane: start the fake blob vendor, run external_storage/.
           BLOB_VENDOR: ${{ matrix.blob_vendor || '0' }}
           # The vendor lane opts the protocol 3.4 argument-reference files in: this
-          # worker implements argument references, init: StateRef, and the fake
-          # vendor pin has the delete route (arguments_ref_prepared.test).
+          # worker implements argument references and the fake vendor pin has the
+          # delete route (arguments_ref_prepared.test). VGI_WORKER_INIT_STATE_REF
+          # stays unset: arguments_ref_state_ref.test needs a table-in-out init
+          # StateRef this SDK has no init request to put in (see run-integration.sh).
           VGI_WORKER_ARGUMENTS_REF: ${{ matrix.blob_vendor == '1' && '1' || '' }}
-          VGI_WORKER_INIT_STATE_REF: ${{ matrix.blob_vendor == '1' && '1' || '' }}
           VGI_FAKE_VENDOR_DELETE_ROUTE: ${{ matrix.blob_vendor == '1' && '1' || '' }}
           # JDK 25 + native access for the worker JVM (FFM shm, haybarn_jdbc).
           JAVA_TOOL_OPTIONS: --enable-native-access=ALL-UNNAMED
