@@ -75,7 +75,7 @@ jobs:
 
       - name: Externalizing storage against the fake blob vendor
         env:
-          VGI_RPC_FAKE_VENDOR_REF: f0fb6754ae5b70900ba21629a1e2d48eb2182774
+          VGI_RPC_FAKE_VENDOR_REF: 6a21ee3b2fb21d9c348c9b615fd97dce8e0bb852
         run: |
           log="$RUNNER_TEMP/fake-vendor.log"
           nohup uvx --from "git+https://github.com/Query-farm/vgi-rpc-python@${VGI_RPC_FAKE_VENDOR_REF}" \

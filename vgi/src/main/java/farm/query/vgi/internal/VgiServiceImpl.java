@@ -22,7 +22,6 @@ import farm.query.vgi.protocol.AggregateFinalizeResponse;
 import farm.query.vgi.protocol.AggregateUpdateRequest;
 import farm.query.vgi.protocol.BindRequest;
 import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.protocol.CardinalityRequest;
 import farm.query.vgi.protocol.CatalogAttachRequest;
 import farm.query.vgi.protocol.CatalogAttachResult;
 import farm.query.vgi.protocol.FunctionInfo;
@@ -200,7 +199,10 @@ public final class VgiServiceImpl implements VgiService {
         Schema inputSchema();
         Schema outputSchema();
         Map<String, Object> settings();
+        /** The inline arguments IPC as received, or {@code null} when they came by reference. */
         byte[] argumentsIpc();
+        /** The argument reference as received, or {@code null} when the arguments came inline. */
+        farm.query.vgi.protocol.ArgumentsLocation argumentsLocation();
         byte[] settingsIpc();
         byte[] outputSchemaIpc();
         List<String> argumentNames();
@@ -208,13 +210,15 @@ public final class VgiServiceImpl implements VgiService {
 
     private record BoundScalar(ScalarFunction fn, Arguments args, Schema inputSchema,
                                 Schema outputSchema, Map<String, Object> settings,
-                                byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
+                                byte[] argumentsIpc, farm.query.vgi.protocol.ArgumentsLocation argumentsLocation,
+                                byte[] settingsIpc, byte[] outputSchemaIpc,
                                 byte[] secrets, List<String> argumentNames)
             implements BoundEntry {}
 
     private record BoundTable(TableFunction fn, Arguments args, Schema inputSchema,
                                Schema outputSchema, Map<String, Object> settings,
-                               byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
+                               byte[] argumentsIpc, farm.query.vgi.protocol.ArgumentsLocation argumentsLocation,
+                                byte[] settingsIpc, byte[] outputSchemaIpc,
                                byte[] secrets, byte[] attachId, byte[] bindOpaqueData,
                                String atUnit, String atValue,
                                farm.query.vgi.protocol.CopyFromContext copyFrom,
@@ -223,14 +227,16 @@ public final class VgiServiceImpl implements VgiService {
 
     private record BoundTableInOut(TableInOutFunction fn, Arguments args, Schema inputSchema,
                                     Schema outputSchema, Map<String, Object> settings,
-                                    byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
+                                    byte[] argumentsIpc, farm.query.vgi.protocol.ArgumentsLocation argumentsLocation,
+                                byte[] settingsIpc, byte[] outputSchemaIpc,
                                     byte[] secrets, byte[] attachId, List<String> argumentNames,
                                     byte[] bindOpaqueData, byte[] transactionId)
             implements BoundEntry {}
 
     private record BoundBuffering(farm.query.vgi.buffering.TableBufferingFunction fn, Arguments args,
                                    Schema inputSchema, Schema outputSchema, Map<String, Object> settings,
-                                   byte[] argumentsIpc, byte[] settingsIpc, byte[] outputSchemaIpc,
+                                   byte[] argumentsIpc, farm.query.vgi.protocol.ArgumentsLocation argumentsLocation,
+                                byte[] settingsIpc, byte[] outputSchemaIpc,
                                    byte[] secrets, byte[] attachId, byte[] bindOpaqueData,
                                    byte[] inputSchemaIpc,
                                    farm.query.vgi.protocol.CopyToContext copyTo,
@@ -385,7 +391,10 @@ public final class VgiServiceImpl implements VgiService {
     public BindResponse bind(BindRequest request, CallContext ctx) {
         String name = request.function_name();
         Schema inputSchema = SchemaUtil.deserializeSchema(request.input_schema());
-        Arguments args = ArgumentsParser.parse(request.arguments());
+        // Protocol 3.4: exactly one of arguments / arguments_location; a reference is resolved
+        // here, at the turn's entry, through vgi-rpc's object cache. The request itself is never
+        // modified, so the reference (never the value) is what is carried onward.
+        Arguments args = BindArguments.resolve(request, ctx);
         Map<String, Object> settings = SettingsParser.parse(request.settings());
 
         byte[] token = new byte[16];
@@ -581,7 +590,7 @@ public final class VgiServiceImpl implements VgiService {
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         byte[] bindOpaque = upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data();
         pendingBinds.put(bytesKey(token), new BoundBuffering(fn, args, inputSchema, outputSchema, settings,
-                request.arguments(), request.settings(), upstream.output_schema(),
+                request.arguments(), request.arguments_location(), request.settings(), upstream.output_schema(),
                 request.secrets(), attachPlain, bindOpaque,
                 request.input_schema(), request.copy_to(), request.argument_names()));
         return new BindResponse(upstream.output_schema(), token,
@@ -599,7 +608,7 @@ public final class VgiServiceImpl implements VgiService {
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         pendingBinds.put(bytesKey(token), new BoundScalar(fn, args, inputSchema, outputSchema, settings,
-                request.arguments(), request.settings(), upstream.output_schema(),
+                request.arguments(), request.arguments_location(), request.settings(), upstream.output_schema(),
                 request.secrets(), request.argument_names()));
         return new BindResponse(upstream.output_schema(), token,
                 upstream.lookup_secret_types(), upstream.lookup_scopes(), upstream.lookup_names(),
@@ -629,9 +638,9 @@ public final class VgiServiceImpl implements VgiService {
         // unoffered functions retain the existing random pending-bind handle.
         byte[] wireState = upstream.projection_expression_profiles().isEmpty()
                 && upstream.repeatability() == farm.query.vgi.protocol.BindRepeatability.UNKNOWN
-                ? token : ProjectionExpressions.envelope(upstream, request);
+                ? token : ProjectionExpressions.envelope(upstream, RecordCodec.serializeToBytes(request), payloadSeal, authOf(ctx));
         pendingBinds.put(bytesKey(wireState), new BoundTable(fn, args, inputSchema, outputSchema, settings,
-                request.arguments(), request.settings(), upstream.output_schema(),
+                request.arguments(), request.arguments_location(), request.settings(), upstream.output_schema(),
                 request.secrets(), attachPlain, bindOpaque, request.at_unit(), request.at_value(),
                 request.copy_from(), request.argument_names(), txnPlain));
         return new BindResponse(upstream.output_schema(), wireState,
@@ -687,7 +696,7 @@ public final class VgiServiceImpl implements VgiService {
         Schema outputSchema = upstream.output_schema() == null
                 ? null : SchemaUtil.deserializeSchema(upstream.output_schema());
         pendingBinds.put(bytesKey(token), new BoundTableInOut(fn, args, inputSchema, outputSchema, settings,
-                request.arguments(), request.settings(), upstream.output_schema(),
+                request.arguments(), request.arguments_location(), request.settings(), upstream.output_schema(),
                 request.secrets(), attachPlain, request.argument_names(),
                 upstream.opaque_data() == null ? new byte[0] : upstream.opaque_data(), txnPlain));
         return new BindResponse(upstream.output_schema(), token,
@@ -716,9 +725,12 @@ public final class VgiServiceImpl implements VgiService {
             String key = bytesKey(request.bind_opaque_data());
             bound = pendingBinds.get(key);
         }
-        if (bound == null && request.bind_call() != null && request.bind_call().length > 0) {
-            BindRequest embedded = RecordCodec.deserializeFromBytes(
-                    request.bind_call(), BindRequest.class);
+        boolean hasBindCall = request.bind_call() != null && request.bind_call().size() > 0;
+        // Decoded (and validated) once; never modified, so whatever is carried onward from it
+        // carries an argument reference, never the resolved value.
+        BindRequest embeddedCall = hasBindCall ? BindArguments.decode(request.bind_call()) : null;
+        if (bound == null && embeddedCall != null) {
+            BindRequest embedded = embeddedCall;
             // bind() returns a fresh opaque_data token; look the new entry up
             // by *that* token so concurrent inits to the same function don't
             // clobber each other (LRU iteration would pick the stale bind).
@@ -732,16 +744,15 @@ public final class VgiServiceImpl implements VgiService {
         if (bound == null) {
             throw new IllegalStateException("init: no bind context — bind_opaque_data=" +
                     (request.bind_opaque_data() == null ? "null" : "present") +
-                    " bind_call_len=" + (request.bind_call() == null ? -1 : request.bind_call().length));
+                    " bind_call_len=" + (request.bind_call() == null ? -1 : request.bind_call().size()));
         }
-        var projectionCall = request.bind_call() == null || request.bind_call().length == 0 ? null
-                : RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class);
-        var acceptedProjection = ProjectionExpressions.open(request.bind_opaque_data(), projectionCall);
+        var acceptedProjection = ProjectionExpressions.open(request.bind_opaque_data(),
+                hasBindCall ? request.bind_call() : null, payloadSeal, authOf(ctx));
         if (acceptedProjection != null) {
             if (!(bound instanceof BoundTable table)) throw new IllegalArgumentException("Projection init requires ordinary table");
             if (!SchemaUtil.deserializeSchema(acceptedProjection.output_schema()).equals(SchemaUtil.deserializeSchema(request.output_schema())))
                 throw new IllegalArgumentException("Projection init schema differs from accepted bind");
-            bound = new BoundTable(table.fn(), table.args(), table.inputSchema(), SchemaUtil.deserializeSchema(acceptedProjection.output_schema()), table.settings(), table.argumentsIpc(), table.settingsIpc(), acceptedProjection.output_schema(), table.secrets(), table.attachId(), acceptedProjection.opaque_data(), table.atUnit(), table.atValue(), table.copyFrom(), table.argumentNames(), table.transactionId());
+            bound = new BoundTable(table.fn(), table.args(), table.inputSchema(), SchemaUtil.deserializeSchema(acceptedProjection.output_schema()), table.settings(), table.argumentsIpc(), table.argumentsLocation(), table.settingsIpc(), acceptedProjection.output_schema(), table.secrets(), table.attachId(), acceptedProjection.opaque_data(), table.atUnit(), table.atValue(), table.copyFrom(), table.argumentNames(), table.transactionId());
         }
         Schema realOutputSchema = SchemaUtil.deserializeSchema(request.output_schema());
         byte[] execId = request.execution_id() != null ? request.execution_id() : newExecutionId();
@@ -750,25 +761,28 @@ public final class VgiServiceImpl implements VgiService {
         GlobalInitResponse header = new GlobalInitResponse(execId, null, 1L);
 
         // Opened here, before any branch reaches user code.
-        List<byte[]> splitPayloads = openSplitTokens(request, ctx);
+        List<byte[]> splitPayloads = openSplitTokens(request, embeddedCall, ctx);
 
-        if (bound instanceof BoundScalar bs) return initScalar(request, bs, realOutputSchema, header);
+        if (bound instanceof BoundScalar bs) return initScalar(request, bs, realOutputSchema, header, ctx);
         if (bound instanceof BoundTable bt) {
-            return initTable(request, bt, realOutputSchema, execId, splitPayloads);
+            return initTable(request, bt, realOutputSchema, execId, splitPayloads, ctx);
         }
         if (bound instanceof BoundTableInOut bio) return initTableInOut(request, bio, realOutputSchema, execId, header);
-        if (bound instanceof BoundBuffering bb) return initBuffering(request, bb, realOutputSchema, execId, header);
+        if (bound instanceof BoundBuffering bb) return initBuffering(request, bb, realOutputSchema, execId, header, ctx);
         throw new IllegalStateException("Unexpected bound type: " + bound);
     }
 
     private RpcStream<? extends StreamState> initScalar(InitRequest request, BoundScalar bs,
-                                                          Schema realOutputSchema, GlobalInitResponse header) {
+                                                          Schema realOutputSchema, GlobalInitResponse header,
+                                                          CallContext ctx) {
         Schema inputSchema = bs.inputSchema() != null ? bs.inputSchema() : new Schema(List.of());
         int variantIdx = ServiceLocator.current().scalarIndexOf(bs.fn().name(), bs.fn());
+        // One init: StateRef (protocol 3.4 §6), built here and only here; the arguments ride in
+        // their received form (an argument reference stays a reference).
+        ScalarStreamInit init = new ScalarStreamInit(request.output_schema(), bs.argumentsIpc(),
+                bs.argumentsLocation(), bs.settingsIpc(), bs.secrets());
         ScalarStreamState state = new ScalarStreamState(
-                bs.fn().name(), bs.fn().argumentSpecs().size(), variantIdx,
-                request.output_schema(), bs.argumentsIpc(), bs.settingsIpc());
-        state.setSecrets(bs.secrets());
+                bs.fn().name(), bs.fn().argumentSpecs().size(), variantIdx, init, bs.args(), ctx);
         return RpcStream.exchange(inputSchema, realOutputSchema, state, header);
     }
 
@@ -798,16 +812,18 @@ public final class VgiServiceImpl implements VgiService {
      */
     private static final long CATALOG_VERSION = 1L;
 
-    private List<byte[]> openSplitTokens(InitRequest request, CallContext ctx) {
+    private List<byte[]> openSplitTokens(InitRequest request, BindRequest bind, CallContext ctx) {
         List<byte[]> tokens = request.split_tokens();
         if (tokens == null || tokens.isEmpty()) {
             return null;
         }
-        BindRequest bind = RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class);
+        if (bind == null) {
+            throw new IllegalArgumentException("init: split tokens need the bind_call they were planned for");
+        }
         byte[] expected = SplitToken.bindFingerprint(
                 bind.schema_path() == null ? "" : String.join("\u001f", bind.schema_path()),
                 bind.function_name(),
-                bind.arguments(),
+                BindArguments.fingerprintInput(bind),
                 bind.settings(),
                 new byte[0]);
         byte[] key = sealer == null ? null : sealer.signingKey();
@@ -826,7 +842,7 @@ public final class VgiServiceImpl implements VgiService {
 
     private RpcStream<? extends StreamState> initTable(InitRequest request, BoundTable bt,
                                                          Schema realOutputSchema, byte[] execId,
-                                                         List<byte[]> splitPayloads) {
+                                                         List<byte[]> splitPayloads, CallContext ctx) {
         if (request.phase() != null) {
             // Mirror image of bindTableInOut's guard above: this is a plain
             // producer (createProducer / RpcStream.producer — no input
@@ -854,8 +870,7 @@ public final class VgiServiceImpl implements VgiService {
         // but only when the function opts into projection pushdown. Otherwise
         // the framework would have to auto-project emitted batches (not
         // implemented), so non-pushdown functions keep the full schema.
-        List<Integer> projIds = request.projection_ids() == null
-                ? List.of() : request.projection_ids();
+        List<Integer> projIds = projectionIds(request);
         Schema fnOutputSchema = realOutputSchema;
         if (bt.fn().metadata().projectionPushdown() && !projIds.isEmpty()) {
             fnOutputSchema = projectSchema(realOutputSchema, projIds);
@@ -897,7 +912,11 @@ public final class VgiServiceImpl implements VgiService {
                     new TableBindParams(bt.fn().name(), bt.args(), null, bt.settings(),
                             bt.argumentNames()));
         }
-        TableProducerState state = bt.fn().createProducer(params);
+        TableProducerState state;
+        // The init turn's context: a FilterApplier built here carries its snapshot as a StateRef.
+        try (var turn = TurnContext.enter(ctx)) {
+            state = bt.fn().createProducer(params);
+        }
         GlobalInitResponse header = new GlobalInitResponse(execId, null, bt.fn().maxWorkers(params));
         return RpcStream.producer(fnOutputSchema, state, header);
     }
@@ -910,8 +929,7 @@ public final class VgiServiceImpl implements VgiService {
         // function opts into projection pushdown — mirrors initTable. The
         // narrowed schema is what both the exchange wire and the function's
         // params see, so the function emits only the requested columns.
-        List<Integer> projIds = request.projection_ids() == null
-                ? List.of() : request.projection_ids();
+        List<Integer> projIds = projectionIds(request);
         Schema fnOutputSchema = realOutputSchema;
         if (bio.fn().metadata().projectionPushdown() && !projIds.isEmpty()) {
             fnOutputSchema = projectSchema(realOutputSchema, projIds);
@@ -939,7 +957,7 @@ public final class VgiServiceImpl implements VgiService {
 
     private RpcStream<? extends StreamState> initBuffering(InitRequest request, BoundBuffering bb,
                                                              Schema realOutputSchema, byte[] execId,
-                                                             GlobalInitResponse header) {
+                                                             GlobalInitResponse header, CallContext ctx) {
         String phase = request.phase();
         if (!"TABLE_BUFFERING_FINALIZE".equalsIgnoreCase(phase)) {
             // Sink-side init (phase TABLE_BUFFERING): mints execution_id and
@@ -952,7 +970,7 @@ public final class VgiServiceImpl implements VgiService {
                     new farm.query.vgi.storage.BoundStorage(this.storage, execId, bb.attachId());
             BufferingInitState init = new BufferingInitState(
                     bb.argumentsIpc(), bb.settingsIpc(), bb.outputSchemaIpc(),
-                    bb.inputSchemaIpc(), bb.copyTo(), bb.secrets());
+                    bb.inputSchemaIpc(), bb.copyTo(), bb.secrets(), bb.argumentsLocation());
             initStorage.statePut(BUFFERING_INIT_NS, BUFFERING_INIT_KEY,
                     payloadSeal.seal(RecordCodec.serializeToBytes(init), initStorage.shardKey(),
                             execId, BUFFERING_INIT_NS.bytes(), BUFFERING_INIT_KEY));
@@ -964,8 +982,7 @@ public final class VgiServiceImpl implements VgiService {
         // Source-side init: one stream per finalize_state_id. Narrow the output
         // schema for projection pushdown (mirrors initTable) and build the
         // producer that drains buffered output for this finalize_state_id.
-        List<Integer> projIds = request.projection_ids() == null
-                ? List.of() : request.projection_ids();
+        List<Integer> projIds = projectionIds(request);
         Schema fnOutputSchema = realOutputSchema;
         if (bb.fn().metadata().projectionPushdown() && !projIds.isEmpty()) {
             fnOutputSchema = projectSchema(realOutputSchema, projIds);
@@ -985,7 +1002,10 @@ public final class VgiServiceImpl implements VgiService {
         farm.query.vgi.buffering.TableBufferingFinalizeParams fparams =
                 new farm.query.vgi.buffering.TableBufferingFinalizeParams(
                         execId, request.finalize_state_id(), bb.attachId(), storage, initParams);
-        TableProducerState producer = bb.fn().createFinalizeProducer(fparams);
+        TableProducerState producer;
+        try (var turn = TurnContext.enter(ctx)) {
+            producer = bb.fn().createFinalizeProducer(fparams);
+        }
         return RpcStream.producer(fnOutputSchema, producer, header);
     }
 
@@ -1045,6 +1065,15 @@ public final class VgiServiceImpl implements VgiService {
 
     private static String bytesKey(byte[] b) { return HexId.encode(b); }
 
+    /** The init's projection ids as column indices (the wire carries int64). */
+    private static List<Integer> projectionIds(InitRequest request) {
+        List<Long> ids = request.projection_ids();
+        if (ids == null || ids.isEmpty()) return List.of();
+        List<Integer> out = new ArrayList<>(ids.size());
+        for (Long id : ids) out.add(id == null ? -1 : Math.toIntExact(id));
+        return out;
+    }
+
     private static byte[] newExecutionId() { return HexId.newExecutionId(); }
 
     // -----------------------------------------------------------------------
@@ -1060,11 +1089,9 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public farm.query.vgi.protocol.CardinalityResponse table_function_cardinality(byte[] request, CallContext ctx) {
-        Map<String, byte[]> fields = IpcUnpacker.unpack(request, "bind_call", "bind_opaque_data");
-        CardinalityRequest inner = fields == null
-                ? new CardinalityRequest(null, null)
-                : new CardinalityRequest(fields.get("bind_call"), fields.get("bind_opaque_data"));
-        long result = computeCardinality(inner);
+        var inner = RecordCodec.deserializeFromBytes(request,
+                farm.query.vgi.protocol.TableFunctionCardinalityRequest.class);
+        long result = computeCardinality(inner, ctx);
         return new farm.query.vgi.protocol.CardinalityResponse(
                 result < 0 ? null : result,
                 result < 0 ? null : result);
@@ -1079,10 +1106,10 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public byte[] table_function_statistics(byte[] request, CallContext ctx) {
-        Map<String, byte[]> fields = IpcUnpacker.unpack(request, "bind_call", "bind_opaque_data");
-        if (fields == null) return new byte[0];
-        byte[] bindCall = fields.get("bind_call");
-        byte[] bindOpaque = fields.get("bind_opaque_data");
+        var inner = RecordCodec.deserializeFromBytes(request,
+                farm.query.vgi.protocol.TableFunctionStatisticsRequest.class);
+        var bindCall = inner.bind_call();
+        byte[] bindOpaque = inner.bind_opaque_data();
         TableFunction fn = null;
         TableBindParams params = null;
         if (bindOpaque != null) {
@@ -1093,11 +1120,11 @@ public final class VgiServiceImpl implements VgiService {
                         bt.argumentNames());
             }
         }
-        if (fn == null && bindCall != null && bindCall.length > 0) {
-            BindRequest embedded = RecordCodec.deserializeFromBytes(bindCall, BindRequest.class);
+        if (fn == null && bindCall != null && bindCall.size() > 0) {
+            BindRequest embedded = BindArguments.decode(bindCall);
             if (tables.containsKey(embedded.function_name())) {
                 Schema inputSchema = SchemaUtil.deserializeSchema(embedded.input_schema());
-                Arguments args = ArgumentsParser.parse(embedded.arguments());
+                Arguments args = BindArguments.resolve(embedded, ctx);
                 Map<String, Object> settings = SettingsParser.parse(embedded.settings());
                 int constN = args.positional().size();
                 int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
@@ -1123,21 +1150,18 @@ public final class VgiServiceImpl implements VgiService {
     @Override
     public farm.query.vgi.protocol.DynamicToStringResponse table_function_dynamic_to_string(byte[] request,
             CallContext ctx) {
-        Map<String, byte[]> fields = IpcUnpacker.unpack(request,
-                "bind_call", "bind_opaque_data", "global_execution_id");
-        byte[] bindCall = fields == null ? null : fields.get("bind_call");
-        if (bindCall == null) {
+        var inner = RecordCodec.deserializeFromBytes(request,
+                farm.query.vgi.protocol.TableFunctionDynamicToStringRequest.class);
+        if (inner.bind_call() == null || inner.bind_call().size() == 0) {
             return new farm.query.vgi.protocol.DynamicToStringResponse(List.of(), List.of());
         }
-        DynamicToStringInner inner = new DynamicToStringInner(bindCall,
-                fields.get("bind_opaque_data"), fields.get("global_execution_id"));
-        BindRequest embedded = RecordCodec.deserializeFromBytes(inner.bind_call, BindRequest.class);
+        BindRequest embedded = BindArguments.decode(inner.bind_call());
         TableFunction fn = null;
         if (tables.containsKey(embedded.function_name())) {
             // Pick a variant — for diagnostics any registered overload of the
             // name suffices since they share state.
             Schema inputSchema = SchemaUtil.deserializeSchema(embedded.input_schema());
-            Arguments args = ArgumentsParser.parse(embedded.arguments());
+            Arguments args = BindArguments.resolve(embedded, ctx);
             int constN = args.positional().size();
             int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
             fn = OverloadResolver.pick(tables.get(embedded.function_name()), constN + colN, args, inputSchema);
@@ -1145,13 +1169,12 @@ public final class VgiServiceImpl implements VgiService {
         if (fn == null) {
             return new farm.query.vgi.protocol.DynamicToStringResponse(List.of(), List.of());
         }
-        java.util.LinkedHashMap<String, String> kv = fn.dynamicToString(inner.global_execution_id);
+        java.util.LinkedHashMap<String, String> kv = fn.dynamicToString(inner.global_execution_id());
         List<String> keys = new ArrayList<>(kv.keySet());
         List<String> values = new ArrayList<>(kv.values());
         return new farm.query.vgi.protocol.DynamicToStringResponse(keys, values);
     }
 
-    private record DynamicToStringInner(byte[] bind_call, byte[] bind_opaque_data, byte[] global_execution_id) {}
 
     /** Validate a pure optional projection proposal before publishing replacement bind state. */
     @Override
@@ -1167,7 +1190,7 @@ public final class VgiServiceImpl implements VgiService {
             pendingBinds.remove(bytesKey(rebound.opaque_data()));
         }
         if (!(bound instanceof BoundTable table)) throw new IllegalArgumentException("Projection requires ordinary table");
-        var providerBind = ProjectionExpressions.open(original.opaque_data(), call);
+        var providerBind = ProjectionExpressions.open(original.opaque_data(), proposal.bind_call(), payloadSeal, authOf(ctx));
         if (providerBind == null) {
             providerBind = new BindResponse(original.output_schema(), table.bindOpaqueData(),
                     original.lookup_secret_types(), original.lookup_scopes(), original.lookup_names(),
@@ -1182,7 +1205,7 @@ public final class VgiServiceImpl implements VgiService {
         ProjectionExpressions.validateResponse(providerRequest, response);
         if (response.bind_result() != null) {
             var accepted = RecordCodec.deserializeFromBytes(response.bind_result(), BindResponse.class);
-            var portable = new BindResponse(accepted.output_schema(), ProjectionExpressions.envelope(accepted, call), accepted.lookup_secret_types(), accepted.lookup_scopes(), accepted.lookup_names(), accepted.projection_expression_profiles(), accepted.repeatability());
+            var portable = new BindResponse(accepted.output_schema(), ProjectionExpressions.envelope(accepted, proposal.bind_call().rawBinary(), payloadSeal, authOf(ctx)), accepted.lookup_secret_types(), accepted.lookup_scopes(), accepted.lookup_names(), accepted.projection_expression_profiles(), accepted.repeatability());
             response = new farm.query.vgi.protocol.TableFunctionProjectionResponse(response.accepted_indices(), RecordCodec.serializeToBytes(portable));
         }
         ProjectionExpressions.validateResponse(proposal, response);
@@ -1208,20 +1231,20 @@ public final class VgiServiceImpl implements VgiService {
      */
     @Override
     public PlanResponse table_function_plan(byte[] request, CallContext ctx) {
-        Map<String, byte[]> fields = IpcUnpacker.unpack(request, "bind_call", "bind_opaque_data");
-        byte[] bindCallBytes = fields == null ? null : fields.get("bind_call");
-        if (bindCallBytes == null || bindCallBytes.length == 0) {
+        var planRequest = RecordCodec.deserializeFromBytes(request,
+                farm.query.vgi.protocol.TableFunctionPlanRequest.class);
+        if (planRequest.bind_call() == null || planRequest.bind_call().size() == 0) {
             return PlanResponse.of(List.of(defaultSplitBytes()));
         }
 
-        BindRequest embedded = RecordCodec.deserializeFromBytes(bindCallBytes, BindRequest.class);
+        BindRequest embedded = BindArguments.decode(planRequest.bind_call());
         List<ScanSplit> planned = List.of();
         farm.query.vgi.table.PlanResult result = farm.query.vgi.table.PlanResult.none();
         boolean splitCapable = false;
         TableBindParams params = null;
         if (tables.containsKey(embedded.function_name())) {
             Schema inputSchema = SchemaUtil.deserializeSchema(embedded.input_schema());
-            Arguments args = ArgumentsParser.parse(embedded.arguments());
+            Arguments args = BindArguments.resolve(embedded, ctx);
             Map<String, Object> settings = SettingsParser.parse(embedded.settings());
             int constN = args.positional().size();
             int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
@@ -1249,7 +1272,7 @@ public final class VgiServiceImpl implements VgiService {
         byte[] fingerprint = SplitToken.bindFingerprint(
                 embedded.schema_path() == null ? "" : String.join("\u001f", embedded.schema_path()),
                 embedded.function_name(),
-                embedded.arguments(),
+                BindArguments.fingerprintInput(embedded),
                 embedded.settings(),
                 new byte[0]);
         // A worker that names its version is taken at its word — it knows which
@@ -1341,7 +1364,8 @@ public final class VgiServiceImpl implements VgiService {
         return ScanSplitSerializer.serialize(ScanSplit.of(new byte[0]));
     }
 
-    private long computeCardinality(CardinalityRequest request) {
+    private long computeCardinality(farm.query.vgi.protocol.TableFunctionCardinalityRequest request,
+                                    CallContext ctx) {
         if (request.bind_opaque_data() != null) {
             BoundEntry e = pendingBinds.get(bytesKey(request.bind_opaque_data()));
             if (e instanceof BoundTable bt) {
@@ -1350,11 +1374,11 @@ public final class VgiServiceImpl implements VgiService {
                         bt.argumentNames()));
             }
         }
-        if (request.bind_call() != null && request.bind_call().length > 0) {
-            BindRequest embedded = RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class);
+        if (request.bind_call() != null && request.bind_call().size() > 0) {
+            BindRequest embedded = BindArguments.decode(request.bind_call());
             if (tables.containsKey(embedded.function_name())) {
                 Schema inputSchema = SchemaUtil.deserializeSchema(embedded.input_schema());
-                Arguments args = ArgumentsParser.parse(embedded.arguments());
+                Arguments args = BindArguments.resolve(embedded, ctx);
                 Map<String, Object> settings = SettingsParser.parse(embedded.settings());
                 int constN = args.positional().size();
                 int colN = inputSchema == null ? 0 : inputSchema.getFields().size();
@@ -2766,6 +2790,18 @@ public final class VgiServiceImpl implements VgiService {
         return init;
     }
 
+    /**
+     * The buffered init's arguments: inline, or (protocol 3.4) resolved through the turn's
+     * context from the argument reference the init stored, so a large argument is stored once
+     * by the client's upload, never copied into worker storage.
+     */
+    private static Arguments bufferingArguments(BufferingInitState init, CallContext ctx) {
+        if (init.arguments_location() != null) {
+            return BindArguments.parse(BindArguments.resolveLocation(init.arguments_location(), ctx), true);
+        }
+        return ArgumentsParser.parse(init.arguments());
+    }
+
     private static final farm.query.vgi.storage.FrameworkNs BUFFERING_INIT_NS =
             farm.query.vgi.storage.FrameworkNs.BUFFERING_INIT;
     private static final byte[] BUFFERING_INIT_KEY = farm.query.vgi.storage.BoundStorage.packIntKey(-1);
@@ -2802,7 +2838,7 @@ public final class VgiServiceImpl implements VgiService {
         BufferingInitState init = bufferingInitState(storage);
         var params = new farm.query.vgi.buffering.TableBufferingProcessParams(
                 request.function_name(), request.execution_id(), storage, request.batch_index(), ctx,
-                ArgumentsParser.parse(init.arguments()),
+                bufferingArguments(init, ctx),
                 init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
                 attachPlain,
                 init.input_schema() == null ? null : SchemaUtil.deserializeSchema(init.input_schema()),
@@ -2833,7 +2869,7 @@ public final class VgiServiceImpl implements VgiService {
         BufferingInitState init = bufferingInitState(storage);
         var params = new farm.query.vgi.buffering.TableBufferingCombineParams(
                 request.function_name(), request.execution_id(), storage, ctx,
-                ArgumentsParser.parse(init.arguments()),
+                bufferingArguments(init, ctx),
                 init.output_schema() == null ? null : SchemaUtil.deserializeSchema(init.output_schema()),
                 attachPlain,
                 init.input_schema() == null ? null : SchemaUtil.deserializeSchema(init.input_schema()),

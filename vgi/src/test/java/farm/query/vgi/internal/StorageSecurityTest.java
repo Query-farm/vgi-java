@@ -2,6 +2,8 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.LegacyInit;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -178,11 +180,11 @@ class StorageSecurityTest {
 
     /** Bind + sink-phase init for {@code t_sink} under {@code attach}; returns the execution id. */
     private static byte[] initBuffering(VgiServiceImpl svc, byte[] attach, byte[] secrets) {
-        BindRequest bind = new BindRequest("t_sink", null, "TABLE_BUFFERING", SchemaUtil.serializeSchema(OUT),
-                null, secrets, attach, null, true, null, null, null, null, List.of("main"));
+        BindRequest bind = new BindRequest("t_sink", new byte[0], "TABLE_BUFFERING", SchemaUtil.serializeSchema(OUT),
+                null, secrets, attach, null, true, null, null, null, null, List.of("main"), null, null);
         BindResponse br = svc.bind(bind, null);
         byte[] execId = HexId.newExecutionId();
-        svc.init(new InitRequest(null, br.output_schema(), br.opaque_data(), null, null, null,
+        svc.init(LegacyInit.of(null, br.output_schema(), br.opaque_data(), null, null, null,
                 "TABLE_BUFFERING", execId, null, null, null, null, null, null, null, null, null, null, null),
                 null);
         return execId;

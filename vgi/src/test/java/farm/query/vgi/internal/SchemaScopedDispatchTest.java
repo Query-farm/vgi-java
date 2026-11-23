@@ -96,8 +96,9 @@ class SchemaScopedDispatchTest {
     }
 
     private static BindRequest bind(String schemaName, byte[] attach) {
-        return new BindRequest("probe", null, "SCALAR", null, null, null,
-                attach, null, false, null, null, null, null, schemaName);
+        return new BindRequest("probe", new byte[0], "SCALAR", null, null, null,
+                attach, null, false, null, null, null, null,
+                schemaName == null ? null : List.of(schemaName), null, null);
     }
 
     /** The single field name of a bind response's output schema. */

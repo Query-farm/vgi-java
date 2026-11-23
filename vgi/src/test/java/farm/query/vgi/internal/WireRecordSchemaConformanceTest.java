@@ -15,7 +15,6 @@ import farm.query.vgi.protocol.AggregateUpdateResponse;
 import farm.query.vgi.protocol.AttachCatalogInfo;
 import farm.query.vgi.protocol.BindRequest;
 import farm.query.vgi.protocol.BindResponse;
-import farm.query.vgi.protocol.CardinalityRequest;
 import farm.query.vgi.protocol.CardinalityResponse;
 import farm.query.vgi.protocol.CatalogAttachRequest;
 import farm.query.vgi.protocol.CatalogAttachResult;
@@ -333,7 +332,13 @@ class WireRecordSchemaConformanceTest {
         m.put(BindResponse.class, new Codec("BindResult", ORDERED));
         m.put(farm.query.vgi.protocol.TableFunctionProjectionRequest.class, new Codec("TableFunctionProjectionRequest", ORDERED));
         m.put(farm.query.vgi.protocol.TableFunctionProjectionResponse.class, new Codec("TableFunctionProjectionResult", ORDERED));
-        m.put(CardinalityRequest.class, new Codec("TableFunctionCardinalityRequest", BY_NAME));
+        m.put(farm.query.vgi.protocol.TableFunctionCardinalityRequest.class,
+                new Codec("TableFunctionCardinalityRequest", BY_NAME));
+        m.put(farm.query.vgi.protocol.TableFunctionStatisticsRequest.class,
+                new Codec("TableFunctionStatisticsRequest", BY_NAME));
+        m.put(farm.query.vgi.protocol.TableFunctionDynamicToStringRequest.class,
+                new Codec("TableFunctionDynamicToStringRequest", BY_NAME));
+        m.put(farm.query.vgi.protocol.ArgumentsLocation.class, new Codec("ArgumentsLocation", BY_NAME));
         m.put(CardinalityResponse.class, new Codec("TableFunctionCardinalityResult", ORDERED));
         m.put(CatalogAttachRequest.class, new Codec("CatalogAttachRequest", BY_NAME));
         m.put(CatalogAttachResult.class, new Codec("CatalogAttachResult", ORDERED));
@@ -598,14 +603,9 @@ class WireRecordSchemaConformanceTest {
                 "AggregateStreamingCloseRequest", "AggregateStreamingOpenRequest",
                 "AggregateWindowBatchRequest", "AggregateWindowDestructorRequest",
                 "AggregateWindowInitRequest", "AggregateWindowRequest", "CatalogCreateRequest",
-                "IndexCreateRequest",
-                "TableFunctionDynamicToStringRequest", "TableFunctionStatisticsRequest")) {
+                "IndexCreateRequest")) {
             m.put(request, "the corresponding protocol 2.0 operation is not implemented as a Java wire record");
         }
-        m.put("TableFunctionPlanRequest", "read field-by-field with IpcUnpacker rather than through a"
-                + " record (VgiServiceImpl.table_function_plan), so there is no declaration to compare."
-                + " A field renamed or removed in the protocol surfaces here as a silently absent value,"
-                + " not as an error — giving it a record would close that");
         m.put("CatalogIndexGetResult", "indexes are not implemented in this SDK");
         m.put("CatalogSchemaContentsIndexesResult", "indexes are not implemented in this SDK");
         m.put("ScanBranchesResult", "assembled straight from its arguments by"

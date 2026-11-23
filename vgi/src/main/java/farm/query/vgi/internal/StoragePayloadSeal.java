@@ -169,6 +169,38 @@ public final class StoragePayloadSeal {
     }
 
     /**
+     * Seal {@code payload} to its slot deterministically: the nonce is derived from the slot and
+     * the payload ({@code HMAC-SHA256(nonce_key, aad || payload)[:12]}, {@code nonce_key} itself
+     * derived from the AES key), so equal payloads in the same slot seal to equal envelopes and
+     * nothing but that equality is revealed. For values whose identity must survive an equivalent
+     * re-derivation (the projection bind envelope); {@link #open} opens it like any other.
+     *
+     * @param payload the plaintext
+     * @param shardKey the attach shard
+     * @param scopeId the scope id
+     * @param ns the namespace
+     * @param key the key
+     * @return the envelope
+     */
+    public byte[] sealDeterministic(byte[] payload, String shardKey, byte[] scopeId, byte[] ns, byte[] key) {
+        byte[] aesKey = key();
+        byte[] aad = aad(shardKey, scopeId, ns, key);
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(aesKey, "HmacSHA256"));
+            byte[] nonceKey = mac.doFinal("vgi.storage.payload.v1.deterministic-nonce".getBytes(StandardCharsets.US_ASCII));
+            mac.init(new SecretKeySpec(nonceKey, "HmacSHA256"));
+            mac.update(ByteBuffer.allocate(4).putInt(aad.length).array());
+            mac.update(aad);
+            mac.update(payload);
+            byte[] nonce = Arrays.copyOf(mac.doFinal(), NONCE_LEN);
+            return sealWith(aesKey, nonce, payload, aad);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("HmacSHA256 unavailable", e);
+        }
+    }
+
+    /**
      * Open an envelope from {@link #seal} for the same slot.
      *
      * @param blob the stored envelope

@@ -60,7 +60,7 @@ final class JavaWorkerHttpConformanceTest extends AbstractVgiHttpConformanceTest
         BindRequest bind = new BindRequest(
                 "double", ArgumentsEncoder.builder().encode(), "SCALAR",
                 SchemaUtil.serializeSchema(input), SettingsEncoder.builder().encode(), null,
-                handle, null, false, null, null, null, null, "main");
+                handle, null, false, null, null, null, null, List.of("main"), null, null);
         RpcError e = assertThrows(RpcError.class, () -> vgi.bind(bind, null));
         assertEquals(Code.INVALID_ARGUMENT.name(), e.errorCode(), e.errorMessage());
     }

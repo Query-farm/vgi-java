@@ -2,6 +2,8 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.LegacyInit;
+
 import farm.query.vgi.Worker;
 import farm.query.vgi.function.Arguments;
 import farm.query.vgi.function.FunctionSpec;
@@ -107,8 +109,8 @@ class FunctionShapeDispatchGuardsTest {
     }
 
     private static BindRequest bindRequest(String functionName, String functionType, byte[] inputSchema) {
-        return new BindRequest(functionName, null, functionType, inputSchema, null, null,
-                null, null, false, null, null, null, null, (List<String>) null);
+        return new BindRequest(functionName, new byte[0], functionType, inputSchema, null, null,
+                null, null, false, null, null, null, null, (List<String>) null, null, null);
     }
 
     // -----------------------------------------------------------------------
@@ -165,7 +167,7 @@ class FunctionShapeDispatchGuardsTest {
         VgiServiceImpl svc = service(Worker.builder().catalogName("probe").registerTable(new ProbeTable()));
         BindResponse bindResp = svc.bind(bindRequest("table_probe", "TABLE", null), null);
 
-        InitRequest initReq = new InitRequest(
+        InitRequest initReq = LegacyInit.of(
                 new byte[0],                                  // bind_call (unused -- cached bind below)
                 SchemaUtil.serializeSchema(TABLE_OUTPUT_SCHEMA), // output_schema
                 bindResp.opaque_data(),                       // bind_opaque_data
@@ -186,7 +188,7 @@ class FunctionShapeDispatchGuardsTest {
         VgiServiceImpl svc = service(Worker.builder().catalogName("probe").registerTable(new ProbeTable()));
         BindResponse bindResp = svc.bind(bindRequest("table_probe", "TABLE", null), null);
 
-        InitRequest initReq = new InitRequest(
+        InitRequest initReq = LegacyInit.of(
                 new byte[0],
                 SchemaUtil.serializeSchema(TABLE_OUTPUT_SCHEMA),
                 bindResp.opaque_data(),

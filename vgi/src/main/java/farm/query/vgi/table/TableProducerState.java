@@ -74,13 +74,18 @@ public abstract class TableProducerState extends ProducerState {
 
     @Override
     public final void produce(OutputCollector out, CallContext ctx) {
-        produceTick(out, ctx);
+        // The turn's context, for framework values carried as StateRefs (the filter snapshot).
+        try (var turn = farm.query.vgi.internal.TurnContext.enter(ctx)) {
+            produceTick(out, ctx);
+        }
         refuseMoreOutput(out);
     }
 
     @Override
     public final void produce(AnnotatedBatch input, OutputCollector out, CallContext ctx) {
-        produceTick(input, out, ctx);
+        try (var turn = farm.query.vgi.internal.TurnContext.enter(ctx)) {
+            produceTick(input, out, ctx);
+        }
         refuseMoreOutput(out);
     }
 

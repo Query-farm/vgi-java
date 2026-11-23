@@ -1,6 +1,8 @@
 // Copyright 2026 Query Farm LLC - https://query.farm
 package farm.query.vgi.internal;
 
+import farm.query.vgi.LegacyInit;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 import farm.query.vgi.protocol.*;
@@ -19,12 +21,12 @@ class ProjectionExpressionsTest {
         new Field("wide", new FieldType(true, Schemas.INT64, null, Map.of("requested", "retained")), null);
     private static TableFunctionProjectionRequest proposal(List<String> owner) {
         var call = new BindRequest("projection_sequence", new byte[0], "table", null, null, null, null, null,
-                                   false, null, null, null, null, owner);
+                                   false, null, null, null, null, owner, null, null);
         var bind = new BindResponse(SchemaUtil.serializeSchema(SOURCE), new byte[0], List.of(), List.of(),
                                     List.of(), List.of(ProjectionExpressions.PROFILE));
         var expression =
             new SqlExpression("CAST(\"n\" AS BIGINT)", ProjectionExpressions.PROFILE, owner, CONTEXT);
-        return new TableFunctionProjectionRequest(RecordCodec.serializeToBytes(call),
+        return new TableFunctionProjectionRequest(Nested.of(call),
                                                   RecordCodec.serializeToBytes(bind),
                                                   List.of(RecordCodec.serializeToBytes(expression)),
                                                   SchemaUtil.serializeSchema(new Schema(List.of(RESULT))));
@@ -64,7 +66,9 @@ class ProjectionExpressionsTest {
         var response = accepted(new Schema(fields, SOURCE.getCustomMetadata()));
         ProjectionExpressions.validateResponse(request, response);
         var bind = RecordCodec.deserializeFromBytes(response.bind_result(), BindResponse.class);
-        var reopened = ProjectionExpressions.open(ProjectionExpressions.envelope(bind, RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class)), RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class));
+        var seal = StoragePayloadSeal.forKey(new byte[32]);
+        var reopened = ProjectionExpressions.open(ProjectionExpressions.envelope(bind, request.bind_call().bytes(), seal, null),
+                request.bind_call(), seal, null);
         assertArrayEquals(bind.output_schema(), reopened.output_schema());
         assertArrayEquals(new byte[] {42}, reopened.opaque_data());
         ProjectionExpressions.validateResponse(request, TableFunctionProjectionResponse.decline());
@@ -107,7 +111,7 @@ class ProjectionExpressionsTest {
     }
     @Test void includesArrowFramingInSizeLimitBeforeNestedDecode() {
         var request = proposal(List.of("main"));
-        int other = request.bind_call().length + request.bind_result().length + request.expressions().get(0).length;
+        int other = request.bind_call().size() + request.bind_result().length + request.expressions().get(0).length;
         var oversized = new TableFunctionProjectionRequest(request.bind_call(), request.bind_result(), request.expressions(),
             new byte[8 * 1024 * 1024 - other - 16]);
         var error = assertThrows(IllegalArgumentException.class, () -> ProjectionExpressions.validateRequest(oversized));
@@ -146,12 +150,12 @@ class ProjectionExpressionsTest {
         return new VgiServiceImpl(worker, worker.scalars(), worker.tables(), worker.tableInOuts(), worker.aggregates());
     }
     private static InitRequest init(BindRequest call, BindResponse bind) {
-        return new InitRequest(RecordCodec.serializeToBytes(call), bind.output_schema(), bind.opaque_data(),
+        return LegacyInit.of(RecordCodec.serializeToBytes(call), bind.output_schema(), bind.opaque_data(),
                 null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
     @Test void offeredOriginalStateIsStableAndRehydratesWithoutPendingCache() {
         var template = proposal(List.of("main"));
-        var call = RecordCodec.deserializeFromBytes(template.bind_call(), BindRequest.class);
+        var call = template.bind_call().get();
         var service = portableService();
         var first = service.bind(call, null);
         var second = service.bind(call, null);
@@ -163,8 +167,9 @@ class ProjectionExpressionsTest {
         var accepted = RecordCodec.deserializeFromBytes(response.bind_result(), BindResponse.class);
         assertDoesNotThrow(() -> portableService().init(init(call, accepted), null));
         assertDoesNotThrow(() -> portableService().init(init(call, first), null));
-        var different = new BindRequest("other_function", call.arguments(), call.function_type(), null, null, null, null, null, false, null, null, null, null, List.of("main"));
-        assertThrows(IllegalArgumentException.class, () -> ProjectionExpressions.open(first.opaque_data(), different));
+        var different = new BindRequest("other_function", call.arguments(), call.function_type(), null, null, null, null, null, false, null, null, null, null, List.of("main"), null, null);
+        assertThrows(IllegalArgumentException.class, () -> ProjectionExpressions.open(first.opaque_data(), Nested.of(different),
+                StoragePayloadSeal.forKey(null), null));
     }
 
     @Test void validatesRawOuterEnvelopeBeforeTypedDecoding() throws Exception {
@@ -207,7 +212,7 @@ class ProjectionExpressionsTest {
         var worker = farm.query.vgi.Worker.builder().catalogName("probe").registerTable(
                 new Offered("projection_sequence", BindRepeatability.STABLE_WITHIN_QUERY, List.of()));
         var service = new VgiServiceImpl(worker, worker.scalars(), worker.tables(), worker.tableInOuts(), worker.aggregates());
-        var call = RecordCodec.deserializeFromBytes(proposal(List.of("main")).bind_call(), BindRequest.class);
+        var call = proposal(List.of("main")).bind_call().get();
         var first = service.bind(call, null);
         assertEquals(BindRepeatability.STABLE_WITHIN_QUERY, first.repeatability());
         assertTrue(first.projection_expression_profiles().isEmpty());

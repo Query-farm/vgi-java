@@ -116,6 +116,6 @@ class CatalogListingBindFailureTest {
 
     private static BindRequest bind(byte[] attach, byte[] args) {
         return new BindRequest("strict", args, "TABLE", null, null, null, attach, null,
-                false, null, null, null, null, List.of("main"));
+                false, null, null, null, null, List.of("main"), null, null);
     }
 }

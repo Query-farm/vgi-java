@@ -2,6 +2,8 @@
 
 package farm.query.vgi.client;
 
+import farm.query.vgi.LegacyInit;
+
 import farm.query.vgi.VgiService;
 import farm.query.vgi.Worker;
 import farm.query.vgi.internal.SchemaUtil;
@@ -334,7 +336,7 @@ final class VgiScalarExchangeRoundTripTest {
                     SchemaUtil.serializeSchema(SCALE_INPUT),
                     SettingsEncoder.builder().setting("bias", 7L).encode(),
                     null, handle, null, false,
-                    null, null, null, null, "main");
+                    null, null, null, null, List.of("main"), null, null);
             BindResponse bound = vgi.bind(bindRequest, null);
 
             ClientStreamSession<?> session =
@@ -369,7 +371,7 @@ final class VgiScalarExchangeRoundTripTest {
     private static BindRequest scalarBind(String function, Schema inputSchema, byte[] handle) {
         return new BindRequest(
                 function,                                  // function_name
-                null,                                      // arguments — no const args
+                new byte[0],                               // arguments — no const args
                 "SCALAR",                                  // function_type
                 SchemaUtil.serializeSchema(inputSchema),   // input_schema (mandatory for scalars)
                 null,                                      // settings
@@ -379,11 +381,11 @@ final class VgiScalarExchangeRoundTripTest {
                 false,                                     // resolved_secrets_provided
                 null, null,                                // at_unit / at_value
                 null, null,                                // copy_from / copy_to
-                "main");                                   // schema_name
+                List.of("main"), null, null);                                   // schema_name
     }
 
     private static InitRequest initFor(BindRequest bindRequest, BindResponse bound) {
-        return new InitRequest(
+        return LegacyInit.of(
                 RecordCodec.serializeToBytes(bindRequest), // bind_call
                 bound.output_schema(),
                 bound.opaque_data(),

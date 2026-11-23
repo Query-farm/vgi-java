@@ -293,9 +293,9 @@ final class OrchardHostedProcessTest {
             BindRequest bind = new BindRequest(
                     "pass_claims", ArgumentsEncoder.builder().encode(), "SCALAR",
                     SchemaUtil.serializeSchema(input), SettingsEncoder.builder().encode(), null,
-                    handle, null, false, null, null, null, null, "main");
+                    handle, null, false, null, null, null, null, List.of("main"), null, null);
             BindResponse bound = vgi.bind(bind, null);
-            RpcStream<? extends StreamState> stream = vgi.init(new InitRequest(
+            RpcStream<? extends StreamState> stream = vgi.init(LegacyInit.of(
                     RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                     null, null, null, null, null, null,
                     null, null, null, null, null, null, null, null, null, null), null);

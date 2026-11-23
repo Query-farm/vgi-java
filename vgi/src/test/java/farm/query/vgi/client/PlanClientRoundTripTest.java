@@ -2,6 +2,8 @@
 
 package farm.query.vgi.client;
 
+import farm.query.vgi.LegacyInit;
+
 import farm.query.vgi.VgiService;
 import farm.query.vgi.Worker;
 import farm.query.vgi.function.ArgSpec;
@@ -232,16 +234,14 @@ final class PlanClientRoundTripTest {
                     "plan_seq",
                     ArgumentsEncoder.builder().named("n", 20L).named("splits", 6L).encode(),
                     "TABLE", null, null, null, handle, null, false,
-                    null, null, null, null, "main");
+                    null, null, null, null, List.of("main"), null, null);
             BindResponse bound = vgi.bind(bindRequest, null);
             byte[] serializedBindCall = RecordCodec.serializeToBytes(bindRequest);
 
             // PAGINATE — cap 2 splits per response over 6 total, so this must
             // take three round trips and follow next_cursors between them.
             List<byte[]> tokens = new ArrayList<>();
-            TableFunctionPlanRequest planReq = TableFunctionPlanRequest
-                    .of(serializedBindCall, bound.opaque_data())
-                    .withMaxSplitsPerResponse(2);
+            TableFunctionPlanRequest planReq = planRequest(serializedBindCall, bound.opaque_data(), null, 2);
             int pages = 0;
             while (true) {
                 pages++;
@@ -255,7 +255,7 @@ final class PlanClientRoundTripTest {
                 }
                 if (resp.next_cursors() == null || resp.next_cursors().isEmpty()) break;
                 assertTrue(pages < 10, "runaway pagination — next_cursors never emptied");
-                planReq = planReq.withCursor(resp.next_cursors().get(0), 2);
+                planReq = planRequest(serializedBindCall, bound.opaque_data(), resp.next_cursors().get(0), 2);
             }
             assertEquals(4, pages, "one empty continuation page plus 3 split pages");
             assertEquals(6, tokens.size(), "all 6 splits across every page");
@@ -263,7 +263,7 @@ final class PlanClientRoundTripTest {
             // REDEEM every split and drain it, collecting the union of rows.
             TreeSet<Long> rows = new TreeSet<>();
             for (byte[] token : tokens) {
-                InitRequest initRequest = new InitRequest(
+                InitRequest initRequest = LegacyInit.of(
                         serializedBindCall, bound.output_schema(), bound.opaque_data(),
                         null, null, null, null, null, null,
                         null, null, null, null, null, null,
@@ -298,5 +298,14 @@ final class PlanClientRoundTripTest {
             session.close();
         }
         return out;
+    }
+
+    /** A plan call for the binding, resuming from {@code cursor}, capped at {@code maxSplits} per page. */
+    private static TableFunctionPlanRequest planRequest(byte[] bindCall, byte[] bindOpaqueData,
+                                                        byte[] cursor, long maxSplits) {
+        return new TableFunctionPlanRequest(
+                farm.query.vgi.protocol.Nested.fromBytes(bindCall, BindRequest.class), bindOpaqueData,
+                null, null, null, null, null, null, maxSplits, cursor, null, true,
+                null, null, null, null, null, null, null, null);
     }
 }

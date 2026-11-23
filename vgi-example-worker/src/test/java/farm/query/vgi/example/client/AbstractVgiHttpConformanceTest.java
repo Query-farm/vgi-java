@@ -2,6 +2,8 @@
 
 package farm.query.vgi.example.client;
 
+import farm.query.vgi.example.LegacyInit;
+
 import farm.query.vgi.VgiService;
 import farm.query.vgi.catalog.ColumnStatistics;
 import farm.query.vgi.client.ArgumentsEncoder;
@@ -393,7 +395,7 @@ abstract class AbstractVgiHttpConformanceTest {
 
         // Ask for columns 0 and 2 only. The narrowing is the worker's job — bind
         // still reports the full schema — so the proof is in what it emits.
-        InitRequest init = new InitRequest(
+        InitRequest init = LegacyInit.of(
                 RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                 List.of(0, 2), null, null, null, null, null,
                 null, null, null, null, null, null, null, null,
@@ -464,14 +466,14 @@ abstract class AbstractVgiHttpConformanceTest {
         BindRequest bind = new BindRequest(
                 "double", ArgumentsEncoder.builder().encode(), "SCALAR",
                 SchemaUtil.serializeSchema(input), SettingsEncoder.builder().encode(), null,
-                handle, null, false, null, null, null, null, "main");
+                handle, null, false, null, null, null, null, List.of("main"), null, null);
         BindResponse bound = vgi.bind(bind, null);
         Schema out = SchemaUtil.deserializeSchema(bound.output_schema());
         assertEquals(List.of("result"), fieldNames(out), where("double's output column"));
         assertEquals(ArrowType.ArrowTypeID.Int, out.getFields().get(0).getType().getTypeID(),
                 where("double(int64) stays integral"));
 
-        RpcStream<? extends StreamState> stream = vgi.init(new InitRequest(
+        RpcStream<? extends StreamState> stream = vgi.init(LegacyInit.of(
                 RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                 null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null,
@@ -613,11 +615,11 @@ abstract class AbstractVgiHttpConformanceTest {
                 handle, null, false,
                 null, null,                 // at_unit / at_value
                 null, null,                 // copy_from / copy_to
-                "main");
+                List.of("main"), null, null);
     }
 
     private static InitRequest producerInit(BindRequest bind, BindResponse bound) {
-        return new InitRequest(
+        return LegacyInit.of(
                 RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                 null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null,
@@ -637,7 +639,7 @@ abstract class AbstractVgiHttpConformanceTest {
     private List<Map<String, Object>> scanFilterEcho(long count, EncodedPushdownFilters filters) {
         BindRequest bind = tableBind("filter_echo", ArgumentsEncoder.positionalArgs(count));
         BindResponse bound = vgi.bind(bind, null);
-        InitRequest init = new InitRequest(
+        InitRequest init = LegacyInit.of(
                 RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                 null,
                 filters == null ? null : filters.pushdownFilters(),

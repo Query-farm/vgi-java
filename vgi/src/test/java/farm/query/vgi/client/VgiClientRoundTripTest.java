@@ -2,6 +2,8 @@
 
 package farm.query.vgi.client;
 
+import farm.query.vgi.LegacyInit;
+
 import farm.query.vgi.VgiService;
 import farm.query.vgi.Worker;
 import farm.query.vgi.function.FunctionMetadata;
@@ -147,7 +149,7 @@ final class VgiClientRoundTripTest {
                     false,                       // resolved_secrets_provided
                     null, null,                  // at_unit / at_value
                     null, null,                  // copy_from / copy_to
-                    "main");                     // schema_name
+                    List.of("main"), null, null);                     // schema_name
             BindResponse bound = vgi.bind(bindRequest, null);
 
             Schema outputSchema = SchemaUtil.deserializeSchema(bound.output_schema());
@@ -157,7 +159,7 @@ final class VgiClientRoundTripTest {
                     outputSchema.getFields().get(0).getType().getTypeID());
 
             // 4. INIT — opens the producer stream; header carries execution_id.
-            InitRequest initRequest = new InitRequest(
+            InitRequest initRequest = LegacyInit.of(
                     RecordCodec.serializeToBytes(bindRequest), // bind_call
                     bound.output_schema(),
                     bound.opaque_data(),
@@ -250,9 +252,9 @@ final class VgiClientRoundTripTest {
         BindRequest bindRequest = new BindRequest(
                 "seq", seqArgs(count, batchSize), "TABLE",
                 null, null, null, handle, null, false,
-                null, null, null, null, "main");
+                null, null, null, null, List.of("main"), null, null);
         BindResponse bound = vgi.bind(bindRequest, null);
-        InitRequest initRequest = new InitRequest(
+        InitRequest initRequest = LegacyInit.of(
                 RecordCodec.serializeToBytes(bindRequest), bound.output_schema(),
                 bound.opaque_data(), null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null,

@@ -2,6 +2,8 @@
 
 package farm.query.vgi.client;
 
+import farm.query.vgi.LegacyInit;
+
 import farm.query.vgi.VgiService;
 import farm.query.vgi.Worker;
 import farm.query.vgi.function.FunctionSpec;
@@ -177,10 +179,10 @@ final class ContinuedOutputTransportTest {
     private static RpcStream<?> open(VgiService vgi, String function) {
         byte[] handle = vgi.catalog_attach(CatalogAttachRequest.of("cont", null, null, null), null)
                 .attach_opaque_data();
-        BindRequest bind = new BindRequest(function, null, "TABLE", SchemaUtil.serializeSchema(SCHEMA),
-                null, null, handle, null, false, null, null, null, null, "main");
+        BindRequest bind = new BindRequest(function, new byte[0], "TABLE", SchemaUtil.serializeSchema(SCHEMA),
+                null, null, handle, null, false, null, null, null, null, List.of("main"), null, null);
         BindResponse bound = vgi.bind(bind, null);
-        return vgi.init(new InitRequest(RecordCodec.serializeToBytes(bind), bound.output_schema(),
+        return vgi.init(LegacyInit.of(RecordCodec.serializeToBytes(bind), bound.output_schema(),
                 bound.opaque_data(), null, null, null, "INPUT", null, null, null, null, null, null, null, null,
                 null, null, null, null), null);
     }

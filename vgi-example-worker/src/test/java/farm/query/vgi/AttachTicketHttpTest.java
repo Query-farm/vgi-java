@@ -2,6 +2,8 @@
 
 package farm.query.vgi;
 
+import farm.query.vgi.example.LegacyInit;
+
 import farm.query.vgi.client.ArgumentsEncoder;
 import farm.query.vgi.client.SettingsEncoder;
 import farm.query.vgi.example.Main;
@@ -252,9 +254,9 @@ final class AttachTicketHttpTest {
                 null, SettingsEncoder.builder().encode(), null,
                 handle, null, false,
                 null, null, null, null,
-                "main");
+                List.of("main"), null, null);
         BindResponse bound = vgi.bind(bind, null);
-        InitRequest init = new InitRequest(
+        InitRequest init = LegacyInit.of(
                 RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                 null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null,

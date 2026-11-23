@@ -125,7 +125,7 @@ final class VgiTableFunctionStatsRoundTripTest {
             BindRequest bindRequest = new BindRequest(
                     "labelled_seq", ArgumentsEncoder.positionalArgs(500L), "TABLE",
                     null, null, null, handle, null, false,
-                    null, null, null, null, "main");
+                    null, null, null, null, List.of("main"), null, null);
             BindResponse bound = vgi.bind(bindRequest, null);
 
             // One packed blob serves both calls — they read identical fields.
@@ -183,7 +183,7 @@ final class VgiTableFunctionStatsRoundTripTest {
             BindRequest bindRequest = new BindRequest(
                     "labelled_seq", ArgumentsEncoder.positionalArgs(4L), "TABLE",
                     null, null, null, handle, null, false,
-                    null, null, null, null, "main");
+                    null, null, null, null, List.of("main"), null, null);
             byte[] request = TableFunctionRequests.forBind(bindRequest, null);
 
             assertEquals(4L, vgi.table_function_cardinality(request, null).estimate());

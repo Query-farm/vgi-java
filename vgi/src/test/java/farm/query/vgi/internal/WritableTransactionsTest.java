@@ -2,6 +2,8 @@
 
 package farm.query.vgi.internal;
 
+import farm.query.vgi.LegacyInit;
+
 import farm.query.vgi.AttachContext;
 import farm.query.vgi.AttachOptionSpec;
 import farm.query.vgi.AttachOptions;
@@ -198,12 +200,12 @@ class WritableTransactionsTest {
     }
 
     static BindRequest bind(String fn, byte[] attach, byte[] tx, Schema input) {
-        return new BindRequest(fn, null, "TABLE", input == null ? null : Schemas.serialize(input), null, null,
-                attach, tx, false, null, null, null, null, List.of("main"), null);
+        return new BindRequest(fn, new byte[0], "TABLE", input == null ? null : Schemas.serialize(input), null, null,
+                attach, tx, false, null, null, null, null, List.of("main"), null, null);
     }
 
     static InitRequest inlineInit(BindRequest bind, Schema out, String phase) {
-        return new InitRequest(RecordCodec.serializeToBytes(bind), Schemas.serialize(out), null,
+        return LegacyInit.of(RecordCodec.serializeToBytes(bind), Schemas.serialize(out), null,
                 null, null, null, phase, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 

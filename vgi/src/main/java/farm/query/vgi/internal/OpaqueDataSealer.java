@@ -224,7 +224,7 @@ public final class OpaqueDataSealer {
     }
 
     /** {@code \x00"anonymous"} unauthenticated, else {@code \x01 domain \x00 principal}. */
-    private static byte[] identityTail(AuthContext auth) {
+    static byte[] identityTail(AuthContext auth) {
         if (auth == null || !auth.authenticated()) {
             return new byte[] {0, 'a', 'n', 'o', 'n', 'y', 'm', 'o', 'u', 's'};
         }

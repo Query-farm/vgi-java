@@ -35,6 +35,14 @@ public final class FilterApplier {
     private List<String> predicateOrder;
     private Schema bindOutputSchema;
     private PushdownFiltersDecoder.Capabilities capabilities;
+    /**
+     * Protocol 3.4 {@code init: StateRef}: when built in an init handler, the init's filter
+     * snapshot ({@link #filterBytes} and {@link #joinKeysIpc}, which a large IN list or join-key
+     * set makes large) rides as one StateRef instead of in every continuation token; the raw
+     * fields are then {@code null} and the snapshot is resolved on the turn that first needs it.
+     */
+    private farm.query.vgirpc.stateref.StateRef snapshot;
+    private transient FilterSnapshot resolvedSnapshot;
     private transient PushdownFilters cached;
 
     /** No-arg constructor for state deserialization; {@link #from} is the API. */
@@ -73,8 +81,19 @@ public final class FilterApplier {
 
     private FilterApplier(byte[] filterBytes, List<byte[]> joinKeysIpc, Schema bindOutputSchema,
                           PushdownFiltersDecoder.Capabilities capabilities) {
-        this.filterBytes = filterBytes;
-        this.joinKeysIpc = joinKeysIpc == null ? List.of() : joinKeysIpc;
+        List<byte[]> keys = joinKeysIpc == null ? List.of() : joinKeysIpc;
+        farm.query.vgirpc.CallContext ctx = farm.query.vgi.internal.TurnContext.current();
+        boolean nonEmpty = (filterBytes != null && filterBytes.length > 0) || !keys.isEmpty();
+        if (nonEmpty && ctx != null && ctx.stateRefScope().isInit()) {
+            FilterSnapshot snap = new FilterSnapshot(filterBytes, keys);
+            this.snapshot = ctx.stateRef(snap);
+            this.resolvedSnapshot = snap;
+            this.filterBytes = null;
+            this.joinKeysIpc = List.of();
+        } else {
+            this.filterBytes = filterBytes;
+            this.joinKeysIpc = keys;
+        }
         this.filterDeltas = List.of();
         this.predicateOrder = List.of();
         this.bindOutputSchema = bindOutputSchema;
@@ -82,8 +101,30 @@ public final class FilterApplier {
                 ? PushdownFiltersDecoder.Capabilities.core() : capabilities;
     }
 
+    /**
+     * The init's filter snapshot: the carried raw fields, or the StateRef resolved through the
+     * current turn's context (and kept for this process).
+     */
+    private FilterSnapshot snapshotValue() {
+        if (snapshot == null) return new FilterSnapshot(filterBytes, joinKeysIpc);
+        FilterSnapshot snap = resolvedSnapshot;
+        if (snap == null) {
+            farm.query.vgirpc.CallContext ctx = farm.query.vgi.internal.TurnContext.current();
+            if (ctx == null) {
+                throw new IllegalStateException(
+                        "FilterApplier: the filter snapshot is a StateRef and no stream turn is running");
+            }
+            snap = ctx.resolve(snapshot, FilterSnapshot.class);
+            resolvedSnapshot = snap;
+        }
+        return snap;
+    }
+
     private PushdownFilters filters() {
         if (cached == null) {
+            FilterSnapshot snap = snapshotValue();
+            byte[] filterBytes = snap.filters();
+            List<byte[]> joinKeysIpc = snap.join_keys() == null ? List.of() : snap.join_keys();
             PushdownFilters rebuilt = filterBytes == null
                     ? PushdownFilters.empty()
                     : PushdownFiltersDecoder.decode(filterBytes, bindOutputSchema,

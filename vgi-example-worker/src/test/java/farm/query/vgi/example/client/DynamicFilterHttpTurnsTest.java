@@ -2,6 +2,8 @@
 
 package farm.query.vgi.example.client;
 
+import farm.query.vgi.example.LegacyInit;
+
 import farm.query.vgi.VgiService;
 import farm.query.vgi.client.ArgumentsEncoder;
 import farm.query.vgi.client.SettingsEncoder;
@@ -200,9 +202,9 @@ final class DynamicFilterHttpTurnsTest {
                 "dynamic_filter_echo",
                 ArgumentsEncoder.builder().positional(count).named("batch_size", batchSize).encode(),
                 "TABLE", null, SettingsEncoder.builder().encode(), null,
-                handle, null, false, null, null, null, null, "main");
+                handle, null, false, null, null, null, null, List.of("main"), null, null);
         BindResponse bound = vgi.bind(bind, null);
-        InitRequest init = new InitRequest(
+        InitRequest init = LegacyInit.of(
                 RecordCodec.serializeToBytes(bind), bound.output_schema(), bound.opaque_data(),
                 projection, filters, null,
                 null, null, null, null, null, null, null, null, null, null, null, null, null);

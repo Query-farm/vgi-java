@@ -2,6 +2,8 @@
 
 package farm.query.vgi.example.tableinout;
 
+import farm.query.vgi.example.LegacyInit;
+
 import farm.query.vgi.VgiService;
 import farm.query.vgi.Worker;
 import farm.query.vgi.example.Main;
@@ -200,7 +202,7 @@ final class SubstreamStateKeyTest {
     private static BindRequest bind(String function, byte[] handle) {
         return new BindRequest(
                 function,
-                null,                                   // arguments: the TABLE argument is the stream
+                new byte[0],                                   // arguments: the TABLE argument is the stream
                 "TABLE",
                 SchemaUtil.serializeSchema(INPUT),      // input_schema: a table-in-out needs one
                 null, null,                             // settings, secrets
@@ -209,12 +211,12 @@ final class SubstreamStateKeyTest {
                 false,
                 null, null,                             // at_unit / at_value
                 null, null,                             // copy_from / copy_to
-                "main");
+                List.of("main"), null, null);
     }
 
     private static InitRequest init(BindRequest bind, BindResponse bound, String phase,
                                     byte[] executionId, byte[] substreamId) {
-        return new InitRequest(
+        return LegacyInit.of(
                 RecordCodec.serializeToBytes(bind),
                 bound.output_schema(),
                 bound.opaque_data(),

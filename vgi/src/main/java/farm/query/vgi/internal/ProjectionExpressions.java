@@ -9,7 +9,7 @@ public final class ProjectionExpressions {
     private ProjectionExpressions() {}
     public static final String PROFILE = "vgi.expression.duckdb.scalar.v1";
     private static final byte[] MARKER =
-        "vgi.projection.v1\0".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        "vgi.projection.v2\0".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
     public static void validateOffer(List<String> profiles) {
         if (profiles == null || profiles.size() > 64 || new HashSet<>(profiles).size() != profiles.size() ||
             profiles.stream().anyMatch(
@@ -97,10 +97,10 @@ public final class ProjectionExpressions {
         return RecordCodec.deserializeFromBytes(bytes, BindResponse.class);
     }
     public static BindRequest validateRequest(TableFunctionProjectionRequest request) {
-        size((long)request.bind_call().length + request.bind_result().length +
+        size((long)request.bind_call().size() + request.bind_result().length +
              request.result_schema().length + request.expressions().stream().mapToLong(b -> b.length).sum());
         size(RecordCodec.serializeToBytes(request).length);
-        var bind = RecordCodec.deserializeFromBytes(request.bind_call(), BindRequest.class);
+        var bind = BindArguments.decode(request.bind_call());
         var source = readBind(request.bind_result());
         validateOffer(source.projection_expression_profiles());
         if (!"table".equalsIgnoreCase(bind.function_type()) || bind.input_schema() != null ||
@@ -177,23 +177,77 @@ public final class ProjectionExpressions {
     public record BindEnvelope(byte[] bind_call, byte[] bind_result)
             implements farm.query.vgirpc.schema.ArrowSerializableRecord {}
 
-    public static byte[] envelope(BindResponse result, BindRequest call) {
-        byte[] raw = RecordCodec.serializeToBytes(new BindEnvelope(
-                RecordCodec.serializeToBytes(call), RecordCodec.serializeToBytes(result)));
-        byte[] value = Arrays.copyOf(MARKER, MARKER.length + raw.length);
-        System.arraycopy(raw, 0, value, MARKER.length, raw.length);
+    /** Storage-seal namespace of the envelope (its AAD slot): distinct from every storage payload. */
+    private static final byte[] ENVELOPE_NS =
+        "vgi.projection.bind_envelope.v2".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+    private static final byte[] ENVELOPE_KEY = new byte[0];
+
+    /**
+     * The portable {@code bind_opaque_data} of a function offering projection profiles or a
+     * repeatability: the received bind call (the reference form: an externalized argument is
+     * carried as its {@code arguments_location}, never the value) and the bind result, sealed.
+     *
+     * <p>The bind call carries {@code secrets} and {@code settings}, and {@code bind_opaque_data}
+     * leaves the worker: the extension echoes it in later requests and it lands in serialized
+     * plans. So the envelope is always sealed (AES-256-GCM, sealed framework payload v1 under the
+     * worker's signing key or host-local key), bound to the calling principal, on every
+     * transport. The seal is deterministic, so an equivalent rebind yields the same value.</p>
+     *
+     * @param result the bind result the envelope stands for
+     * @param bindCall the bind call bytes as received (or the received bind request, encoded)
+     * @param seal the worker's framework payload seal
+     * @param auth the calling principal, bound into the seal
+     * @return {@code MARKER || sealed(BindEnvelope)}
+     */
+    public static byte[] envelope(BindResponse result, byte[] bindCall, StoragePayloadSeal seal,
+                                  farm.query.vgirpc.AuthContext auth) {
+        byte[] raw = RecordCodec.serializeToBytes(new BindEnvelope(bindCall, RecordCodec.serializeToBytes(result)));
+        byte[] sealed = seal.sealDeterministic(raw, "", OpaqueDataSealer.identityTail(auth), ENVELOPE_NS, ENVELOPE_KEY);
+        byte[] value = Arrays.copyOf(MARKER, MARKER.length + sealed.length);
+        System.arraycopy(sealed, 0, value, MARKER.length, sealed.length);
         size(value.length);
         return value;
     }
-    public static BindResponse open(byte[] value, BindRequest call) {
+
+    /**
+     * Open an envelope from {@link #envelope}, checking it stands for {@code call}.
+     *
+     * @param value the {@code bind_opaque_data} received
+     * @param call the bind call of the request carrying it
+     * @param seal the worker's framework payload seal
+     * @param auth the calling principal
+     * @return the bind result, or {@code null} when {@code value} is not an envelope
+     * @throws IllegalArgumentException when the envelope does not open for this principal or was
+     *     minted for another invocation
+     */
+    public static BindResponse open(byte[] value, Nested<BindRequest> call, StoragePayloadSeal seal,
+                                    farm.query.vgirpc.AuthContext auth) {
         if (value == null || value.length < MARKER.length ||
             !Arrays.equals(MARKER, Arrays.copyOf(value, MARKER.length)))
             return null;
         size(value.length);
-        var envelope = RecordCodec.deserializeFromBytes(Arrays.copyOfRange(value, MARKER.length, value.length),
-                BindEnvelope.class);
-        if (call == null || !Arrays.equals(envelope.bind_call(), RecordCodec.serializeToBytes(call)))
+        byte[] raw;
+        try {
+            raw = seal.open(Arrays.copyOfRange(value, MARKER.length, value.length), "",
+                    OpaqueDataSealer.identityTail(auth), ENVELOPE_NS, ENVELOPE_KEY);
+        } catch (StoragePayloadSeal.StoragePayloadException e) {
+            throw new IllegalArgumentException("Projection bind envelope not recognized");
+        }
+        var envelope = RecordCodec.deserializeFromBytes(raw, BindEnvelope.class);
+        if (call == null || !sameInvocation(envelope.bind_call(), call))
             throw new IllegalArgumentException("Projection bind invocation identity changed");
         return readBind(envelope.bind_result());
+    }
+
+    /**
+     * Whether the envelope's bind call names the same invocation as {@code call}: the received
+     * bytes themselves, or (an envelope minted from a top-level bind request, which has no
+     * {@code bind_call} bytes of its own) the same record. Neither side is ever resolved, so an
+     * argument reference compares as its location.
+     */
+    private static boolean sameInvocation(byte[] stored, Nested<BindRequest> call) {
+        if (Arrays.equals(stored, call.rawBinary())) return true;
+        BindRequest storedCall = RecordCodec.deserializeFromBytes(stored, BindRequest.class);
+        return Arrays.equals(RecordCodec.serializeToBytes(storedCall), RecordCodec.serializeToBytes(call.get()));
     }
 }

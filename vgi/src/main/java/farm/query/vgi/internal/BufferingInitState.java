@@ -17,7 +17,8 @@ import farm.query.vgirpc.schema.Nullable;
  * ({@link StoragePayloadSeal}). The attach is deliberately not part of it:
  * process/combine always use the request's own authenticated attach.
  *
- * @param arguments     the bind request's IPC-encoded arguments
+ * @param arguments     the bind request's IPC-encoded arguments, or {@code null} when they came
+ *     by reference (protocol 3.4); never the resolved value of a reference
  * @param settings      the bind request's IPC-encoded settings
  * @param output_schema the bound output schema's IPC bytes, or {@code null}
  * @param input_schema  the bind request's source input schema IPC bytes, or {@code null};
@@ -27,11 +28,14 @@ import farm.query.vgirpc.schema.Nullable;
  * @param secrets       the bind request's resolved-secrets IPC bytes, or {@code null};
  *     replayed onto the process/combine params so a COPY-TO writer's
  *     {@code write()}/{@code close()} can read forwarded {@code CREATE SECRET} creds
+ * @param arguments_location the bind request's argument reference, or {@code null} when the
+ *     arguments came inline; process/combine resolve it through their turn's context
  */
 public record BufferingInitState(
-        byte[] arguments,
+        @Nullable byte[] arguments,
         byte[] settings,
         byte[] output_schema,
         @Nullable byte[] input_schema,
         @Nullable CopyToContext copy_to,
-        @Nullable byte[] secrets) implements ArrowSerializableRecord {}
+        @Nullable byte[] secrets,
+        @Nullable farm.query.vgi.protocol.ArgumentsLocation arguments_location) implements ArrowSerializableRecord {}

@@ -103,7 +103,7 @@ final class RefinedFiltersMergeTest {
                     "recording_plan",
                     ArgumentsEncoder.builder().named("n", 10L).encode(),
                     "TABLE", null, null, null, handle, null, false,
-                    null, null, null, null, "main");
+                    null, null, null, null, List.of("main"), null, null);
             BindResponse bound = vgi.bind(bindRequest, null);
             byte[] serializedBindCall = RecordCodec.serializeToBytes(bindRequest);
 
@@ -116,7 +116,8 @@ final class RefinedFiltersMergeTest {
                     .encode().pushdownFilters();
 
             TableFunctionPlanRequest planReq = new TableFunctionPlanRequest(
-                    serializedBindCall, bound.opaque_data(),
+                    farm.query.vgi.protocol.Nested.fromBytes(serializedBindCall,
+                            farm.query.vgi.protocol.BindRequest.class), bound.opaque_data(),
                     null,               // projection_ids
                     staticFilter,
                     null,               // join_keys

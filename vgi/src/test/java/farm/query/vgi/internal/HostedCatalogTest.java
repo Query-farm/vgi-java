@@ -381,8 +381,8 @@ final class HostedCatalogTest {
         Worker w = hostingWorker().registerScalar(new Probe());
         VgiServiceImpl withScalar = service(w);
         byte[] hosted = attach(withScalar, "mem");
-        BindRequest bind = new BindRequest("probe", null, "SCALAR", null, null, null,
-                hosted, null, false, null, null, null, null, "main");
+        BindRequest bind = new BindRequest("probe", new byte[0], "SCALAR", null, null, null,
+                hosted, null, false, null, null, null, null, List.of("main"), null, null);
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> withScalar.bind(bind, null));
         assertTrue(e.getMessage().contains("not registered in catalog 'mem'"), e.getMessage());
@@ -419,8 +419,8 @@ final class HostedCatalogTest {
         byte[] main = attach(svc, "main_catalog");
         assertEquals(0, svc.catalog_schema_contents_functions(main, MAIN, null, null, null).items().size());
         // A bind on the hosted attach resolves the function registered into it.
-        BindRequest bind = new BindRequest("probe", null, "SCALAR", null, null, null,
-                a, null, false, null, null, null, null, "main");
+        BindRequest bind = new BindRequest("probe", new byte[0], "SCALAR", null, null, null,
+                a, null, false, null, null, null, null, List.of("main"), null, null);
         assertTrue(svc.bind(bind, null) != null);
         // A visibility string the extension would refuse fails the listing, naming the function.
         Worker bad = Worker.builder().catalogName("main_catalog")

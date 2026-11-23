@@ -2600,13 +2600,67 @@ public final class Worker {
             effective = effective.withLandingInfo(farm.query.vgi.http.WorkerLandingInfo.of(this));
         }
         effective = withStateTokenKey(effective, configuredSigningKey(), log);
+        effective = withStreamStateRules(effective, env, log);
         RpcServer rpc = buildServer(Transport.HTTP);
         // Results over VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES go to the blob vendor and
         // client upload pointers are resolved from its hosts (no-op without a vendor).
         blobVendorHttp().applyTo(rpc);
         HttpServer http = new HttpServer(rpc, effective);
+        Long argumentsRefBytes = argumentsRefBytes(effective, rpc, env, log);
+        if (argumentsRefBytes != null) {
+            farm.query.vgi.http.ResponseHeaders.install(http, farm.query.vgi.internal.BindArguments.HEADER,
+                    Long.toString(argumentsRefBytes));
+        }
         http.start();
         return http;
+    }
+
+    /** Escape hatch for the protocol 3.4 cursor rule: {@code warn} keeps oversized cursors working. */
+    static final String CURSOR_RULE_ENV = "VGI_CURSOR_RULE";
+
+    /**
+     * Protocol 3.4 stream-state rules, set explicitly rather than inherited from vgi-rpc's
+     * defaults: {@code token_ttl} 21600 s, and the cursor rule {@code error} (an oversized cursor
+     * is a hard {@code cursor_too_large} now that the init rides as a StateRef). A config that
+     * changed the token TTL keeps it; {@value #CURSOR_RULE_ENV}{@code =warn} keeps the warn rule.
+     */
+    static HttpServer.Config withStreamStateRules(HttpServer.Config config, Map<String, String> env,
+                                                  org.slf4j.Logger log) {
+        Map<String, Object> overrides = new java.util.HashMap<>();
+        if (config.tokenTtlSeconds() <= 0) overrides.put("tokenTtlSeconds", STREAM_TOKEN_TTL_SECONDS);
+        String rule = env.getOrDefault(CURSOR_RULE_ENV, "").strip().toLowerCase(java.util.Locale.ROOT);
+        farm.query.vgirpc.stateref.StateRefRuntime.CursorRule wanted = switch (rule) {
+            case "", "error" -> farm.query.vgirpc.stateref.StateRefRuntime.CursorRule.ERROR;
+            case "warn" -> farm.query.vgirpc.stateref.StateRefRuntime.CursorRule.WARN;
+            default -> throw new IllegalArgumentException(CURSOR_RULE_ENV + " must be 'error' or 'warn', got '" + rule + "'");
+        };
+        if (config.cursorRule() != wanted) overrides.put("cursorRule", wanted);
+        return overrides.isEmpty() ? config : copyConfig(config, overrides);
+    }
+
+    /** The protocol 3.4 stream token lifetime (the maximum stream duration). */
+    static final long STREAM_TOKEN_TTL_SECONDS = 21600;
+
+    /**
+     * The {@code VGI-Arguments-Ref-Bytes} value to advertise, or {@code null} for none. The header
+     * is the mandatory capability signal for argument references (large-values spec §5): sent
+     * whenever this server vends upload URLs and its storage can fetch an object back by id
+     * ({@code ObjectStore}), and never otherwise. {@code VGI_TEST_DISABLE_ARGUMENTS_REF=1}
+     * suppresses it (the extension's fallback test).
+     */
+    static Long argumentsRefBytes(HttpServer.Config config, RpcServer rpc, Map<String, String> env,
+                                  org.slf4j.Logger log) {
+        if (config.uploadUrlProvider() == null) return null;
+        var external = rpc.externalConfig();
+        if (external == null || !(external.storage() instanceof farm.query.vgirpc.external.ObjectStore)) {
+            if (log != null) {
+                log.warn("argument references disabled: the configured storage cannot fetch objects by id "
+                        + "(no ObjectStore)");
+            }
+            return null;
+        }
+        if (farm.query.vgi.internal.BindArguments.disabled(env)) return null;
+        return farm.query.vgi.internal.BindArguments.bytesFromEnv(env);
     }
 
     /**
