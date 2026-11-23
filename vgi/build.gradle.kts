@@ -17,9 +17,6 @@ dependencies {
     // OrchardHosted wraps vgirpc's Authenticator, which takes a servlet request; Jetty supplies
     // the API at runtime through vgirpc.
     compileOnly("jakarta.servlet:jakarta.servlet-api:6.0.0")
-    // ResponseHeaders wraps the HTTP server's Jetty handler to add VGI-Arguments-Ref-Bytes to
-    // every response; Jetty itself comes at runtime through vgirpc (same version).
-    compileOnly("org.eclipse.jetty:jetty-server:12.0.16")
     implementation("org.slf4j:slf4j-api:2.0.17")
     // Cross-process aggregate state store. DuckDB spawns multiple worker
     // subprocesses for parallel aggregation; SQLite's file locking gives us

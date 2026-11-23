@@ -36,7 +36,7 @@ env:
   # that carries farm.query.vgirpc.vendor and upload-URL protocol v2 (branch
   # protocol-3.4 until the release wave), drop this pin and the checkout step,
   # and restore VGI_RPC_JAVA_DIR: /nonexistent (validate the Maven dependency).
-  VGI_RPC_JAVA_REF: 44d74df893935566af4ca57684fabc9544debe05
+  VGI_RPC_JAVA_REF: cf274c0b14a549417129186a1b16751dceea91ba
   VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
 
 jobs:

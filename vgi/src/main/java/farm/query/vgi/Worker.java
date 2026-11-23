@@ -2605,12 +2605,14 @@ public final class Worker {
         // Results over VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES go to the blob vendor and
         // client upload pointers are resolved from its hosts (no-op without a vendor).
         blobVendorHttp().applyTo(rpc);
-        HttpServer http = new HttpServer(rpc, effective);
         Long argumentsRefBytes = argumentsRefBytes(effective, rpc, env, log);
         if (argumentsRefBytes != null) {
-            farm.query.vgi.http.ResponseHeaders.install(http, farm.query.vgi.internal.BindArguments.HEADER,
-                    Long.toString(argumentsRefBytes));
+            // Beside vgi-rpc's own capability headers, on every response (discovery included).
+            Map<String, String> headers = new java.util.LinkedHashMap<>(effective.extraCapabilityHeaders());
+            headers.put(farm.query.vgi.internal.BindArguments.HEADER, Long.toString(argumentsRefBytes));
+            effective = effective.withExtraCapabilityHeaders(headers);
         }
+        HttpServer http = new HttpServer(rpc, effective);
         http.start();
         return http;
     }
