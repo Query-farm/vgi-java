@@ -102,6 +102,21 @@ jobs:
       - name: Orchard hosted mode
         run: ./gradlew --no-daemon :vgi-example-worker:test --tests 'farm.query.vgi.example.OrchardHostedProcessTest'
 
+      # Orchard hosted mode with the blob vendor (OrchardHostedVendorTest): grants bound to the
+      # Pass principal, results externalized, the 32 MiB hosted request cap. It skips without the
+      # fake vendor, so give it one and require that it ran.
+      - name: Orchard hosted mode against the fake blob vendor
+        env:
+          VGI_RPC_FAKE_VENDOR_REF: 6a21ee3b2fb21d9c348c9b615fd97dce8e0bb852
+        run: |
+          uv venv -q "$RUNNER_TEMP/fake-vendor"
+          uv pip install -q -p "$RUNNER_TEMP/fake-vendor" \
+            "vgi-rpc[http,external] @ git+https://github.com/Query-farm/vgi-rpc-python@${VGI_RPC_FAKE_VENDOR_REF}"
+          VGI_RPC_FAKE_VENDOR_BIN="$RUNNER_TEMP/fake-vendor/bin/vgi-rpc-fake-vendor" \
+            ./gradlew --no-daemon :vgi-example-worker:test --tests 'farm.query.vgi.example.OrchardHostedVendorTest'
+          xml=vgi-example-worker/build/test-results/test/TEST-farm.query.vgi.example.OrchardHostedVendorTest.xml
+          grep -q 'skipped="0"' "$xml" || { echo "::error::OrchardHostedVendorTest was skipped"; exit 1; }
+
       # The published artifact carries javadoc, so a doc comment that does not
       # build is a broken release, not a warning.
       - name: Javadoc
