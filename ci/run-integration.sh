@@ -348,16 +348,6 @@ fi
 # blob_test contract and skip without VGI_EXTERNAL_PROBE_WORKER.
 if [ "$BLOB_VENDOR" = "1" ]; then
   EXPECTED_SKIP_REASONS+=('require-env VGI_EXTERNAL_PROBE_WORKER')
-  # external_storage/arguments_ref_state_ref.test asserts that a table-in-out
-  # scan (example.echo) stores its init request once as a StateRef. This SDK's
-  # table-in-out cursor carries no init request at all (the exchange state is
-  # the author's own fields), and the extension never pushes filters into a
-  # streaming InOut init, so there is nothing to store and the file cannot pass.
-  # Scalar and table-producer inits do ride as init StateRefs (ScalarStreamInit,
-  # FilterApplier's snapshot). The lane leaves VGI_WORKER_INIT_STATE_REF unset.
-  if [ -z "${VGI_WORKER_INIT_STATE_REF:-}" ]; then
-    EXPECTED_SKIP_REASONS+=('require-env VGI_WORKER_INIT_STATE_REF')
-  fi
 fi
 
 # Engine-gated files (vgi Makefile VGI_ENGINE_TEST_VARS). The native runner
