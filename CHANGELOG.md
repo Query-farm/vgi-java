@@ -48,7 +48,11 @@
   bearers, grant keys, `resolveToken` / `mintGrant`, `VGI_OAUTH_RESOURCE`, proxy proof, peer identity, a custom
   authenticator and every non-HTTP transport. New `OrchardHosted` class; `vgi` now depends on vgirpc-oauth
   (nimbus-jose-jwt), built from source with vgirpc until the next vgi-rpc-java release. The example worker serves
-  `pass_claims` in hosted mode.
+  `pass_claims` in hosted mode. A hosted worker serves the blob vendor exactly as any HTTP worker does
+  (`VGI_BLOB_VENDOR_URL`: externalized results, `__upload_url__` grants with `object_id` and a `ref` sealed for
+  the Pass principal, `VGI-Arguments-Ref-Bytes`), and its request cap defaults to 32 MiB (vgi-python's
+  `HOSTED_DEFAULT_MAX_REQUEST_BYTES`) when `VGI_RPC_MAX_REQUEST_BYTES` is unset, instead of vgirpc's 16 MiB.
+  `OrchardHostedVendorTest` checks this against vgi-rpc-python's fake vendor.
 - **Blob-vendor externalization** (wire-compatible with vgi-python 0.54; contract: the vgi extension's
   `docs/testing/blob-test-catalog.md`). Needs vgi-rpc-java's `farm.query.vgirpc.vendor` (built from source
   until the next vgi-rpc-java release).

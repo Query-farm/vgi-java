@@ -2709,8 +2709,20 @@ public final class Worker {
         overrides.put("strictAuth", true);
         overrides.put("wwwAuthenticate", OrchardHosted.CHALLENGE);
         overrides.put("corsOrigins", List.of("*"));
+        // A hosted worker's request cap: VGI_RPC_MAX_REQUEST_BYTES when set (applied to the config
+        // by blobVendorHttp()), else 32 MiB -- vgi-python's HOSTED_DEFAULT_MAX_REQUEST_BYTES, which
+        // every SDK's hosted mode advertises -- unless the caller configured a cap of its own.
+        String envCap = env.get(farm.query.vgirpc.vendor.BlobVendor.ENV_MAX_REQUEST_BYTES);
+        if ((envCap == null || envCap.isBlank())
+                && config.maxRequestBytes() == HttpServer.Config.DEFAULT_MAX_REQUEST_BYTES) {
+            overrides.put("maxRequestBytes", HOSTED_DEFAULT_MAX_REQUEST_BYTES);
+            overrides.put("advertiseMaxRequestBytes", true);
+        }
         return copyConfig(config, overrides);
     }
+
+    /** The hosted-mode request cap when {@code VGI_RPC_MAX_REQUEST_BYTES} is unset: 32 MiB. */
+    static final long HOSTED_DEFAULT_MAX_REQUEST_BYTES = 32L * 1024 * 1024;
 
     /** HKDF {@code info} label for the HTTP stream-state token key derived from the signing key. */
     static final String STATE_TOKEN_KEY_LABEL = "vgi.http.state_token_key.v1";
