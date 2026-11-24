@@ -319,6 +319,9 @@ final class OrchardHostedProcessTest {
         assertEquals(CHALLENGE, challenge);
         assertFalse(challenge.contains("resource_metadata"));
         assertTrue(r.headers().firstValue("VGI-Supported-Encodings").isPresent(), "capability headers on the 401");
+        // PROTOCOL_VERSIONS_V1 §4.1: a hosted 401 advertises the gated protocols too.
+        String versions = r.headers().firstValue("VGI-Protocol-Versions").orElse(null);
+        assertTrue(versions != null && versions.contains("vgi.v3=3.4-3.4"), "VGI-Protocol-Versions on the 401: " + versions);
         assertTrue(r.headers().firstValue("VGI-Accept-Max-Response-Bytes-Support").isPresent()
                 || r.headers().firstValue("VGI-Externalization-Enabled").isPresent());
         String reason = r.headers().firstValue("VGI-Auth-Reason").orElse("");

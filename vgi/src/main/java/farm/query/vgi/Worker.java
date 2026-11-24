@@ -2038,7 +2038,60 @@ public final class Worker {
             farm.query.vgirpc.identity.IdentityImpl identity = buildIdentity(keys);
             if (identity != null) server.setIdentity(identity);
         }
+        java.util.Map<String, String> testRanges = testProtocolRanges(server.protocolName());
+        if (!testRanges.isEmpty()) {
+            server.setProtocolVersionRanges(testRanges);
+            // Checked here, so a switch naming a protocol this worker does not host refuses to
+            // start rather than failing every request.
+            server.protocolVersions();
+        }
         return server;
+    }
+
+    /**
+     * Fixture switch ({@code PROTOCOL_VERSIONS_V1} §9): make a worker advertise and accept a
+     * different version window, so the extension's tests can stand up a "fake older worker" from
+     * any fixture. A bare range ({@code 3.3-3.3}) applies to the worker's own protocol;
+     * {@code name=MIN-MAX[, ...]} names protocols explicitly.
+     */
+    static final String TEST_PROTOCOL_RANGE_ENV = "VGI_TEST_PROTOCOL_RANGE";
+
+    /**
+     * Read {@value #TEST_PROTOCOL_RANGE_ENV}; empty when unset.
+     *
+     * @param primary the worker's own protocol, which a bare range applies to
+     * @return protocol name to {@code MIN-MAX}
+     * @throws IllegalArgumentException when set but malformed: a test switch that is silently
+     *     ignored would make the test it serves pass for the wrong reason
+     */
+    static java.util.Map<String, String> testProtocolRanges(String primary) {
+        return testProtocolRanges(primary, System.getenv(TEST_PROTOCOL_RANGE_ENV));
+    }
+
+    static java.util.Map<String, String> testProtocolRanges(String primary, String value) {
+        String raw = value == null ? "" : value.strip();
+        if (raw.isEmpty()) return java.util.Map.of();
+        java.util.Map<String, String> out = new java.util.LinkedHashMap<>();
+        if (raw.contains("=")) {
+            java.util.Map<String, farm.query.vgirpc.ProtocolVersions.VersionRange> parsed =
+                    farm.query.vgirpc.ProtocolVersions.parse(raw);
+            long entries = java.util.Arrays.stream(raw.split(",")).filter(e -> !e.isBlank()).count();
+            if (parsed.size() != entries) {
+                throw new IllegalArgumentException(TEST_PROTOCOL_RANGE_ENV + "='" + raw
+                        + "': expected name=MAJ.MIN-MAJ.MIN[, ...]");
+            }
+            parsed.forEach((name, range) -> out.put(name, range.toString()));
+        } else {
+            try {
+                out.put(primary, farm.query.vgirpc.ProtocolVersions.VersionRange.parse(raw).toString());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(TEST_PROTOCOL_RANGE_ENV + "='" + raw
+                        + "': expected MAJ.MIN-MAJ.MIN (" + e.getMessage() + ")");
+            }
+        }
+        org.slf4j.LoggerFactory.getLogger(Worker.class).warn("{} is set: advertising and accepting {} instead of the declared protocol versions "
+                + "(test fixture switch)", TEST_PROTOCOL_RANGE_ENV, out);
+        return out;
     }
 
     /** Call the {@link #hostedProtocols} hook once and register its result, naming the hook in
