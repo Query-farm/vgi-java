@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.50.0 (2026-11-23)
+
+Requires `farm.query:vgirpc` / `vgirpc-oauth` 0.34.0 from Maven Central.
 
 ### Changed
 
@@ -47,15 +49,15 @@
   `WWW-Authenticate: Bearer error="invalid_token"`. Startup refuses a missing or short `VGI_SIGNING_KEY`, static
   bearers, grant keys, `resolveToken` / `mintGrant`, `VGI_OAUTH_RESOURCE`, proxy proof, peer identity, a custom
   authenticator and every non-HTTP transport. New `OrchardHosted` class; `vgi` now depends on vgirpc-oauth
-  (nimbus-jose-jwt), built from source with vgirpc until the next vgi-rpc-java release. The example worker serves
+  (nimbus-jose-jwt) 0.34.0. The example worker serves
   `pass_claims` in hosted mode. A hosted worker serves the blob vendor exactly as any HTTP worker does
   (`VGI_BLOB_VENDOR_URL`: externalized results, `__upload_url__` grants with `object_id` and a `ref` sealed for
   the Pass principal, `VGI-Arguments-Ref-Bytes`), and its request cap defaults to 32 MiB (vgi-python's
   `HOSTED_DEFAULT_MAX_REQUEST_BYTES`) when `VGI_RPC_MAX_REQUEST_BYTES` is unset, instead of vgirpc's 16 MiB.
   `OrchardHostedVendorTest` checks this against vgi-rpc-python's fake vendor.
 - **Blob-vendor externalization** (wire-compatible with vgi-python 0.54; contract: the vgi extension's
-  `docs/testing/blob-test-catalog.md`). Needs vgi-rpc-java's `farm.query.vgirpc.vendor` (built from source
-  until the next vgi-rpc-java release).
+  `docs/testing/blob-test-catalog.md`). Needs vgi-rpc-java's `farm.query.vgirpc.vendor`
+  (vgirpc 0.34.0).
   - `ExternalizingStorage` wraps any `FunctionStorage`: every value is enveloped (`0x00||raw`, or the
     `0x01||u64be size||sha256||object_id` pointer to a vendor blob, byte-identical to vgi-python and checked
     against `test/vectors/storage_envelope_v1.json`); values of at least `VGI_STORAGE_EXTERNALIZE_BYTES`
