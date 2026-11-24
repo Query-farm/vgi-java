@@ -33,9 +33,10 @@ env:
   # R2, client-upload/state_ref origin counters, the __admin__/delete route the
   # arguments_ref_prepared test needs; vgi e99683f pins the same).
   VGI_RPC_FAKE_VENDOR_REF: 6a21ee3b2fb21d9c348c9b615fd97dce8e0bb852
-  # Resolve vgi-rpc-java (farm.query:vgirpc 0.34.0) from Maven Central, not a
-  # sibling checkout: a directory that does not exist turns the composite build off.
-  VGI_RPC_JAVA_DIR: /nonexistent
+  # TODO(release-wave): back to Maven Central (/nonexistent) once vgi-rpc-java with
+  # the direct-storage backends is published. Until then vgi-rpc-java's protocol-3.4
+  # branch is checked out to .vgi-rpc-java and composite-built (settings.gradle.kts).
+  VGI_RPC_JAVA_DIR: ${{ github.workspace }}/.vgi-rpc-java
 
 jobs:
   build-worker:
@@ -44,6 +45,15 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
+
+      # TODO(release-wave): drop with the switch to a published vgi-rpc-java that
+      # has the direct-storage backends (S3Storage.fromEnv, BlobVendorHttpSettings.forStorage).
+      - name: Checkout vgi-rpc-java (protocol-3.4, built from source)
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: protocol-3.4
+          path: .vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -95,6 +105,10 @@ jobs:
           # URLs, storage values over 4 KiB kept in the vendor), then
           # test/sql/external_storage/* (vgi docs/testing/blob-test-catalog.md).
           - { lane: vendor, transport: http, blob_vendor: '1' }
+          # s3: the vendor lane on the direct S3 backend (VGI_STORAGE_BACKEND=s3)
+          # against RustFS (the pinned image vgi-rpc-java's storage-integration job
+          # uses), through ci/s3_vendor_shim.py so external_storage/* run unchanged.
+          - { lane: s3, transport: http, blob_vendor: '1', s3_backend: '1' }
     name: integration (${{ matrix.lane }})
     steps:
       - name: Checkout vgi-java
@@ -119,6 +133,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
+
+      - name: Start RustFS (s3 lane)
+        if: matrix.s3_backend == '1'
+        run: |
+          docker run -d --name rustfs -p 127.0.0.1:9000:9000 \
+            -e RUSTFS_ACCESS_KEY=vgi-lane-access -e RUSTFS_SECRET_KEY=vgi-lane-secret-key \
+            -e RUSTFS_CONSOLE_ENABLE=false -e RUSTFS_OBS_LOGGER_LEVEL=error \
+            ghcr.io/rustfs/rustfs@sha256:29c02251c085cb04edce556304a9ec0f8fba0c40300266cf4f3d953783fe2450
+          python3 -m venv "$RUNNER_TEMP/s3py" && "$RUNNER_TEMP/s3py/bin/pip" install -q boto3
+          echo "$RUNNER_TEMP/s3py/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/s3py/bin:$PATH"
+          for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:9000/health >/dev/null 2>&1 && break; sleep 1; done
+          python3 -c "import boto3; boto3.client('s3', endpoint_url='http://127.0.0.1:9000', aws_access_key_id='vgi-lane-access', aws_secret_access_key='vgi-lane-secret-key', region_name='us-east-1').create_bucket(Bucket='vgi-lane')"
 
       - name: Download worker
         uses: actions/download-artifact@v4
@@ -154,5 +181,11 @@ jobs:
           VGI_WORKER_ARGUMENTS_REF: ${{ matrix.blob_vendor == '1' && '1' || '' }}
           VGI_WORKER_INIT_STATE_REF: ${{ matrix.blob_vendor == '1' && '1' || '' }}
           VGI_FAKE_VENDOR_DELETE_ROUTE: ${{ matrix.blob_vendor == '1' && '1' || '' }}
+          # The s3 lane: the direct S3 backend on RustFS, behind the accounting shim.
+          S3_BACKEND: ${{ matrix.s3_backend || '0' }}
+          S3_UPSTREAM: 127.0.0.1:9000
+          S3_BUCKET: vgi-lane
+          S3_ACCESS_KEY: vgi-lane-access
+          S3_SECRET_KEY: vgi-lane-secret-key
           # JDK 25 + native access for the worker JVM (FFM shm, haybarn_jdbc).
           JAVA_TOOL_OPTIONS: --enable-native-access=ALL-UNNAMED

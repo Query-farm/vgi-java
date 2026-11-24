@@ -22,6 +22,8 @@ if (vgiRpcJavaDir.isDirectory) {
             substitute(module("farm.query:vgirpc")).using(project(":vgirpc"))
             substitute(module("farm.query:vgirpc-oauth")).using(project(":vgirpc-oauth"))
             substitute(module("farm.query:vgirpc-iroh")).using(project(":vgirpc-iroh"))
+            substitute(module("farm.query:vgirpc-s3")).using(project(":vgirpc-s3"))
+            substitute(module("farm.query:vgirpc-gcs")).using(project(":vgirpc-gcs"))
             // Back-compat with callers that still use the legacy
             // farm.query.vgirpc:* coordinate naming.
             substitute(module("farm.query.vgirpc:vgirpc")).using(project(":vgirpc"))

@@ -5,6 +5,9 @@ plugins {
 
 dependencies {
     implementation(project(":vgi"))
+    // VGI_STORAGE_BACKEND=s3|gcs (direct object storage) for the example and its CI lanes.
+    implementation("farm.query:vgirpc-s3:0.34.0")
+    implementation("farm.query:vgirpc-gcs:0.34.0")
     implementation("org.slf4j:slf4j-simple:2.0.17")
     // Embedded Haybarn engine for evaluating pushed expression filters
     // (spatial &&, list_contains, ...) against emitted batches — mirrors

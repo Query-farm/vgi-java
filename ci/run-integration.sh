@@ -19,6 +19,14 @@
 #                    the vendor; run the whole suite that way, then
 #                    test/sql/external_storage/* (contract:
 #                    docs/testing/blob-test-catalog.md). Needs uvx on PATH.
+#   S3_BACKEND=1     with BLOB_VENDOR=1: the same lane on the direct S3 backend
+#                    (VGI_STORAGE_BACKEND=s3) instead of the vendor. The worker
+#                    writes to an S3-compatible store (S3_UPSTREAM=host:port,
+#                    S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY; RustFS in CI) through
+#                    ci/s3_vendor_shim.py, which forwards S3 verbatim and answers the
+#                    fake vendor's /__stats__ and /__admin__ routes, so the
+#                    external_storage/*.test files run unchanged. Needs python3
+#                    with boto3.
 set -euo pipefail
 
 : "${VGI_SRC:?path to a Query-farm/vgi checkout}"
@@ -182,6 +190,7 @@ BG_PIDS=()
 cleanup() {
   for p in "${BG_PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
   if declare -F stop_fake_blob_vendor >/dev/null; then stop_fake_blob_vendor; fi
+  [ -n "${S3_SHIM_PID:-}" ] && kill "$S3_SHIM_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -189,7 +198,38 @@ trap cleanup EXIT
 # worker inherits VGI_BLOB_VENDOR_URL and the tiny thresholds the script exports
 # (4 KiB results / storage values, 32 KiB request cap) and modest test data
 # takes every externalization path.
-if [ "$BLOB_VENDOR" = "1" ]; then
+if [ "$BLOB_VENDOR" = "1" ] && [ "${S3_BACKEND:-0}" = "1" ]; then
+  : "${S3_UPSTREAM:?host:port of the S3-compatible store}" "${S3_BUCKET:?bucket}"
+  : "${S3_ACCESS_KEY:?access key}" "${S3_SECRET_KEY:?secret key}"
+  shim_log="$(mktemp)"
+  python3 "$HERE/s3_vendor_shim.py" 0 "$S3_UPSTREAM" "$S3_BUCKET" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" \
+    > "$shim_log" 2>&1 &
+  S3_SHIM_PID=$!
+  shim_url=""
+  for _ in $(seq 1 100); do
+    shim_url="$(sed -n 's/^URL://p' "$shim_log" | head -1)"
+    [ -n "$shim_url" ] && break
+    kill -0 "$S3_SHIM_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+  [ -n "$shim_url" ] || { echo "::error::s3 vendor shim did not start"; cat "$shim_log"; exit 1; }
+  echo "s3 vendor shim: $shim_url -> $S3_UPSTREAM bucket $S3_BUCKET"
+  # The tests read their counters and faults from VGI_BLOB_VENDOR_URL; the worker
+  # takes the explicit backend, so the vendor URL beside it is not a conflict.
+  export VGI_BLOB_VENDOR_URL="$shim_url" VGI_STORAGE_BACKEND=s3
+  export VGI_STORAGE_S3_BUCKET="$S3_BUCKET" VGI_STORAGE_S3_ENDPOINT="$shim_url"
+  export VGI_STORAGE_S3_PREFIX="lane-$(date +%s)-$$/" VGI_STORAGE_S3_REGION=us-east-1
+  export VGI_STORAGE_S3_ACCESS_KEY_ID="$S3_ACCESS_KEY" VGI_STORAGE_S3_SECRET_ACCESS_KEY="$S3_SECRET_KEY"
+  export VGI_STORAGE_S3_VERIFY=1
+  # The thresholds test/start_fake_blob_vendor.sh exports for the vendor lane.
+  export VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES="${VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES:-4096}"
+  export VGI_RPC_MAX_REQUEST_BYTES="${VGI_RPC_MAX_REQUEST_BYTES:-32768}"
+  export VGI_RPC_MAX_UPLOAD_BYTES="${VGI_RPC_MAX_UPLOAD_BYTES:-268435456}"
+  export VGI_STORAGE_EXTERNALIZE="${VGI_STORAGE_EXTERNALIZE:-1}"
+  export VGI_STORAGE_EXTERNALIZE_BYTES="${VGI_STORAGE_EXTERNALIZE_BYTES:-4096}"
+  export VGI_TEST_ALLOW_LOOPBACK_EXTERNAL_LOCATIONS=1
+  export VGI_TEST_ARGUMENTS_REF_FAULTS="${VGI_TEST_ARGUMENTS_REF_FAULTS:-1}"
+elif [ "$BLOB_VENDOR" = "1" ]; then
   # shellcheck source=/dev/null
   source "$VGI_SRC/test/start_fake_blob_vendor.sh"
 fi

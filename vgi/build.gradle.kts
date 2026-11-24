@@ -21,6 +21,12 @@ dependencies {
     // JSON for the Cloudflare Durable Object storage client's HTTP bodies.
     implementation("com.google.code.gson:gson:2.14.0")
     implementation("com.github.luben:zstd-jni:1.5.6-8")
+    // Direct object storage (VGI_STORAGE_BACKEND=s3|gcs): compile against the backends, but a
+    // worker carries the AWS / Google SDKs only if it adds the module it uses (StorageBackend
+    // loads them on demand and names the missing module otherwise).
+    compileOnly("farm.query:vgirpc-s3:0.34.0")
+    compileOnly("farm.query:vgirpc-gcs:0.34.0")
+    testImplementation("farm.query:vgirpc-s3:0.34.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     // GrantBearerHttpTest's login authenticator reads the request (vgirpc's

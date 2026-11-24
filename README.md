@@ -177,6 +177,13 @@ on any other and survives a restart. Without it each process uses a random key
 and logs a warning at startup. An explicit `HttpServer.Config.Builder.tokenKey`
 still takes precedence.
 
+## Large values: blob vendor or your own bucket
+
+Large results, upload grants, StateRef objects and function-storage values go to the blob
+vendor (`VGI_BLOB_VENDOR_URL`) or, with no vendor, straight to the operator's own S3,
+S3-compatible or GCS bucket (`VGI_STORAGE_BACKEND=s3|gcs`, `VGI_STORAGE_S3_*` /
+`VGI_STORAGE_GCS_*`): see [docs/direct-storage.md](docs/direct-storage.md).
+
 ## Example worker
 
 For authenticated `iroh://` and HTTP-semantics `httpi://` deployments, see

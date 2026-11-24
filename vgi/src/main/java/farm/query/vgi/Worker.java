@@ -2332,8 +2332,27 @@ public final class Worker {
         runHttp(blobVendorHttp().applyTo(HttpServer.Config.builder().host(host).port(port)).build());
     }
 
-    /** Blob-vendor HTTP settings, read from the environment once per worker. */
+    /** Storage HTTP settings: set by {@link #storageSettings}, else read from the environment once. */
     private farm.query.vgirpc.vendor.BlobVendorHttpSettings blobVendorHttp;
+
+    /**
+     * Use this storage instead of the one the environment selects: the public way to wire the
+     * worker to storage other than the blob vendor (e.g. an {@code S3Storage} built in code).
+     * Build the settings with
+     * {@link farm.query.vgirpc.vendor.BlobVendorHttpSettings#forStorage(farm.query.vgirpc.external.ExternalStorage,
+     * farm.query.vgirpc.external.UploadUrlProvider, java.util.function.Consumer, java.util.Map)}
+     * (results to {@code storage}; upload grants and argument references when an upload-URL
+     * provider is given and the storage is an {@code ObjectStore}), or
+     * {@link farm.query.vgi.storage.StorageBackend#httpSettingsFromEnv(java.util.Map)}. Call it
+     * before the server starts.
+     *
+     * @param settings the storage settings
+     * @return this worker
+     */
+    public synchronized Worker storageSettings(farm.query.vgirpc.vendor.BlobVendorHttpSettings settings) {
+        this.blobVendorHttp = java.util.Objects.requireNonNull(settings, "settings");
+        return this;
+    }
 
     /**
      * The blob-vendor HTTP settings from the environment, read once:
@@ -2351,12 +2370,21 @@ public final class Worker {
      */
     synchronized farm.query.vgirpc.vendor.BlobVendorHttpSettings blobVendorHttp() {
         if (blobVendorHttp == null) {
-            blobVendorHttp = farm.query.vgirpc.vendor.BlobVendorHttpSettings.fromEnv(null);
-            if (blobVendorHttp.vendorEnabled()) {
+            Map<String, String> env = System.getenv();
+            farm.query.vgi.storage.StorageBackend.Kind kind = farm.query.vgi.storage.StorageBackend.select(env);
+            blobVendorHttp = farm.query.vgi.storage.StorageBackend.httpSettingsFromEnv(env);
+            if (kind == farm.query.vgi.storage.StorageBackend.Kind.VENDOR) {
                 System.err.println("Blob vendor enabled: "
                         + farm.query.vgirpc.external.LocationResolver.redactUrl(
                                 System.getenv(farm.query.vgirpc.vendor.BlobVendor.ENV_URL))
                         + " threshold=" + blobVendorHttp.externalLocation().thresholdBytes()
+                        + " max_request_bytes=" + blobVendorHttp.maxRequestBytes());
+                System.err.flush();
+            } else if (blobVendorHttp.externalLocation() != null
+                    && blobVendorHttp.externalLocation().storage() instanceof farm.query.vgi.storage.DirectStorage d) {
+                System.err.println("Direct storage enabled: " + d.description()
+                        + " threshold=" + blobVendorHttp.externalLocation().thresholdBytes()
+                        + " upload_grants=" + d.supportsUploadGrants()
                         + " max_request_bytes=" + blobVendorHttp.maxRequestBytes());
                 System.err.flush();
             }

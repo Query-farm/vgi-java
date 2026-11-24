@@ -22,9 +22,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Resolve vgi-rpc-java (farm.query:vgirpc 0.34.0) from Maven Central, not a
-  # sibling checkout: a directory that does not exist turns the composite build off.
-  VGI_RPC_JAVA_DIR: /nonexistent
+  # TODO(release-wave): back to Maven Central (/nonexistent) once vgi-rpc-java with
+  # the direct-storage backends is published. Until then vgi-rpc-java's protocol-3.4
+  # branch is checked out to .vgi-rpc-java and composite-built (settings.gradle.kts).
+  VGI_RPC_JAVA_DIR: ${{ github.workspace }}/.vgi-rpc-java
 
 jobs:
   test:
@@ -33,6 +34,15 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
+
+      # TODO(release-wave): drop with the switch to a published vgi-rpc-java that
+      # has the direct-storage backends (S3Storage.fromEnv, BlobVendorHttpSettings.forStorage).
+      - name: Checkout vgi-rpc-java (protocol-3.4, built from source)
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: protocol-3.4
+          path: .vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -85,6 +95,28 @@ jobs:
             grep -q 'skipped="0"' "$xml" || { echo "::error::$t was skipped"; exit 1; }
           done
 
+      # Function storage on the direct S3 backend (ExternalizingS3ConformanceTest)
+      # against RustFS; it skips without VGI_TEST_S3_ENDPOINT, so require that it ran.
+      - name: Externalizing storage on the direct S3 backend (RustFS)
+        run: |
+          docker run -d --name rustfs -p 127.0.0.1:9000:9000 \
+            -e RUSTFS_ACCESS_KEY=vgi-ci-access -e RUSTFS_SECRET_KEY=vgi-ci-secret-key \
+            -e RUSTFS_CONSOLE_ENABLE=false -e RUSTFS_OBS_LOGGER_LEVEL=error \
+            ghcr.io/rustfs/rustfs@sha256:29c02251c085cb04edce556304a9ec0f8fba0c40300266cf4f3d953783fe2450
+          python3 -m venv "$RUNNER_TEMP/s3py" && "$RUNNER_TEMP/s3py/bin/pip" install -q boto3
+          echo "$RUNNER_TEMP/s3py/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/s3py/bin:$PATH"
+          for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:9000/health >/dev/null 2>&1 && break; sleep 1; done
+          python3 -c "import boto3; boto3.client('s3', endpoint_url='http://127.0.0.1:9000', aws_access_key_id='vgi-ci-access', aws_secret_access_key='vgi-ci-secret-key', region_name='us-east-1').create_bucket(Bucket='vgi-ci')"
+          VGI_TEST_S3_ENDPOINT=http://127.0.0.1:9000 VGI_TEST_S3_BUCKET=vgi-ci \
+            VGI_TEST_S3_ACCESS_KEY=vgi-ci-access VGI_TEST_S3_SECRET_KEY=vgi-ci-secret-key \
+            ./gradlew --no-daemon :vgi:test --tests 'farm.query.vgi.storage.ExternalizingS3ConformanceTest' \
+              --tests 'farm.query.vgi.storage.StorageBackendTest'
+          for t in ExternalizingS3ConformanceTest StorageBackendTest; do
+            xml="vgi/build/test-results/test/TEST-farm.query.vgi.storage.$t.xml"
+            grep -q 'skipped="0"' "$xml" || { echo "::error::$t was skipped"; exit 1; }
+          done
+
       # Orchard hosted mode end to end: the example worker as a real process with
       # VGI_ORCHARD_HOSTED=1 against a local JWKS (docs/orchard-hosted-mode.md).
       # The SDK-neutral harness runs in the hosted-conformance job below.
@@ -131,6 +163,15 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
+
+      # TODO(release-wave): drop with the switch to a published vgi-rpc-java that
+      # has the direct-storage backends (S3Storage.fromEnv, BlobVendorHttpSettings.forStorage).
+      - name: Checkout vgi-rpc-java (protocol-3.4, built from source)
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: protocol-3.4
+          path: .vgi-rpc-java
 
       - name: Checkout the vgi hosted-mode harness
         uses: actions/checkout@v4
@@ -182,6 +223,15 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
+
+      # TODO(release-wave): drop with the switch to a published vgi-rpc-java that
+      # has the direct-storage backends (S3Storage.fromEnv, BlobVendorHttpSettings.forStorage).
+      - name: Checkout vgi-rpc-java (protocol-3.4, built from source)
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-java
+          ref: protocol-3.4
+          path: .vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4

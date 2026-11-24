@@ -84,14 +84,16 @@ public final class ExternalizingStorage implements FunctionStorage {
 
     /** State shared by the root wrapper and its shard views. */
     private static final class Shared {
-        final VendorBlobClient blobs;
+        final BlobStore blobs;
+        final VendorBlobClient vendor;
         final long threshold;
         final Long maxValueBytes;
         private ExecutorService cleanup;
         private final List<Future<?>> pending = new ArrayList<>();
 
-        Shared(VendorBlobClient blobs, long threshold, Long maxValueBytes) {
+        Shared(BlobStore blobs, VendorBlobClient vendor, long threshold, Long maxValueBytes) {
             this.blobs = blobs;
+            this.vendor = vendor;
             this.threshold = threshold;
             this.maxValueBytes = maxValueBytes;
         }
@@ -167,13 +169,37 @@ public final class ExternalizingStorage implements FunctionStorage {
      *     exceeds {@code maxValueBytes}
      */
     public ExternalizingStorage(FunctionStorage base, VendorBlobClient blobs, long threshold, Long maxValueBytes) {
+        this(base, blobs == null ? null : BlobStore.of(blobs), blobs, threshold, maxValueBytes);
+    }
+
+    /**
+     * Wrap a backend, keeping large values in any {@link BlobStore} (the vendor, or the
+     * worker's own bucket through {@link BlobStore#of(farm.query.vgirpc.external.ObjectStore,
+     * String, long, AutoCloseable)}).
+     *
+     * @param base          the backend that stores the envelopes
+     * @param blobs         where large values go, or {@code null} to keep every value inline;
+     *                      closed by {@link #close()}
+     * @param threshold     values of at least this many bytes are blobs
+     * @param maxValueBytes the backend's per-value cap, or {@code null} for none
+     * @return the wrapper
+     * @throws IllegalArgumentException if {@code threshold} is not positive or exceeds
+     *     {@code maxValueBytes}
+     */
+    public static ExternalizingStorage withBlobStore(FunctionStorage base, BlobStore blobs, long threshold,
+                                                     Long maxValueBytes) {
+        return new ExternalizingStorage(base, blobs, null, threshold, maxValueBytes);
+    }
+
+    private ExternalizingStorage(FunctionStorage base, BlobStore blobs, VendorBlobClient vendor, long threshold,
+                                 Long maxValueBytes) {
         if (threshold < 1 || (maxValueBytes != null && threshold > maxValueBytes)) {
             throw new IllegalArgumentException("externalize threshold (" + ENV_EXTERNALIZE_BYTES
                     + ") must be between 1 and " + (maxValueBytes != null ? maxValueBytes : "unbounded")
                     + ", got " + threshold);
         }
         this.base = base;
-        this.shared = new Shared(blobs, threshold, maxValueBytes);
+        this.shared = new Shared(blobs, vendor, threshold, maxValueBytes);
         this.shardKey = "";
         this.root = true;
     }
@@ -244,13 +270,16 @@ public final class ExternalizingStorage implements FunctionStorage {
     public static FunctionStorage wrapFromEnv(FunctionStorage base, Long maxValueBytes, Map<String, String> env) {
         boolean enabled = TRUE.contains(env.getOrDefault(ENV_EXTERNALIZE, "").strip().toLowerCase(Locale.ROOT));
         if (maxValueBytes == null && !enabled) return base;
-        VendorBlobClient blobs = blobClientFromEnv(env);
+        // The vendor, or the worker's own bucket (VGI_STORAGE_BACKEND=s3|gcs), per the same
+        // selection the HTTP server makes.
+        BlobStore blobs = StorageBackend.blobStoreFromEnv(env, VendorBlobClient.DEFAULT_MAX_FETCH_BYTES);
         if (enabled && blobs == null) {
-            throw new IllegalArgumentException(ENV_EXTERNALIZE + "=1 needs the blob vendor: set " + ENV_VENDOR_URL);
+            throw new IllegalArgumentException(ENV_EXTERNALIZE + "=1 needs a storage backend: set " + ENV_VENDOR_URL
+                    + ", or " + StorageBackend.ENV_S3_BUCKET + " / " + StorageBackend.ENV_GCS_BUCKET);
         }
         long threshold = externalizeBytesFromEnv(env);
         if (maxValueBytes != null) threshold = Math.min(threshold, maxValueBytes);
-        return new ExternalizingStorage(base, blobs, threshold, maxValueBytes);
+        return withBlobStore(base, blobs, threshold, maxValueBytes);
     }
 
     // ---------------------------------------------------------------------
@@ -272,7 +301,7 @@ public final class ExternalizingStorage implements FunctionStorage {
      * @return the client, or {@code null}
      */
     public VendorBlobClient blobClient() {
-        return shared.blobs;
+        return shared.vendor;
     }
 
     /**
@@ -362,7 +391,7 @@ public final class ExternalizingStorage implements FunctionStorage {
      * @throws StorageValueTooLargeException with no vendor, for an envelope over the backend's cap
      */
     List<byte[]> encodeValues(List<byte[]> values, String blobExecutionId) {
-        VendorBlobClient blobs = shared.blobs;
+        BlobStore blobs = shared.blobs;
         int n = values.size();
         byte[][] envelopes = new byte[n][];
         List<Integer> large = new ArrayList<>();
@@ -418,7 +447,7 @@ public final class ExternalizingStorage implements FunctionStorage {
             }
         }
         if (pointers.isEmpty()) return out;
-        VendorBlobClient blobs = shared.blobs;
+        BlobStore blobs = shared.blobs;
         if (blobs == null) {
             throw new StorageEnvelopeException("stored value is a blob pointer but " + ENV_VENDOR_URL
                     + " is not configured in this process");
@@ -431,7 +460,7 @@ public final class ExternalizingStorage implements FunctionStorage {
         return out;
     }
 
-    private static byte[] fetch(VendorBlobClient blobs, BlobRef ref) {
+    private static byte[] fetch(BlobStore blobs, BlobRef ref) {
         try {
             return blobs.getBytes(ref);
         } catch (VendorError e) {
@@ -473,14 +502,14 @@ public final class ExternalizingStorage implements FunctionStorage {
     // ---------------------------------------------------------------------
 
     private void deleteBlobs(List<BlobRef> refs, String what) {
-        VendorBlobClient blobs = shared.blobs;
+        BlobStore blobs = shared.blobs;
         if (blobs == null || refs.isEmpty()) return;
         List<BlobRef> copy = List.copyOf(refs);
         shared.submit(() -> blobs.deleteRefs(copy), what);
     }
 
     private void deleteBlobScope(String blobExecutionId, String what) {
-        VendorBlobClient blobs = shared.blobs;
+        BlobStore blobs = shared.blobs;
         if (blobs == null) return;
         String shard = StorageEnvelope.blobShard(shardKey);
         shared.submit(() -> blobs.deleteScope(shard, blobExecutionId), what);
