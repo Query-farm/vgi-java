@@ -5,9 +5,8 @@
 # ever compiles the example worker -- vgi/src/test carried 278 JUnit tests that
 # nothing in CI ran. This workflow is that gate.
 #
-# The RPC framework is built from source at VGI_RPC_JAVA_REF (a Gradle
-# composite build through VGI_RPC_JAVA_DIR) while the vgi-rpc-java release this
-# SDK needs is unpublished; see the TODO in the env block.
+# The RPC framework resolves from Maven Central (VGI_RPC_JAVA_DIR points at
+# nothing, so the composite build stays off).
 name: CI
 
 on:
@@ -23,12 +22,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # TODO(release-wave): switch to the released vgi-rpc-java (farm.query:vgirpc)
-  # that carries farm.query.vgirpc.vendor and upload-URL protocol v2 (branch
-  # protocol-3.4 until the release wave), drop this pin and the checkout steps,
-  # and restore VGI_RPC_JAVA_DIR: /nonexistent (validate the Maven dependency).
-  VGI_RPC_JAVA_REF: cf274c0b14a549417129186a1b16751dceea91ba
-  VGI_RPC_JAVA_DIR: ${{ github.workspace }}/vgi-rpc-java
+  # Resolve vgi-rpc-java (farm.query:vgirpc 0.34.0) from Maven Central, not a
+  # sibling checkout: a directory that does not exist turns the composite build off.
+  VGI_RPC_JAVA_DIR: /nonexistent
 
 jobs:
   test:
@@ -37,13 +33,6 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
-
-      - name: Checkout vgi-rpc-java at the pinned commit
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-java
-          ref: ${{ env.VGI_RPC_JAVA_REF }}
-          path: vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -75,10 +64,10 @@ jobs:
 
       - name: Externalizing storage against the fake blob vendor
         env:
-          VGI_RPC_FAKE_VENDOR_REF: 6a21ee3b2fb21d9c348c9b615fd97dce8e0bb852
+          VGI_RPC_FAKE_VENDOR_VERSION: 0.57.0
         run: |
           log="$RUNNER_TEMP/fake-vendor.log"
-          nohup uvx --from "git+https://github.com/Query-farm/vgi-rpc-python@${VGI_RPC_FAKE_VENDOR_REF}" \
+          nohup uvx --from "vgi-rpc==${VGI_RPC_FAKE_VENDOR_VERSION}" \
             vgi-rpc-fake-vendor --test-routes --token "test-token=tenant-a" > "$log" 2>&1 &
           vendor_pid=$!
           trap 'kill "$vendor_pid" 2>/dev/null || true' EXIT
@@ -107,11 +96,11 @@ jobs:
       # fake vendor, so give it one and require that it ran.
       - name: Orchard hosted mode against the fake blob vendor
         env:
-          VGI_RPC_FAKE_VENDOR_REF: 6a21ee3b2fb21d9c348c9b615fd97dce8e0bb852
+          VGI_RPC_FAKE_VENDOR_VERSION: 0.57.0
         run: |
           uv venv -q "$RUNNER_TEMP/fake-vendor"
           uv pip install -q -p "$RUNNER_TEMP/fake-vendor" \
-            "vgi-rpc[http,external] @ git+https://github.com/Query-farm/vgi-rpc-python@${VGI_RPC_FAKE_VENDOR_REF}"
+            "vgi-rpc[http,external]==${VGI_RPC_FAKE_VENDOR_VERSION}"
           VGI_RPC_FAKE_VENDOR_BIN="$RUNNER_TEMP/fake-vendor/bin/vgi-rpc-fake-vendor" \
             ./gradlew --no-daemon :vgi-example-worker:test --tests 'farm.query.vgi.example.OrchardHostedVendorTest'
           xml=vgi-example-worker/build/test-results/test/TEST-farm.query.vgi.example.OrchardHostedVendorTest.xml
@@ -142,13 +131,6 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
-
-      - name: Checkout vgi-rpc-java at the pinned commit
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-java
-          ref: ${{ env.VGI_RPC_JAVA_REF }}
-          path: vgi-rpc-java
 
       - name: Checkout the vgi hosted-mode harness
         uses: actions/checkout@v4
@@ -201,13 +183,6 @@ jobs:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
 
-      - name: Checkout vgi-rpc-java at the pinned commit
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-java
-          ref: ${{ env.VGI_RPC_JAVA_REF }}
-          path: vgi-rpc-java
-
       - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
@@ -228,9 +203,8 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Clone vgi-rpc-python reference (protocol-3.4 branch)
-        # TODO(release-wave): back to main, deliberately unpinned, once protocol-3.4 is merged.
-        run: git clone --depth 1 --branch protocol-3.4 https://github.com/Query-farm/vgi-rpc-python.git "$RUNNER_TEMP/vgi-rpc-python"
+      - name: Clone vgi-rpc-python reference (main, deliberately unpinned)
+        run: git clone --depth 1 https://github.com/Query-farm/vgi-rpc-python.git "$RUNNER_TEMP/vgi-rpc-python"
 
       - name: Install the reference's conformance runner
         run: |
