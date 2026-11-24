@@ -28,6 +28,7 @@ class ExternalizingS3ConformanceTest extends FunctionStorageConformanceTest {
         env.put("VGI_STORAGE_S3_ACCESS_KEY_ID", System.getenv("VGI_TEST_S3_ACCESS_KEY"));
         env.put("VGI_STORAGE_S3_SECRET_ACCESS_KEY", System.getenv("VGI_TEST_S3_SECRET_KEY"));
         env.put("VGI_STORAGE_S3_PREFIX", "conformance/");
+        env.put("VGI_STORAGE_ALLOW_PLAIN_HTTP", "1");
         return ExternalizingStorage.withBlobStore(new SqliteFunctionStorage(":memory:"),
                 StorageBackend.blobStoreFromEnv(env, 1L << 30), 1, null);
     }

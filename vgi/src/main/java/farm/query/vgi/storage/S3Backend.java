@@ -12,12 +12,13 @@ import java.util.Map;
 final class S3Backend {
     private S3Backend() {}
 
-    static DirectStorage open(Map<String, String> env) {
-        S3Storage s3 = S3Storage.fromEnv(env);
+    static DirectStorage open(Map<String, String> env, String area) {
+        S3Storage s3 = S3Storage.fromEnv(env, area);
         String endpoint = env.getOrDefault(S3Storage.ENV_ENDPOINT, "").strip();
         String description = "s3 bucket " + env.get(S3Storage.ENV_BUCKET).strip()
                 + (endpoint.isEmpty() ? " (AWS)" : " at " + farm.query.vgirpc.external.LocationResolver.redactUrl(endpoint))
                 + (s3.supportsUploadGrants() ? "" : ", checksum none");
-        return new DirectStorage(description, s3, s3::verify, s3.supportsUploadGrants(), s3.urlValidator(), s3);
+        return new DirectStorage(description, s3, s3::verify, s3.supportsUploadGrants(), s3.urlValidator(), s3,
+                s3::deleteObject);
     }
 }

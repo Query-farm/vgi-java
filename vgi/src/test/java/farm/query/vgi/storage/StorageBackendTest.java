@@ -30,6 +30,7 @@ class StorageBackendTest {
         "VGI_STORAGE_S3_ENDPOINT", "http://127.0.0.1:9",
         "VGI_STORAGE_S3_ACCESS_KEY_ID", "k",
         "VGI_STORAGE_S3_SECRET_ACCESS_KEY", "s",
+        "VGI_STORAGE_ALLOW_PLAIN_HTTP", "1",
     };
 
     @Test
@@ -71,7 +72,9 @@ class StorageBackendTest {
         assertNotNull(s.uploadUrlProvider(), "sha256 issues upload grants");
         assertEquals(1048576L, s.maxUploadBytes());
         // The inbound validator pins the signing host: the configured endpoint, http allowed.
-        s.externalLocation().urlValidator().accept(java.net.URI.create("http://127.0.0.1:9/b/x"));
+        s.externalLocation().urlValidator().accept(java.net.URI.create("http://127.0.0.1:9/b/rpc/x"));
+        assertThrows(IllegalArgumentException.class,
+                () -> s.externalLocation().urlValidator().accept(java.net.URI.create("http://127.0.0.1:9/b/fs/x")));
         assertThrows(IllegalArgumentException.class,
                 () -> s.externalLocation().urlValidator().accept(java.net.URI.create("http://evil.example/b/x")));
         ((DirectStorage) s.externalLocation().storage()).close();
@@ -98,6 +101,15 @@ class StorageBackendTest {
         IllegalStateException err = assertThrows(IllegalStateException.class,
                 () -> StorageBackend.httpSettingsFromEnv(e));
         assertTrue(err.getMessage().contains("unreachable"), err.getMessage());
+    }
+
+    @Test
+    void plainHttpNeedsTheOptIn() {
+        Map<String, String> e = env(S3);
+        e.remove("VGI_STORAGE_ALLOW_PLAIN_HTTP");
+        IllegalArgumentException err = assertThrows(IllegalArgumentException.class,
+                () -> StorageBackend.httpSettingsFromEnv(e));
+        assertTrue(err.getMessage().contains("VGI_STORAGE_ALLOW_PLAIN_HTTP"), err.getMessage());
     }
 
     @Test

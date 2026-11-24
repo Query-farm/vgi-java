@@ -175,7 +175,7 @@ public final class ExternalizingStorage implements FunctionStorage {
     /**
      * Wrap a backend, keeping large values in any {@link BlobStore} (the vendor, or the
      * worker's own bucket through {@link BlobStore#of(farm.query.vgirpc.external.ObjectStore,
-     * String, long, AutoCloseable)}).
+     * String, long, AutoCloseable, java.util.function.Consumer)}).
      *
      * @param base          the backend that stores the envelopes
      * @param blobs         where large values go, or {@code null} to keep every value inline;

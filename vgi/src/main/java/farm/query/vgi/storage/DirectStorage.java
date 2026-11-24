@@ -25,6 +25,7 @@ public final class DirectStorage implements ExternalStorage, ObjectStore, Upload
     private final boolean uploadGrants;
     private final Consumer<URI> urlValidator;
     private final AutoCloseable closer;
+    private final java.util.function.Consumer<String> deleter;
     private volatile boolean verified;
 
     /**
@@ -37,9 +38,11 @@ public final class DirectStorage implements ExternalStorage, ObjectStore, Upload
      * @param uploadGrants whether the store issues upload grants
      * @param urlValidator accepts inbound pointer URLs on the store's signing host
      * @param closer       released by {@link #close()}
+     * @param deleter      best-effort delete of one object key (failures ignored), or {@code null}
      */
     public DirectStorage(String description, Object delegate, Runnable verify, boolean uploadGrants,
-                         Consumer<URI> urlValidator, AutoCloseable closer) {
+                         Consumer<URI> urlValidator, AutoCloseable closer,
+                         java.util.function.Consumer<String> deleter) {
         if (!(delegate instanceof ExternalStorage) || !(delegate instanceof ObjectStore)) {
             throw new IllegalArgumentException("direct storage must be an ExternalStorage and an ObjectStore");
         }
@@ -52,6 +55,22 @@ public final class DirectStorage implements ExternalStorage, ObjectStore, Upload
         this.uploadGrants = uploadGrants;
         this.urlValidator = urlValidator;
         this.closer = closer;
+        this.deleter = deleter;
+    }
+
+    /**
+     * Delete an object, best effort (function storage clean-up); failures are ignored, and a
+     * bucket lifecycle rule removes whatever is left.
+     *
+     * @param objectId the object key
+     */
+    public void deleteObject(String objectId) {
+        if (deleter == null) return;
+        try {
+            deleter.accept(objectId);
+        } catch (RuntimeException ignored) {
+            // best effort
+        }
     }
 
     /** Run the bucket check now (startup), once. */
@@ -68,13 +87,25 @@ public final class DirectStorage implements ExternalStorage, ObjectStore, Upload
         }
     }
 
-    /** @return a log-safe description of the store */
+    /**
+     * A log-safe description of the store.
+     *
+     * @return the description
+     */
     public String description() { return description; }
 
-    /** @return whether the store issues upload grants (not with {@code VGI_STORAGE_S3_CHECKSUM=none}) */
+    /**
+     * Whether the store issues upload grants (not with {@code VGI_STORAGE_S3_CHECKSUM=none}, nor GCS).
+     *
+     * @return whether upload grants are issued
+     */
     public boolean supportsUploadGrants() { return uploadGrants; }
 
-    /** @return the inbound-pointer URL validator, pinned to the store's signing host */
+    /**
+     * The inbound-pointer URL validator, pinned to the store's signing host.
+     *
+     * @return the validator
+     */
     public Consumer<URI> urlValidator() { return urlValidator; }
 
     @Override

@@ -25,14 +25,16 @@ the worker refuses to start and names the module.
 | Variable | Meaning | Default |
 |---|---|---|
 | `VGI_STORAGE_S3_BUCKET` | bucket (required) | |
-| `VGI_STORAGE_S3_PREFIX` | key prefix, e.g. `vgi/`; function storage uses `<prefix>fs/` | empty |
+| `VGI_STORAGE_S3_PREFIX` | key prefix, e.g. `vgi/`; objects go under `<prefix>rpc/` (results, upload grants, StateRef and argument objects) and `<prefix>fs/` (function storage) | empty |
 | `VGI_STORAGE_S3_ENDPOINT` | custom endpoint, `https://` or `http://` (MinIO, Ceph, R2's S3 API, Wasabi, B2, LocalStack) | AWS |
 | `VGI_STORAGE_S3_REGION` | signing region (`auto` for R2) | `AWS_REGION`, `AWS_DEFAULT_REGION`, `us-east-1` |
 | `VGI_STORAGE_S3_FORCE_PATH_STYLE` | bucket in the path | `true` with an endpoint |
-| `VGI_STORAGE_S3_PUBLIC_ENDPOINT` | endpoint for the presigned URLs handed to clients only | the endpoint |
+| `VGI_STORAGE_S3_PUBLIC_ENDPOINT` | endpoint for the presigned URLs handed out (the worker must reach it too: request-upload pointers are fetched by URL) | the endpoint |
 | `VGI_STORAGE_S3_CHECKSUM` | `sha256`, or `none` for services that ignore `x-amz-checksum-sha256` | `sha256` |
 | `VGI_STORAGE_S3_SDK_CHECKSUM` | the AWS SDK's own CRC32 request checksums: `when_required` or `when_supported` | `when_required` with an endpoint, else `when_supported` |
 | `VGI_STORAGE_S3_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `_SESSION_TOKEN` | explicit credentials | the AWS default chain |
+| `VGI_STORAGE_S3_SESSION_EXPIRES` | the explicit session token's expiry (RFC 3339 or epoch seconds), so URL lifetimes are capped; without it a token logs a warning | none |
+| `VGI_STORAGE_ALLOW_PLAIN_HTTP` | `1` allows an `http://` endpoint or public endpoint (refused otherwise; the extension has its own `vgi_storage_allow_plain_http`) | refuse |
 | `VGI_STORAGE_URL_TTL_SECONDS` | presigned URL lifetime | 3600 |
 | `VGI_STORAGE_S3_VERIFY` | `1` = check the bucket at startup | check on first use |
 | `VGI_RPC_STORAGE_STALL_TIMEOUT_SECONDS` | a transfer fails only after this long without bytes moving | 30 |
@@ -42,7 +44,7 @@ shared profile including `role_arn`/`source_profile` and `credential_process`, w
 ECS/EKS container credentials, EC2 IMDSv2). Temporary credentials are refreshed before they
 expire. A presigned URL stops working when its signing credentials expire, so its lifetime is
 `min(VGI_STORAGE_URL_TTL_SECONDS, credential expiry - now - 60 s)`; upload grants ask for at
-least 15 minutes. Stored objects are addressed by key, not URL, so StateRefs and argument
+least 15 minutes (a shorter session is refreshed once, then URLs are signed for what is left, with a warning). Stored objects are addressed by key, not URL, so StateRefs and argument
 references survive credential rotation.
 
 The bucket check is a HEAD on the bucket and fails with what to fix: the bucket does not exist,
@@ -61,13 +63,14 @@ function-storage objects are still stored (the worker verifies them on fetch). L
 `VGI_STORAGE_GCS_BUCKET` (required), `VGI_STORAGE_GCS_PREFIX`, `VGI_STORAGE_GCS_ENDPOINT` (an
 emulator or private endpoint; the API and the signed URLs use it), credentials from
 `VGI_STORAGE_GCS_CREDENTIALS_FILE` or Application Default Credentials. V4 signed URLs,
-`VGI_STORAGE_URL_TTL_SECONDS`. GCS cannot enforce a SHA-256 on an upload, so the GCS backend
+`VGI_STORAGE_URL_TTL_SECONDS`, `VGI_STORAGE_GCS_VERIFY=1` checks the bucket at startup (else on first use), and an `http://` endpoint needs `VGI_STORAGE_ALLOW_PLAIN_HTTP=1`. Keys use the same `rpc/` / `fs/` layout. GCS cannot enforce a SHA-256 on an upload, so the GCS backend
 issues no upload grants (as with `CHECKSUM=none`).
 
 ## Lifecycle
 
-The worker never deletes. Add a bucket lifecycle rule expiring the prefix after one to two
-days, as the vendor does.
+Add bucket lifecycle rules: 1 day on `<prefix>rpc/` and 2 days on `<prefix>fs/`, as the vendor does.
+The worker deletes function-storage values it no longer needs, best effort (failures are ignored);
+everything else is left to the lifecycle rules.
 
 ## In code
 

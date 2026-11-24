@@ -37,8 +37,10 @@ public final class StorageBackend {
     public static final String ENV_S3_BUCKET = "VGI_STORAGE_S3_BUCKET";
     /** The direct GCS bucket. */
     public static final String ENV_GCS_BUCKET = "VGI_STORAGE_GCS_BUCKET";
-    /** {@code 1} = check the bucket at startup. */
+    /** {@code 1} = check the S3 bucket at startup. */
     public static final String ENV_S3_VERIFY = "VGI_STORAGE_S3_VERIFY";
+    /** {@code 1} = check the GCS bucket at startup. */
+    public static final String ENV_GCS_VERIFY = "VGI_STORAGE_GCS_VERIFY";
     /** Orchard hosted mode. */
     static final String ENV_HOSTED = "VGI_ORCHARD_HOSTED";
 
@@ -110,10 +112,24 @@ public final class StorageBackend {
      * @throws IllegalArgumentException if a variable is missing or malformed
      */
     public static DirectStorage openDirect(Kind kind, Map<String, String> env) {
+        return openDirect(kind, env, "rpc");
+    }
+
+    /**
+     * Open one key area of the direct store: {@code rpc} (results, upload grants, StateRef and
+     * argument objects, under {@code <prefix>rpc/}) or {@code fs} (function storage, under
+     * {@code <prefix>fs/}).
+     *
+     * @param kind {@link Kind#S3} or {@link Kind#GCS}
+     * @param env  environment mapping
+     * @param area {@code rpc} or {@code fs}
+     * @return the store behind its startup check
+     */
+    public static DirectStorage openDirect(Kind kind, Map<String, String> env, String area) {
         try {
             return switch (kind) {
-                case S3 -> S3Backend.open(env);
-                case GCS -> GcsBackend.open(env);
+                case S3 -> S3Backend.open(env, area);
+                case GCS -> GcsBackend.open(env, area);
                 default -> throw new IllegalArgumentException(kind + " is not a direct storage backend");
             };
         } catch (NoClassDefFoundError e) {
@@ -143,7 +159,8 @@ public final class StorageBackend {
             case NONE -> new BlobVendorHttpSettings(null, null, null, BlobVendor.maxRequestBytesFromEnv(env));
             case S3, GCS -> {
                 DirectStorage store = openDirect(kind, env);
-                if (TRUE.contains(env.getOrDefault(ENV_S3_VERIFY, "").strip().toLowerCase(Locale.ROOT))) {
+                String verifyVar = kind == Kind.S3 ? ENV_S3_VERIFY : ENV_GCS_VERIFY;
+                if (TRUE.contains(env.getOrDefault(verifyVar, "").strip().toLowerCase(Locale.ROOT))) {
                     store.verifyNow();
                 }
                 if (TRUE.contains(env.getOrDefault(ENV_HOSTED, "").strip().toLowerCase(Locale.ROOT))) {
@@ -176,14 +193,12 @@ public final class StorageBackend {
             case NONE -> null;
             case S3, GCS -> {
                 // Function storage keeps its values under <prefix>fs/, apart from results and
-                // StateRef objects (the vendor separates them by purpose).
+                // StateRef objects under <prefix>rpc/ (the vendor separates them by purpose).
+                DirectStorage store = openDirect(kind, env, "fs");
                 String prefixVar = kind == Kind.S3 ? "VGI_STORAGE_S3_PREFIX" : "VGI_STORAGE_GCS_PREFIX";
-                Map<String, String> fsEnv = new java.util.HashMap<>(env);
                 String prefix = env.getOrDefault(prefixVar, "").strip();
                 String fsPrefix = (prefix.isEmpty() || prefix.endsWith("/") ? prefix : prefix + "/") + "fs/";
-                fsEnv.put(prefixVar, fsPrefix);
-                DirectStorage store = openDirect(kind, fsEnv);
-                yield BlobStore.of(store, fsPrefix, maxFetchBytes, store);
+                yield BlobStore.of(store, fsPrefix, maxFetchBytes, store, store::deleteObject);
             }
         };
     }

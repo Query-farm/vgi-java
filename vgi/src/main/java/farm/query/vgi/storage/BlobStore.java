@@ -18,7 +18,7 @@ import java.util.List;
 /**
  * Where {@link ExternalizingStorage} keeps values too large for its backend: the blob
  * vendor ({@link #of(VendorBlobClient)}) or the worker's own bucket through an
- * {@link ObjectStore} ({@link #of(ObjectStore, String, long, AutoCloseable)}, direct S3 / GCS).
+ * {@link ObjectStore} ({@link #of(ObjectStore, String, long, AutoCloseable, java.util.function.Consumer)}, direct S3 / GCS).
  *
  * <p>Reads are verified against the size and SHA-256 in the {@link BlobRef}: a mismatch is a
  * {@link VendorError} with code {@link VendorError#SIZE_MISMATCH} or
@@ -81,9 +81,9 @@ public interface BlobStore extends AutoCloseable {
     }
 
     /**
-     * The worker's own bucket. Objects are never deleted (a bucket lifecycle rule expires them),
-     * so {@link #deleteRefs} and {@link #deleteScope} do nothing; scopes and idempotency keys
-     * are ignored.
+     * The worker's own bucket. {@link #deleteRefs} deletes best effort (failures ignored; a
+     * bucket lifecycle rule, 2 days on {@code fs/}, removes leftovers); {@link #deleteScope}
+     * does nothing (an object store cannot delete by scope); idempotency keys are ignored.
      *
      * <p>The blob's object id (stored in the value envelope, whose charset has no {@code /}) is
      * the object key without {@code keyPrefix}; reads put the prefix back.</p>
@@ -92,9 +92,11 @@ public interface BlobStore extends AutoCloseable {
      * @param keyPrefix     the prefix the store writes keys under (stripped from object ids)
      * @param maxFetchBytes the largest blob read back
      * @param closer        closed by {@link #close()}, or {@code null}
+     * @param deleter       best-effort delete of one object key, or {@code null}
      * @return the store
      */
-    static BlobStore of(ObjectStore store, String keyPrefix, long maxFetchBytes, AutoCloseable closer) {
+    static BlobStore of(ObjectStore store, String keyPrefix, long maxFetchBytes, AutoCloseable closer,
+                        java.util.function.Consumer<String> deleter) {
         return new BlobStore() {
             @Override
             public BlobRef putBytes(byte[] data, BlobScope scope, String idempotencyKey) {
@@ -140,7 +142,17 @@ public interface BlobStore extends AutoCloseable {
                 return data;
             }
 
-            @Override public void deleteRefs(List<BlobRef> refs) { }
+            @Override
+            public void deleteRefs(List<BlobRef> refs) {
+                if (deleter == null) return;
+                for (BlobRef ref : refs) {
+                    try {
+                        deleter.accept(keyPrefix + ref.objectId());
+                    } catch (RuntimeException ignored) {
+                        // best effort
+                    }
+                }
+            }
             @Override public void deleteScope(String shard, String executionId) { }
 
             @Override

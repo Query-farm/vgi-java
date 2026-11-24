@@ -14,11 +14,11 @@ import java.util.Map;
 final class GcsBackend {
     private GcsBackend() {}
 
-    static DirectStorage open(Map<String, String> env) {
-        GcsStorage gcs = GcsStorage.fromEnv(env);
+    static DirectStorage open(Map<String, String> env, String area) {
+        GcsStorage gcs = GcsStorage.fromEnv(env, area);
         String endpoint = env.getOrDefault(GcsStorage.ENV_ENDPOINT, "").strip();
         String description = "gcs bucket " + env.get(GcsStorage.ENV_BUCKET).strip()
                 + (endpoint.isEmpty() ? "" : " at " + farm.query.vgirpc.external.LocationResolver.redactUrl(endpoint));
-        return new DirectStorage(description, gcs, () -> { }, false, gcs.urlValidator(), gcs);
+        return new DirectStorage(description, gcs, gcs::verify, false, gcs.urlValidator(), gcs, gcs::deleteObject);
     }
 }
