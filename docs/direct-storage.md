@@ -63,8 +63,9 @@ function-storage objects are still stored (the worker verifies them on fetch). L
 `VGI_STORAGE_GCS_BUCKET` (required), `VGI_STORAGE_GCS_PREFIX`, `VGI_STORAGE_GCS_ENDPOINT` (an
 emulator or private endpoint; the API and the signed URLs use it), credentials from
 `VGI_STORAGE_GCS_CREDENTIALS_FILE` or Application Default Credentials. V4 signed URLs,
-`VGI_STORAGE_URL_TTL_SECONDS`, `VGI_STORAGE_GCS_VERIFY=1` checks the bucket at startup (else on first use), and an `http://` endpoint needs `VGI_STORAGE_ALLOW_PLAIN_HTTP=1`. Keys use the same `rpc/` / `fs/` layout. GCS cannot enforce a SHA-256 on an upload, so the GCS backend
-issues no upload grants (as with `CHECKSUM=none`).
+`VGI_STORAGE_URL_TTL_SECONDS`, `VGI_STORAGE_GCS_VERIFY=1` checks the bucket at startup (else on first use), and an `http://` endpoint needs `VGI_STORAGE_ALLOW_PLAIN_HTTP=1`. Keys use the same `rpc/` / `fs/` layout. GCS cannot enforce a SHA-256 on an upload, so its upload
+grants sign the exact size (`x-goog-content-length-range`) and the worker verifies the SHA-256 when it
+resolves the upload, refusing a mismatch (direct storage contract, Addendum C).
 
 ## Lifecycle
 

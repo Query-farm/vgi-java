@@ -33,6 +33,35 @@ class StorageBackendTest {
         "VGI_STORAGE_ALLOW_PLAIN_HTTP", "1",
     };
 
+    /** Addendum C: the GCS backend issues upload grants (exact length signed; the worker
+     *  verifies the sha256 on resolve), so it advertises upload capability like S3 sha256. */
+    @Test
+    void gcsIssuesUploadGrants() throws Exception {
+        java.security.KeyPairGenerator gen = java.security.KeyPairGenerator.getInstance("RSA");
+        gen.initialize(2048);
+        String pem = "-----BEGIN PRIVATE KEY-----\n" + java.util.Base64.getMimeEncoder(64, new byte[] {'\n'})
+                .encodeToString(gen.generateKeyPair().getPrivate().getEncoded()) + "\n-----END PRIVATE KEY-----\n";
+        java.nio.file.Path key = java.nio.file.Files.createTempFile("vgi-gcs-sa", ".json");
+        try {
+            java.nio.file.Files.writeString(key, "{\"type\":\"service_account\",\"project_id\":\"p\","
+                    + "\"private_key_id\":\"k\",\"private_key\":\"" + pem.replace("\n", "\\n") + "\","
+                    + "\"client_email\":\"s@p.iam.gserviceaccount.com\",\"client_id\":\"1\","
+                    + "\"token_uri\":\"https://oauth2.googleapis.com/token\"}");
+            DirectStorage store = GcsBackend.open(env(
+                    "VGI_STORAGE_GCS_BUCKET", "b",
+                    "VGI_STORAGE_GCS_ENDPOINT", "http://127.0.0.1:9",
+                    "VGI_STORAGE_ALLOW_PLAIN_HTTP", "1",
+                    "VGI_STORAGE_GCS_CREDENTIALS_FILE", key.toString()), "rpc");
+            try {
+                assertTrue(store.supportsUploadGrants());
+            } finally {
+                store.close();
+            }
+        } finally {
+            java.nio.file.Files.deleteIfExists(key);
+        }
+    }
+
     @Test
     void selection() {
         assertEquals(StorageBackend.Kind.NONE, StorageBackend.select(env()));

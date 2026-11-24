@@ -27,6 +27,7 @@ dependencies {
     compileOnly("farm.query:vgirpc-s3:0.34.0")
     compileOnly("farm.query:vgirpc-gcs:0.34.0")
     testImplementation("farm.query:vgirpc-s3:0.34.0")
+    testImplementation("farm.query:vgirpc-gcs:0.34.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     // GrantBearerHttpTest's login authenticator reads the request (vgirpc's
