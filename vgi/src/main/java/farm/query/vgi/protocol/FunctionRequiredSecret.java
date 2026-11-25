@@ -54,7 +54,9 @@ public record FunctionRequiredSecret(
 
     /**
      * A secret of {@code secretType} whose scope best matches {@code scope}
-     * (DuckDB's longest-prefix rule).
+     * (DuckDB's longest-prefix rule, where an authority-only scope such as
+     * {@code s3://bucket} stops at the authority; see
+     * {@link farm.query.vgi.Secrets#scopeMatches}).
      *
      * @param secretType the DuckDB secret type
      * @param scope the path to match against secret scopes (e.g. {@code s3://bucket/})

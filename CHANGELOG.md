@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Secret scope matching now follows DuckDB 2.0.1's authority boundary (duckdb#28684). An authority-only scope such
+  as `snmp://10.0.0.1` covers `snmp://10.0.0.1` and `snmp://10.0.0.1/x` but no longer `snmp://10.0.0.15` or
+  `snmp://10.0.0.1:161`, and `s3://bucket` no longer covers `s3://bucket-evil/`. `Secrets.forScope`,
+  `forScopeOfType` and `fieldFor` use the new public `Secrets.scopeMatches`, so a worker never picks a secret DuckDB
+  itself would not resolve for that path. Checked against 3,025 cases generated from DuckDB's C++
+  (`vgi/src/test/resources/secrets/scope_match_vectors.json`).
+
 ## 0.50.1 (2026-11-24)
 
 Requires `farm.query:vgirpc` / `vgirpc-oauth` 0.34.1 from Maven Central (`vgirpc-s3` / `vgirpc-gcs` 0.34.1 for the
