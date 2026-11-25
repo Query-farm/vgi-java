@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.50.1 (2026-11-24)
+
+Requires `farm.query:vgirpc` / `vgirpc-oauth` 0.34.1 from Maven Central (`vgirpc-s3` / `vgirpc-gcs` 0.34.1 for the
+direct storage backends). VGI wire protocol stays 3.4. Haybarn 2.0.1rc3 is required for the 3.4 extension.
+
+### Added
+
+- **Direct object storage for self-hosted workers.** `VGI_STORAGE_BACKEND` (`vendor` | `s3` | `gcs` | `none`) with
+  `VGI_STORAGE_S3_*` / `VGI_STORAGE_GCS_*`: the full AWS credential chain including session tokens, `CHECKSUM=none`,
+  results / upload grants / StateRef under `<prefix>rpc/` and function storage under `<prefix>fs/` (best-effort
+  deletes), upload grants on S3 and GCS, `VGI_STORAGE_*_VERIFY`, and `VGI_STORAGE_ALLOW_PLAIN_HTTP` for http
+  endpoints. See `docs/direct-storage.md`.
+- **Protocol version negotiation** (PROTOCOL_VERSIONS_V1): every server advertises the protocols it gates in
+  `VGI-Protocol-Versions` (`vgi.v3=3.4-3.4`, plus `vgi.attach_tickets.v1` when hosted), on HTTP responses
+  (hosted-mode 401s included), reflection results, transport-options replies and refusals.
+  `VGI_TEST_PROTOCOL_RANGE` lets fixtures impersonate other protocol windows.
+
+### Changed
+
+- **Storage timeouts** (from vgi-rpc-java 0.34.1): 30 s connect, 30 s stall timeout, no whole-request deadline,
+  3 attempts; `VGI_RPC_STORAGE_STALL_TIMEOUT_SECONDS` overrides the stall timeout.
+
 ## 0.50.0 (2026-11-23)
 
 Requires `farm.query:vgirpc` / `vgirpc-oauth` 0.34.0 from Maven Central.

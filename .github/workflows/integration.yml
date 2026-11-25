@@ -29,14 +29,13 @@ env:
   # 0283f91 makes arguments_ref_state_ref.test SDK-neutral (a filtered producer scan).
   VGI_REF: 0283f91f98f69337708c9ce4c6a40706355d3aa5
   VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
-  # The fake vendor (vgi-rpc-python protocol-3.4 6a21ee3: sized PUTs verified like
-  # R2, client-upload/state_ref origin counters, the __admin__/delete route the
-  # arguments_ref_prepared test needs; vgi e99683f pins the same).
-  VGI_RPC_FAKE_VENDOR_REF: 6a21ee3b2fb21d9c348c9b615fd97dce8e0bb852
-  # TODO(release-wave): back to Maven Central (/nonexistent) once vgi-rpc-java with
-  # the direct-storage backends is published. Until then vgi-rpc-java's protocol-3.4
-  # branch is checked out to .vgi-rpc-java and composite-built (settings.gradle.kts).
-  VGI_RPC_JAVA_DIR: ${{ github.workspace }}/.vgi-rpc-java
+  # The fake vendor (vgi-rpc-python v0.57.1, which contains 6a21ee3: sized PUTs
+  # verified like R2, client-upload/state_ref origin counters, the __admin__/delete
+  # route the arguments_ref_prepared test needs).
+  VGI_RPC_FAKE_VENDOR_REF: v0.57.1
+  # Resolve vgi-rpc-java (farm.query:vgirpc 0.34.1) from Maven Central, not a
+  # sibling checkout: a directory that does not exist turns the composite build off.
+  VGI_RPC_JAVA_DIR: /nonexistent
 
 jobs:
   build-worker:
@@ -45,15 +44,6 @@ jobs:
     steps:
       - name: Checkout vgi-java
         uses: actions/checkout@v4
-
-      # TODO(release-wave): drop with the switch to a published vgi-rpc-java that
-      # has the direct-storage backends (S3Storage.fromEnv, BlobVendorHttpSettings.forStorage).
-      - name: Checkout vgi-rpc-java (protocol-3.4, built from source)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-java
-          ref: protocol-3.4
-          path: .vgi-rpc-java
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4

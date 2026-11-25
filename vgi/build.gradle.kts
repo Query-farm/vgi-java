@@ -7,9 +7,9 @@ dependencies {
     // farm.query is the published group (see ../build.gradle.kts allprojects).
     // RPC 0.34.0: farm.query.vgirpc.vendor (blob vendor), upload-URL protocol v2
     // (VGI-Upload-URL-Support: 2, vgi protocol 3.4) and the hardened JwtAuthenticator.
-    api("farm.query:vgirpc:0.34.0")
+    api("farm.query:vgirpc:0.34.1")
     // Orchard hosted mode (OrchardHosted): the hardened JwtAuthenticator verifies Passes.
-    implementation("farm.query:vgirpc-oauth:0.34.0")
+    implementation("farm.query:vgirpc-oauth:0.34.1")
     // OrchardHosted wraps vgirpc's Authenticator, which takes a servlet request; Jetty supplies
     // the API at runtime through vgirpc.
     compileOnly("jakarta.servlet:jakarta.servlet-api:6.0.0")
@@ -24,10 +24,10 @@ dependencies {
     // Direct object storage (VGI_STORAGE_BACKEND=s3|gcs): compile against the backends, but a
     // worker carries the AWS / Google SDKs only if it adds the module it uses (StorageBackend
     // loads them on demand and names the missing module otherwise).
-    compileOnly("farm.query:vgirpc-s3:0.34.0")
-    compileOnly("farm.query:vgirpc-gcs:0.34.0")
-    testImplementation("farm.query:vgirpc-s3:0.34.0")
-    testImplementation("farm.query:vgirpc-gcs:0.34.0")
+    compileOnly("farm.query:vgirpc-s3:0.34.1")
+    compileOnly("farm.query:vgirpc-gcs:0.34.1")
+    testImplementation("farm.query:vgirpc-s3:0.34.1")
+    testImplementation("farm.query:vgirpc-gcs:0.34.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     // GrantBearerHttpTest's login authenticator reads the request (vgirpc's
