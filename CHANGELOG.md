@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.50.2 (2026-11-25)
+
+Patch release; VGI wire protocol stays 3.4 and the `farm.query:vgirpc` dependencies are unchanged from 0.50.1.
 
 ### Fixed
 
